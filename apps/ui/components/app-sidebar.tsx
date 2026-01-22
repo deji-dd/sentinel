@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Dumbbell,
@@ -11,6 +12,8 @@ import {
 import { toast } from "sonner";
 import Link from "next/link";
 import { logout } from "@/app/actions/logout";
+import { createClient } from "@/lib/supabase";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   Sidebar,
@@ -51,6 +54,41 @@ const navigationItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { state } = useSidebar();
+
+  const {
+    data: profile,
+    isPending,
+    isError,
+  } = useQuery({
+    queryKey: ["user-profile"],
+    queryFn: async () => {
+      const supabase = createClient();
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      const userId = session?.user.id;
+      if (!userId) return null;
+
+      const { data, error } = await supabase
+        .from("user_data")
+        .select("name")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      return data;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const displayName = isError
+    ? "Unable to load profile"
+    : profile?.name ?? "Initializing...";
 
   const handleLogout = async () => {
     toast.promise(logout(), {
@@ -105,11 +143,19 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <div className="flex flex-col gap-2">
-              {/* User info - will be populated later */}
               {state === "expanded" && (
                 <div className="px-2 py-1">
-                  <p className="text-sm font-medium text-white">Player Name</p>
-                  <p className="text-xs text-zinc-500">Torn City</p>
+                  {isPending ? (
+                    <>
+                      <Skeleton className="h-4 w-24 bg-white/10" />
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-white">
+                        {displayName}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
