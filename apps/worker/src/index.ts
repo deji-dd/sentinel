@@ -3,6 +3,7 @@
  * Manages multiple background job workers with cron scheduling.
  */
 
+import { startSyncAbroadStocksWorker } from "./workers/sync-abroad-stocks.js";
 import { startTravelTrackerWorker } from "./workers/track-travel.js";
 import { startUserSyncWorker } from "./workers/sync-users.js";
 
@@ -10,11 +11,14 @@ function startAllWorkers(): void {
   console.log("🚀 Starting Sentinel workers...");
 
   try {
-    // Start user sync worker
+    // Start user sync worker (hourly)
     startUserSyncWorker();
 
-    // Travel tracker worker with dynamic runtime
+    // Travel tracker worker with dynamic runtime (every 30s)
     startTravelTrackerWorker();
+
+    // Abroad stocks sync worker (every 5 minutes)
+    startSyncAbroadStocksWorker();
 
     console.log("✅ All workers started successfully");
   } catch (error) {

@@ -42,6 +42,15 @@ export interface WorkerSchedule {
   next_run_at: string;
 }
 
+export interface StockCacheRow {
+  destination: string;
+  item_name: string;
+  item_id: number;
+  quantity: number;
+  cost: number;
+  last_updated: string;
+}
+
 export async function getAllUsers(): Promise<User[]> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.USERS)
@@ -123,5 +132,17 @@ export async function upsertWorkerSchedules(
 
   if (error) {
     throw new Error(`Failed to upsert worker schedules: ${error.message}`);
+  }
+}
+
+export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
+  if (rows.length === 0) return;
+
+  const { error } = await supabase
+    .from("sentinel_travel_stock_cache")
+    .insert(rows);
+
+  if (error) {
+    throw new Error(`Failed to insert stock cache: ${error.message}`);
   }
 }
