@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { logout } from "@/app/actions/logout";
 import { createClient } from "@/lib/supabase";
+import { TABLE_NAMES } from "@/lib/constants";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import {
@@ -74,8 +75,8 @@ export function AppSidebar() {
       if (!userId) return null;
 
       const { data, error } = await supabase
-        .from("user_data")
-        .select("name")
+        .from(TABLE_NAMES.USERS)
+        .select("name, player_id")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -144,7 +145,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <div className="flex flex-col gap-2">
               {state === "expanded" && (
-                <div className="px-2 py-1">
+                <div className="px-2 py-1 space-y-1.5">
                   {isPending ? (
                     <>
                       <Skeleton className="h-4 w-24 bg-white/10" />

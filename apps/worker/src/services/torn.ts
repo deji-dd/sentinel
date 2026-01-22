@@ -40,6 +40,20 @@ export interface TornUserBasic {
   };
 }
 
+export interface TornUserTravel {
+  travel?: {
+    destination?: string | null;
+    method?: string | null;
+    departed_at?: number | null;
+    arrival_at?: number | null;
+    time_left?: number | null;
+  };
+  error?: {
+    code: number;
+    error: string;
+  };
+}
+
 export async function fetchTornUserBasic(
   apiKey: string,
 ): Promise<TornUserBasic> {
@@ -69,6 +83,38 @@ export async function fetchTornUserBasic(
     }
 
     // Check HTTP status after parsing (some errors return 200 with error object)
+    if (!response.ok) {
+      throw new Error(`Torn API returned status ${response.status}`);
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function fetchTornUserTravel(
+  apiKey: string,
+): Promise<TornUserTravel> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+  try {
+    const response = await fetch(`${TORN_API_BASE}/user/travel?key=${apiKey}`, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    const data = (await response.json()) as TornUserTravel;
+
+    if (data.error) {
+      const errorMessage =
+        TORN_ERROR_CODES[data.error.code] || `Error code ${data.error.code}`;
+      throw new Error(errorMessage);
+    }
+
     if (!response.ok) {
       throw new Error(`Torn API returned status ${response.status}`);
     }

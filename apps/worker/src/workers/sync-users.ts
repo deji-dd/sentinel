@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { executeSync } from "../lib/sync.js";
 import { decrypt } from "../lib/encryption.js";
-import { getUserKeys, upsertUserData, type UserData } from "../lib/supabase.js";
+import { getAllUsers, upsertUsers } from "../lib/supabase.js";
 import { fetchTornUserBasic } from "../services/torn.js";
 
 /**
@@ -12,48 +12,49 @@ import { fetchTornUserBasic } from "../services/torn.js";
  * - Upserts user_data with name and player_id
  */
 async function syncUserDataHandler(): Promise<void> {
-  // Fetch all user keys
-  const userKeys = await getUserKeys();
-  console.log(`Found ${userKeys.length} user keys to sync`);
+  // Fetch all users
+  const users = await getAllUsers();
+  console.log(`Found ${users.length} users to sync`);
 
-  if (userKeys.length === 0) {
-    console.log("No user keys to sync");
+  if (users.length === 0) {
+    console.log("No users to sync");
     return;
   }
 
-  const updates: UserData[] = [];
+  const updates: Array<{ user_id: string; name: string; player_id: number }> =
+    [];
   const errors: Array<{ userId: string; error: string }> = [];
 
-  // Process each user key
-  for (const userKey of userKeys) {
+  // Process each user
+  for (const user of users) {
     try {
       // Decrypt the API key
-      const decryptedKey = decrypt(userKey.api_key);
+      const decryptedKey = decrypt(user.api_key);
 
       // Fetch user data from Torn API
       const tornData = await fetchTornUserBasic(decryptedKey);
 
       // Prepare update data
       updates.push({
-        user_id: userKey.user_id,
+        user_id: user.user_id,
         name: tornData.profile!.name,
         player_id: tornData.profile!.id,
       });
 
       console.log(
-        `Fetched data for user ${userKey.user_id}: ${tornData.profile!.name} (${tornData.profile!.id})`,
+        `Fetched data for user ${user.user_id}: ${tornData.profile!.name} (${tornData.profile!.id})`,
       );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      errors.push({ userId: userKey.user_id, error: errorMessage });
-      console.error(`Failed to sync user ${userKey.user_id}:`, errorMessage);
+      errors.push({ userId: user.user_id, error: errorMessage });
+      console.error(`Failed to sync user ${user.user_id}:`, errorMessage);
     }
   }
 
   // Upsert successful updates
   if (updates.length > 0) {
-    await upsertUserData(updates);
+    await upsertUsers(updates);
     console.log(`Upserted ${updates.length} user records`);
   }
 

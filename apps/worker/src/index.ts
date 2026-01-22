@@ -3,6 +3,7 @@
  * Manages multiple background job workers with cron scheduling.
  */
 
+import { startTravelTrackerWorker } from "./workers/track-travel.js";
 import { startUserSyncWorker } from "./workers/sync-users.js";
 
 function startAllWorkers(): void {
@@ -12,9 +13,8 @@ function startAllWorkers(): void {
     // Start user sync worker
     startUserSyncWorker();
 
-    // Add more workers here in the future
-    // startOtherWorker();
-    // startAnotherWorker();
+    // Travel tracker worker with dynamic runtime
+    startTravelTrackerWorker();
 
     console.log("✅ All workers started successfully");
   } catch (error) {
