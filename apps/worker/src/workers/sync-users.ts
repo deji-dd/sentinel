@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { executeSync } from "../lib/sync.js";
 import { decrypt } from "../lib/encryption.js";
-import { getAllUsers, upsertUsers } from "../lib/supabase.js";
+import { getAllUsers, updateUserProfile } from "../lib/supabase.js";
 import { fetchTornUserBasic } from "../services/torn.js";
 
 /**
@@ -52,10 +52,10 @@ async function syncUserDataHandler(): Promise<void> {
     }
   }
 
-  // Upsert successful updates
+  // Update successful syncs
   if (updates.length > 0) {
-    await upsertUsers(updates);
-    console.log(`Upserted ${updates.length} user records`);
+    await updateUserProfile(updates);
+    console.log(`Updated ${updates.length} user profiles`);
   }
 
   // Log errors if any

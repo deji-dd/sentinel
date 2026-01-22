@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   Dumbbell,
@@ -55,6 +56,7 @@ const navigationItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { state } = useSidebar();
+  const queryClient = useQueryClient();
 
   const {
     data: profile,
@@ -87,9 +89,49 @@ export function AppSidebar() {
     staleTime: 1000 * 60 * 5,
   });
 
+  // Subscribe to real-time updates on user profile
+  useEffect(() => {
+    const supabase = createClient();
+
+    const setupRealtimeSubscription = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user.id) return;
+
+      const subscription = supabase
+        .channel("user-profile-changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: TABLE_NAMES.USERS,
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          () => {
+            // Invalidate the query to refetch fresh data
+            queryClient.invalidateQueries({ queryKey: ["user-profile"] });
+          },
+        )
+        .subscribe();
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    };
+
+    const cleanup = setupRealtimeSubscription();
+
+    return () => {
+      cleanup.then((unsub) => unsub?.());
+    };
+  }, [queryClient]);
+
   const displayName = isError
     ? "Unable to load profile"
-    : profile?.name ?? "Initializing...";
+    : (profile?.name ?? "Initializing...");
 
   const handleLogout = async () => {
     toast.promise(logout(), {

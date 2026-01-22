@@ -55,13 +55,23 @@ export async function getAllUsers(): Promise<User[]> {
   return data || [];
 }
 
-export async function upsertUsers(data: Partial<User>[]): Promise<void> {
-  const { error } = await supabase.from(TABLE_NAMES.USERS).upsert(data, {
-    onConflict: "user_id",
-  });
+export async function updateUserProfile(
+  updates: Array<{ user_id: string; name: string; player_id: number }>,
+): Promise<void> {
+  if (updates.length === 0) return;
 
-  if (error) {
-    throw new Error(`Failed to upsert users: ${error.message}`);
+  // Update only name and player_id, leaving api_key untouched
+  for (const update of updates) {
+    const { error } = await supabase
+      .from(TABLE_NAMES.USERS)
+      .update({ name: update.name, player_id: update.player_id })
+      .eq("user_id", update.user_id);
+
+    if (error) {
+      throw new Error(
+        `Failed to update user ${update.user_id}: ${error.message}`,
+      );
+    }
   }
 }
 
