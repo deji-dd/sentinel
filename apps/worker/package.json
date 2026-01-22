@@ -1,0 +1,28 @@
+{
+  "name": "worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sentinel worker processes for background jobs",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:sync-users": "node dist/workers/sync-users.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.91.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5",
+    "tsx": "^4"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.0"
+}
