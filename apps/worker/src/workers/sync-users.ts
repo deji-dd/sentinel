@@ -36,12 +36,12 @@ async function syncUserDataHandler(): Promise<void> {
       // Prepare update data
       updates.push({
         user_id: userKey.user_id,
-        name: tornData.profile.name,
-        player_id: tornData.profile.id,
+        name: tornData.profile!.name,
+        player_id: tornData.profile!.id,
       });
 
       console.log(
-        `Fetched data for user ${userKey.user_id}: ${tornData.profile.name} (${tornData.profile.id})`,
+        `Fetched data for user ${userKey.user_id}: ${tornData.profile!.name} (${tornData.profile!.id})`,
       );
     } catch (error) {
       const errorMessage =
