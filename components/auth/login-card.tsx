@@ -42,13 +42,17 @@ export function LoginCard() {
       },
       error: (error) => {
         setIsLoading(false);
+        // Don't show error if it's a redirect (NEXT_REDIRECT is handled automatically)
+        if (error?.message?.includes("NEXT_REDIRECT")) {
+          return null;
+        }
         return error?.message || "Failed to verify API Key. Please try again.";
       },
     });
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.toUpperCase();
+    const value = e.target.value;
     // Only allow alphanumeric characters and limit to 16
     if (/^[a-zA-Z0-9]*$/.test(value) && value.length <= 16) {
       setApiKey(value);
@@ -151,7 +155,7 @@ export function LoginCard() {
               type="submit"
               disabled={isLoading}
               whileTap={{ scale: 0.98 }}
-              className="relative w-full px-4 py-3 bg-linear-to-r from-blue-600 to-blue-500 text-white font-semibold uppercase tracking-wider rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden group"
+              className="relative cursor-pointer w-full px-4 py-3 bg-linear-to-r from-blue-600 to-blue-500 text-white font-semibold uppercase tracking-wider rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden group"
             >
               {/* Shimmer Effect */}
               <motion.div

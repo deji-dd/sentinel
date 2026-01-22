@@ -1,14 +1,17 @@
 "use server";
 
-import { createClient } from "@/lib/supabase-server";
+import { createClient, createAdminClient } from "@/lib/supabase-server";
+import { encrypt } from "@/lib/encryption";
 import { redirect } from "next/navigation";
 
 interface TornKeyInfoResponse {
-  user?: {
-    id: string;
-  };
-  access?: {
-    level: number;
+  info?: {
+    user?: {
+      id: string;
+    };
+    access?: {
+      level: number;
+    };
   };
   error?: {
     code: number;
@@ -18,8 +21,8 @@ interface TornKeyInfoResponse {
 
 const TORN_ERROR_CODES: Record<number, string> = {
   0: "Unknown error: An unhandled error occurred",
-  1: "Key is empty: Private key is empty in current request",
-  2: "Incorrect Key: Private key is wrong/incorrect format",
+  1: "Key is empty: API key is empty in current request",
+  2: "Incorrect Key: API key is wrong/incorrect format",
   3: "Wrong type: Requesting an incorrect basic type",
   4: "Wrong fields: Requesting incorrect selection fields",
   5: "Too many requests: Rate limited (max 100 per minute)",
@@ -75,26 +78,27 @@ export async function authenticateTornUser(apiKey: string) {
     }
 
     // Validate response structure
-    if (!data.user?.id || data.access === undefined) {
+    if (!data.info?.user?.id || data.info.access === undefined) {
       throw new Error("Invalid response from Torn API");
     }
 
     // Check access level (must be 3 or 4)
-    if (data.access.level < 3) {
+    if (data.info.access.level < 3) {
       throw new Error(
-        `Insufficient permissions: Access level ${data.access.level}. Required: Limited or Full Access`,
+        `Insufficient permissions: Access level ${data.info.access.level}. Required: Limited or Full Access`,
       );
     }
 
-    const playerId = data.user.id;
+    const playerId = data.info.user.id;
     const email = `${playerId}@sentinel.com`;
 
-    // Initialize Supabase server client
-    const supabase = await createClient();
+    // Initialize Supabase clients
+    const supabase = await createClient(); // anon for session handling
+    const admin = createAdminClient(); // service role for admin ops
 
     // Check if user exists in auth (list and filter by email)
     const { data: listData, error: listError } =
-      await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
 
     if (listError) {
       throw new Error(`Failed to fetch users: ${listError.message}`);
@@ -109,7 +113,7 @@ export async function authenticateTornUser(apiKey: string) {
     if (!existingUser) {
       // User doesn't exist, create them
       const { data: newUser, error: signupError } =
-        await supabase.auth.admin.createUser({
+        await admin.auth.admin.createUser({
           email,
           password: randomPassword,
           email_confirm: true,
@@ -126,7 +130,7 @@ export async function authenticateTornUser(apiKey: string) {
       // User exists - rotate password so we can establish a session
       userId = existingUser.id;
 
-      const { error: updateError } = await supabase.auth.admin.updateUserById(
+      const { error: updateError } = await admin.auth.admin.updateUserById(
         userId,
         {
           password: randomPassword,
@@ -141,14 +145,18 @@ export async function authenticateTornUser(apiKey: string) {
       }
     }
 
-    // Store the API key using RPC function
-    const { error: rpcError } = await supabase.rpc("store_user_key", {
-      user_id: userId,
-      api_key: apiKey,
-    });
+    // Store the API key securely with application-level encryption
+    const encryptedKey = encrypt(apiKey);
 
-    if (rpcError) {
-      throw new Error(`Failed to store API key: ${rpcError.message}`);
+    const { error: upsertError } = await admin
+      .from("user_keys")
+      .upsert(
+        { user_id: userId, api_key: encryptedKey },
+        { onConflict: "user_id" },
+      );
+
+    if (upsertError) {
+      throw new Error(`Failed to store API key: ${upsertError.message}`);
     }
 
     // Create a session by signing in with the (new) password
@@ -167,6 +175,10 @@ export async function authenticateTornUser(apiKey: string) {
     // Redirect to dashboard on success
     redirect("/dashboard");
   } catch (error) {
+    // Re-throw redirect errors without wrapping them
+    if (error instanceof Error && error.message.includes("NEXT_REDIRECT")) {
+      throw error;
+    }
     throw new Error(
       error instanceof Error ? error.message : "Authentication failed",
     );

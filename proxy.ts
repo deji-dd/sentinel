@@ -43,7 +43,7 @@ function checkRateLimit(
   return true;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Create Supabase client to refresh auth session
@@ -98,7 +98,7 @@ export async function middleware(request: NextRequest) {
   if (PROTECTED_ROUTES.some((route) => pathname.startsWith(route))) {
     // Protected routes require authentication
     if (!user) {
-      const loginUrl = new URL("/login", request.url);
+      const loginUrl = new URL("/", request.url);
       loginUrl.searchParams.set("from", pathname);
       return NextResponse.redirect(loginUrl);
     }
