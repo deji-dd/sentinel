@@ -19,12 +19,28 @@ const PROTECTED_ROUTES = ["/dashboard"];
  */
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
+/**
+ * Remove expired entries from the in-memory rate limit map to avoid
+ * unbounded growth. This keeps the simple in-memory approach safer for
+ * long-lived processes, but a shared store (e.g. Redis) is still
+ * recommended for production and multi-instance environments.
+ */
+function cleanupRateLimitMap(now: number): void {
+  for (const [key, record] of rateLimitMap) {
+    if (now > record.resetTime) {
+      rateLimitMap.delete(key);
+    }
+  }
+}
+
 function checkRateLimit(
   identifier: string,
   maxAttempts: number = 5,
   windowMs: number = 60000,
 ): boolean {
   const now = Date.now();
+  // Clean up any expired rate limit entries before proceeding
+  cleanupRateLimitMap(now);
   const record = rateLimitMap.get(identifier);
 
   if (!record || now > record.resetTime) {

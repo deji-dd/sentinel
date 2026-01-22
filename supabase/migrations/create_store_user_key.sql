@@ -39,10 +39,11 @@ CREATE POLICY "Users can view their own API key"
 CREATE POLICY "Users can update their own API key"
   ON user_keys
   FOR UPDATE
-  USING (auth.uid() = user_id);
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
--- Policy: Only the RPC function can insert
-CREATE POLICY "RPC can insert API keys"
+-- Policy: Users can only insert their own API key
+CREATE POLICY "Users can insert their own API key"
   ON user_keys
   FOR INSERT
-  WITH CHECK (TRUE);
+  WITH CHECK (auth.uid() = user_id);

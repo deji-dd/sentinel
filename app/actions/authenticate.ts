@@ -98,7 +98,7 @@ export async function authenticateTornUser(apiKey: string) {
 
     // Check if user exists in auth (list and filter by email)
     const { data: listData, error: listError } =
-      await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+      await admin.auth.admin.listUsers();
 
     if (listError) {
       throw new Error(`Failed to fetch users: ${listError.message}`);

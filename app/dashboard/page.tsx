@@ -1,48 +1,16 @@
-"use client";
+import { requireAuth } from "@/lib/auth-helpers";
+import { createClient } from "@/lib/supabase-server";
+import { redirect } from "next/navigation";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase";
-import type { User } from "@supabase/supabase-js";
+async function handleLogout() {
+  "use server";
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  redirect("/");
+}
 
-export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    async function getUser() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.push("/");
-        return;
-      }
-
-      setUser(user);
-      setLoading(false);
-    }
-
-    getUser();
-  }, [router]);
-
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/");
-  };
-
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-black">
-        <div className="text-zinc-400">Loading...</div>
-      </div>
-    );
-  }
+export default async function DashboardPage() {
+  const { user } = await requireAuth();
 
   return (
     <div className="min-h-screen bg-black">
@@ -52,12 +20,14 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold text-white">
               Sentinel Dashboard
             </h1>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-            >
-              Logout
-            </button>
+            <form action={handleLogout}>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+              >
+                Logout
+              </button>
+            </form>
           </div>
         </div>
       </nav>
@@ -68,11 +38,11 @@ export default function DashboardPage() {
             Welcome Back
           </h2>
           <p className="text-zinc-400 mb-4">
-            Email: <span className="text-white font-mono">{user?.email}</span>
+            Email: <span className="text-white font-mono">{user.email}</span>
           </p>
           <p className="text-zinc-400 mb-4">
             User ID:{" "}
-            <span className="text-white font-mono text-sm">{user?.id}</span>
+            <span className="text-white font-mono text-sm">{user.id}</span>
           </p>
           <p className="text-zinc-500 text-sm">
             This is a protected route. Only authenticated users can see this
