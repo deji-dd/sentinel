@@ -1,28 +1,24 @@
 /**
  * Main worker orchestrator.
- * Manages multiple background job workers with cron scheduling.
+ * Manages multiple background job workers with DB-driven scheduling.
  */
 
-import { startSyncAbroadStocksWorker } from "./workers/sync-abroad-stocks.js";
-import { startTravelTrackerWorker } from "./workers/track-travel.js";
-import { startUserSyncWorker } from "./workers/sync-users.js";
-import { startSyncMarketPricesWorker } from "./workers/sync-market-prices.js";
+import { startTravelDataWorker } from "./workers/travel-data.js";
+import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
+import { startMarketTrendsWorker } from "./workers/market-trends.js";
 
 function startAllWorkers(): void {
   console.log("🚀 Starting Sentinel workers...");
 
   try {
-    // Start user sync worker (hourly)
-    startUserSyncWorker();
+    // Travel data worker (dynamic timing, default 30s) - updates sentinel_travel_data
+    startTravelDataWorker();
 
-    // Travel tracker worker with dynamic runtime (every 30s)
-    startTravelTrackerWorker();
+    // Travel stock cache worker (every 5 minutes) - updates sentinel_travel_stock_cache
+    startTravelStockCacheWorker();
 
-    // Abroad stocks sync worker (every 5 minutes)
-    startSyncAbroadStocksWorker();
-
-    // Market prices sync worker (every 5 minutes)
-    startSyncMarketPricesWorker();
+    // Market trends worker (every 5 minutes) - updates sentinel_market_trends
+    startMarketTrendsWorker();
 
     console.log("✅ All workers started successfully");
   } catch (error) {

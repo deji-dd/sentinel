@@ -34,13 +34,8 @@ export interface TravelData {
   travel_departed_at: string | null;
   travel_arrival_at: string | null;
   travel_time_left: number | null;
+  capacity?: number | null;
   updated_at?: string;
-}
-
-export interface WorkerSchedule {
-  user_id: string;
-  worker: string;
-  next_run_at: string;
 }
 
 export interface StockCacheRow {
@@ -66,13 +61,6 @@ export interface MarketTrendRow {
   last_updated?: string;
 }
 
-export interface UserDataRow {
-  user_id: string;
-  player_id: number;
-  name: string;
-  travel_capacity?: number; // optional to avoid overwriting via upsert
-}
-
 export async function getAllUsers(): Promise<User[]> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.USERS)
@@ -86,26 +74,6 @@ export async function getAllUsers(): Promise<User[]> {
   return data || [];
 }
 
-export async function updateUserProfile(
-  updates: Array<{ user_id: string; name: string; player_id: number }>,
-): Promise<void> {
-  if (updates.length === 0) return;
-
-  // Update only name and player_id, leaving api_key untouched
-  for (const update of updates) {
-    const { error } = await supabase
-      .from(TABLE_NAMES.USERS)
-      .update({ name: update.name, player_id: update.player_id })
-      .eq("user_id", update.user_id);
-
-    if (error) {
-      throw new Error(
-        `Failed to update user ${update.user_id}: ${error.message}`,
-      );
-    }
-  }
-}
-
 export async function upsertTravelData(updates: TravelData[]): Promise<void> {
   if (updates.length === 0) return;
 
@@ -117,43 +85,6 @@ export async function upsertTravelData(updates: TravelData[]): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to upsert travel data: ${error.message}`);
-  }
-}
-
-export async function getWorkerSchedules(
-  worker: string,
-): Promise<Map<string, WorkerSchedule>> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.USER_WORKER_SCHEDULES)
-    .select("user_id, worker, next_run_at")
-    .eq("worker", worker)
-    .returns<WorkerSchedule[]>();
-
-  if (error) {
-    throw new Error(`Failed to fetch worker schedules: ${error.message}`);
-  }
-
-  const scheduleMap = new Map<string, WorkerSchedule>();
-  for (const row of data || []) {
-    scheduleMap.set(row.user_id, row);
-  }
-
-  return scheduleMap;
-}
-
-export async function upsertWorkerSchedules(
-  schedules: WorkerSchedule[],
-): Promise<void> {
-  if (schedules.length === 0) return;
-
-  const { error } = await supabase
-    .from(TABLE_NAMES.USER_WORKER_SCHEDULES)
-    .upsert(schedules, {
-      onConflict: "user_id,worker",
-    });
-
-  if (error) {
-    throw new Error(`Failed to upsert worker schedules: ${error.message}`);
   }
 }
 
@@ -191,7 +122,7 @@ export async function getActiveTradeItemIds(): Promise<number[]> {
     throw new Error(`Failed to fetch active trade items: ${error.message}`);
   }
 
-  return (data || []).map((row) => row.item_id);
+  return (data || []).map((row) => (row as any).item_id as number);
 }
 
 export async function upsertMarketTrends(
@@ -225,20 +156,6 @@ export async function getTradeItemNames(): Promise<Map<number, string>> {
   });
 
   return map;
-}
-
-export async function upsertUsersData(
-  rows: Pick<UserDataRow, "user_id" | "player_id" | "name">[],
-): Promise<void> {
-  if (rows.length === 0) return;
-
-  const { error } = await supabase.from(TABLE_NAMES.USERS_DATA).upsert(rows, {
-    onConflict: "user_id",
-  });
-
-  if (error) {
-    throw new Error(`Failed to upsert users data: ${error.message}`);
-  }
 }
 
 export async function getValidApiKeys(): Promise<string[]> {

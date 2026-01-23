@@ -33,6 +33,7 @@ export interface TornUserBasic {
   profile?: {
     id: number;
     name: string;
+    capacity?: number;
   };
   error?: {
     code: number;
