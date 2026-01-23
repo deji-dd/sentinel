@@ -152,30 +152,38 @@ create table if not exists public.sentinel_travel_recommendations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   destination text not null,
-  recommended_item text not null,
-  profit_per_trip numeric not null,
-  profit_per_minute numeric not null,
-  depletion_risk text not null check (depletion_risk in ('Low', 'Moderate', 'High')),
-  recommendation_score numeric not null,
-  created_at timestamptz not null default now()
+  best_item text,
+  profit_per_trip bigint,
+  profit_per_minute numeric,
+  round_trip_minutes integer,
+  recommendation_rank integer,
+  status text,
+  updated_at timestamptz not null default now()
 );
 
+-- Composite unique index for upsert operations (user_id, destination)
+create unique index if not exists sentinel_travel_recommendations_user_destination_idx
+  on public.sentinel_travel_recommendations (user_id, destination);
+
+-- Additional indexes for common query patterns
 create index if not exists sentinel_travel_recommendations_user_id_idx
   on public.sentinel_travel_recommendations (user_id);
 
-create index if not exists sentinel_travel_recommendations_user_destination_idx
-  on public.sentinel_travel_recommendations (user_id, destination);
+create index if not exists sentinel_travel_recommendations_profit_per_minute_idx
+  on public.sentinel_travel_recommendations (profit_per_minute desc);
 
-create index if not exists sentinel_travel_recommendations_created_at_idx
-  on public.sentinel_travel_recommendations (created_at);
+create index if not exists sentinel_travel_recommendations_rank_idx
+  on public.sentinel_travel_recommendations (recommendation_rank);
 
 alter table public.sentinel_travel_recommendations enable row level security;
 
-create policy if not exists sentinel_travel_recommendations_select_self on public.sentinel_travel_recommendations
+drop policy if exists sentinel_travel_recommendations_select_self on public.sentinel_travel_recommendations;
+create policy sentinel_travel_recommendations_select_self on public.sentinel_travel_recommendations
   for select
   using (auth.uid() = user_id);
 
-create policy if not exists sentinel_travel_recommendations_service_role on public.sentinel_travel_recommendations
+drop policy if exists sentinel_travel_recommendations_service_role on public.sentinel_travel_recommendations;
+create policy sentinel_travel_recommendations_service_role on public.sentinel_travel_recommendations
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
