@@ -66,6 +66,13 @@ export interface MarketTrendRow {
   last_updated?: string;
 }
 
+export interface UserDataRow {
+  user_id: string;
+  player_id: number;
+  name: string;
+  travel_capacity?: number; // optional to avoid overwriting via upsert
+}
+
 export async function getAllUsers(): Promise<User[]> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.USERS)
@@ -218,6 +225,20 @@ export async function getTradeItemNames(): Promise<Map<number, string>> {
   });
 
   return map;
+}
+
+export async function upsertUsersData(
+  rows: Pick<UserDataRow, "user_id" | "player_id" | "name">[],
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from(TABLE_NAMES.USERS_DATA).upsert(rows, {
+    onConflict: "user_id",
+  });
+
+  if (error) {
+    throw new Error(`Failed to upsert users data: ${error.message}`);
+  }
 }
 
 export async function getValidApiKeys(): Promise<string[]> {

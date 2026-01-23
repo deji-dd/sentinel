@@ -1,7 +1,11 @@
 import cron from "node-cron";
 import { executeSync } from "../lib/sync.js";
 import { decrypt } from "../lib/encryption.js";
-import { getAllUsers, updateUserProfile } from "../lib/supabase.js";
+import {
+  getAllUsers,
+  updateUserProfile,
+  upsertUsersData,
+} from "../lib/supabase.js";
 import { fetchTornUserBasic } from "../services/torn.js";
 import { log, logSuccess, logError, logWarn } from "../lib/logger.js";
 
@@ -26,6 +30,11 @@ async function syncUserDataHandler(): Promise<void> {
 
   const updates: Array<{ user_id: string; name: string; player_id: number }> =
     [];
+  const userDataRows: Array<{
+    user_id: string;
+    name: string;
+    player_id: number;
+  }> = [];
   const errors: Array<{ userId: string; error: string }> = [];
 
   // Process each user
@@ -39,6 +48,13 @@ async function syncUserDataHandler(): Promise<void> {
 
       // Prepare update data
       updates.push({
+        user_id: user.user_id,
+        name: tornData.profile!.name,
+        player_id: tornData.profile!.id,
+      });
+
+      // Prepare users_data upsert (travel_capacity to be filled later; default 0)
+      userDataRows.push({
         user_id: user.user_id,
         name: tornData.profile!.name,
         player_id: tornData.profile!.id,
@@ -63,6 +79,15 @@ async function syncUserDataHandler(): Promise<void> {
   if (updates.length > 0) {
     await updateUserProfile(updates);
     logSuccess(WORKER_NAME, `Updated ${updates.length} user profiles`);
+  }
+
+  // Upsert into sentinel_users_data
+  if (userDataRows.length > 0) {
+    await upsertUsersData(userDataRows);
+    logSuccess(
+      WORKER_NAME,
+      `Upserted ${userDataRows.length} rows in users_data`,
+    );
   }
 
   // Log errors if any
