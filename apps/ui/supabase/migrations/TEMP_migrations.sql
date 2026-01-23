@@ -85,3 +85,67 @@ create policy sentinel_user_data_service_role
 insert into public.sentinel_worker_schedules (worker, enabled, cadence_seconds, next_run_at)
 values ('user_data_worker', true, 3600, now())
 on conflict (worker) do update set cadence_seconds = excluded.cadence_seconds;
+
+-- Drop and recreate user bars table
+drop table if exists public.sentinel_user_bars cascade;
+
+create table public.sentinel_user_bars (
+  user_id text primary key,
+  energy_current integer not null default 0,
+  energy_maximum integer not null default 0,
+  nerve_current integer not null default 0,
+  nerve_maximum integer not null default 0,
+  happy_current integer not null default 0,
+  happy_maximum integer not null default 0,
+  life_current integer not null default 0,
+  life_maximum integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.sentinel_user_bars enable row level security;
+
+drop policy if exists sentinel_user_bars_select_self on public.sentinel_user_bars;
+create policy sentinel_user_bars_select_self
+  on public.sentinel_user_bars
+  for select
+  using (auth.uid()::text = user_id);
+
+drop policy if exists sentinel_user_bars_service_role on public.sentinel_user_bars;
+create policy sentinel_user_bars_service_role
+  on public.sentinel_user_bars
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Drop and recreate user cooldowns table
+drop table if exists public.sentinel_user_cooldowns cascade;
+
+create table public.sentinel_user_cooldowns (
+  user_id text primary key,
+  drug integer not null default 0,
+  medical integer not null default 0,
+  booster integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.sentinel_user_cooldowns enable row level security;
+
+drop policy if exists sentinel_user_cooldowns_select_self on public.sentinel_user_cooldowns;
+create policy sentinel_user_cooldowns_select_self
+  on public.sentinel_user_cooldowns
+  for select
+  using (auth.uid()::text = user_id);
+
+drop policy if exists sentinel_user_cooldowns_service_role on public.sentinel_user_cooldowns;
+create policy sentinel_user_cooldowns_service_role
+  on public.sentinel_user_cooldowns
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Ensure schedule entries for new workers (30s cadence)
+insert into public.sentinel_worker_schedules (worker, enabled, cadence_seconds, next_run_at)
+values 
+  ('user_bars_worker', true, 30, now()),
+  ('user_cooldowns_worker', true, 30, now())
+on conflict (worker) do update set cadence_seconds = excluded.cadence_seconds;

@@ -186,6 +186,47 @@ export async function fetchTornUserProfile(
   );
 }
 
+export interface TornUserBarsResponse {
+  bars?: {
+    energy?: { current: number; maximum: number };
+    nerve?: { current: number; maximum: number };
+    happy?: { current: number; maximum: number };
+    life?: { current: number; maximum: number };
+  };
+  error?: {
+    code: number;
+    error: string;
+  };
+}
+
+export async function fetchTornUserBars(
+  apiKey: string,
+): Promise<TornUserBarsResponse> {
+  return fetchTorn<TornUserBarsResponse>(
+    `${TORN_API_BASE}/user/bars?key=${apiKey}`,
+  );
+}
+
+export interface TornUserCooldownsResponse {
+  cooldowns?: {
+    drug: number;
+    medical: number;
+    booster: number;
+  };
+  error?: {
+    code: number;
+    error: string;
+  };
+}
+
+export async function fetchTornUserCooldowns(
+  apiKey: string,
+): Promise<TornUserCooldownsResponse> {
+  return fetchTorn<TornUserCooldownsResponse>(
+    `${TORN_API_BASE}/user/cooldowns?key=${apiKey}`,
+  );
+}
+
 export async function fetchTornItems(
   apiKey: string,
 ): Promise<TornItemsResponse> {

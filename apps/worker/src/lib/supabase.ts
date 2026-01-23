@@ -50,6 +50,27 @@ export interface UserProfileData {
   updated_at?: string;
 }
 
+export interface UserBarsData {
+  user_id: string;
+  energy_current: number;
+  energy_maximum: number;
+  nerve_current: number;
+  nerve_maximum: number;
+  happy_current: number;
+  happy_maximum: number;
+  life_current: number;
+  life_maximum: number;
+  updated_at?: string;
+}
+
+export interface UserCooldownsData {
+  user_id: string;
+  drug: number;
+  medical: number;
+  booster: number;
+  updated_at?: string;
+}
+
 export interface StockCacheRow {
   destination: string;
   item_name: string;
@@ -111,6 +132,34 @@ export async function upsertUserData(
 
   if (error) {
     throw new Error(`Failed to upsert user data: ${error.message}`);
+  }
+}
+
+export async function upsertUserBars(updates: UserBarsData[]): Promise<void> {
+  if (updates.length === 0) return;
+
+  const { error } = await supabase.from(TABLE_NAMES.USER_BARS).upsert(updates, {
+    onConflict: "user_id",
+  });
+
+  if (error) {
+    throw new Error(`Failed to upsert user bars: ${error.message}`);
+  }
+}
+
+export async function upsertUserCooldowns(
+  updates: UserCooldownsData[],
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const { error } = await supabase
+    .from(TABLE_NAMES.USER_COOLDOWNS)
+    .upsert(updates, {
+      onConflict: "user_id",
+    });
+
+  if (error) {
+    throw new Error(`Failed to upsert user cooldowns: ${error.message}`);
   }
 }
 

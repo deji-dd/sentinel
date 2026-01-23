@@ -101,7 +101,50 @@ create policy if not exists sentinel_user_data_service_role on public.sentinel_u
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
+-- User bars (energy, nerve, happy, life snapshot)
+create table if not exists public.sentinel_user_bars (
+  user_id text primary key,
+  energy_current integer not null default 0,
+  energy_maximum integer not null default 0,
+  nerve_current integer not null default 0,
+  nerve_maximum integer not null default 0,
+  happy_current integer not null default 0,
+  happy_maximum integer not null default 0,
+  life_current integer not null default 0,
+  life_maximum integer not null default 0,
+  updated_at timestamptz not null default now()
+);
 
+alter table public.sentinel_user_bars enable row level security;
+
+create policy if not exists sentinel_user_bars_select_self on public.sentinel_user_bars
+  for select
+  using (auth.uid()::text = user_id);
+
+create policy if not exists sentinel_user_bars_service_role on public.sentinel_user_bars
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- User cooldowns (drug, medical, booster)
+create table if not exists public.sentinel_user_cooldowns (
+  user_id text primary key,
+  drug integer not null default 0,
+  medical integer not null default 0,
+  booster integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.sentinel_user_cooldowns enable row level security;
+
+create policy if not exists sentinel_user_cooldowns_select_self on public.sentinel_user_cooldowns
+  for select
+  using (auth.uid()::text = user_id);
+
+create policy if not exists sentinel_user_cooldowns_service_role on public.sentinel_user_cooldowns
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
 -- Trade items
 create table if not exists public.sentinel_trade_items (
   item_id integer primary key,
@@ -284,7 +327,9 @@ values
   ('market_trends_worker', true, 300, now()),
   ('travel_stock_cache_worker', true, 300, now()),
   ('travel_data_worker', true, 30, now()),
-  ('user_data_worker', true, 3600, now())
+  ('user_data_worker', true, 3600, now()),
+  ('user_bars_worker', true, 30, now()),
+  ('user_cooldowns_worker', true, 30, now())
 on conflict (worker) do nothing;
 
 -- Cleanup legacy tables if present

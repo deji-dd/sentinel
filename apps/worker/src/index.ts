@@ -7,6 +7,8 @@ import { startTravelDataWorker } from "./workers/travel-data.js";
 import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
 import { startMarketTrendsWorker } from "./workers/market-trends.js";
 import { startUserDataWorker } from "./workers/user-data.js";
+import { startUserBarsWorker } from "./workers/user-bars.js";
+import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
 
 function startAllWorkers(): void {
   console.log("🚀 Starting Sentinel workers...");
@@ -23,6 +25,12 @@ function startAllWorkers(): void {
 
     // User data worker (every hour) - updates sentinel_user_data
     startUserDataWorker();
+
+    // User bars worker (every 30s) - updates sentinel_user_bars
+    startUserBarsWorker();
+
+    // User cooldowns worker (every 30s) - updates sentinel_user_cooldowns
+    startUserCooldownsWorker();
 
     console.log("✅ All workers started successfully");
   } catch (error) {
