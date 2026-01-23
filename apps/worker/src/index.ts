@@ -6,6 +6,7 @@
 import { startSyncAbroadStocksWorker } from "./workers/sync-abroad-stocks.js";
 import { startTravelTrackerWorker } from "./workers/track-travel.js";
 import { startUserSyncWorker } from "./workers/sync-users.js";
+import { startSyncMarketPricesWorker } from "./workers/sync-market-prices.js";
 
 function startAllWorkers(): void {
   console.log("🚀 Starting Sentinel workers...");
@@ -19,6 +20,9 @@ function startAllWorkers(): void {
 
     // Abroad stocks sync worker (every 5 minutes)
     startSyncAbroadStocksWorker();
+
+    // Market prices sync worker (every 5 minutes)
+    startSyncMarketPricesWorker();
 
     console.log("✅ All workers started successfully");
   } catch (error) {

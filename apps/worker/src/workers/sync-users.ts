@@ -3,6 +3,9 @@ import { executeSync } from "../lib/sync.js";
 import { decrypt } from "../lib/encryption.js";
 import { getAllUsers, updateUserProfile } from "../lib/supabase.js";
 import { fetchTornUserBasic } from "../services/torn.js";
+import { log, logSuccess, logError, logWarn } from "../lib/logger.js";
+
+const WORKER_NAME = "sync-users";
 
 /**
  * Sync user data from Torn API and update local database.
@@ -14,10 +17,10 @@ import { fetchTornUserBasic } from "../services/torn.js";
 async function syncUserDataHandler(): Promise<void> {
   // Fetch all users
   const users = await getAllUsers();
-  console.log(`Found ${users.length} users to sync`);
+  log(WORKER_NAME, `Found ${users.length} users to sync`);
 
   if (users.length === 0) {
-    console.log("No users to sync");
+    logWarn(WORKER_NAME, "No users to sync");
     return;
   }
 
@@ -41,26 +44,30 @@ async function syncUserDataHandler(): Promise<void> {
         player_id: tornData.profile!.id,
       });
 
-      console.log(
-        `Fetched data for user ${user.user_id}: ${tornData.profile!.name} (${tornData.profile!.id})`,
+      log(
+        WORKER_NAME,
+        `Fetched data for ${tornData.profile!.name} [${tornData.profile!.id}]tornitem`,
       );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       errors.push({ userId: user.user_id, error: errorMessage });
-      console.error(`Failed to sync user ${user.user_id}:`, errorMessage);
+      logError(
+        WORKER_NAME,
+        `Failed to sync user ${user.user_id}: ${errorMessage}`,
+      );
     }
   }
 
   // Update successful syncs
   if (updates.length > 0) {
     await updateUserProfile(updates);
-    console.log(`Updated ${updates.length} user profiles`);
+    logSuccess(WORKER_NAME, `Updated ${updates.length} user profiles`);
   }
 
   // Log errors if any
   if (errors.length > 0) {
-    console.warn(`${errors.length} users failed to sync:`, errors);
+    logWarn(WORKER_NAME, `${errors.length} users failed to sync`);
   }
 }
 
@@ -68,32 +75,32 @@ async function syncUserDataHandler(): Promise<void> {
  * Initialize the user sync worker with hourly cron job.
  */
 export function startUserSyncWorker(): void {
-  console.log("Starting user sync worker...");
+  log(WORKER_NAME, "Starting worker...");
 
   // Run every hour (0 minutes past every hour)
   const task = cron.schedule("0 * * * *", async () => {
     try {
       await executeSync({
-        name: "sync-users",
+        name: WORKER_NAME,
         timeout: 30000, // 30 second timeout
         handler: syncUserDataHandler,
       });
     } catch (error) {
-      console.error("User sync failed:", error);
+      logError(WORKER_NAME, `Cron tick failed: ${error}`);
       // Continue on error, cron will retry next hour
     }
   });
 
-  console.log("User sync scheduled: every hour (0 * * * *)");
+  log(WORKER_NAME, "Scheduled: every hour (0 * * * *)");
 
   // Optional: Run immediately on startup (comment out if not desired)
-  console.log("Running initial sync...");
+  log(WORKER_NAME, "Running initial sync...");
   executeSync({
-    name: "sync-users",
+    name: WORKER_NAME,
     timeout: 30000,
     handler: syncUserDataHandler,
   }).catch((error) => {
-    console.error("Initial sync failed:", error);
+    logError(WORKER_NAME, `Initial sync failed: ${error}`);
   });
 
   return task as any;
@@ -104,5 +111,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   startUserSyncWorker();
 
   // Keep process alive
-  console.log("Worker running. Press Ctrl+C to exit.");
+  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

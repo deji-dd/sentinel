@@ -1,6 +1,8 @@
 import { insertStockCache, type StockCacheRow } from "../lib/supabase.js";
 import { COUNTRY_CODE_MAP } from "../lib/country-codes.js";
+import { log, logSuccess, logError, logWarn } from "../lib/logger.js";
 
+const WORKER_NAME = "sync-abroad-stocks";
 const YATA_API_URL = "https://yata.yt/api/v1/travel/export/";
 const REQUEST_TIMEOUT = 15000; // 15 seconds
 
@@ -26,7 +28,7 @@ interface YataApiResponse {
  * Transforms nested country/stock structure into flat rows for historical tracking.
  */
 export async function syncAbroadStocks(): Promise<void> {
-  console.log("[sync-abroad-stocks] Starting abroad stock sync...");
+  log(WORKER_NAME, "Starting abroad stock sync...");
 
   try {
     // Fetch from YATA API
@@ -54,12 +56,13 @@ export async function syncAbroadStocks(): Promise<void> {
     const data = (await response.json()) as YataApiResponse;
 
     if (!data.stocks || Object.keys(data.stocks).length === 0) {
-      console.log("[sync-abroad-stocks] No stock data received from API");
+      log(WORKER_NAME, "No stock data received from API");
       return;
     }
 
-    console.log(
-      `[sync-abroad-stocks] Received data for ${Object.keys(data.stocks).length} countries`,
+    log(
+      WORKER_NAME,
+      `Received data for ${Object.keys(data.stocks).length} countries`,
     );
 
     // Transform and flatten the data
@@ -72,8 +75,9 @@ export async function syncAbroadStocks(): Promise<void> {
 
       if (!destination) {
         unmappedCodes.add(countryCode);
-        console.warn(
-          `[sync-abroad-stocks] Unknown country code: "${countryCode}" - skipping`,
+        logWarn(
+          WORKER_NAME,
+          `Unknown country code: "${countryCode}" - skipping`,
         );
         continue;
       }
@@ -96,26 +100,29 @@ export async function syncAbroadStocks(): Promise<void> {
 
     // Log unmapped codes for debugging
     if (unmappedCodes.size > 0) {
-      console.warn(
-        `[sync-abroad-stocks] Unmapped country codes: ${Array.from(unmappedCodes).join(", ")}`,
+      logWarn(
+        WORKER_NAME,
+        `Unmapped country codes: ${Array.from(unmappedCodes).join(", ")}`,
       );
-      console.warn(
-        "[sync-abroad-stocks] Add these to COUNTRY_CODE_MAP in country-codes.ts if they are valid Torn destinations",
+      logWarn(
+        WORKER_NAME,
+        "Add these to COUNTRY_CODE_MAP in country-codes.ts if they are valid Torn destinations",
       );
     }
 
     // Insert into database
     if (rows.length > 0) {
       await insertStockCache(rows);
-      console.log(
-        `[sync-abroad-stocks] Inserted ${rows.length} stock records (${Object.keys(data.stocks).length - unmappedCodes.size} countries)`,
+      logSuccess(
+        WORKER_NAME,
+        `Inserted ${rows.length} stock records (${Object.keys(data.stocks).length - unmappedCodes.size} countries)`,
       );
     } else {
-      console.warn("[sync-abroad-stocks] No valid stock records to insert");
+      logWarn(WORKER_NAME, "No valid stock records to insert");
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("[sync-abroad-stocks] Sync failed:", message);
+    logError(WORKER_NAME, `Sync failed: ${message}`);
     throw error;
   }
 }
@@ -124,11 +131,11 @@ export async function syncAbroadStocks(): Promise<void> {
 if (import.meta.url === `file://${process.argv[1]}`) {
   syncAbroadStocks()
     .then(() => {
-      console.log("[sync-abroad-stocks] Task completed successfully");
+      logSuccess(WORKER_NAME, "Task completed successfully");
       process.exit(0);
     })
     .catch((error) => {
-      console.error("[sync-abroad-stocks] Task failed:", error);
+      logError(WORKER_NAME, `Task failed: ${error}`);
       process.exit(1);
     });
 }

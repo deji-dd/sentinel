@@ -54,73 +54,197 @@ export interface TornUserTravel {
   };
 }
 
-export async function fetchTornUserBasic(
-  apiKey: string,
-): Promise<TornUserBasic> {
+export interface TornItem {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export interface TornItemsResponseArray {
+  items: TornItem[];
+}
+
+export interface TornItemsResponseObject {
+  items: Record<string, TornItem>;
+}
+
+export interface TornItemMarketListing {
+  cost?: number;
+  price?: number;
+  quantity?: number;
+  id?: number;
+  listing_id?: number;
+  owner_id?: number;
+}
+
+export interface TornItemMarketResponse {
+  itemmarket?: { listings: TornItemMarketListing[] };
+  error?: { code: number; error: string };
+}
+
+export type TornItemsResponse =
+  | TornItemsResponseArray
+  | TornItemsResponseObject
+  | { error?: { code: number; error: string } };
+
+async function fetchTorn<T>(url: string): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
   try {
-    const response = await fetch(`${TORN_API_BASE}/user/basic?key=${apiKey}`, {
+    const response = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
     });
 
-    const data = (await response.json()) as TornUserBasic;
+    const data = (await response.json()) as T & { error?: { code: number } };
 
-    // Handle Torn API errors
-    if (data.error) {
+    if ((data as any)?.error) {
+      const code = (data as any).error?.code;
       const errorMessage =
-        TORN_ERROR_CODES[data.error.code] || `Error code ${data.error.code}`;
+        code !== undefined
+          ? TORN_ERROR_CODES[code] || `Error code ${code}`
+          : "Unknown Torn API error";
       throw new Error(errorMessage);
     }
 
-    // Validate response structure
-    if (!data.profile?.id || !data.profile?.name) {
-      throw new Error("Invalid response from Torn API: missing profile data");
-    }
-
-    // Check HTTP status after parsing (some errors return 200 with error object)
     if (!response.ok) {
       throw new Error(`Torn API returned status ${response.status}`);
     }
 
-    return data;
+    return data as T;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
+export async function fetchTornUserBasic(
+  apiKey: string,
+): Promise<TornUserBasic> {
+  const data = await fetchTorn<TornUserBasic>(
+    `${TORN_API_BASE}/user/basic?key=${apiKey}`,
+  );
+
+  if (!data.profile?.id || !data.profile?.name) {
+    throw new Error("Invalid response from Torn API: missing profile data");
+  }
+
+  return data;
+}
+
 export async function fetchTornUserTravel(
   apiKey: string,
 ): Promise<TornUserTravel> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  return fetchTorn<TornUserTravel>(
+    `${TORN_API_BASE}/user/travel?key=${apiKey}`,
+  );
+}
 
-  try {
-    const response = await fetch(`${TORN_API_BASE}/user/travel?key=${apiKey}`, {
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-      },
-    });
+export async function fetchTornItems(
+  apiKey: string,
+): Promise<TornItemsResponse> {
+  return fetchTorn<TornItemsResponse>(
+    `${TORN_API_BASE}/torn/items?key=${apiKey}`,
+  );
+}
+export async function fetchTornItemMarket(
+  apiKey: string,
+  itemId: number,
+  limit = 1,
+): Promise<TornItemMarketResponse> {
+  return fetchTorn<TornItemMarketResponse>(
+    `${TORN_API_BASE}/market/${itemId}/itemmarket?limit=${limit}&key=${apiKey}`,
+  );
+}
+/**
+ * API Key Rotation Manager for distributing requests across multiple keys.
+ * Supports sequential or concurrent batch processing.
+ */
+export class ApiKeyRotator {
+  private keys: string[];
+  private currentIndex: number = 0;
 
-    const data = (await response.json()) as TornUserTravel;
+  constructor(keys: string[]) {
+    if (!keys.length) {
+      throw new Error("ApiKeyRotator requires at least one API key");
+    }
+    this.keys = keys;
+  }
 
-    if (data.error) {
-      const errorMessage =
-        TORN_ERROR_CODES[data.error.code] || `Error code ${data.error.code}`;
-      throw new Error(errorMessage);
+  /**
+   * Get the next key in round-robin rotation
+   */
+  getNextKey(): string {
+    const key = this.keys[this.currentIndex];
+    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+    return key;
+  }
+
+  /**
+   * Process items concurrently, one per API key in parallel.
+   * Useful when you have N keys and want N concurrent requests.
+   * @param items - Items to process
+   * @param handler - Async function that takes item and API key
+   * @param delayMs - Delay between batches to avoid spikes
+   */
+  async processConcurrent<T, R>(
+    items: T[],
+    handler: (item: T, apiKey: string) => Promise<R>,
+    delayMs: number = 0,
+  ): Promise<R[]> {
+    const results: R[] = [];
+    const concurrency = this.keys.length;
+
+    for (let i = 0; i < items.length; i += concurrency) {
+      const batch = items.slice(i, i + concurrency);
+      const batchResults = await Promise.all(
+        batch.map((item, idx) =>
+          handler(item, this.keys[idx % this.keys.length]),
+        ),
+      );
+      results.push(...batchResults);
+
+      // Delay before next batch (except after last)
+      if (i + concurrency < items.length && delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
 
-    if (!response.ok) {
-      throw new Error(`Torn API returned status ${response.status}`);
+    return results;
+  }
+
+  /**
+   * Process items sequentially with per-request delay and key rotation.
+   * @param items - Items to process
+   * @param handler - Async function that takes item and API key
+   * @param delayMs - Delay between requests
+   */
+  async processSequential<T, R>(
+    items: T[],
+    handler: (item: T, apiKey: string) => Promise<R>,
+    delayMs: number = 700,
+  ): Promise<R[]> {
+    const results: R[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const apiKey = this.getNextKey();
+      const result = await handler(item, apiKey);
+      results.push(result);
+
+      // Delay between requests (except after last)
+      if (i < items.length - 1 && delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
 
-    return data;
-  } finally {
-    clearTimeout(timeoutId);
+    return results;
+  }
+
+  /**
+   * Get number of available keys
+   */
+  getKeyCount(): number {
+    return this.keys.length;
   }
 }

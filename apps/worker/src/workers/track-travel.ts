@@ -10,6 +10,7 @@ import {
   type WorkerSchedule,
 } from "../lib/supabase.js";
 import { fetchTornUserTravel } from "../services/torn.js";
+import { log, logError, logWarn } from "../lib/logger.js";
 import {
   dateToIsoOrNull,
   epochSecondsToDate,
@@ -41,7 +42,7 @@ function computeNextRun(timeLeftSeconds: number | null | undefined): Date {
 async function trackTravelHandler(): Promise<void> {
   const users = await getAllUsers();
   if (users.length === 0) {
-    console.log(`[${WORKER_NAME}] No users found.`);
+    logWarn(WORKER_NAME, "No users found.");
     return;
   }
 
@@ -55,7 +56,7 @@ async function trackTravelHandler(): Promise<void> {
   });
 
   if (dueUsers.length === 0) {
-    console.log(`[${WORKER_NAME}] No users due this tick.`);
+    logWarn(WORKER_NAME, "No users due this tick.");
     return;
   }
 
@@ -88,16 +89,10 @@ async function trackTravelHandler(): Promise<void> {
         next_run_at: nextRunAt.toISOString(),
       });
 
-      console.log(
-        `[${WORKER_NAME}] Updated travel for user ${user.user_id}: ` +
-          `destination=${travel?.destination ?? "unknown"}, time_left=${timeLeft ?? 0}s`,
-      );
+      log(WORKER_NAME, `Updated travel for user ${user.user_id}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[${WORKER_NAME}] Failed for user ${user.user_id}:`,
-        message,
-      );
+      logError(WORKER_NAME, `Failed for user ${user.user_id}: ${message}`);
 
       const backoff = secondsFromNow(ERROR_BACKOFF_SECONDS);
       scheduleUpdates.push({
@@ -118,7 +113,7 @@ async function trackTravelHandler(): Promise<void> {
 }
 
 export function startTravelTrackerWorker(): void {
-  console.log("Starting travel tracker worker...");
+  log(WORKER_NAME, "Starting worker...");
 
   const task = cron.schedule(CRON_SCHEDULE, async () => {
     try {
@@ -128,15 +123,15 @@ export function startTravelTrackerWorker(): void {
         handler: trackTravelHandler,
       });
     } catch (error) {
-      console.error(`[${WORKER_NAME}] Tick failed:`, error);
+      logError(WORKER_NAME, `Cron tick failed: ${error}`);
     }
   });
 
-  console.log(`Travel tracker scheduled: ${CRON_SCHEDULE}`);
+  log(WORKER_NAME, `Scheduled: ${CRON_SCHEDULE}`);
 
   // Run once on startup
   trackTravelHandler().catch((error) => {
-    console.error(`[${WORKER_NAME}] Initial run failed:`, error);
+    logError(WORKER_NAME, `Initial run failed: ${error}`);
   });
 
   return task as any;
@@ -144,5 +139,5 @@ export function startTravelTrackerWorker(): void {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   startTravelTrackerWorker();
-  console.log("Travel tracker running. Press Ctrl+C to exit.");
+  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

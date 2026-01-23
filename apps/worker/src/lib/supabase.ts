@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { decrypt } from "./encryption.js";
 import { TABLE_NAMES } from "./constants.js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -49,6 +50,21 @@ export interface StockCacheRow {
   quantity: number;
   cost: number;
   last_updated: string;
+}
+
+export interface TradeItemRow {
+  item_id: number;
+  name: string;
+  category: string;
+  is_active?: boolean;
+}
+
+export interface MarketTrendRow {
+  item_id: number;
+  item_name?: string | null;
+  lowest_market_price: number;
+  market_value?: number | null;
+  last_updated?: string;
 }
 
 export async function getAllUsers(): Promise<User[]> {
@@ -145,4 +161,68 @@ export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
   if (error) {
     throw new Error(`Failed to insert stock cache: ${error.message}`);
   }
+}
+
+export async function upsertTradeItems(items: TradeItemRow[]): Promise<void> {
+  if (items.length === 0) return;
+
+  const { error } = await supabase.from(TABLE_NAMES.TRADE_ITEMS).upsert(items, {
+    onConflict: "item_id",
+  });
+
+  if (error) {
+    throw new Error(`Failed to upsert trade items: ${error.message}`);
+  }
+}
+
+export async function getActiveTradeItemIds(): Promise<number[]> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TRADE_ITEMS)
+    .select("item_id")
+    .eq("is_active", true);
+
+  if (error) {
+    throw new Error(`Failed to fetch active trade items: ${error.message}`);
+  }
+
+  return (data || []).map((row) => row.item_id);
+}
+
+export async function upsertMarketTrends(
+  rows: MarketTrendRow[],
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const { error } = await supabase
+    .from(TABLE_NAMES.MARKET_TRENDS)
+    .upsert(rows, {
+      onConflict: "item_id",
+    });
+
+  if (error) {
+    throw new Error(`Failed to upsert market trends: ${error.message}`);
+  }
+}
+
+export async function getValidApiKeys(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.USERS)
+    .select("api_key")
+    .not("api_key", "is", null);
+
+  if (error) {
+    throw new Error(`Failed to fetch API keys: ${error.message}`);
+  }
+
+  return (data || [])
+    .map((row) => {
+      try {
+        const encryptedKey = (row as any).api_key as string;
+        return decrypt(encryptedKey);
+      } catch (err) {
+        console.error("Failed to decrypt API key:", err);
+        return null;
+      }
+    })
+    .filter((key) => key && key.length > 0) as string[];
 }
