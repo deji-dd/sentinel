@@ -1,6 +1,10 @@
 import { executeSync } from "../lib/sync.js";
 import { decrypt } from "../lib/encryption.js";
-import { getAllUsers, upsertTravelData, type TravelData } from "../lib/supabase.js";
+import {
+  getAllUsers,
+  upsertTravelData,
+  type TravelData,
+} from "../lib/supabase.js";
 import { fetchTornUserBasic, fetchTornUserTravel } from "../services/torn.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -11,7 +15,7 @@ const WORKER_NAME = "travel-data-worker";
 /**
  * Travel data worker - syncs travel status and capacity from Torn API.
  * Updates sentinel_travel_data table with dynamic timing based on travel status.
- * 
+ *
  * Logic:
  * - Fetches travel status and capacity for all users
  * - Updates travel destination, method, times, capacity
@@ -26,13 +30,15 @@ async function syncTravelDataHandler(): Promise<void> {
     return;
   }
 
-  const travelUpdates: Array<TravelData & { capacity: number }> = [];
+  const travelUpdates: Array<
+    TravelData & { capacity?: number; capacity_manually_set?: boolean }
+  > = [];
   const errors: Array<{ userId: string; error: string }> = [];
 
   for (const user of users) {
     try {
       const apiKey = decrypt(user.api_key);
-      
+
       // Fetch travel status and basic profile (for capacity)
       const [travelResponse, basicResponse] = await Promise.all([
         fetchTornUserTravel(apiKey),
@@ -40,25 +46,31 @@ async function syncTravelDataHandler(): Promise<void> {
       ]);
 
       const travel = travelResponse.travel;
-      const capacity = basicResponse.profile?.capacity ?? 0;
+      const apiCapacity = basicResponse.profile?.capacity ?? 0;
 
       const departedAt = epochSecondsToDate(travel?.departed_at ?? null);
       const arrivalAt = epochSecondsToDate(travel?.arrival_at ?? null);
       const timeLeft = travel?.time_left ?? 0;
 
-      travelUpdates.push({
+      const update: TravelData & { capacity_manually_set?: boolean } = {
         user_id: user.user_id,
         travel_destination: travel?.destination ?? null,
         travel_method: travel?.method ?? null,
         travel_departed_at: dateToIsoOrNull(departedAt),
         travel_arrival_at: dateToIsoOrNull(arrivalAt),
         travel_time_left: timeLeft ?? null,
-        capacity,
-      });
+        capacity: apiCapacity,
+      };
 
-      log(WORKER_NAME, `User ${user.player_id}: ${travel?.destination ?? 'not traveling'}, capacity=${capacity}`);
+      travelUpdates.push(update);
+
+      log(
+        WORKER_NAME,
+        `User ${user.player_id}: ${travel?.destination ?? "not traveling"}, api_capacity=${apiCapacity}`,
+      );
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       errors.push({ userId: user.user_id, error: errorMessage });
       logError(WORKER_NAME, `Failed for user ${user.user_id}: ${errorMessage}`);
     }

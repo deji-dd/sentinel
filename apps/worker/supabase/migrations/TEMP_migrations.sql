@@ -1,0 +1,6 @@
+-- TEMP_migrations.sql
+-- Personal temporary migration file for schema changes.
+-- This file gets overwritten with each new change.
+-- Apply with: psql "$SUPABASE_DB_URL" -f apps/worker/supabase/migrations/TEMP_migrations.sql
+--
+-- Current changes: None yet (all worker schema is in baseline)

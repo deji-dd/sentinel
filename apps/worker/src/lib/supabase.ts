@@ -34,7 +34,8 @@ export interface TravelData {
   travel_departed_at: string | null;
   travel_arrival_at: string | null;
   travel_time_left: number | null;
-  capacity?: number | null;
+  capacity?: number;
+  capacity_manually_set?: boolean;
   updated_at?: string;
 }
 
