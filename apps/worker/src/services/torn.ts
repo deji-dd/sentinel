@@ -71,6 +71,19 @@ export interface TornUserPerks {
   };
 }
 
+export interface TornUserProfileResponse {
+  profile?: {
+    id?: number;
+    name?: string;
+    donator_status?: string;
+    image?: string;
+  };
+  error?: {
+    code: number;
+    error: string;
+  };
+}
+
 export interface TornItem {
   id: number;
   name: string;
@@ -162,6 +175,14 @@ export async function fetchTornUserPerks(
 ): Promise<TornUserPerks> {
   return fetchTorn<TornUserPerks>(
     `${TORN_API_V1_BASE}/user/?selections=perks&key=${apiKey}`,
+  );
+}
+
+export async function fetchTornUserProfile(
+  apiKey: string,
+): Promise<TornUserProfileResponse> {
+  return fetchTorn<TornUserProfileResponse>(
+    `${TORN_API_BASE}/user/profile?key=${apiKey}`,
   );
 }
 

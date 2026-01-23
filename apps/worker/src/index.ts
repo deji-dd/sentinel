@@ -6,6 +6,7 @@
 import { startTravelDataWorker } from "./workers/travel-data.js";
 import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
 import { startMarketTrendsWorker } from "./workers/market-trends.js";
+import { startUserDataWorker } from "./workers/user-data.js";
 
 function startAllWorkers(): void {
   console.log("🚀 Starting Sentinel workers...");
@@ -19,6 +20,9 @@ function startAllWorkers(): void {
 
     // Market trends worker (every 5 minutes) - updates sentinel_market_trends
     startMarketTrendsWorker();
+
+    // User data worker (every hour) - updates sentinel_user_data
+    startUserDataWorker();
 
     console.log("✅ All workers started successfully");
   } catch (error) {

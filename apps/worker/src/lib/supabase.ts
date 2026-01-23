@@ -41,6 +41,15 @@ export interface TravelData {
   updated_at?: string;
 }
 
+export interface UserProfileData {
+  user_id: string;
+  player_id: number;
+  name: string;
+  is_donator: boolean;
+  profile_image: string | null;
+  updated_at?: string;
+}
+
 export interface StockCacheRow {
   destination: string;
   item_name: string;
@@ -88,6 +97,20 @@ export async function upsertTravelData(updates: TravelData[]): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to upsert travel data: ${error.message}`);
+  }
+}
+
+export async function upsertUserData(
+  updates: UserProfileData[],
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const { error } = await supabase.from(TABLE_NAMES.USER_DATA).upsert(updates, {
+    onConflict: "user_id",
+  });
+
+  if (error) {
+    throw new Error(`Failed to upsert user data: ${error.message}`);
   }
 }
 

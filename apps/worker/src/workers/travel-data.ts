@@ -132,15 +132,13 @@ async function syncTravelDataHandler(): Promise<void> {
     try {
       const apiKey = decrypt(user.api_key);
 
-      // Fetch travel status, basic profile (for capacity), and perks (v1 API)
-      const [travelResponse, basicResponse, perksResponse] = await Promise.all([
+      // Fetch travel status and perks (v1 API)
+      const [travelResponse, perksResponse] = await Promise.all([
         fetchTornUserTravel(apiKey),
-        fetchTornUserBasic(apiKey),
         fetchTornUserPerks(apiKey),
       ]);
 
       const travel = travelResponse.travel;
-      const apiCapacity = basicResponse.profile?.capacity ?? 0;
       const propertyPerks = perksResponse.property_perks || [];
       const stockPerks = perksResponse.stock_perks || [];
       const bookPerks = perksResponse.book_perks || [];

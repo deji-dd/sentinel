@@ -78,6 +78,30 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- User data (profile snapshot)
+create table if not exists public.sentinel_user_data (
+  user_id text primary key,
+  player_id integer not null,
+  name text,
+  is_donator boolean not null default false,
+  profile_image text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists sentinel_user_data_player_id_idx
+  on public.sentinel_user_data (player_id);
+
+alter table public.sentinel_user_data enable row level security;
+
+create policy if not exists sentinel_user_data_select_self on public.sentinel_user_data
+  for select
+  using (auth.uid()::text = user_id);
+
+create policy if not exists sentinel_user_data_service_role on public.sentinel_user_data
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
 -- Trade items
 create table if not exists public.sentinel_trade_items (
   item_id integer primary key,
@@ -259,7 +283,8 @@ insert into public.sentinel_worker_schedules (worker, enabled, cadence_seconds, 
 values 
   ('market_trends_worker', true, 300, now()),
   ('travel_stock_cache_worker', true, 300, now()),
-  ('travel_data_worker', true, 30, now())
+  ('travel_data_worker', true, 30, now()),
+  ('user_data_worker', true, 3600, now())
 on conflict (worker) do nothing;
 
 -- Cleanup legacy tables if present
