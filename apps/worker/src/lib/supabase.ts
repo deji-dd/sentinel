@@ -35,7 +35,9 @@ export interface TravelData {
   travel_arrival_at: string | null;
   travel_time_left: number | null;
   capacity?: number;
-  capacity_manually_set?: boolean;
+  has_airstrip?: boolean;
+  has_wlt_benefit?: boolean;
+  active_travel_book?: boolean;
   updated_at?: string;
 }
 
@@ -98,6 +100,22 @@ export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to insert stock cache: ${error.message}`);
+  }
+}
+
+export async function cleanupOldStockCache(
+  retentionDays: number = 7,
+): Promise<void> {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+  const { error } = await supabase
+    .from("sentinel_travel_stock_cache")
+    .delete()
+    .lt("last_updated", cutoffDate.toISOString());
+
+  if (error) {
+    throw new Error(`Failed to cleanup stock cache: ${error.message}`);
   }
 }
 

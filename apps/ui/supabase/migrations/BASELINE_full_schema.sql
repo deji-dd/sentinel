@@ -190,7 +190,9 @@ create table if not exists public.sentinel_travel_data (
   travel_arrival_at timestamptz,
   travel_time_left integer,
   capacity integer not null default 5,
-  capacity_manually_set boolean not null default false,
+    has_airstrip boolean not null default false,
+    has_wlt_benefit boolean not null default false,
+    active_travel_book boolean not null default false,
   updated_at timestamptz not null default now()
 );
 
@@ -221,18 +223,6 @@ create policy if not exists sentinel_travel_data_service_role on public.sentinel
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
-
--- RPC to allow users to set their travel capacity (locks it from worker updates)
-create or replace function public.set_user_travel_capacity(capacity_value integer)
-returns void as $$
-begin
-  update public.sentinel_travel_data
-  set capacity = capacity_value,
-      capacity_manually_set = true,
-      updated_at = now()
-  where user_id = auth.uid()::text;
-end;
-$$ language plpgsql security definer set search_path = public;
 
 -- Worker schedules (per-worker, DB-driven)
 create table if not exists public.sentinel_worker_schedules (

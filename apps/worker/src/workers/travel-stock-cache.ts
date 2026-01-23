@@ -1,5 +1,9 @@
 import { executeSync } from "../lib/sync.js";
-import { insertStockCache, type StockCacheRow } from "../lib/supabase.js";
+import {
+  insertStockCache,
+  cleanupOldStockCache,
+  type StockCacheRow,
+} from "../lib/supabase.js";
 import { COUNTRY_CODE_MAP } from "../lib/country-codes.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -7,6 +11,7 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 const WORKER_NAME = "travel-stock-cache-worker";
 const YATA_API_URL = "https://yata.yt/api/v1/travel/export/";
 const REQUEST_TIMEOUT = 15000; // 15 seconds
+const RETENTION_DAYS = 7; // Keep stock cache for last 7 days
 
 interface YataStockItem {
   id: number;
@@ -111,6 +116,20 @@ async function syncAbroadStocks(): Promise<void> {
     );
   } else {
     logWarn(WORKER_NAME, "No valid stock records to insert");
+  }
+
+  // Cleanup old records
+  try {
+    await cleanupOldStockCache(RETENTION_DAYS);
+    log(
+      WORKER_NAME,
+      `Cleaned up stock cache records older than ${RETENTION_DAYS} days`,
+    );
+  } catch (cleanupError) {
+    logWarn(
+      WORKER_NAME,
+      `Cleanup warning: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+    );
   }
 }
 

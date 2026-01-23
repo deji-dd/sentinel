@@ -1,4 +1,5 @@
 const TORN_API_BASE = "https://api.torn.com/v2";
+const TORN_API_V1_BASE = "https://api.torn.com";
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 
 const TORN_ERROR_CODES: Record<number, string> = {
@@ -49,6 +50,21 @@ export interface TornUserTravel {
     arrival_at?: number | null;
     time_left?: number | null;
   };
+  error?: {
+    code: number;
+    error: string;
+  };
+}
+
+export interface TornUserPerks {
+  property_perks?: string[];
+  stock_perks?: string[];
+  book_perks?: string[];
+  education_perks?: string[];
+  enhancer_perks?: string[];
+  faction_perks?: string[];
+  job_perks?: string[];
+  merit_perks?: string[];
   error?: {
     code: number;
     error: string;
@@ -138,6 +154,14 @@ export async function fetchTornUserTravel(
 ): Promise<TornUserTravel> {
   return fetchTorn<TornUserTravel>(
     `${TORN_API_BASE}/user/travel?key=${apiKey}`,
+  );
+}
+
+export async function fetchTornUserPerks(
+  apiKey: string,
+): Promise<TornUserPerks> {
+  return fetchTorn<TornUserPerks>(
+    `${TORN_API_V1_BASE}/user/?selections=perks&key=${apiKey}`,
   );
 }
 

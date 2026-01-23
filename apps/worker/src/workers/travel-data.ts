@@ -5,12 +5,107 @@ import {
   upsertTravelData,
   type TravelData,
 } from "../lib/supabase.js";
-import { fetchTornUserBasic, fetchTornUserTravel } from "../services/torn.js";
+import {
+  fetchTornUserBasic,
+  fetchTornUserTravel,
+  fetchTornUserPerks,
+} from "../services/torn.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { dateToIsoOrNull, epochSecondsToDate } from "../lib/time.js";
 
 const WORKER_NAME = "travel-data-worker";
+
+function includesAny(text: string, needles: string[]): boolean {
+  const lower = text.toLowerCase();
+  return needles.some((n) => lower.includes(n));
+}
+
+function extractNumber(text: string): number | null {
+  const match = text.match(/(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function computeCapacityFromPerks(params: {
+  hasAirstrip: boolean;
+  hasWltBenefit: boolean;
+  enhancerPerks: string[];
+  jobPerks: string[];
+  factionPerks: string[];
+  bookPerks: string[];
+}): number {
+  const {
+    hasAirstrip,
+    hasWltBenefit,
+    enhancerPerks,
+    jobPerks,
+    factionPerks,
+    bookPerks,
+  } = params;
+
+  let capacity = hasAirstrip || hasWltBenefit ? 15 : 5;
+
+  let suitcaseBonus = 0;
+  enhancerPerks.forEach((perk) => {
+    const lower = perk.toLowerCase();
+    if (!lower.includes("suitcase")) return;
+    if (lower.includes("large")) {
+      suitcaseBonus = Math.max(suitcaseBonus, 4);
+    } else if (lower.includes("medium")) {
+      suitcaseBonus = Math.max(suitcaseBonus, 3);
+    } else if (lower.includes("small")) {
+      suitcaseBonus = Math.max(suitcaseBonus, 2);
+    } else {
+      const num = extractNumber(lower);
+      if (num) suitcaseBonus = Math.max(suitcaseBonus, num);
+    }
+  });
+  capacity += suitcaseBonus;
+
+  let jobBonus = 0;
+  jobPerks.forEach((perk) => {
+    const lower = perk.toLowerCase();
+    if (includesAny(lower, ["lingerie"])) {
+      jobBonus = Math.max(jobBonus, 2);
+    }
+    if (includesAny(lower, ["cruise line"])) {
+      if (includesAny(lower, ["10*", "10 star", "10-star"])) {
+        jobBonus = Math.max(jobBonus, 3);
+      } else if (includesAny(lower, ["3*", "3 star", "3-star"])) {
+        jobBonus = Math.max(jobBonus, 2);
+      }
+    }
+    if (includesAny(lower, ["flower shop"]) && includesAny(lower, ["flower"])) {
+      jobBonus = Math.max(jobBonus, 5);
+    }
+    if (includesAny(lower, ["toy shop"]) && includesAny(lower, ["plush"])) {
+      jobBonus = Math.max(jobBonus, 5);
+    }
+  });
+  capacity += jobBonus;
+
+  let factionBonus = 0;
+  factionPerks.forEach((perk) => {
+    const lower = perk.toLowerCase();
+    if (!includesAny(lower, ["excursion", "travel"])) return;
+    const num = extractNumber(lower);
+    if (num !== null) {
+      factionBonus = Math.max(factionBonus, Math.min(num, 10));
+    }
+  });
+  capacity += factionBonus;
+
+  const hasSmugglingBook = bookPerks.some((perk) =>
+    includesAny(perk, ["smuggling for beginners", "travel items by 10"]),
+  );
+  if (hasSmugglingBook) {
+    capacity += 10;
+  }
+
+  capacity = Math.min(capacity, 44);
+
+  return capacity;
+}
 
 /**
  * Travel data worker - syncs travel status and capacity from Torn API.
@@ -30,43 +125,77 @@ async function syncTravelDataHandler(): Promise<void> {
     return;
   }
 
-  const travelUpdates: Array<
-    TravelData & { capacity?: number; capacity_manually_set?: boolean }
-  > = [];
+  const travelUpdates: Array<TravelData> = [];
   const errors: Array<{ userId: string; error: string }> = [];
 
   for (const user of users) {
     try {
       const apiKey = decrypt(user.api_key);
 
-      // Fetch travel status and basic profile (for capacity)
-      const [travelResponse, basicResponse] = await Promise.all([
+      // Fetch travel status, basic profile (for capacity), and perks (v1 API)
+      const [travelResponse, basicResponse, perksResponse] = await Promise.all([
         fetchTornUserTravel(apiKey),
         fetchTornUserBasic(apiKey),
+        fetchTornUserPerks(apiKey),
       ]);
 
       const travel = travelResponse.travel;
       const apiCapacity = basicResponse.profile?.capacity ?? 0;
+      const propertyPerks = perksResponse.property_perks || [];
+      const stockPerks = perksResponse.stock_perks || [];
+      const bookPerks = perksResponse.book_perks || [];
+      const enhancerPerks = perksResponse.enhancer_perks || [];
+      const jobPerks = perksResponse.job_perks || [];
+      const factionPerks = perksResponse.faction_perks || [];
+
+      const hasAirstrip = propertyPerks.some((perk) =>
+        perk.toLowerCase().includes("airstrip"),
+      );
+
+      const hasWltBenefit = stockPerks.some((perk) => {
+        const lower = perk.toLowerCase();
+        return (
+          lower.includes("jet") ||
+          lower.includes("wlt") ||
+          lower.includes("airport")
+        );
+      });
+
+      const activeTravelBook = bookPerks.some((perk) =>
+        perk.toLowerCase().includes("travel time"),
+      );
+
+      const computedCapacity = computeCapacityFromPerks({
+        hasAirstrip,
+        hasWltBenefit,
+        enhancerPerks,
+        jobPerks,
+        factionPerks,
+        bookPerks,
+      });
 
       const departedAt = epochSecondsToDate(travel?.departed_at ?? null);
       const arrivalAt = epochSecondsToDate(travel?.arrival_at ?? null);
       const timeLeft = travel?.time_left ?? 0;
 
-      const update: TravelData & { capacity_manually_set?: boolean } = {
+      const update: TravelData = {
         user_id: user.user_id,
         travel_destination: travel?.destination ?? null,
         travel_method: travel?.method ?? null,
         travel_departed_at: dateToIsoOrNull(departedAt),
         travel_arrival_at: dateToIsoOrNull(arrivalAt),
         travel_time_left: timeLeft ?? null,
-        capacity: apiCapacity,
+        capacity: computedCapacity,
+        has_airstrip: hasAirstrip,
+        has_wlt_benefit: hasWltBenefit,
+        active_travel_book: activeTravelBook,
       };
 
       travelUpdates.push(update);
 
       log(
         WORKER_NAME,
-        `User ${user.player_id}: ${travel?.destination ?? "not traveling"}, api_capacity=${apiCapacity}`,
+        `User ${user.player_id}: ${travel?.destination ?? "not traveling"}, capacity=${computedCapacity}, airstrip=${hasAirstrip}, wlt=${hasWltBenefit}, book=${activeTravelBook}`,
       );
     } catch (error) {
       const errorMessage =

@@ -1,29 +1,21 @@
 -- TEMP_migrations.sql
--- Personal temporary migration file for schema changes.
--- This file gets overwritten with each new change.
--- Apply with: psql "$SUPABASE_DB_URL" -f apps/ui/supabase/migrations/TEMP_migrations.sql
---
--- Current changes:
--- - Added capacity_manually_set column to sentinel_travel_data
+-- - Added travel benefit tracking columns (has_airstrip, has_wlt_benefit, active_travel_book)
+-- - Removed capacity_manually_set (now using v1 API to detect manual edits)
 -- - Changed capacity default from 0 to 5
--- - Added set_user_travel_capacity RPC function
 
--- Add capacity_manually_set column if it doesn't exist
+-- Add travel benefit columns
 alter table public.sentinel_travel_data
-  add column if not exists capacity_manually_set boolean not null default false;
+  add column if not exists has_airstrip boolean not null default false,
+  add column if not exists has_wlt_benefit boolean not null default false,
+  add column if not exists active_travel_book boolean not null default false;
 
--- Update capacity default (safe for existing rows)
+-- Remove capacity_manually_set column
+alter table public.sentinel_travel_data
+  drop column if exists capacity_manually_set;
+
+-- Update capacity default
 alter table public.sentinel_travel_data
   alter column capacity set default 5;
 
--- Create or replace the RPC to allow users to set their travel capacity
-create or replace function public.set_user_travel_capacity(capacity_value integer)
-returns void as $$
-begin
-  update public.sentinel_travel_data
-  set capacity = capacity_value,
-      capacity_manually_set = true,
-      updated_at = now()
-  where user_id = auth.uid()::text;
-end;
-$$ language plpgsql security definer set search_path = public;
+-- Drop the old RPC function (no longer needed without capacity_manually_set)
+drop function if exists public.set_user_travel_capacity(integer);
