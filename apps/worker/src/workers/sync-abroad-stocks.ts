@@ -29,7 +29,6 @@ export function startSyncAbroadStocksWorker(): void {
   log(WORKER_NAME, `Scheduled: ${CRON_SCHEDULE}`);
 
   // Run immediately on startup
-  log(WORKER_NAME, "Running initial sync...");
   executeSync({
     name: WORKER_NAME,
     timeout: 30000,

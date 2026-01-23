@@ -61,9 +61,8 @@ export interface TradeItemRow {
 
 export interface MarketTrendRow {
   item_id: number;
-  item_name?: string | null;
+  item_name: string;
   lowest_market_price: number;
-  market_value?: number | null;
   last_updated?: string;
 }
 
@@ -202,6 +201,23 @@ export async function upsertMarketTrends(
   if (error) {
     throw new Error(`Failed to upsert market trends: ${error.message}`);
   }
+}
+
+export async function getTradeItemNames(): Promise<Map<number, string>> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TRADE_ITEMS)
+    .select("item_id, name");
+
+  if (error) {
+    throw new Error(`Failed to fetch trade item names: ${error.message}`);
+  }
+
+  const map = new Map<number, string>();
+  (data || []).forEach((row) => {
+    map.set((row as any).item_id as number, (row as any).name as string);
+  });
+
+  return map;
 }
 
 export async function getValidApiKeys(): Promise<string[]> {

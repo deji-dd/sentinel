@@ -93,8 +93,7 @@ export function startUserSyncWorker(): void {
 
   log(WORKER_NAME, "Scheduled: every hour (0 * * * *)");
 
-  // Optional: Run immediately on startup (comment out if not desired)
-  log(WORKER_NAME, "Running initial sync...");
+  // Run immediately on startup
   executeSync({
     name: WORKER_NAME,
     timeout: 30000,

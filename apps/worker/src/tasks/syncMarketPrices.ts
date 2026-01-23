@@ -2,10 +2,11 @@ import {
   getActiveTradeItemIds,
   upsertMarketTrends,
   getValidApiKeys,
+  getTradeItemNames,
   type MarketTrendRow,
 } from "../lib/supabase.js";
 import { fetchTornItemMarket, ApiKeyRotator } from "../services/torn.js";
-import { log, logSuccess, logError, logWarn } from "../lib/logger.js";
+import { logSuccess, logError, logWarn } from "../lib/logger.js";
 
 const WORKER_NAME = "sync-market-prices";
 
@@ -15,7 +16,6 @@ const WORKER_NAME = "sync-market-prices";
  * Uses API key rotation to distribute requests across available keys.
  */
 export async function syncMarketPrices(): Promise<void> {
-  log(WORKER_NAME, "Syncing market prices from Torn API...");
   try {
     // Get available API keys from users table
     const apiKeys = await getValidApiKeys();
@@ -33,10 +33,10 @@ export async function syncMarketPrices(): Promise<void> {
       return;
     }
 
-    log(
-      WORKER_NAME,
-      `Found ${itemIds.length} active trade items with ${apiKeys.length} API key(s)`,
-    );
+    // Fetch item names for enrichment
+    const itemNames = await getTradeItemNames();
+
+    logSuccess(WORKER_NAME, `Syncing prices for ${itemIds.length} trade items`);
 
     // Create rotator and process items
     const rotator = new ApiKeyRotator(apiKeys);
@@ -54,8 +54,14 @@ export async function syncMarketPrices(): Promise<void> {
           const price = listing?.cost || listing?.price;
 
           if (price !== undefined && price > 0) {
+            const itemName = itemNames.get(itemId);
+            if (!itemName) {
+              logWarn(WORKER_NAME, `Missing item name for item ${itemId}`);
+              return;
+            }
             trends.push({
               item_id: itemId,
+              item_name: itemName,
               lowest_market_price: price,
               last_updated: new Date().toISOString(),
             });
@@ -74,7 +80,7 @@ export async function syncMarketPrices(): Promise<void> {
 
     if (trends.length > 0) {
       await upsertMarketTrends(trends);
-      logSuccess(WORKER_NAME, `Upserted ${trends.length} market price trends`);
+      logSuccess(WORKER_NAME, `Upserted ${trends.length} prices`);
     }
 
     if (errors.length > 0) {
