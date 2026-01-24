@@ -2,7 +2,7 @@
   "name": "sentinel",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "pnpm@10.28.1",
   "scripts": {
     "dev": "pnpm --filter ui dev",
     "build": "pnpm --filter ui build",
