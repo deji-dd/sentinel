@@ -1,38 +1,34 @@
-/**
- * Main worker orchestrator.
- * Manages multiple background job workers with DB-driven scheduling.
- */
-
 import { startTravelDataWorker } from "./workers/travel-data.js";
 import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
 import { startMarketTrendsWorker } from "./workers/market-trends.js";
 import { startUserDataWorker } from "./workers/user-data.js";
 import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
+import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
-  console.log("🚀 Starting Sentinel workers...");
+  logSection("🚀 Starting Sentinel workers");
 
   try {
-    // Travel data worker (dynamic timing, default 30s) - updates sentinel_travel_data
+    // Travel data worker (dynamic timing, default 30s)
     startTravelDataWorker();
 
-    // Travel stock cache worker (every 5 minutes) - updates sentinel_travel_stock_cache
+    // Travel stock cache worker (every 5 minutes)
     startTravelStockCacheWorker();
 
-    // Market trends worker (every 5 minutes) - updates sentinel_market_trends
+    // Market trends worker (every 5 minutes)
     startMarketTrendsWorker();
 
-    // User data worker (every hour) - updates sentinel_user_data
+    // User data worker (every hour)
     startUserDataWorker();
 
-    // User bars worker (every 30s) - updates sentinel_user_bars
+    // User bars worker (every 30s)
     startUserBarsWorker();
 
-    // User cooldowns worker (every 30s) - updates sentinel_user_cooldowns
+    // User cooldowns worker (every 30s)
     startUserCooldownsWorker();
 
-    console.log("✅ All workers started successfully");
+    logSection("✅ All workers started");
   } catch (error) {
     console.error("❌ Failed to start workers:", error);
     process.exit(1);
@@ -41,17 +37,14 @@ function startAllWorkers(): void {
 
 // Graceful shutdown
 process.on("SIGINT", () => {
-  console.log("\n📛 Shutting down workers...");
+  logSection("📛 Shutting down workers");
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-  console.log("\n📛 Terminating workers...");
+  logSection("📛 Terminating workers");
   process.exit(0);
 });
 
 // Start workers
 startAllWorkers();
-
-// Keep process alive
-console.log("✓ Workers running. Press Ctrl+C to exit.");

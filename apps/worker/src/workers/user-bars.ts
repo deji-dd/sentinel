@@ -9,15 +9,13 @@ import { fetchTornUserBars } from "../services/torn.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
-const WORKER_NAME = "user-bars-worker";
+const WORKER_NAME = "user_bars_worker";
 const DB_WORKER_KEY = "user_bars_worker";
 
 async function syncUserBarsHandler(): Promise<void> {
   const users = await getAllUsers();
-  log(WORKER_NAME, `Syncing user bars for ${users.length} users`);
 
   if (users.length === 0) {
-    logWarn(WORKER_NAME, "No users to sync");
     return;
   }
 
@@ -49,23 +47,20 @@ async function syncUserBarsHandler(): Promise<void> {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       errors.push({ userId: user.user_id, error: errorMessage });
-      logError(WORKER_NAME, `Failed for user ${user.user_id}: ${errorMessage}`);
+      logError(WORKER_NAME, `${user.user_id}: ${errorMessage}`);
     }
   }
 
   if (updates.length > 0) {
     await upsertUserBars(updates);
-    logSuccess(WORKER_NAME, `Updated ${updates.length} user bar records`);
   }
 
   if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length} users failed to sync`);
+    logWarn(WORKER_NAME, `${errors.length}/${users.length} users failed`);
   }
 }
 
 export function startUserBarsWorker(): void {
-  log(WORKER_NAME, "Starting worker (DB-scheduled)...");
-
   startDbScheduledRunner({
     worker: DB_WORKER_KEY,
     pollIntervalMs: 5000,
@@ -77,17 +72,4 @@ export function startUserBarsWorker(): void {
       });
     },
   });
-
-  executeSync({
-    name: WORKER_NAME,
-    timeout: 30000,
-    handler: syncUserBarsHandler,
-  }).catch((error) => {
-    logError(WORKER_NAME, `Initial sync failed: ${error}`);
-  });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startUserBarsWorker();
-  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

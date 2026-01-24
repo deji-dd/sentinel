@@ -9,15 +9,13 @@ import { fetchTornUserCooldowns } from "../services/torn.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
-const WORKER_NAME = "user-cooldowns-worker";
+const WORKER_NAME = "user_cooldowns_worker";
 const DB_WORKER_KEY = "user_cooldowns_worker";
 
 async function syncUserCooldownsHandler(): Promise<void> {
   const users = await getAllUsers();
-  log(WORKER_NAME, `Syncing user cooldowns for ${users.length} users`);
 
   if (users.length === 0) {
-    logWarn(WORKER_NAME, "No users to sync");
     return;
   }
 
@@ -44,23 +42,20 @@ async function syncUserCooldownsHandler(): Promise<void> {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       errors.push({ userId: user.user_id, error: errorMessage });
-      logError(WORKER_NAME, `Failed for user ${user.user_id}: ${errorMessage}`);
+      logError(WORKER_NAME, `${user.user_id}: ${errorMessage}`);
     }
   }
 
   if (updates.length > 0) {
     await upsertUserCooldowns(updates);
-    logSuccess(WORKER_NAME, `Updated ${updates.length} user cooldown records`);
   }
 
   if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length} users failed to sync`);
+    logWarn(WORKER_NAME, `${errors.length}/${users.length} users failed`);
   }
 }
 
 export function startUserCooldownsWorker(): void {
-  log(WORKER_NAME, "Starting worker (DB-scheduled)...");
-
   startDbScheduledRunner({
     worker: DB_WORKER_KEY,
     pollIntervalMs: 5000,
@@ -72,17 +67,4 @@ export function startUserCooldownsWorker(): void {
       });
     },
   });
-
-  executeSync({
-    name: WORKER_NAME,
-    timeout: 30000,
-    handler: syncUserCooldownsHandler,
-  }).catch((error) => {
-    logError(WORKER_NAME, `Initial sync failed: ${error}`);
-  });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startUserCooldownsWorker();
-  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

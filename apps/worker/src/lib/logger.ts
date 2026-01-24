@@ -66,3 +66,19 @@ export function logWarn(workerName: string, message: string): void {
 export function logSection(message: string): void {
   console.log(`\n${colorize(message, COLORS.BRIGHT)}\n`);
 }
+
+export function logDuration(
+  workerName: string,
+  message: string,
+  durationMs: number,
+): void {
+  const durationText =
+    durationMs < 1000
+      ? `${durationMs}ms`
+      : `${(durationMs / 1000).toFixed(2)}s`;
+  const color = getWorkerColor(workerName);
+  const timestamp = new Date().toISOString().split("T")[1].split(".")[0];
+  const prefix = colorize(`[${workerName}]`, color);
+  const msgColor = colorize(`${message} (${durationText})`, COLORS.GREEN);
+  console.log(`${prefix} ${colorize(timestamp, COLORS.DIM)} ${msgColor}`);
+}

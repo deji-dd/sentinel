@@ -10,7 +10,7 @@ import { fetchTornItemMarket, ApiKeyRotator } from "../services/torn.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
-const WORKER_NAME = "market-trends-worker";
+const WORKER_NAME = "market_trends_worker";
 
 /**
  * Market trends worker - syncs cheapest market prices from Torn API.
@@ -27,12 +27,10 @@ async function syncMarketPrices(): Promise<void> {
 
   const itemIds = await getActiveTradeItemIds();
   if (!itemIds.length) {
-    logWarn(WORKER_NAME, "No active trade items found");
     return;
   }
 
   const itemNames = await getTradeItemNames();
-  logSuccess(WORKER_NAME, `Syncing prices for ${itemIds.length} trade items`);
 
   const rotator = new ApiKeyRotator(apiKeys);
   const trends: MarketTrendRow[] = [];
@@ -58,12 +56,9 @@ async function syncMarketPrices(): Promise<void> {
             lowest_market_price: price,
             last_updated: new Date().toISOString(),
           });
-        } else {
-          logWarn(WORKER_NAME, `No valid price found for item ${itemId}`);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        logError(WORKER_NAME, `Failed to fetch item ${itemId}: ${message}`);
         errors.push({ itemId, error: message });
       }
     },
@@ -72,17 +67,14 @@ async function syncMarketPrices(): Promise<void> {
 
   if (trends.length > 0) {
     await upsertMarketTrends(trends);
-    logSuccess(WORKER_NAME, `Upserted ${trends.length} prices`);
   }
 
   if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length} items failed to sync`);
+    logWarn(WORKER_NAME, `${errors.length}/${itemIds.length} items failed`);
   }
 }
 
 export function startMarketTrendsWorker(): void {
-  log(WORKER_NAME, "Starting worker (DB-scheduled)...");
-
   startDbScheduledRunner({
     worker: "market_trends_worker",
     pollIntervalMs: 5000,
@@ -94,18 +86,4 @@ export function startMarketTrendsWorker(): void {
       });
     },
   });
-
-  // Run immediately on startup
-  executeSync({
-    name: WORKER_NAME,
-    timeout: 120000,
-    handler: syncMarketPrices,
-  }).catch((error) => {
-    logError(WORKER_NAME, `Initial sync failed: ${error}`);
-  });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startMarketTrendsWorker();
-  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

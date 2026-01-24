@@ -14,7 +14,7 @@ import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { dateToIsoOrNull, epochSecondsToDate } from "../lib/time.js";
 
-const WORKER_NAME = "travel-data-worker";
+const WORKER_NAME = "travel_data_worker";
 
 function includesAny(text: string, needles: string[]): boolean {
   const lower = text.toLowerCase();
@@ -118,10 +118,8 @@ function computeCapacityFromPerks(params: {
  */
 async function syncTravelDataHandler(): Promise<void> {
   const users = await getAllUsers();
-  log(WORKER_NAME, `Syncing travel data for ${users.length} users`);
 
   if (users.length === 0) {
-    logWarn(WORKER_NAME, "No users to sync");
     return;
   }
 
@@ -190,26 +188,20 @@ async function syncTravelDataHandler(): Promise<void> {
       };
 
       travelUpdates.push(update);
-
-      log(
-        WORKER_NAME,
-        `User ${user.player_id}: ${travel?.destination ?? "not traveling"}, capacity=${computedCapacity}, airstrip=${hasAirstrip}, wlt=${hasWltBenefit}, book=${activeTravelBook}`,
-      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       errors.push({ userId: user.user_id, error: errorMessage });
-      logError(WORKER_NAME, `Failed for user ${user.user_id}: ${errorMessage}`);
+      logError(WORKER_NAME, `${user.user_id}: ${errorMessage}`);
     }
   }
 
   if (travelUpdates.length > 0) {
     await upsertTravelData(travelUpdates);
-    logSuccess(WORKER_NAME, `Updated ${travelUpdates.length} travel records`);
   }
 
   if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length} users failed to sync`);
+    logWarn(WORKER_NAME, `${errors.length}/${users.length} users failed`);
   }
 }
 
@@ -218,8 +210,6 @@ async function syncTravelDataHandler(): Promise<void> {
  * Default cadence is 30s (configured in DB).
  */
 export function startTravelDataWorker(): void {
-  log(WORKER_NAME, "Starting worker (DB-scheduled)...");
-
   startDbScheduledRunner({
     worker: "travel_data_worker",
     pollIntervalMs: 5000,
@@ -231,18 +221,4 @@ export function startTravelDataWorker(): void {
       });
     },
   });
-
-  // Run immediately on startup
-  executeSync({
-    name: WORKER_NAME,
-    timeout: 30000,
-    handler: syncTravelDataHandler,
-  }).catch((error) => {
-    logError(WORKER_NAME, `Initial sync failed: ${error}`);
-  });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startTravelDataWorker();
-  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

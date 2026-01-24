@@ -8,7 +8,7 @@ import { COUNTRY_CODE_MAP } from "../lib/country-codes.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
-const WORKER_NAME = "travel-stock-cache-worker";
+const WORKER_NAME = "travel_stock_cache_worker";
 const YATA_API_URL = "https://yata.yt/api/v1/travel/export/";
 const REQUEST_TIMEOUT = 15000; // 15 seconds
 const RETENTION_DAYS = 7; // Keep stock cache for last 7 days
@@ -35,8 +35,6 @@ interface YataApiResponse {
  * Updates sentinel_travel_stock_cache table every 5 minutes.
  */
 async function syncAbroadStocks(): Promise<void> {
-  log(WORKER_NAME, "Starting abroad stock sync...");
-
   // Fetch from YATA API
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -62,14 +60,8 @@ async function syncAbroadStocks(): Promise<void> {
   const data = (await response.json()) as YataApiResponse;
 
   if (!data.stocks || Object.keys(data.stocks).length === 0) {
-    log(WORKER_NAME, "No stock data received from API");
     return;
   }
-
-  log(
-    WORKER_NAME,
-    `Received data for ${Object.keys(data.stocks).length} countries`,
-  );
 
   const rows: StockCacheRow[] = [];
   const unmappedCodes: Set<string> = new Set();
@@ -79,7 +71,6 @@ async function syncAbroadStocks(): Promise<void> {
 
     if (!destination) {
       unmappedCodes.add(countryCode);
-      logWarn(WORKER_NAME, `Unknown country code: "${countryCode}" - skipping`);
       continue;
     }
 
@@ -97,45 +88,22 @@ async function syncAbroadStocks(): Promise<void> {
     }
   }
 
-  if (unmappedCodes.size > 0) {
-    logWarn(
-      WORKER_NAME,
-      `Unmapped country codes: ${Array.from(unmappedCodes).join(", ")}`,
-    );
-    logWarn(
-      WORKER_NAME,
-      "Add these to COUNTRY_CODE_MAP in country-codes.ts if they are valid Torn destinations",
-    );
-  }
-
   if (rows.length > 0) {
     await insertStockCache(rows);
-    logSuccess(
-      WORKER_NAME,
-      `Inserted ${rows.length} stock records (${Object.keys(data.stocks).length - unmappedCodes.size} countries)`,
-    );
-  } else {
-    logWarn(WORKER_NAME, "No valid stock records to insert");
   }
 
   // Cleanup old records
   try {
     await cleanupOldStockCache(RETENTION_DAYS);
-    log(
-      WORKER_NAME,
-      `Cleaned up stock cache records older than ${RETENTION_DAYS} days`,
-    );
   } catch (cleanupError) {
     logWarn(
       WORKER_NAME,
-      `Cleanup warning: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+      `Cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
     );
   }
 }
 
 export function startTravelStockCacheWorker(): void {
-  log(WORKER_NAME, "Starting worker (DB-scheduled)...");
-
   startDbScheduledRunner({
     worker: "travel_stock_cache_worker",
     pollIntervalMs: 5000,
@@ -147,18 +115,4 @@ export function startTravelStockCacheWorker(): void {
       });
     },
   });
-
-  // Run immediately on startup
-  executeSync({
-    name: WORKER_NAME,
-    timeout: 30000,
-    handler: syncAbroadStocks,
-  }).catch((error) => {
-    logError(WORKER_NAME, `Initial sync failed: ${error}`);
-  });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startTravelStockCacheWorker();
-  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }

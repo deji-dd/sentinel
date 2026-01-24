@@ -3,7 +3,7 @@
  * Handles lock mechanism to prevent overlapping syncs.
  */
 
-import { log, logError, logWarn, logSuccess } from "./logger.js";
+import { logError, logWarn, logDuration } from "./logger.js";
 
 interface SyncState {
   isRunning: boolean;
@@ -46,7 +46,6 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
       );
       state.isRunning = false;
     } else {
-      logWarn(name, `Sync already in progress. Skipping to prevent overlap.`);
       return false;
     }
   }
@@ -56,10 +55,9 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
   state.startTime = Date.now();
 
   try {
-    log(name, "Starting sync...");
     await handler();
     const duration = Date.now() - (state.startTime || 0);
-    logSuccess(name, `Sync completed in ${duration}ms`);
+    logDuration(name, "Sync completed", duration);
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

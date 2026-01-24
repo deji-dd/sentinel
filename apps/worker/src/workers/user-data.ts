@@ -9,15 +9,13 @@ import { fetchTornUserProfile } from "../services/torn.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
-const WORKER_NAME = "user-data-worker";
+const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
 
 async function syncUserDataHandler(): Promise<void> {
   const users = await getAllUsers();
-  log(WORKER_NAME, `Syncing user profiles for ${users.length} users`);
 
   if (users.length === 0) {
-    logWarn(WORKER_NAME, "No users to sync");
     return;
   }
 
@@ -48,23 +46,20 @@ async function syncUserDataHandler(): Promise<void> {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       errors.push({ userId: user.user_id, error: errorMessage });
-      logError(WORKER_NAME, `Failed for user ${user.user_id}: ${errorMessage}`);
+      logError(WORKER_NAME, `${user.user_id}: ${errorMessage}`);
     }
   }
 
   if (updates.length > 0) {
     await upsertUserData(updates);
-    logSuccess(WORKER_NAME, `Updated ${updates.length} user profiles`);
   }
 
   if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length} users failed to sync`);
+    logWarn(WORKER_NAME, `${errors.length}/${users.length} users failed`);
   }
 }
 
 export function startUserDataWorker(): void {
-  log(WORKER_NAME, "Starting worker (DB-scheduled)...");
-
   startDbScheduledRunner({
     worker: DB_WORKER_KEY,
     pollIntervalMs: 5000,
@@ -76,17 +71,4 @@ export function startUserDataWorker(): void {
       });
     },
   });
-
-  executeSync({
-    name: WORKER_NAME,
-    timeout: 30000,
-    handler: syncUserDataHandler,
-  }).catch((error) => {
-    logError(WORKER_NAME, `Initial sync failed: ${error}`);
-  });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startUserDataWorker();
-  log(WORKER_NAME, "Worker running. Press Ctrl+C to exit.");
 }
