@@ -1,6 +1,6 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logWarn, log } from "../lib/logger.js";
+import { logWarn } from "../lib/logger.js";
 import {
   getValidApiKeys,
   upsertTornItems,
@@ -73,7 +73,6 @@ async function syncTornItems(): Promise<void> {
   }
 
   await upsertTornItems(items);
-  log(WORKER_NAME, `Upserted ${items.length} items`);
 }
 
 export function startTornItemsWorker(): void {

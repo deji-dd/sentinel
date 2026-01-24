@@ -72,8 +72,7 @@ export interface UserCooldownsData {
 }
 
 export interface StockCacheRow {
-  destination: string;
-  item_name: string;
+  destination_id: number;
   item_id: number;
   quantity: number;
   cost: number;
@@ -244,6 +243,24 @@ export async function getTravelStockCache(): Promise<StockCacheRow[]> {
   }
 
   return (data || []) as StockCacheRow[];
+}
+
+export interface TornDestinationRow {
+  id: number;
+  name: string;
+  country_code: string;
+}
+
+export async function getDestinations(): Promise<TornDestinationRow[]> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TORN_DESTINATIONS)
+    .select("id, name, country_code");
+
+  if (error) {
+    throw new Error(`Failed to fetch destinations: ${error.message}`);
+  }
+
+  return (data || []) as TornDestinationRow[];
 }
 
 export async function cleanupOldStockCache(

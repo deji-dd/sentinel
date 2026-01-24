@@ -163,7 +163,8 @@ create policy if not exists sentinel_torn_items_service_role on public.sentinel_
 -- Destinations
 create table if not exists public.sentinel_torn_destinations (
   id serial primary key,
-  name text not null unique
+  name text not null unique,
+  country_code text not null unique
 );
 
 alter table public.sentinel_torn_destinations enable row level security;
@@ -195,25 +196,63 @@ create policy if not exists sentinel_destination_travel_times_service_role on pu
   with check (auth.role() = 'service_role');
 
 -- Seed destinations
-insert into public.sentinel_torn_destinations (name) values
-  ('Mexico'),
-  ('Cayman Islands'),
-  ('Canada'),
-  ('Hawaii'),
-  ('United Kingdom'),
-  ('Argentina'),
-  ('Switzerland'),
-  ('Japan'),
-  ('China'),
-  ('UAE'),
-  ('South Africa')
-on conflict (name) do nothing;
+insert into public.sentinel_torn_destinations (name, country_code) values
+  ('Mexico', 'mex'),
+  ('Cayman Islands', 'cay'),
+  ('Canada', 'can'),
+  ('Hawaii', 'haw'),
+  ('United Kingdom', 'uni'),
+  ('Argentina', 'arg'),
+  ('Switzerland', 'swi'),
+  ('Japan', 'jap'),
+  ('China', 'chi'),
+  ('United Arab Emirates', 'uae'),
+  ('South Africa', 'sou')
+on conflict (country_code) do nothing;
+
+-- Seed destination travel times (minutes)
+insert into public.sentinel_destination_travel_times (
+  destination_id,
+  standard_cost,
+  standard,
+  airstrip,
+  wlt,
+  bct,
+  standard_w_book,
+  airstrip_w_book,
+  wlt_w_book,
+  bct_w_book
+)
+select d.id,
+  v.standard_cost,
+  v.standard,
+  v.airstrip,
+  v.wlt,
+  v.bct,
+  v.standard_w_book,
+  v.airstrip_w_book,
+  v.wlt_w_book,
+  v.bct_w_book
+from (values
+  ('mex', 6500, 26, 18, 13, 8, 20, 14, 10, 6),
+  ('cay', 10000, 35, 25, 18, 11, 26, 19, 14, 8),
+  ('can', 9000, 41, 29, 20, 12, 31, 22, 15, 9),
+  ('haw', 11000, 134, 94, 67, 40, 101, 71, 50, 30),
+  ('uni', 18000, 159, 111, 80, 48, 119, 83, 60, 36),
+  ('arg', 21000, 167, 117, 83, 50, 125, 88, 62, 38),
+  ('swi', 27000, 175, 123, 88, 53, 131, 92, 66, 40),
+  ('jap', 32000, 225, 158, 113, 68, 169, 119, 85, 51),
+  ('chi', 35000, 242, 169, 121, 72, 182, 127, 91, 54),
+  ('uae', 32000, 271, 190, 135, 81, 203, 143, 101, 61),
+  ('sou', 40000, 297, 208, 149, 89, 223, 156, 112, 67)
+) as v(code, standard_cost, standard, airstrip, wlt, bct, standard_w_book, airstrip_w_book, wlt_w_book, bct_w_book)
+join public.sentinel_torn_destinations d on d.country_code = v.code
+on conflict (destination_id) do nothing;
 
 -- Travel stock cache
 create table if not exists public.sentinel_travel_stock_cache (
   id bigserial primary key,
-  destination text not null,
-  item_name text not null,
+  destination_id integer not null references public.sentinel_torn_destinations(id) on delete cascade,
   item_id integer not null,
   quantity integer not null,
   cost bigint not null,
@@ -221,7 +260,7 @@ create table if not exists public.sentinel_travel_stock_cache (
 );
 
 create index if not exists sentinel_travel_stock_cache_destination_idx
-  on public.sentinel_travel_stock_cache (destination);
+  on public.sentinel_travel_stock_cache (destination_id);
 
 create index if not exists sentinel_travel_stock_cache_item_id_idx
   on public.sentinel_travel_stock_cache (item_id);

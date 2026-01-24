@@ -3,8 +3,8 @@ import {
   insertStockCache,
   cleanupOldStockCache,
   type StockCacheRow,
+  getDestinations,
 } from "../lib/supabase.js";
-import { COUNTRY_CODE_MAP } from "../lib/country-codes.js";
 import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
@@ -63,13 +63,19 @@ async function syncAbroadStocks(): Promise<void> {
     return;
   }
 
+  const destinationMap = new Map<string, number>();
+  const destinations = await getDestinations();
+  destinations.forEach((dest) => {
+    destinationMap.set(dest.country_code.toLowerCase(), dest.id);
+  });
+
   const rows: StockCacheRow[] = [];
   const unmappedCodes: Set<string> = new Set();
 
   for (const [countryCode, countryData] of Object.entries(data.stocks)) {
-    const destination = COUNTRY_CODE_MAP[countryCode];
+    const destinationId = destinationMap.get(countryCode.toLowerCase());
 
-    if (!destination) {
+    if (!destinationId) {
       unmappedCodes.add(countryCode);
       continue;
     }
@@ -78,9 +84,8 @@ async function syncAbroadStocks(): Promise<void> {
 
     for (const item of countryData.stocks) {
       rows.push({
-        destination,
+        destination_id: destinationId,
         item_id: item.id,
-        item_name: item.name,
         quantity: item.quantity,
         cost: item.cost,
         last_updated: lastUpdated,
