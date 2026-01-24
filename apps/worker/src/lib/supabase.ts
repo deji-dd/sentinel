@@ -80,18 +80,11 @@ export interface StockCacheRow {
   last_updated: string;
 }
 
-export interface TradeItemRow {
+export interface TornItemRow {
   item_id: number;
   name: string;
-  category: string;
-  is_active?: boolean;
-}
-
-export interface MarketTrendRow {
-  item_id: number;
-  item_name: string;
-  lowest_market_price: number;
-  last_updated?: string;
+  image: string | null;
+  type: string | null;
 }
 
 export async function getAllUsers(): Promise<User[]> {
@@ -269,74 +262,16 @@ export async function cleanupOldStockCache(
   }
 }
 
-export async function upsertTradeItems(items: TradeItemRow[]): Promise<void> {
-  if (items.length === 0) return;
-
-  const { error } = await supabase.from(TABLE_NAMES.TRADE_ITEMS).upsert(items, {
-    onConflict: "item_id",
-  });
-
-  if (error) {
-    throw new Error(`Failed to upsert trade items: ${error.message}`);
-  }
-}
-
-export async function getActiveTradeItemIds(): Promise<number[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TRADE_ITEMS)
-    .select("item_id")
-    .eq("is_active", true);
-
-  if (error) {
-    throw new Error(`Failed to fetch active trade items: ${error.message}`);
-  }
-
-  return (data || []).map((row) => (row as any).item_id as number);
-}
-
-export async function upsertMarketTrends(
-  rows: MarketTrendRow[],
-): Promise<void> {
-  if (rows.length === 0) return;
+export async function upsertTornItems(items: TornItemRow[]): Promise<void> {
+  if (!items.length) return;
 
   const { error } = await supabase
-    .from(TABLE_NAMES.MARKET_TRENDS)
-    .upsert(rows, {
-      onConflict: "item_id",
-    });
+    .from(TABLE_NAMES.TORN_ITEMS)
+    .upsert(items, { onConflict: "item_id" });
 
   if (error) {
-    throw new Error(`Failed to upsert market trends: ${error.message}`);
+    throw new Error(`Failed to upsert torn items: ${error.message}`);
   }
-}
-
-export async function getMarketTrends(): Promise<MarketTrendRow[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.MARKET_TRENDS)
-    .select("*");
-
-  if (error) {
-    throw new Error(`Failed to fetch market trends: ${error.message}`);
-  }
-
-  return (data || []) as MarketTrendRow[];
-}
-
-export async function getTradeItemNames(): Promise<Map<number, string>> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TRADE_ITEMS)
-    .select("item_id, name");
-
-  if (error) {
-    throw new Error(`Failed to fetch trade item names: ${error.message}`);
-  }
-
-  const map = new Map<number, string>();
-  (data || []).forEach((row) => {
-    map.set((row as any).item_id as number, (row as any).name as string);
-  });
-
-  return map;
 }
 
 export async function getValidApiKeys(): Promise<string[]> {

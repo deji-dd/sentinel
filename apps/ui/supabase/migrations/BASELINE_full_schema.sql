@@ -145,46 +145,69 @@ create policy if not exists sentinel_user_cooldowns_service_role on public.senti
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
--- Trade items
-create table if not exists public.sentinel_trade_items (
+-- Torn items
+create table if not exists public.sentinel_torn_items (
   item_id integer primary key,
   name text not null,
-  category text not null,
-  is_active boolean not null default true
+  image text,
+  type text
 );
 
-alter table public.sentinel_trade_items enable row level security;
+alter table public.sentinel_torn_items enable row level security;
 
-create policy if not exists sentinel_trade_items_select_authenticated on public.sentinel_trade_items
-  for select
-  to authenticated
-  using (true);
-
-create policy if not exists sentinel_trade_items_service_role_all on public.sentinel_trade_items
+create policy if not exists sentinel_torn_items_service_role on public.sentinel_torn_items
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
 
--- Market trends
-create table if not exists public.sentinel_market_trends (
-  item_id integer primary key,
-  item_name text not null,
-  lowest_market_price integer not null,
-  market_value integer not null,
-  last_updated timestamptz not null default now()
+-- Destinations
+create table if not exists public.sentinel_torn_destinations (
+  id serial primary key,
+  name text not null unique
 );
 
-alter table public.sentinel_market_trends enable row level security;
+alter table public.sentinel_torn_destinations enable row level security;
 
-create policy if not exists sentinel_market_trends_select_authenticated on public.sentinel_market_trends
-  for select
-  to authenticated
-  using (true);
-
-create policy if not exists sentinel_market_trends_service_role_all on public.sentinel_market_trends
+create policy if not exists sentinel_torn_destinations_service_role on public.sentinel_torn_destinations
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
+
+-- Destination travel times (minutes)
+create table if not exists public.sentinel_destination_travel_times (
+  destination_id integer primary key references public.sentinel_torn_destinations(id) on delete cascade,
+  standard integer not null default 0,
+  airstrip integer not null default 0,
+  wlt integer not null default 0,
+  bct integer not null default 0,
+  standard_w_book integer not null default 0,
+  airstrip_w_book integer not null default 0,
+  wlt_w_book integer not null default 0,
+  bct_w_book integer not null default 0,
+  standard_cost integer not null default 0
+);
+
+alter table public.sentinel_destination_travel_times enable row level security;
+
+create policy if not exists sentinel_destination_travel_times_service_role on public.sentinel_destination_travel_times
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Seed destinations
+insert into public.sentinel_torn_destinations (name) values
+  ('Mexico'),
+  ('Cayman Islands'),
+  ('Canada'),
+  ('Hawaii'),
+  ('United Kingdom'),
+  ('Argentina'),
+  ('Switzerland'),
+  ('Japan'),
+  ('China'),
+  ('UAE'),
+  ('South Africa')
+on conflict (name) do nothing;
 
 -- Travel stock cache
 create table if not exists public.sentinel_travel_stock_cache (
@@ -366,23 +389,23 @@ create policy if not exists sentinel_worker_logs_service_role on public.sentinel
 
 -- Seed workers and schedules
 insert into public.sentinel_workers (name) values
-  ('market_trends_worker'),
   ('travel_stock_cache_worker'),
   ('travel_data_worker'),
   ('user_data_worker'),
   ('user_bars_worker'),
-  ('user_cooldowns_worker')
+  ('user_cooldowns_worker'),
+  ('torn_items_worker')
 on conflict (name) do nothing;
 
 insert into public.sentinel_worker_schedules (worker_id, enabled, cadence_seconds, next_run_at)
 select id, true,
   case name
-    when 'market_trends_worker' then 300
     when 'travel_stock_cache_worker' then 300
     when 'travel_data_worker' then 30
     when 'user_data_worker' then 3600
     when 'user_bars_worker' then 30
     when 'user_cooldowns_worker' then 30
+    when 'torn_items_worker' then 86400
   end as cadence_seconds,
   now()
 from public.sentinel_workers

@@ -13,6 +13,7 @@ export interface RunConfig {
   defaultCadenceSeconds: number;
   pollIntervalMs?: number;
   handler: () => Promise<void | boolean>;
+  initialNextRunAt?: string;
 }
 
 export function startDbScheduledRunner(config: RunConfig): NodeJS.Timer {
@@ -21,10 +22,11 @@ export function startDbScheduledRunner(config: RunConfig): NodeJS.Timer {
     defaultCadenceSeconds,
     pollIntervalMs = 5000,
     handler,
+    initialNextRunAt,
   } = config;
 
   let workerId: string | null = null;
-  ensureWorkerRegistered(worker, defaultCadenceSeconds)
+  ensureWorkerRegistered(worker, defaultCadenceSeconds, initialNextRunAt)
     .then((row) => {
       workerId = row.id;
     })

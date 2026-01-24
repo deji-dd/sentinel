@@ -1,9 +1,9 @@
 import { startTravelDataWorker } from "./workers/travel-data.js";
 import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
-import { startMarketTrendsWorker } from "./workers/market-trends.js";
 import { startUserDataWorker } from "./workers/user-data.js";
 import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
+import { startTornItemsWorker } from "./workers/torn-items.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -16,8 +16,8 @@ function startAllWorkers(): void {
     // Travel stock cache worker (every 5 minutes)
     startTravelStockCacheWorker();
 
-    // Market trends worker (every 5 minutes)
-    startMarketTrendsWorker();
+    // Torn items worker (daily at ~03:00 UTC)
+    startTornItemsWorker();
 
     // User data worker (every hour)
     startUserDataWorker();

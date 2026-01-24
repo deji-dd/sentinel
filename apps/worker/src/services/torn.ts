@@ -85,9 +85,10 @@ export interface TornUserProfileResponse {
 }
 
 export interface TornItem {
-  id: number;
+  id: number | string;
   name: string;
-  type: string;
+  type?: string | null;
+  image?: string | null;
 }
 
 export interface TornItemsResponseArray {

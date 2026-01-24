@@ -8,6 +8,7 @@ export const TABLE_NAMES = {
   WORKERS: "sentinel_workers",
   WORKER_SCHEDULES: "sentinel_worker_schedules",
   WORKER_LOGS: "sentinel_worker_logs",
-  TRADE_ITEMS: "sentinel_trade_items",
-  MARKET_TRENDS: "sentinel_market_trends",
+  TORN_ITEMS: "sentinel_torn_items",
+  TORN_DESTINATIONS: "sentinel_torn_destinations",
+  DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
 } as const;

@@ -30,6 +30,7 @@ export interface WorkerLogRow {
 export async function ensureWorkerRegistered(
   name: string,
   cadenceSeconds: number,
+  initialNextRunAt?: string,
 ): Promise<WorkerRow> {
   let workerRow: WorkerRow | null = null;
 
@@ -68,7 +69,7 @@ export async function ensureWorkerRegistered(
       {
         worker_id: workerRow.id,
         cadence_seconds: cadenceSeconds,
-        next_run_at: new Date().toISOString(),
+        next_run_at: initialNextRunAt || new Date().toISOString(),
       },
       { onConflict: "worker_id" },
     );

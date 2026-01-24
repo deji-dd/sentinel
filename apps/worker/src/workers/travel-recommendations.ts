@@ -3,7 +3,6 @@ import { decrypt } from "../lib/encryption.js";
 import {
   getAllUsers,
   getTravelDataByUserIds,
-  getMarketTrends,
   getTravelStockCache,
   getUserBarsByUserIds,
   getUserCooldownsByUserIds,
@@ -40,10 +39,7 @@ async function syncTravelRecommendations(): Promise<void> {
   }
 
   // Gather general data needed for recommendations
-  const [marketTrends, travelStockCache] = await Promise.all([
-    getMarketTrends(),
-    getTravelStockCache(),
-  ]);
+  const travelStockCache = await getTravelStockCache();
 
   const [barsByUser, cooldownsByUser] = await Promise.all([
     getUserBarsByUserIds(eligibleUsers.map((u) => u.user_id)),
@@ -66,7 +62,7 @@ async function syncTravelRecommendations(): Promise<void> {
 
   log(
     WORKER_NAME,
-    `Prepared ${eligibleUsers.length} users for recommendations | market trends: ${marketTrends.length} | stock cache: ${travelStockCache.length} | bars: ${barsByUser.size} | cooldowns: ${cooldownsByUser.size}`,
+    `Prepared ${eligibleUsers.length} users for recommendations | stock cache: ${travelStockCache.length} | bars: ${barsByUser.size} | cooldowns: ${cooldownsByUser.size}`,
   );
 }
 
