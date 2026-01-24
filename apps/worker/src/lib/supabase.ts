@@ -60,6 +60,10 @@ export interface UserBarsData {
   happy_maximum: number;
   life_current: number;
   life_maximum: number;
+  energy_flat_time_to_full?: number;
+  energy_time_to_full?: number;
+  nerve_flat_time_to_full?: number;
+  nerve_time_to_full?: number;
   updated_at?: string;
 }
 
@@ -236,7 +240,9 @@ export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
 export async function getTravelStockCache(): Promise<StockCacheRow[]> {
   const { data, error } = await supabase
     .from("sentinel_travel_stock_cache")
-    .select("*");
+    .select("*")
+    .order("last_updated", { ascending: false })
+    .range(0, 100000); // Fetch up to 100k rows (currently ~24k), newest first
 
   if (error) {
     throw new Error(`Failed to fetch travel stock cache: ${error.message}`);
@@ -312,4 +318,60 @@ export async function getValidApiKeys(): Promise<string[]> {
       }
     })
     .filter((key) => key && key.length > 0) as string[];
+}
+
+export interface DestinationTravelTime {
+  destination_id: number;
+  standard: number;
+  airstrip: number;
+  wlt: number;
+  bct: number;
+  standard_w_book: number;
+  airstrip_w_book: number;
+  wlt_w_book: number;
+  bct_w_book: number;
+  standard_cost: number;
+}
+
+export async function getDestinationTravelTimes(): Promise<
+  DestinationTravelTime[]
+> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.DESTINATION_TRAVEL_TIMES)
+    .select("*");
+
+  if (error) {
+    throw new Error(
+      `Failed to fetch destination travel times: ${error.message}`,
+    );
+  }
+
+  return (data || []) as DestinationTravelTime[];
+}
+
+export interface TravelRecommendation {
+  user_id: string;
+  destination_id: number;
+  best_item_id?: number | null;
+  profit_per_trip?: number | null;
+  profit_per_minute?: number | null;
+  round_trip_minutes?: number | null;
+  recommendation_rank?: number | null;
+  message?: string | null;
+}
+
+export async function upsertTravelRecommendations(
+  recommendations: TravelRecommendation[],
+): Promise<void> {
+  if (!recommendations.length) return;
+
+  const { error } = await supabase
+    .from(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)
+    .upsert(recommendations, { onConflict: "user_id,destination_id" });
+
+  if (error) {
+    throw new Error(
+      `Failed to upsert travel recommendations: ${error.message}`,
+    );
+  }
 }

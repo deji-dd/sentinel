@@ -1,5 +1,6 @@
 import { startTravelDataWorker } from "./workers/travel-data.js";
 import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
+import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
 import { startUserDataWorker } from "./workers/user-data.js";
 import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
@@ -15,6 +16,9 @@ function startAllWorkers(): void {
 
     // Travel stock cache worker (every 5 minutes)
     startTravelStockCacheWorker();
+
+    // Travel recommendations worker (every 5 minutes)
+    startTravelRecommendationsWorker();
 
     // Torn items worker (daily at ~03:00 UTC)
     startTornItemsWorker();

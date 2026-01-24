@@ -229,3 +229,83 @@ on conflict (worker_id) do nothing;
 
 -- Refresh PostgREST schema cache so new columns are visible immediately
 notify pgrst, 'reload schema';
+
+-- Add time-to-full columns to sentinel_user_bars
+alter table public.sentinel_user_bars
+  add column if not exists energy_flat_time_to_full integer;
+
+alter table public.sentinel_user_bars
+  add column if not exists energy_time_to_full integer;
+
+alter table public.sentinel_user_bars
+  add column if not exists nerve_flat_time_to_full integer;
+
+alter table public.sentinel_user_bars
+  add column if not exists nerve_time_to_full integer;
+
+-- Update sentinel_travel_recommendations: add destination_id, best_item_id, message
+alter table public.sentinel_travel_recommendations
+  add column if not exists destination_id integer;
+
+alter table public.sentinel_travel_recommendations
+  add column if not exists best_item_id integer;
+
+alter table public.sentinel_travel_recommendations
+  add column if not exists message text;
+
+-- Backfill destination_id from destination name
+update public.sentinel_travel_recommendations r
+set destination_id = d.id
+from public.sentinel_torn_destinations d
+where r.destination_id is null
+  and lower(r.destination) = lower(d.name);
+
+-- Backfill best_item_id from best_item name
+update public.sentinel_travel_recommendations r
+set best_item_id = i.item_id
+from public.sentinel_torn_items i
+where r.best_item_id is null
+  and r.best_item = i.name;
+
+-- Copy status to message
+update public.sentinel_travel_recommendations
+set message = status
+where message is null and status is not null;
+
+-- Drop legacy columns
+alter table public.sentinel_travel_recommendations
+  drop column if exists destination;
+
+alter table public.sentinel_travel_recommendations
+  drop column if exists best_item;
+
+alter table public.sentinel_travel_recommendations
+  drop column if exists status;
+
+-- Add FK constraint for destination_id if missing
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.sentinel_travel_recommendations'::regclass
+      and conname = 'sentinel_travel_recommendations_destination_id_fkey'
+  ) then
+    alter table public.sentinel_travel_recommendations
+      add constraint sentinel_travel_recommendations_destination_id_fkey
+      foreign key (destination_id) references public.sentinel_torn_destinations(id) on delete cascade;
+  end if;
+end$$;
+
+-- Enforce NOT NULL on destination_id
+alter table public.sentinel_travel_recommendations
+  alter column destination_id set not null;
+
+-- Drop old unique index and create new one
+drop index if exists public.sentinel_travel_recommendations_user_destination_idx;
+
+create unique index if not exists sentinel_travel_recommendations_user_destination_idx
+  on public.sentinel_travel_recommendations (user_id, destination_id);
+
+-- Refresh schema again for travel_recommendations changes
+notify pgrst, 'reload schema';

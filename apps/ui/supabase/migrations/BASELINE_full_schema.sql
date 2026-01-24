@@ -112,6 +112,10 @@ create table if not exists public.sentinel_user_bars (
   happy_maximum integer not null default 0,
   life_current integer not null default 0,
   life_maximum integer not null default 0,
+  energy_flat_time_to_full integer,
+  energy_time_to_full integer,
+  nerve_flat_time_to_full integer,
+  nerve_time_to_full integer,
   updated_at timestamptz not null default now()
 );
 
@@ -280,19 +284,19 @@ create policy sentinel_travel_stock_cache_service_role on public.sentinel_travel
 create table if not exists public.sentinel_travel_recommendations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  destination text not null,
-  best_item text,
+  destination_id integer not null references public.sentinel_torn_destinations(id) on delete cascade,
+  best_item_id integer,
   profit_per_trip bigint,
   profit_per_minute numeric,
   round_trip_minutes integer,
   recommendation_rank integer,
-  status text,
+  message text,
   updated_at timestamptz not null default now()
 );
 
--- Composite unique index for upsert operations (user_id, destination)
+-- Composite unique index for upsert operations (user_id, destination_id)
 create unique index if not exists sentinel_travel_recommendations_user_destination_idx
-  on public.sentinel_travel_recommendations (user_id, destination);
+  on public.sentinel_travel_recommendations (user_id, destination_id);
 
 -- Additional indexes for common query patterns
 create index if not exists sentinel_travel_recommendations_user_id_idx

@@ -2,6 +2,8 @@ const TORN_API_BASE = "https://api.torn.com/v2";
 const TORN_API_V1_BASE = "https://api.torn.com";
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 
+import { tornRateLimiter } from "../lib/rate-limiter.js";
+
 const TORN_ERROR_CODES: Record<number, string> = {
   0: "Unknown error: An unhandled error occurred",
   1: "Key is empty: API key is empty in current request",
@@ -119,6 +121,9 @@ export type TornItemsResponse =
   | { error?: { code: number; error: string } };
 
 async function fetchTorn<T>(url: string): Promise<T> {
+  // Apply rate limiting before making the request
+  await tornRateLimiter.waitIfNeeded();
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
