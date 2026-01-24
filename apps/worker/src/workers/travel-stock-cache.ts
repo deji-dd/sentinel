@@ -5,7 +5,7 @@ import {
   type StockCacheRow,
   getDestinations,
 } from "../lib/supabase.js";
-import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
+import { logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
 const WORKER_NAME = "travel_stock_cache_worker";

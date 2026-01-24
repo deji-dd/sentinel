@@ -11,17 +11,23 @@
     "start": "node --env-file=.env dist/index.js",
     "start:sync-users": "node --env-file=.env dist/workers/sync-users.js",
     "task": "tsx --env-file=.env",
-    "trigger": "tsx --env-file=.env trigger.ts"
+    "trigger": "tsx --env-file=.env trigger.ts",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.0",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
-    "typescript": "^5",
-    "tsx": "^4"
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
+    "globals": "^17.1.0",
+    "tsx": "^4",
+    "typescript": "^5"
   },
   "keywords": [],
   "author": "",

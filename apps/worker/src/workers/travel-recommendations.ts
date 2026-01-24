@@ -50,7 +50,6 @@ async function syncTravelRecommendations(): Promise<void> {
     return isEligible;
   });
 
-  
   if (!eligibleUsers.length) {
     return;
   }
@@ -80,7 +79,8 @@ async function syncTravelRecommendations(): Promise<void> {
   for (const user of eligibleUsers) {
     try {
       apiKeysByUser.set(user.user_id, decrypt(user.api_key));
-    } catch (error) {
+    } catch {
+      // Ignore decryption errors for individual users
     }
   }
 
@@ -101,7 +101,6 @@ async function syncTravelRecommendations(): Promise<void> {
     const cooldowns = cooldownsByUser.get(userId);
     const apiKey = apiKeysByUser.get(userId);
 
-   
     if (!travel || !bars || !cooldowns || !apiKey) {
       continue;
     }
@@ -111,13 +110,10 @@ async function syncTravelRecommendations(): Promise<void> {
     const hasWlt = travel.has_wlt_benefit || false;
     const hasBook = travel.active_travel_book || false;
 
-    let userRecCount = 0;
-
     // Process each destination
     for (const dest of destinations) {
       const travelTime = travelTimesByDestId.get(dest.id);
       if (!travelTime) {
-        
         continue;
       }
 
@@ -140,11 +136,9 @@ async function syncTravelRecommendations(): Promise<void> {
 
       // Filter: flight time vs bars/cooldowns
       if (roundTripSeconds > (bars.energy_flat_time_to_full || Infinity)) {
-        
         continue;
       }
       if (roundTripSeconds > (bars.nerve_flat_time_to_full || Infinity)) {
-       
         continue;
       }
       if (roundTripSeconds > (cooldowns.drug || 0)) {
@@ -156,7 +150,6 @@ async function syncTravelRecommendations(): Promise<void> {
         (row) => row.destination_id === dest.id,
       );
 
-    
       if (!destStockCache.length) {
         continue;
       }
@@ -188,10 +181,7 @@ async function syncTravelRecommendations(): Promise<void> {
         const ageMinutes =
           (now.getTime() - lastUpdated.getTime()) / (1000 * 60);
 
-       
-
         if (ageMinutes > STOCK_STALENESS_MINUTES) {
-          
           continue;
         }
 
@@ -204,14 +194,13 @@ async function syncTravelRecommendations(): Promise<void> {
             continue;
           }
           marketPrice = listings[0].price;
-        } catch (error) {
+        } catch {
+          // Skip items with market fetch errors
           continue;
         }
 
         const stockCost = latest.cost;
         const profitPerItem = marketPrice - stockCost;
-
-        
 
         // Drop items with negative ROI
         if (profitPerItem <= 0) {
@@ -227,8 +216,6 @@ async function syncTravelRecommendations(): Promise<void> {
           roundTripMinutes,
           now,
         );
-
-        
 
         // Drop if projected quantity < capacity
         if (projected < capacity) {
@@ -249,9 +236,7 @@ async function syncTravelRecommendations(): Promise<void> {
       // Sort by ROI descending
       itemRois.sort((a, b) => b.roi - a.roi);
 
-   
       if (!itemRois.length) {
-       
         continue;
       }
 
@@ -287,13 +272,8 @@ async function syncTravelRecommendations(): Promise<void> {
         round_trip_minutes: roundTripMinutes,
         message,
       });
-
-      userRecCount++;
     }
-
   }
-
- 
 
   // Assign recommendation_rank per user (1 = best profit_per_minute)
   const byUser = new Map<string, TravelRecommendation[]>();
@@ -304,14 +284,13 @@ async function syncTravelRecommendations(): Promise<void> {
     byUser.get(rec.user_id)!.push(rec);
   }
 
-  for (const [userId, recs] of byUser.entries()) {
+  for (const [_userId, recs] of byUser.entries()) {
     recs.sort(
       (a, b) => (b.profit_per_minute || 0) - (a.profit_per_minute || 0),
     );
     recs.forEach((rec, idx) => {
       rec.recommendation_rank = idx + 1;
     });
-    
   }
 
   if (allRecommendations.length > 0) {
@@ -328,7 +307,7 @@ async function syncTravelRecommendations(): Promise<void> {
 function calculateProjectedQuantity(
   stockRecords: StockCacheRow[],
   flightTimeMinutes: number,
-  now: Date,
+  _now: Date,
 ): number {
   if (stockRecords.length < 2) {
     return stockRecords[0]?.quantity || 0;

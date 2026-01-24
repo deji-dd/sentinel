@@ -5,12 +5,16 @@ import {
   upsertUserData,
   type UserProfileData,
 } from "../lib/supabase.js";
-import { fetchTornUserProfile } from "../services/torn.js";
-import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
+import {
+  fetchTornUserProfile,
+  fetchTornUserDiscord,
+} from "../services/torn.js";
+import { log, logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
+const DISCORD_WORKER_KEY = "user_discord_worker";
 
 async function syncUserDataHandler(): Promise<void> {
   const users = await getAllUsers();
@@ -59,16 +63,83 @@ async function syncUserDataHandler(): Promise<void> {
   }
 }
 
+async function syncDiscordHandler(): Promise<void> {
+  const users = await getAllUsers();
+
+  if (users.length === 0) {
+    return;
+  }
+
+  const updates: UserProfileData[] = [];
+  const errors: Array<{ userId: string; error: string }> = [];
+
+  for (const user of users) {
+    try {
+      const apiKey = decrypt(user.api_key);
+
+      // Fetch discord data
+      let discordId: string | null = null;
+      try {
+        const discordResponse = await fetchTornUserDiscord(apiKey);
+        discordId = discordResponse.discord?.discord_id || null;
+      } catch {
+        // Discord link is optional, continue without it
+        log(WORKER_NAME, `${user.user_id}: No Discord linked`);
+      }
+
+      updates.push({
+        user_id: user.user_id,
+        discord_id: discordId,
+      } as UserProfileData);
+    } catch (_error) {
+      const errorMessage =
+        _error instanceof Error ? _error.message : String(_error);
+      errors.push({ userId: user.user_id, error: errorMessage });
+      logError(
+        WORKER_NAME,
+        `${user.user_id}: Discord sync failed - ${errorMessage}`,
+      );
+    }
+  }
+
+  if (updates.length > 0) {
+    await upsertUserData(updates);
+    log(WORKER_NAME, `Discord sync: Updated ${updates.length} users`);
+  }
+
+  if (errors.length > 0) {
+    logWarn(
+      WORKER_NAME,
+      `Discord sync: ${errors.length}/${users.length} users failed`,
+    );
+  }
+}
+
 export function startUserDataWorker(): void {
+  // Hourly profile sync
   startDbScheduledRunner({
     worker: DB_WORKER_KEY,
-    defaultCadenceSeconds: 3600,
+    defaultCadenceSeconds: 3600, // 1 hour
     pollIntervalMs: 5000,
     handler: async () => {
       return await executeSync({
         name: WORKER_NAME,
         timeout: 30000,
         handler: syncUserDataHandler,
+      });
+    },
+  });
+
+  // Daily discord sync (separate worker)
+  startDbScheduledRunner({
+    worker: DISCORD_WORKER_KEY,
+    defaultCadenceSeconds: 86400, // 24 hours
+    pollIntervalMs: 5000,
+    handler: async () => {
+      return await executeSync({
+        name: "discord_sync",
+        timeout: 30000,
+        handler: syncDiscordHandler,
       });
     },
   });

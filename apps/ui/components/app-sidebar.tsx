@@ -77,7 +77,7 @@ export function AppSidebar() {
       if (!userId) return null;
 
       const { data, error } = await supabase
-        .from(TABLE_NAMES.USERS)
+        .from(TABLE_NAMES.USER_DATA)
         .select("name, player_id")
         .eq("user_id", userId)
         .maybeSingle();

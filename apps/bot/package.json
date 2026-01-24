@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.0",
@@ -16,7 +17,12 @@
     "dotenv": "^17.2.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^20",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
+    "globals": "^17.1.0",
     "ts-node": "^10.9.2",
     "tsx": "^4",
     "typescript": "^5"

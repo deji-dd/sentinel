@@ -233,6 +233,25 @@ export async function fetchTornUserCooldowns(
   );
 }
 
+export interface TornUserDiscordResponse {
+  discord?: {
+    discord_id: string;
+    user_id: number;
+  };
+  error?: {
+    code: number;
+    error: string;
+  };
+}
+
+export async function fetchTornUserDiscord(
+  apiKey: string,
+): Promise<TornUserDiscordResponse> {
+  return fetchTorn<TornUserDiscordResponse>(
+    `${TORN_API_BASE}/user/discord?key=${apiKey}`,
+  );
+}
+
 export async function fetchTornItems(
   apiKey: string,
 ): Promise<TornItemsResponse> {

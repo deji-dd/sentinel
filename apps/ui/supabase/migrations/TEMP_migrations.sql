@@ -300,17 +300,65 @@ drop index if exists public.sentinel_travel_recommendations_user_destination_idx
 create unique index if not exists sentinel_travel_recommendations_user_destination_idx
   on public.sentinel_travel_recommendations (user_id, destination_id);
 
+-- Drop player_id and name from sentinel_users (moved to sentinel_user_data)
+alter table public.sentinel_users 
+  drop column if exists player_id,
+  drop column if exists name;
+
+drop index if exists public.sentinel_users_player_id_idx;
+
+-- Add discord_id to sentinel_user_data
+alter table public.sentinel_user_data
+  add column if not exists discord_id text unique;
+
+create index if not exists sentinel_user_data_discord_id_idx
+  on public.sentinel_user_data (discord_id)
+  where discord_id is not null;
+
 -- Refresh schema again for travel_recommendations changes
 notify pgrst, 'reload schema';  -- Update workers seed: add torn_items_worker (daily cadence)
-  insert into public.sentinel_workers (name)
-  values ('torn_items_worker')
-  on conflict (name) do nothing;
 
-  insert into public.sentinel_worker_schedules (worker_id, enabled, cadence_seconds, next_run_at)
-  select id, true, 86400, now()
-  from public.sentinel_workers
-  where name = 'torn_items_worker'
-  on conflict (worker_id) do nothing;
+-- Drop player_id and name from sentinel_users (moved to sentinel_user_data)
+alter table public.sentinel_users 
+  drop column if exists player_id,
+  drop column if exists name;
+
+drop index if exists public.sentinel_users_player_id_idx;
+
+-- Add discord_id to sentinel_user_data
+alter table public.sentinel_user_data
+  add column if not exists discord_id text unique;
+
+create index if not exists sentinel_user_data_discord_id_idx
+  on public.sentinel_user_data (discord_id)
+  where discord_id is not null;
+
+-- Final schema refresh
+notify pgrst, 'reload schema';
+
+-- Update workers seed: add torn_items_worker (daily cadence)
+insert into public.sentinel_workers (name)
+values ('torn_items_worker')
+on conflict (name) do nothing;
+
+insert into public.sentinel_worker_schedules (worker_id, enabled, cadence_seconds, next_run_at)
+select id, true, 86400, now()
+from public.sentinel_workers
+where name = 'torn_items_worker'
+on conflict (worker_id) do nothing;
+
+-- Add user_discord_worker (daily cadence for discord sync)
+insert into public.sentinel_workers (name)
+values ('user_discord_worker')
+on conflict (name) do nothing;
+
+insert into public.sentinel_worker_schedules (worker_id, enabled, cadence_seconds, next_run_at)
+select id, true, 86400, now()
+from public.sentinel_workers
+where name = 'user_discord_worker'
+on conflict (worker_id) do nothing;
+
+insert into public.sentinel_workers (name) values
   ('user_data_worker'),
   ('user_bars_worker'),
   ('user_cooldowns_worker')
@@ -323,6 +371,7 @@ select id, true,
     when 'travel_stock_cache_worker' then 300
     when 'travel_data_worker' then 30
     when 'user_data_worker' then 3600
+    when 'user_discord_worker' then 86400
     when 'user_bars_worker' then 30
     when 'user_cooldowns_worker' then 30
   end as cadence_seconds,

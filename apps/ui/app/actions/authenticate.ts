@@ -146,15 +146,13 @@ export async function authenticateTornUser(apiKey: string) {
       }
     }
 
-    // Store the API key and player_id securely with application-level encryption
+    // Store the API key securely with application-level encryption
     const encryptedKey = encrypt(apiKey);
 
     const { error: upsertError } = await admin.from(TABLE_NAMES.USERS).upsert(
       {
         user_id: userId,
         api_key: encryptedKey,
-        player_id: parseInt(playerId),
-        name: null, // Will be populated by sync worker
       },
       { onConflict: "user_id" },
     );
