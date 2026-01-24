@@ -5,7 +5,9 @@ export const TABLE_NAMES = {
   USER_BARS: "sentinel_user_bars",
   USER_COOLDOWNS: "sentinel_user_cooldowns",
   TRAVEL_DATA: "sentinel_travel_data",
+  WORKERS: "sentinel_workers",
   WORKER_SCHEDULES: "sentinel_worker_schedules",
+  WORKER_LOGS: "sentinel_worker_logs",
   TRADE_ITEMS: "sentinel_trade_items",
   MARKET_TRENDS: "sentinel_market_trends",
 } as const;

@@ -10,7 +10,7 @@ function startAllWorkers(): void {
   logSection("🚀 Starting Sentinel workers");
 
   try {
-    // Travel data worker (dynamic timing, default 30s)
+    // Travel data worker (fixed 30s cadence)
     startTravelDataWorker();
 
     // Travel stock cache worker (every 5 minutes)

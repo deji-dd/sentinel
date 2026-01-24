@@ -109,12 +109,11 @@ function computeCapacityFromPerks(params: {
 
 /**
  * Travel data worker - syncs travel status and capacity from Torn API.
- * Updates sentinel_travel_data table with dynamic timing based on travel status.
+ * Updates sentinel_travel_data table on a fixed cadence (30s default).
  *
  * Logic:
  * - Fetches travel status and capacity for all users
  * - Updates travel destination, method, times, capacity
- * - Dynamic timing: polls more frequently when users are traveling
  */
 async function syncTravelDataHandler(): Promise<void> {
   const users = await getAllUsers();
@@ -212,9 +211,10 @@ async function syncTravelDataHandler(): Promise<void> {
 export function startTravelDataWorker(): void {
   startDbScheduledRunner({
     worker: "travel_data_worker",
+    defaultCadenceSeconds: 30,
     pollIntervalMs: 5000,
     handler: async () => {
-      await executeSync({
+      return await executeSync({
         name: WORKER_NAME,
         timeout: 30000,
         handler: syncTravelDataHandler,

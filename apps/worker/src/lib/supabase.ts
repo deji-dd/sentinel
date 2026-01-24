@@ -107,6 +107,28 @@ export async function getAllUsers(): Promise<User[]> {
   return data || [];
 }
 
+export async function getTravelDataByUserIds(
+  userIds: string[],
+): Promise<Map<string, TravelData>> {
+  const map = new Map<string, TravelData>();
+  if (!userIds.length) return map;
+
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TRAVEL_DATA)
+    .select("*")
+    .in("user_id", userIds);
+
+  if (error) {
+    throw new Error(`Failed to fetch travel data: ${error.message}`);
+  }
+
+  (data || []).forEach((row) => {
+    map.set((row as any).user_id as string, row as TravelData);
+  });
+
+  return map;
+}
+
 export async function upsertTravelData(updates: TravelData[]): Promise<void> {
   if (updates.length === 0) return;
 
@@ -147,6 +169,28 @@ export async function upsertUserBars(updates: UserBarsData[]): Promise<void> {
   }
 }
 
+export async function getUserBarsByUserIds(
+  userIds: string[],
+): Promise<Map<string, UserBarsData>> {
+  const map = new Map<string, UserBarsData>();
+  if (!userIds.length) return map;
+
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.USER_BARS)
+    .select("*")
+    .in("user_id", userIds);
+
+  if (error) {
+    throw new Error(`Failed to fetch user bars: ${error.message}`);
+  }
+
+  (data || []).forEach((row) => {
+    map.set((row as any).user_id as string, row as UserBarsData);
+  });
+
+  return map;
+}
+
 export async function upsertUserCooldowns(
   updates: UserCooldownsData[],
 ): Promise<void> {
@@ -163,6 +207,28 @@ export async function upsertUserCooldowns(
   }
 }
 
+export async function getUserCooldownsByUserIds(
+  userIds: string[],
+): Promise<Map<string, UserCooldownsData>> {
+  const map = new Map<string, UserCooldownsData>();
+  if (!userIds.length) return map;
+
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.USER_COOLDOWNS)
+    .select("*")
+    .in("user_id", userIds);
+
+  if (error) {
+    throw new Error(`Failed to fetch user cooldowns: ${error.message}`);
+  }
+
+  (data || []).forEach((row) => {
+    map.set((row as any).user_id as string, row as UserCooldownsData);
+  });
+
+  return map;
+}
+
 export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
   if (rows.length === 0) return;
 
@@ -173,6 +239,18 @@ export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
   if (error) {
     throw new Error(`Failed to insert stock cache: ${error.message}`);
   }
+}
+
+export async function getTravelStockCache(): Promise<StockCacheRow[]> {
+  const { data, error } = await supabase
+    .from("sentinel_travel_stock_cache")
+    .select("*");
+
+  if (error) {
+    throw new Error(`Failed to fetch travel stock cache: ${error.message}`);
+  }
+
+  return (data || []) as StockCacheRow[];
 }
 
 export async function cleanupOldStockCache(
@@ -230,6 +308,18 @@ export async function upsertMarketTrends(
   if (error) {
     throw new Error(`Failed to upsert market trends: ${error.message}`);
   }
+}
+
+export async function getMarketTrends(): Promise<MarketTrendRow[]> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.MARKET_TRENDS)
+    .select("*");
+
+  if (error) {
+    throw new Error(`Failed to fetch market trends: ${error.message}`);
+  }
+
+  return (data || []) as MarketTrendRow[];
 }
 
 export async function getTradeItemNames(): Promise<Map<number, string>> {

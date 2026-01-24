@@ -63,9 +63,10 @@ async function syncUserBarsHandler(): Promise<void> {
 export function startUserBarsWorker(): void {
   startDbScheduledRunner({
     worker: DB_WORKER_KEY,
+    defaultCadenceSeconds: 30,
     pollIntervalMs: 5000,
     handler: async () => {
-      await executeSync({
+      return await executeSync({
         name: WORKER_NAME,
         timeout: 30000,
         handler: syncUserBarsHandler,

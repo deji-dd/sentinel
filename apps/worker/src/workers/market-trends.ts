@@ -77,9 +77,10 @@ async function syncMarketPrices(): Promise<void> {
 export function startMarketTrendsWorker(): void {
   startDbScheduledRunner({
     worker: "market_trends_worker",
+    defaultCadenceSeconds: 300,
     pollIntervalMs: 5000,
     handler: async () => {
-      await executeSync({
+      return await executeSync({
         name: WORKER_NAME,
         timeout: 120000,
         handler: syncMarketPrices,

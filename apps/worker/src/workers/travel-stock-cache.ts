@@ -106,9 +106,10 @@ async function syncAbroadStocks(): Promise<void> {
 export function startTravelStockCacheWorker(): void {
   startDbScheduledRunner({
     worker: "travel_stock_cache_worker",
+    defaultCadenceSeconds: 300,
     pollIntervalMs: 5000,
     handler: async () => {
-      await executeSync({
+      return await executeSync({
         name: WORKER_NAME,
         timeout: 30000,
         handler: syncAbroadStocks,

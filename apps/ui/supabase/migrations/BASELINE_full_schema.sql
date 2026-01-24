@@ -299,20 +299,31 @@ create policy if not exists sentinel_travel_data_service_role on public.sentinel
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
 
+-- Workers registry
+create table if not exists public.sentinel_workers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.sentinel_workers enable row level security;
+
+create policy if not exists sentinel_workers_service_role on public.sentinel_workers
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
 -- Worker schedules (per-worker, DB-driven)
 create table if not exists public.sentinel_worker_schedules (
-  worker text primary key,
+  worker_id uuid primary key references public.sentinel_workers(id) on delete cascade,
   enabled boolean not null default true,
   force_run boolean not null default false,
   cadence_seconds integer not null,
   next_run_at timestamptz not null,
   last_run_at timestamptz,
-  status text,
-  error_message text,
   attempts integer not null default 0,
   backoff_until timestamptz,
-  locked_by text,
-  locked_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -322,15 +333,84 @@ create index if not exists idx_sentinel_worker_schedules_next_run
 
 alter table public.sentinel_worker_schedules enable row level security;
 
-insert into public.sentinel_worker_schedules (worker, enabled, cadence_seconds, next_run_at)
-values 
-  ('market_trends_worker', true, 300, now()),
-  ('travel_stock_cache_worker', true, 300, now()),
-  ('travel_data_worker', true, 30, now()),
-  ('user_data_worker', true, 3600, now()),
-  ('user_bars_worker', true, 30, now()),
-  ('user_cooldowns_worker', true, 30, now())
-on conflict (worker) do nothing;
+create policy if not exists sentinel_worker_schedules_service_role on public.sentinel_worker_schedules
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Worker run logs
+create table if not exists public.sentinel_worker_logs (
+  id bigserial primary key,
+  worker_id uuid not null references public.sentinel_workers(id) on delete cascade,
+  run_started_at timestamptz not null default now(),
+  run_finished_at timestamptz,
+  duration_ms integer,
+  status text not null check (status in ('success','error')),
+  message text,
+  error_message text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists sentinel_worker_logs_worker_id_idx
+  on public.sentinel_worker_logs (worker_id);
+
+create index if not exists sentinel_worker_logs_run_started_idx
+  on public.sentinel_worker_logs (run_started_at);
+
+alter table public.sentinel_worker_logs enable row level security;
+
+create policy if not exists sentinel_worker_logs_service_role on public.sentinel_worker_logs
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Seed workers and schedules
+insert into public.sentinel_workers (name) values
+  ('market_trends_worker'),
+  ('travel_stock_cache_worker'),
+  ('travel_data_worker'),
+  ('user_data_worker'),
+  ('user_bars_worker'),
+  ('user_cooldowns_worker')
+on conflict (name) do nothing;
+
+insert into public.sentinel_worker_schedules (worker_id, enabled, cadence_seconds, next_run_at)
+select id, true,
+  case name
+    when 'market_trends_worker' then 300
+    when 'travel_stock_cache_worker' then 300
+    when 'travel_data_worker' then 30
+    when 'user_data_worker' then 3600
+    when 'user_bars_worker' then 30
+    when 'user_cooldowns_worker' then 30
+  end as cadence_seconds,
+  now()
+from public.sentinel_workers
+on conflict (worker_id) do nothing;
+
+create policy if not exists sentinel_worker_schedules_service_role on public.sentinel_worker_schedules
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Worker run logs (retained as needed)
+create table if not exists public.sentinel_worker_logs (
+  id bigserial primary key,
+  worker_id uuid not null references public.sentinel_workers(id) on delete cascade,
+  run_started_at timestamptz not null default now(),
+  run_finished_at timestamptz,
+  duration_ms integer,
+  status text not null check (status in ('success','error')),
+  message text,
+  error_message text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists sentinel_worker_logs_worker_id_idx
+  on public.sentinel_worker_logs (worker_id);
+
+create index if not exists sentinel_worker_logs_run_started_idx
+  on public.sentinel_worker_logs (run_started_at);
 
 -- Cleanup legacy tables if present
 -- These existed before the sentinel_ prefix refactor and per-worker scheduler
