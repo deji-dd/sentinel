@@ -46,3 +46,5 @@ next-env.d.ts
 /apps/ui/next-env.d.ts
 /apps/worker/node_modules
 /apps/worker/dist
+
+.archive/

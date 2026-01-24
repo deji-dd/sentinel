@@ -3,6 +3,8 @@
  * Handles lock mechanism to prevent overlapping syncs.
  */
 
+import { logError, logWarn, logDuration } from "./logger.js";
+
 interface SyncState {
   isRunning: boolean;
   startTime: number | null;
@@ -38,14 +40,12 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
 
     // If it's been running longer than timeout, force unlock and log warning
     if (elapsed > timeout) {
-      console.warn(
-        `[${name}] Previous sync exceeded timeout (${elapsed}ms > ${timeout}ms). Force unlocking.`,
+      logWarn(
+        name,
+        `Previous sync exceeded timeout (${elapsed}ms > ${timeout}ms). Force unlocking.`,
       );
       state.isRunning = false;
     } else {
-      console.warn(
-        `[${name}] Sync already in progress. Skipping to prevent overlap.`,
-      );
       return false;
     }
   }
@@ -55,13 +55,13 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
   state.startTime = Date.now();
 
   try {
-    console.log(`[${name}] Starting sync...`);
     await handler();
     const duration = Date.now() - (state.startTime || 0);
-    console.log(`[${name}] Sync completed in ${duration}ms`);
+    logDuration(name, "Sync completed", duration);
     return true;
   } catch (error) {
-    console.error(`[${name}] Sync failed:`, error);
+    const message = error instanceof Error ? error.message : String(error);
+    logError(name, `Sync failed: ${message}`);
     throw error;
   } finally {
     // Unlock

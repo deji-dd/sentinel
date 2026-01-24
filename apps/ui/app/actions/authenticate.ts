@@ -2,6 +2,7 @@
 
 import { createClient, createAdminClient } from "@/lib/supabase-server";
 import { encrypt } from "@/lib/encryption";
+import { TABLE_NAMES } from "@/lib/constants";
 import { redirect } from "next/navigation";
 
 interface TornKeyInfoResponse {
@@ -145,18 +146,21 @@ export async function authenticateTornUser(apiKey: string) {
       }
     }
 
-    // Store the API key securely with application-level encryption
+    // Store the API key and player_id securely with application-level encryption
     const encryptedKey = encrypt(apiKey);
 
-    const { error: upsertError } = await admin
-      .from("user_keys")
-      .upsert(
-        { user_id: userId, api_key: encryptedKey },
-        { onConflict: "user_id" },
-      );
+    const { error: upsertError } = await admin.from(TABLE_NAMES.USERS).upsert(
+      {
+        user_id: userId,
+        api_key: encryptedKey,
+        player_id: parseInt(playerId),
+        name: null, // Will be populated by sync worker
+      },
+      { onConflict: "user_id" },
+    );
 
     if (upsertError) {
-      throw new Error(`Failed to store API key: ${upsertError.message}`);
+      throw new Error(`Failed to store user data: ${upsertError.message}`);
     }
 
     // Create a session by signing in with the (new) password

@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   Dumbbell,
@@ -13,6 +14,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { logout } from "@/app/actions/logout";
 import { createClient } from "@/lib/supabase";
+import { TABLE_NAMES } from "@/lib/constants";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import {
@@ -54,6 +56,7 @@ const navigationItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { state } = useSidebar();
+  const queryClient = useQueryClient();
 
   const {
     data: profile,
@@ -74,8 +77,8 @@ export function AppSidebar() {
       if (!userId) return null;
 
       const { data, error } = await supabase
-        .from("user_data")
-        .select("name")
+        .from(TABLE_NAMES.USERS)
+        .select("name, player_id")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -86,9 +89,49 @@ export function AppSidebar() {
     staleTime: 1000 * 60 * 5,
   });
 
+  // Subscribe to real-time updates on user profile
+  useEffect(() => {
+    const supabase = createClient();
+
+    const setupRealtimeSubscription = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user.id) return;
+
+      const subscription = supabase
+        .channel("user-profile-changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: TABLE_NAMES.USERS,
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          () => {
+            // Invalidate the query to refetch fresh data
+            queryClient.invalidateQueries({ queryKey: ["user-profile"] });
+          },
+        )
+        .subscribe();
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    };
+
+    const cleanup = setupRealtimeSubscription();
+
+    return () => {
+      cleanup.then((unsub) => unsub?.());
+    };
+  }, [queryClient]);
+
   const displayName = isError
     ? "Unable to load profile"
-    : profile?.name ?? "Initializing...";
+    : (profile?.name ?? "Initializing...");
 
   const handleLogout = async () => {
     toast.promise(logout(), {
@@ -144,7 +187,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <div className="flex flex-col gap-2">
               {state === "expanded" && (
-                <div className="px-2 py-1">
+                <div className="px-2 py-1 space-y-1.5">
                   {isPending ? (
                     <>
                       <Skeleton className="h-4 w-24 bg-white/10" />
