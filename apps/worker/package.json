@@ -9,7 +9,9 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node --env-file=.env dist/index.js",
-    "start:sync-users": "node --env-file=.env dist/workers/sync-users.js"
+    "start:sync-users": "node --env-file=.env dist/workers/sync-users.js",
+    "task": "tsx --env-file=.env",
+    "trigger": "tsx --env-file=.env trigger.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.0",
