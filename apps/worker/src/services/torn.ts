@@ -3,6 +3,7 @@ const TORN_API_V1_BASE = "https://api.torn.com";
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 
 import { tornRateLimiter } from "../lib/rate-limiter.js";
+import { recordRateLimit } from "../lib/rate-limit-state.js";
 
 const TORN_ERROR_CODES: Record<number, string> = {
   0: "Unknown error: An unhandled error occurred",
@@ -141,6 +142,12 @@ async function fetchTorn<T>(url: string): Promise<T> {
         code !== undefined
           ? TORN_ERROR_CODES[code] || `Error code ${code}`
           : "Unknown Torn API error";
+
+      // If this is a rate limit error (code 5), record it globally
+      if (code === 5) {
+        await recordRateLimit();
+      }
+
       throw new Error(errorMessage);
     }
 

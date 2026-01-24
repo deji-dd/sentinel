@@ -415,6 +415,9 @@ create table if not exists public.sentinel_worker_logs (
   status text not null check (status in ('success','error')),
   message text,
   error_message text,
+  is_limited boolean default false,
+  limited_until timestamptz,
+  last_error_at timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -478,6 +481,29 @@ create index if not exists sentinel_worker_logs_worker_id_idx
 
 create index if not exists sentinel_worker_logs_run_started_idx
   on public.sentinel_worker_logs (run_started_at);
+
+alter table public.sentinel_worker_logs enable row level security;
+
+create policy if not exists sentinel_worker_logs_service_role on public.sentinel_worker_logs
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- Rate limit request tracker (persists across restarts)
+create table if not exists public.sentinel_rate_limit_requests (
+  id bigserial primary key,
+  requested_at timestamptz not null default now()
+);
+
+create index if not exists sentinel_rate_limit_requests_requested_at_idx
+  on public.sentinel_rate_limit_requests (requested_at desc);
+
+alter table public.sentinel_rate_limit_requests enable row level security;
+
+create policy if not exists sentinel_rate_limit_requests_service_role on public.sentinel_rate_limit_requests
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
 
 -- Cleanup legacy tables if present
 -- These existed before the sentinel_ prefix refactor and per-worker scheduler

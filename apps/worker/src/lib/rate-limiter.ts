@@ -1,7 +1,16 @@
 /**
- * Token bucket rate limiter for Torn API requests.
+ * Database-backed rate limiter for Torn API requests.
  * Ensures we stay well under the 100 requests/min limit from Torn.
+ * Persists state across restarts.
  */
+
+import { waitIfRateLimited } from "./rate-limit-state.js";
+import {
+  recordRequest,
+  getRequestCount,
+  getOldestRequestInWindow,
+  cleanupOldRequests,
+} from "./rate-limit-tracker.js";
 
 interface RateLimitConfig {
   maxRequests: number; // Max requests per interval
@@ -9,8 +18,9 @@ interface RateLimitConfig {
 }
 
 class RateLimiter {
-  private requests: number[] = []; // Timestamps of recent requests
   private config: RateLimitConfig;
+  private lastCleanup: number = 0;
+  private cleanupInterval: number = 30000; // Cleanup every 30s
 
   constructor(maxRequests: number, intervalMs: number) {
     this.config = { maxRequests, intervalMs };
@@ -18,29 +28,38 @@ class RateLimiter {
 
   /**
    * Wait if necessary to ensure we don't exceed rate limit.
-   * Uses a sliding window approach.
+   * Uses database-backed sliding window.
    */
   async waitIfNeeded(): Promise<void> {
-    const now = Date.now();
+    // First check global rate limit state (from actual 429 errors)
+    await waitIfRateLimited();
 
-    // Remove old requests outside the window
-    this.requests = this.requests.filter(
-      (timestamp) => now - timestamp < this.config.intervalMs,
-    );
+    // Periodic cleanup of old requests
+    const now = Date.now();
+    if (now - this.lastCleanup > this.cleanupInterval) {
+      cleanupOldRequests().catch(() => {}); // Fire and forget
+      this.lastCleanup = now;
+    }
+
+    // Check current request count from database
+    const count = await getRequestCount();
 
     // If we're at the limit, wait until the oldest request expires
-    if (this.requests.length >= this.config.maxRequests) {
-      const oldestRequest = this.requests[0];
-      const waitTime = this.config.intervalMs - (now - oldestRequest) + 10; // +10ms buffer
-      if (waitTime > 0) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
-        // Recursively check again in case multiple requests need to wait
-        return this.waitIfNeeded();
+    if (count >= this.config.maxRequests) {
+      const oldestRequest = await getOldestRequestInWindow();
+      if (oldestRequest) {
+        const age = now - oldestRequest.getTime();
+        const waitTime = this.config.intervalMs - age + 100; // +100ms buffer
+        if (waitTime > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          // Recursively check again in case multiple requests need to wait
+          return this.waitIfNeeded();
+        }
       }
     }
 
-    // Record this request
-    this.requests.push(now);
+    // Record this request in database
+    await recordRequest();
   }
 }
 

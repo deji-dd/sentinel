@@ -11,10 +11,13 @@ import {
 } from "../services/torn.js";
 import { log, logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
+import { supabase } from "../lib/supabase.js";
+import { TABLE_NAMES } from "../lib/constants.js";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
 const DISCORD_WORKER_KEY = "user_discord_worker";
+const DISCORD_SYNC_NAME = "user_discord_worker";
 
 async function syncUserDataHandler(): Promise<void> {
   const users = await getAllUsers();
@@ -70,10 +73,32 @@ async function syncDiscordHandler(): Promise<void> {
     return;
   }
 
+  // Only update users that already have user_data rows (avoid inserting null player_id)
+  const userIds = users.map((u) => u.user_id);
+  const { data: existingRows, error: existingError } = await supabase
+    .from(TABLE_NAMES.USER_DATA)
+    .select("user_id")
+    .in("user_id", userIds);
+
+  if (existingError) {
+    throw new Error(
+      `Failed to fetch user_data rows for discord sync: ${existingError.message}`,
+    );
+  }
+
+  const existingUserIds = new Set(
+    (existingRows || []).map((r: any) => r.user_id),
+  );
+
   const updates: UserProfileData[] = [];
   const errors: Array<{ userId: string; error: string }> = [];
 
   for (const user of users) {
+    if (!existingUserIds.has(user.user_id)) {
+      // Skip users without a profile row yet; the hourly profile sync will create them
+      continue;
+    }
+
     try {
       const apiKey = decrypt(user.api_key);
 
@@ -84,7 +109,7 @@ async function syncDiscordHandler(): Promise<void> {
         discordId = discordResponse.discord?.discord_id || null;
       } catch {
         // Discord link is optional, continue without it
-        log(WORKER_NAME, `${user.user_id}: No Discord linked`);
+        log(DISCORD_SYNC_NAME, `${user.user_id}: No Discord linked`);
       }
 
       updates.push({
@@ -96,20 +121,32 @@ async function syncDiscordHandler(): Promise<void> {
         _error instanceof Error ? _error.message : String(_error);
       errors.push({ userId: user.user_id, error: errorMessage });
       logError(
-        WORKER_NAME,
+        DISCORD_SYNC_NAME,
         `${user.user_id}: Discord sync failed - ${errorMessage}`,
       );
     }
   }
 
   if (updates.length > 0) {
-    await upsertUserData(updates);
-    log(WORKER_NAME, `Discord sync: Updated ${updates.length} users`);
+    // Use UPDATE instead of upsert to avoid inserting rows with null player_id
+    for (const update of updates) {
+      const { error: updateError } = await supabase
+        .from(TABLE_NAMES.USER_DATA)
+        .update({ discord_id: update.discord_id })
+        .eq("user_id", update.user_id);
+
+      if (updateError) {
+        logError(
+          DISCORD_SYNC_NAME,
+          `Failed to update discord_id for ${update.user_id}: ${updateError.message}`,
+        );
+      }
+    }
   }
 
   if (errors.length > 0) {
     logWarn(
-      WORKER_NAME,
+      DISCORD_SYNC_NAME,
       `Discord sync: ${errors.length}/${users.length} users failed`,
     );
   }
@@ -137,7 +174,7 @@ export function startUserDataWorker(): void {
     pollIntervalMs: 5000,
     handler: async () => {
       return await executeSync({
-        name: "discord_sync",
+        name: DISCORD_SYNC_NAME,
         timeout: 30000,
         handler: syncDiscordHandler,
       });
