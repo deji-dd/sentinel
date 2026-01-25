@@ -2,8 +2,7 @@ const TORN_API_BASE = "https://api.torn.com/v2";
 const TORN_API_V1_BASE = "https://api.torn.com";
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 
-import { tornRateLimiter } from "../lib/rate-limiter.js";
-import { recordRateLimit } from "../lib/rate-limit-state.js";
+import { waitIfNeededPerUser } from "../lib/rate-limit-tracker-per-user.js";
 
 const TORN_ERROR_CODES: Record<number, string> = {
   0: "Unknown error: An unhandled error occurred",
@@ -122,8 +121,13 @@ export type TornItemsResponse =
   | { error?: { code: number; error: string } };
 
 async function fetchTorn<T>(url: string): Promise<T> {
-  // Apply rate limiting before making the request
-  await tornRateLimiter.waitIfNeeded();
+  // Extract API key from URL for per-user rate limiting
+  const keyMatch = url.match(/[?&]key=([^&]+)/);
+  const apiKey = keyMatch ? keyMatch[1] : "unknown";
+
+  // Apply per-user rate limiting (database-backed, 90 req/min per key)
+  // Each API key has independent 100 req/min limit from Torn
+  await waitIfNeededPerUser(apiKey);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -142,11 +146,6 @@ async function fetchTorn<T>(url: string): Promise<T> {
         code !== undefined
           ? TORN_ERROR_CODES[code] || `Error code ${code}`
           : "Unknown Torn API error";
-
-      // If this is a rate limit error (code 5), record it globally
-      if (code === 5) {
-        await recordRateLimit();
-      }
 
       throw new Error(errorMessage);
     }

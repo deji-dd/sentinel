@@ -11,7 +11,7 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 const WORKER_NAME = "travel_stock_cache_worker";
 const YATA_API_URL = "https://yata.yt/api/v1/travel/export/";
 const REQUEST_TIMEOUT = 15000; // 15 seconds
-const RETENTION_DAYS = 7; // Keep stock cache for last 7 days
+const RETENTION_DAYS = 3; // Keep 3 days of history (~522k rows, ~94 points per item for drain calc)
 
 interface YataStockItem {
   id: number;
@@ -52,14 +52,52 @@ async function syncAbroadStocks(): Promise<void> {
   }
 
   if (!response.ok) {
+    const responseText = await response.text();
+    let errorMsg = `YATA API returned status ${response.status}`;
+    let errorCode = 0;
+
+    try {
+      const errorData = JSON.parse(responseText) as {
+        error?: { error?: string; code?: number };
+      };
+      if (errorData.error?.code) {
+        errorCode = errorData.error.code;
+      }
+      if (errorData.error?.error) {
+        errorMsg = errorData.error.error;
+      }
+    } catch {
+      // Fallback to generic parsing
+    }
+
+    // Map error codes
+    let fullError = errorMsg;
+    if (response.status === 500 && errorCode === 1) {
+      fullError = `Server Error: ${errorMsg}`;
+    } else if (response.status === 400 && errorCode === 2) {
+      fullError = `User Error: ${errorMsg}`;
+    } else if (response.status === 429 && errorCode === 3) {
+      fullError = `Rate Limited: ${errorMsg}`;
+      logWarn(WORKER_NAME, fullError);
+    } else if (response.status === 400 && errorCode === 4) {
+      fullError = `Torn API Error: ${errorMsg}`;
+      logWarn(WORKER_NAME, fullError);
+    }
+
+    throw new Error(fullError);
+  }
+
+  let data: YataApiResponse;
+  try {
+    data = (await response.json()) as YataApiResponse;
+  } catch (parseError) {
     throw new Error(
-      `YATA API returned status ${response.status}: ${response.statusText}`,
+      `Failed to parse YATA response: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
     );
   }
 
-  const data = (await response.json()) as YataApiResponse;
-
   if (!data.stocks || Object.keys(data.stocks).length === 0) {
+    logWarn(WORKER_NAME, "YATA API returned no stock data");
     return;
   }
 

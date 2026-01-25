@@ -87,6 +87,7 @@ async function syncDiscordHandler(): Promise<void> {
   }
 
   const existingUserIds = new Set(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (existingRows || []).map((r: any) => r.user_id),
   );
 

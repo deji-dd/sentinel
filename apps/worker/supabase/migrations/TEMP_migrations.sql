@@ -27,21 +27,25 @@ alter table public.sentinel_worker_logs
 alter table public.sentinel_worker_logs
   add column if not exists last_error_at timestamptz;
 
--- Create table for rate limit request tracking (survives restarts)
-create table if not exists public.sentinel_rate_limit_requests (
+-- Drop old global rate limit table (per-user rate limiting now used instead)
+drop table if exists public.sentinel_rate_limit_requests cascade;
+
+-- Per-user rate limit request tracking (per API key, not global)
+create table if not exists public.sentinel_rate_limit_requests_per_user (
   id bigserial primary key,
+  api_key_hash text not null,
   requested_at timestamptz not null default now()
 );
 
-create index if not exists sentinel_rate_limit_requests_requested_at_idx
-  on public.sentinel_rate_limit_requests (requested_at desc);
+create index if not exists sentinel_rate_limit_requests_per_user_key_idx
+  on public.sentinel_rate_limit_requests_per_user (api_key_hash, requested_at desc);
 
 -- Enable RLS
-alter table public.sentinel_rate_limit_requests enable row level security;
+alter table public.sentinel_rate_limit_requests_per_user enable row level security;
 
 -- Service role policy
-drop policy if exists sentinel_rate_limit_requests_service_role on public.sentinel_rate_limit_requests;
-create policy sentinel_rate_limit_requests_service_role on public.sentinel_rate_limit_requests
+drop policy if exists sentinel_rate_limit_requests_per_user_service_role on public.sentinel_rate_limit_requests_per_user;
+create policy sentinel_rate_limit_requests_per_user_service_role on public.sentinel_rate_limit_requests_per_user
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');

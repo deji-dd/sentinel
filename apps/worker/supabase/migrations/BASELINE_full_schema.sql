@@ -261,7 +261,8 @@ create table if not exists public.sentinel_travel_stock_cache (
   item_id integer not null,
   quantity integer not null,
   cost bigint not null,
-  last_updated timestamptz not null default now()
+  last_updated timestamptz not null default now(),
+  ingested_at timestamptz not null default now()
 );
 
 create index if not exists sentinel_travel_stock_cache_destination_idx
@@ -272,6 +273,9 @@ create index if not exists sentinel_travel_stock_cache_item_id_idx
 
 create index if not exists sentinel_travel_stock_cache_last_updated_idx
   on public.sentinel_travel_stock_cache (last_updated);
+
+create index if not exists sentinel_travel_stock_cache_ingested_idx
+  on public.sentinel_travel_stock_cache (ingested_at);
 
 alter table public.sentinel_travel_stock_cache enable row level security;
 

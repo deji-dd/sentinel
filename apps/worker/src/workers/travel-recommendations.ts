@@ -74,7 +74,7 @@ async function syncTravelRecommendations(): Promise<void> {
     travelTimes.map((t) => [t.destination_id, t]),
   );
 
-  // Decrypt API keys
+  // Decrypt API keys and set up rotation for market fetching
   const apiKeysByUser = new Map<string, string>();
   for (const user of eligibleUsers) {
     try {
@@ -84,11 +84,19 @@ async function syncTravelRecommendations(): Promise<void> {
     }
   }
 
-  // Use first available API key for market data fetching
-  const sampleApiKey = Array.from(apiKeysByUser.values())[0];
-  if (!sampleApiKey) {
+  if (apiKeysByUser.size === 0) {
     return;
   }
+
+  // Set up key rotation: cycle through available keys
+  const apiKeys = Array.from(apiKeysByUser.values());
+  let keyIndex = 0;
+
+  const getNextApiKey = () => {
+    const key = apiKeys[keyIndex];
+    keyIndex = (keyIndex + 1) % apiKeys.length;
+    return key;
+  };
 
   const now = new Date();
   const allRecommendations: TravelRecommendation[] = [];
@@ -158,6 +166,7 @@ async function syncTravelRecommendations(): Promise<void> {
       const itemRois: ItemROI[] = [];
 
       // Group stock by item_id to get latest and history
+      // Data arrives pre-sorted by destination_id, item_id, last_updated DESC from getTravelStockCache
       const stockByItemId = new Map<number, StockCacheRow[]>();
       for (const row of destStockCache) {
         if (!stockByItemId.has(row.item_id)) {
@@ -167,12 +176,9 @@ async function syncTravelRecommendations(): Promise<void> {
       }
 
       for (const [itemId, stockRecords] of stockByItemId.entries()) {
-        // Sort by last_updated descending to get latest first
-        stockRecords.sort(
-          (a, b) =>
-            new Date(b.last_updated).getTime() -
-            new Date(a.last_updated).getTime(),
-        );
+        // stockRecords are already sorted by last_updated DESC from getTravelStockCache
+        // The first record is the latest state for this item
+        if (stockRecords.length === 0) continue;
 
         const latest = stockRecords[0];
         const lastUpdated = new Date(latest.last_updated);
@@ -185,17 +191,21 @@ async function syncTravelRecommendations(): Promise<void> {
           continue;
         }
 
-        // Fetch market price
+        // Fetch market price using rotated API key
         let marketPrice: number;
         try {
-          const marketResp = await fetchTornItemMarket(apiKey, itemId, 1);
+          const marketResp = await fetchTornItemMarket(
+            getNextApiKey(),
+            itemId,
+            1,
+          );
           const listings = marketResp.itemmarket?.listings || [];
           if (!listings.length || !listings[0].price) {
             continue;
           }
           marketPrice = listings[0].price;
-        } catch {
-          // Skip items with market fetch errors
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (err) {
           continue;
         }
 

@@ -239,17 +239,21 @@ export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
 }
 
 export async function getTravelStockCache(): Promise<StockCacheRow[]> {
+  // With Supabase row limit increased to 1M, we can fetch all stock cache in a single query.
+  // Order by last_updated DESC to get most recent snapshots first.
+  // App layer will group by (destination_id, item_id) to get latest per item.
   const { data, error } = await supabase
     .from("sentinel_travel_stock_cache")
     .select("*")
     .order("last_updated", { ascending: false })
-    .range(0, 100000); // Fetch up to 100k rows (currently ~24k), newest first
+    .order("ingested_at", { ascending: false });
 
   if (error) {
     throw new Error(`Failed to fetch travel stock cache: ${error.message}`);
   }
 
-  return (data || []) as StockCacheRow[];
+  const result = (data || []) as StockCacheRow[];
+  return result;
 }
 
 export interface TornDestinationRow {
@@ -279,7 +283,7 @@ export async function cleanupOldStockCache(
   const { error } = await supabase
     .from("sentinel_travel_stock_cache")
     .delete()
-    .lt("last_updated", cutoffDate.toISOString());
+    .lt("ingested_at", cutoffDate.toISOString());
 
   if (error) {
     throw new Error(`Failed to cleanup stock cache: ${error.message}`);
@@ -366,13 +370,30 @@ export async function upsertTravelRecommendations(
 ): Promise<void> {
   if (!recommendations.length) return;
 
-  const { error } = await supabase
-    .from(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)
-    .upsert(recommendations, { onConflict: "user_id,destination_id" });
+  // Get unique user IDs from recommendations
+  const userIds = Array.from(new Set(recommendations.map((r) => r.user_id)));
 
-  if (error) {
+  // Delete all existing recommendations for these users
+  // This ensures stale recommendations disappear if no new ones are generated
+  const { error: deleteError } = await supabase
+    .from(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)
+    .delete()
+    .in("user_id", userIds);
+
+  if (deleteError) {
     throw new Error(
-      `Failed to upsert travel recommendations: ${error.message}`,
+      `Failed to delete old recommendations: ${deleteError.message}`,
+    );
+  }
+
+  // Insert fresh recommendations
+  const { error: insertError } = await supabase
+    .from(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)
+    .insert(recommendations);
+
+  if (insertError) {
+    throw new Error(
+      `Failed to insert travel recommendations: ${insertError.message}`,
     );
   }
 }

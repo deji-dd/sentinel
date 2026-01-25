@@ -13,6 +13,7 @@
     "worker:start": "pnpm --filter worker start",
     "worker:trigger": "pnpm --filter worker trigger",
     "bot:dev": "pnpm --filter bot dev",
+    "bot:deploy-commands": "pnpm --filter bot deploy-commands",
     "dev:all": "pnpm -r dev",
     "build:all": "pnpm -r build"
   }
