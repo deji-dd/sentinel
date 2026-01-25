@@ -50,7 +50,6 @@ async function syncTravelRecommendations(): Promise<void> {
     return isEligible;
   });
 
-  
   if (!eligibleUsers.length) {
     return;
   }
@@ -75,20 +74,29 @@ async function syncTravelRecommendations(): Promise<void> {
     travelTimes.map((t) => [t.destination_id, t]),
   );
 
-  // Decrypt API keys
+  // Decrypt API keys and set up rotation for market fetching
   const apiKeysByUser = new Map<string, string>();
   for (const user of eligibleUsers) {
     try {
       apiKeysByUser.set(user.user_id, decrypt(user.api_key));
-    } catch (error) {
+    } catch {
+      // Ignore decryption errors for individual users
     }
   }
 
-  // Use first available API key for market data fetching
-  const sampleApiKey = Array.from(apiKeysByUser.values())[0];
-  if (!sampleApiKey) {
+  if (apiKeysByUser.size === 0) {
     return;
   }
+
+  // Set up key rotation: cycle through available keys
+  const apiKeys = Array.from(apiKeysByUser.values());
+  let keyIndex = 0;
+
+  const getNextApiKey = () => {
+    const key = apiKeys[keyIndex];
+    keyIndex = (keyIndex + 1) % apiKeys.length;
+    return key;
+  };
 
   const now = new Date();
   const allRecommendations: TravelRecommendation[] = [];
@@ -101,7 +109,6 @@ async function syncTravelRecommendations(): Promise<void> {
     const cooldowns = cooldownsByUser.get(userId);
     const apiKey = apiKeysByUser.get(userId);
 
-   
     if (!travel || !bars || !cooldowns || !apiKey) {
       continue;
     }
@@ -111,13 +118,10 @@ async function syncTravelRecommendations(): Promise<void> {
     const hasWlt = travel.has_wlt_benefit || false;
     const hasBook = travel.active_travel_book || false;
 
-    let userRecCount = 0;
-
     // Process each destination
     for (const dest of destinations) {
       const travelTime = travelTimesByDestId.get(dest.id);
       if (!travelTime) {
-        
         continue;
       }
 
@@ -140,11 +144,9 @@ async function syncTravelRecommendations(): Promise<void> {
 
       // Filter: flight time vs bars/cooldowns
       if (roundTripSeconds > (bars.energy_flat_time_to_full || Infinity)) {
-        
         continue;
       }
       if (roundTripSeconds > (bars.nerve_flat_time_to_full || Infinity)) {
-       
         continue;
       }
       if (roundTripSeconds > (cooldowns.drug || 0)) {
@@ -156,7 +158,6 @@ async function syncTravelRecommendations(): Promise<void> {
         (row) => row.destination_id === dest.id,
       );
 
-    
       if (!destStockCache.length) {
         continue;
       }
@@ -165,6 +166,7 @@ async function syncTravelRecommendations(): Promise<void> {
       const itemRois: ItemROI[] = [];
 
       // Group stock by item_id to get latest and history
+      // Data arrives pre-sorted by destination_id, item_id, last_updated DESC from getTravelStockCache
       const stockByItemId = new Map<number, StockCacheRow[]>();
       for (const row of destStockCache) {
         if (!stockByItemId.has(row.item_id)) {
@@ -174,12 +176,9 @@ async function syncTravelRecommendations(): Promise<void> {
       }
 
       for (const [itemId, stockRecords] of stockByItemId.entries()) {
-        // Sort by last_updated descending to get latest first
-        stockRecords.sort(
-          (a, b) =>
-            new Date(b.last_updated).getTime() -
-            new Date(a.last_updated).getTime(),
-        );
+        // stockRecords are already sorted by last_updated DESC from getTravelStockCache
+        // The first record is the latest state for this item
+        if (stockRecords.length === 0) continue;
 
         const latest = stockRecords[0];
         const lastUpdated = new Date(latest.last_updated);
@@ -188,30 +187,30 @@ async function syncTravelRecommendations(): Promise<void> {
         const ageMinutes =
           (now.getTime() - lastUpdated.getTime()) / (1000 * 60);
 
-       
-
         if (ageMinutes > STOCK_STALENESS_MINUTES) {
-          
           continue;
         }
 
-        // Fetch market price
+        // Fetch market price using rotated API key
         let marketPrice: number;
         try {
-          const marketResp = await fetchTornItemMarket(apiKey, itemId, 1);
+          const marketResp = await fetchTornItemMarket(
+            getNextApiKey(),
+            itemId,
+            1,
+          );
           const listings = marketResp.itemmarket?.listings || [];
           if (!listings.length || !listings[0].price) {
             continue;
           }
           marketPrice = listings[0].price;
-        } catch (error) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (err) {
           continue;
         }
 
         const stockCost = latest.cost;
         const profitPerItem = marketPrice - stockCost;
-
-        
 
         // Drop items with negative ROI
         if (profitPerItem <= 0) {
@@ -227,8 +226,6 @@ async function syncTravelRecommendations(): Promise<void> {
           roundTripMinutes,
           now,
         );
-
-        
 
         // Drop if projected quantity < capacity
         if (projected < capacity) {
@@ -249,9 +246,7 @@ async function syncTravelRecommendations(): Promise<void> {
       // Sort by ROI descending
       itemRois.sort((a, b) => b.roi - a.roi);
 
-   
       if (!itemRois.length) {
-       
         continue;
       }
 
@@ -287,13 +282,8 @@ async function syncTravelRecommendations(): Promise<void> {
         round_trip_minutes: roundTripMinutes,
         message,
       });
-
-      userRecCount++;
     }
-
   }
-
- 
 
   // Assign recommendation_rank per user (1 = best profit_per_minute)
   const byUser = new Map<string, TravelRecommendation[]>();
@@ -304,14 +294,13 @@ async function syncTravelRecommendations(): Promise<void> {
     byUser.get(rec.user_id)!.push(rec);
   }
 
-  for (const [userId, recs] of byUser.entries()) {
+  for (const [_userId, recs] of byUser.entries()) {
     recs.sort(
       (a, b) => (b.profit_per_minute || 0) - (a.profit_per_minute || 0),
     );
     recs.forEach((rec, idx) => {
       rec.recommendation_rank = idx + 1;
     });
-    
   }
 
   if (allRecommendations.length > 0) {
@@ -328,7 +317,7 @@ async function syncTravelRecommendations(): Promise<void> {
 function calculateProjectedQuantity(
   stockRecords: StockCacheRow[],
   flightTimeMinutes: number,
-  now: Date,
+  _now: Date,
 ): number {
   if (stockRecords.length < 2) {
     return stockRecords[0]?.quantity || 0;

@@ -139,7 +139,7 @@ export async function completeWorker(
 export async function failWorker(
   workerId: string,
   attempts: number,
-  errorMessage: string,
+  _errorMessage: string,
 ): Promise<void> {
   const nextAttempts = attempts + 1;
   const backoffSeconds = Math.min(Math.pow(2, nextAttempts) * 60, 3600);

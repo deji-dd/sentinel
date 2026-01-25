@@ -1,36 +1,32 @@
 {
-  "name": "worker",
+  "name": "bot",
   "version": "1.0.0",
   "private": true,
-  "description": "Sentinel worker processes for background jobs",
-  "main": "dist/index.js",
+  "description": "Sentinel Discord bot",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch --env-file=.env src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node --env-file=.env dist/index.js",
-    "start:sync-users": "node --env-file=.env dist/workers/sync-users.js",
-    "task": "tsx --env-file=.env",
-    "trigger": "tsx --env-file=.env trigger.ts",
+    "start": "node dist/index.js",
+    "deploy-commands": "tsx src/deploy-commands.ts",
     "lint": "eslint src/"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.0",
-    "node-cron": "^3.0.3"
+    "discord.js": "^14.25.1",
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/node": "^20",
-    "@types/node-cron": "^3.0.11",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",
     "eslint": "^9.39.2",
     "globals": "^17.1.0",
+    "ts-node": "^10.9.2",
     "tsx": "^4",
     "typescript": "^5"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "packageManager": "pnpm@10.28.0"
 }

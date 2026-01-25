@@ -12,4 +12,5 @@ export const TABLE_NAMES = {
   TORN_ITEMS: "sentinel_torn_items",
   TORN_DESTINATIONS: "sentinel_torn_destinations",
   DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
+  RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
 } as const;
