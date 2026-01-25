@@ -60,8 +60,7 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
     logDuration(name, "Sync completed", duration);
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logError(name, `Sync failed: ${message}`);
+    // Don't log here - let the scheduler handle error logging
     throw error;
   } finally {
     // Unlock

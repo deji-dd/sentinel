@@ -6,7 +6,7 @@ import {
   type UserBarsData,
 } from "../lib/supabase.js";
 import { fetchTornUserBars } from "../services/torn.js";
-import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
+import { logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
 const WORKER_NAME = "user_bars_worker";

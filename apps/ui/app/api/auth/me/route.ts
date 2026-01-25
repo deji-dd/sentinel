@@ -1,16 +1,15 @@
 import { createClient } from "@/lib/supabase-server";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const supabase = await createClient();
 
   try {
     const {
       data: { user },
-      error,
     } = await supabase.auth.getUser();
 
-    if (error || !user) {
+    if (!user) {
       return NextResponse.json(
         { user: null, authenticated: false },
         { status: 200 },
@@ -18,7 +17,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ user, authenticated: true }, { status: 200 });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "An error occurred fetching user" },
       { status: 500 },

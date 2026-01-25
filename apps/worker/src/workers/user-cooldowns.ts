@@ -6,7 +6,7 @@ import {
   type UserCooldownsData,
 } from "../lib/supabase.js";
 import { fetchTornUserCooldowns } from "../services/torn.js";
-import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
+import { logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
 const WORKER_NAME = "user_cooldowns_worker";

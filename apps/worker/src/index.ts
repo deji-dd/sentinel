@@ -11,14 +11,11 @@ function startAllWorkers(): void {
   logSection("🚀 Starting Sentinel workers");
 
   try {
-    // Travel data worker (fixed 30s cadence)
-    startTravelDataWorker();
-
     // Travel stock cache worker (every 5 minutes)
     startTravelStockCacheWorker();
 
-    // Travel recommendations worker (every 5 minutes)
-    startTravelRecommendationsWorker();
+    // Travel data worker (fixed 30s cadence)
+    startTravelDataWorker();
 
     // Torn items worker (daily at ~03:00 UTC)
     startTornItemsWorker();
@@ -31,6 +28,9 @@ function startAllWorkers(): void {
 
     // User cooldowns worker (every 30s)
     startUserCooldownsWorker();
+
+    // Travel recommendations worker (every 5 minutes)
+    startTravelRecommendationsWorker();
 
     logSection("✅ All workers started");
   } catch (error) {

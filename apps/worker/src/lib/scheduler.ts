@@ -16,7 +16,9 @@ export interface RunConfig {
   initialNextRunAt?: string;
 }
 
-export function startDbScheduledRunner(config: RunConfig): NodeJS.Timer {
+export function startDbScheduledRunner(
+  config: RunConfig,
+): ReturnType<typeof setInterval> {
   const {
     worker,
     defaultCadenceSeconds,

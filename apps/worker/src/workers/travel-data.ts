@@ -5,12 +5,8 @@ import {
   upsertTravelData,
   type TravelData,
 } from "../lib/supabase.js";
-import {
-  fetchTornUserBasic,
-  fetchTornUserTravel,
-  fetchTornUserPerks,
-} from "../services/torn.js";
-import { log, logError, logSuccess, logWarn } from "../lib/logger.js";
+import { fetchTornUserTravel, fetchTornUserPerks } from "../services/torn.js";
+import { logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { dateToIsoOrNull, epochSecondsToDate } from "../lib/time.js";
 
