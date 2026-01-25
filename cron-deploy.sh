@@ -44,7 +44,7 @@ echo "Pulling latest changes on ${BRANCH}..."
 git pull --ff-only origin "${BRANCH}"
 
 echo "Installing dependencies..."
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --child-concurrency 1
 
 echo "Building worker and bot..."
 pnpm worker:build
