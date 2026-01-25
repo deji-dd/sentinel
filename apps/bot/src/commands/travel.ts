@@ -7,6 +7,9 @@ export async function executeTravel(
   supabase: SupabaseClient,
 ): Promise<void> {
   try {
+    // Defer the reply immediately (Discord requires response within 3 seconds)
+    await interaction.deferReply({ ephemeral: true });
+
     // Use interaction.user.id (Discord user ID) to identify the user
     const userId = interaction.user.id;
 
@@ -33,9 +36,8 @@ export async function executeTravel(
         .setFooter({ text: "Sentinel Travel Recommendations" })
         .setTimestamp();
 
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [notLinkedEmbed],
-        flags: 64, // Ephemeral flag
       });
       return;
     }
@@ -50,7 +52,7 @@ export async function executeTravel(
         `
         *,
         sentinel_torn_destinations(name),
-        sentinel_torn_items(name)
+        sentinel_torn_items!best_item_id(name)
       `,
       )
       .eq("user_id", tornUserId)
@@ -73,9 +75,8 @@ export async function executeTravel(
         .setFooter({ text: "Sentinel Travel Recommendations" })
         .setTimestamp();
 
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [noRecsEmbed],
-        flags: 64, // Ephemeral flag
       });
       return;
     }
@@ -181,9 +182,8 @@ export async function executeTravel(
       })
       .setTimestamp();
 
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [recommendationEmbed],
-      flags: 64, // Ephemeral flag
     });
   } catch (error) {
     console.error("Travel command error:", error);
@@ -195,9 +195,8 @@ export async function executeTravel(
       .setFooter({ text: "Sentinel Travel Recommendations" })
       .setTimestamp();
 
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [errorEmbed],
-      flags: 64, // Ephemeral flag
     });
   }
 }
