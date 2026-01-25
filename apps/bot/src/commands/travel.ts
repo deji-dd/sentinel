@@ -86,17 +86,18 @@ export async function executeTravel(
     const destinationName =
       topRec.sentinel_torn_destinations?.name || "Unknown";
     const itemName = topRec.sentinel_torn_items?.name || "Unknown";
-    const profitPerMinute = topRec.profit_per_minute
-      ? `$${Number(topRec.profit_per_minute).toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`
+    const profitPerTrip = topRec.profit_per_trip
+      ? `$${Number(topRec.profit_per_trip).toLocaleString("en-US")}`
       : "N/A";
     const cashToCarry = topRec.profit_per_trip
       ? `$${Number(topRec.profit_per_trip).toLocaleString("en-US")}`
       : "N/A";
     const roundTripTime = topRec.round_trip_minutes
-      ? `${topRec.round_trip_minutes} minutes`
+      ? (() => {
+          const hours = Math.floor(topRec.round_trip_minutes / 60);
+          const minutes = topRec.round_trip_minutes % 60;
+          return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+        })()
       : "N/A";
 
     // Check if data is older than 30 minutes
@@ -133,8 +134,8 @@ export async function executeTravel(
           inline: true,
         },
         {
-          name: "Profit Per Minute",
-          value: profitPerMinute,
+          name: "Potential Profit",
+          value: profitPerTrip,
           inline: true,
         },
         {
