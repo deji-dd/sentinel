@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "sentinel-worker",
       cwd: "/home/deji/repos/sentinel/apps/worker",
-      script: "dist/index.js",
+      script: "--env-file=.env dist/index.js",
       interpreter: "node",
       instances: 1,
       exec_mode: "fork",
@@ -30,7 +30,7 @@ module.exports = {
     {
       name: "sentinel-bot",
       cwd: "/home/deji/repos/sentinel/apps/bot",
-      script: "dist/index.js",
+      script: "--env-file=.env dist/index.js",
       interpreter: "node",
       instances: 1,
       exec_mode: "fork",
@@ -59,7 +59,7 @@ module.exports = {
   deploy: {
     production: {
       user: "deji",
-      host: "YOUR_GCP_INSTANCE_IP",
+      host: "100.96.215.46",
       ref: "origin/main",
       repo: "git@github.com:deji-dd/sentinel.git",
       path: "/home/deji/repos/sentinel",
