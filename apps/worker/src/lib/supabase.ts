@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./encryption.js";
 import { TABLE_NAMES } from "./constants.js";

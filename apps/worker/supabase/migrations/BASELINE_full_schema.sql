@@ -5,7 +5,7 @@ create extension if not exists "pgcrypto";
 
 -- Users
 create table if not exists public.sentinel_users (
-  user_id text primary key,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   api_key text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -29,54 +29,16 @@ alter table public.sentinel_users enable row level security;
 
 create policy if not exists sentinel_users_select_self on public.sentinel_users
   for select
-  using (auth.uid()::text = user_id);
-
-create policy if not exists sentinel_users_update_self on public.sentinel_users
-  for update
-  using (auth.uid()::text = user_id)
-  with check (auth.uid()::text = user_id);
-
--- User API keys
-create table if not exists public.sentinel_user_keys (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  api_key text not null,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  unique(user_id)
-);
-
-alter table public.sentinel_user_keys enable row level security;
-
-create policy if not exists sentinel_user_keys_select_self on public.sentinel_user_keys
-  for select
   using (auth.uid() = user_id);
 
-create policy if not exists sentinel_user_keys_update_self on public.sentinel_user_keys
+create policy if not exists sentinel_users_update_self on public.sentinel_users
   for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-create policy if not exists sentinel_user_keys_insert_self on public.sentinel_user_keys
-  for insert
-  with check (auth.uid() = user_id);
-
-create or replace function public.store_user_key(
-  user_id uuid,
-  api_key text
-)
-returns void as $$
-begin
-  insert into public.sentinel_user_keys (user_id, api_key, created_at, updated_at)
-  values (user_id, api_key, now(), now())
-  on conflict (user_id) do update
-  set api_key = excluded.api_key, updated_at = now();
-end;
-$$ language plpgsql security definer;
-
 -- User data (profile snapshot)
 create table if not exists public.sentinel_user_data (
-  user_id text primary key,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   player_id integer not null,
   name text,
   is_donator boolean not null default false,
@@ -96,7 +58,7 @@ alter table public.sentinel_user_data enable row level security;
 
 create policy if not exists sentinel_user_data_select_self on public.sentinel_user_data
   for select
-  using (auth.uid()::text = user_id);
+  using (auth.uid() = user_id);
 
 create policy if not exists sentinel_user_data_service_role on public.sentinel_user_data
   for all
@@ -104,7 +66,7 @@ create policy if not exists sentinel_user_data_service_role on public.sentinel_u
   with check (auth.role() = 'service_role');
 -- User bars (energy, nerve, happy, life snapshot)
 create table if not exists public.sentinel_user_bars (
-  user_id text primary key,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   energy_current integer not null default 0,
   energy_maximum integer not null default 0,
   nerve_current integer not null default 0,
@@ -124,7 +86,7 @@ alter table public.sentinel_user_bars enable row level security;
 
 create policy if not exists sentinel_user_bars_select_self on public.sentinel_user_bars
   for select
-  using (auth.uid()::text = user_id);
+  using (auth.uid() = user_id);
 
 create policy if not exists sentinel_user_bars_service_role on public.sentinel_user_bars
   for all
@@ -133,7 +95,7 @@ create policy if not exists sentinel_user_bars_service_role on public.sentinel_u
 
 -- User cooldowns (drug, medical, booster)
 create table if not exists public.sentinel_user_cooldowns (
-  user_id text primary key,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   drug integer not null default 0,
   medical integer not null default 0,
   booster integer not null default 0,
@@ -144,7 +106,7 @@ alter table public.sentinel_user_cooldowns enable row level security;
 
 create policy if not exists sentinel_user_cooldowns_select_self on public.sentinel_user_cooldowns
   for select
-  using (auth.uid()::text = user_id);
+  using (auth.uid() = user_id);
 
 create policy if not exists sentinel_user_cooldowns_service_role on public.sentinel_user_cooldowns
   for all
@@ -258,7 +220,7 @@ on conflict (destination_id) do nothing;
 create table if not exists public.sentinel_travel_stock_cache (
   id bigserial primary key,
   destination_id integer not null references public.sentinel_torn_destinations(id) on delete cascade,
-  item_id integer not null,
+  item_id integer not null references public.sentinel_torn_items(item_id) on delete cascade,
   quantity integer not null,
   cost bigint not null,
   last_updated timestamptz not null default now(),
@@ -328,8 +290,7 @@ create policy sentinel_travel_recommendations_service_role on public.sentinel_tr
 
 -- Travel data
 create table if not exists public.sentinel_travel_data (
-  id uuid primary key default gen_random_uuid(),
-  user_id text not null unique,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   travel_destination text,
   travel_method text,
   travel_departed_at timestamptz,
@@ -341,9 +302,6 @@ create table if not exists public.sentinel_travel_data (
     active_travel_book boolean not null default false,
   updated_at timestamptz not null default now()
 );
-
-create index if not exists sentinel_travel_data_user_id_idx
-  on public.sentinel_travel_data (user_id);
 
 create or replace function public.sentinel_travel_data_update_timestamp()
 returns trigger as $$
@@ -363,7 +321,7 @@ alter table public.sentinel_travel_data enable row level security;
 
 create policy if not exists sentinel_travel_data_select_self on public.sentinel_travel_data
   for select
-  using (auth.uid()::text = user_id);
+  using (auth.uid() = user_id);
 
 create policy if not exists sentinel_travel_data_service_role on public.sentinel_travel_data
   for all
@@ -467,32 +425,6 @@ create policy if not exists sentinel_worker_schedules_service_role on public.sen
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
 
--- Worker run logs (retained as needed)
-create table if not exists public.sentinel_worker_logs (
-  id bigserial primary key,
-  worker_id uuid not null references public.sentinel_workers(id) on delete cascade,
-  run_started_at timestamptz not null default now(),
-  run_finished_at timestamptz,
-  duration_ms integer,
-  status text not null check (status in ('success','error')),
-  message text,
-  error_message text,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists sentinel_worker_logs_worker_id_idx
-  on public.sentinel_worker_logs (worker_id);
-
-create index if not exists sentinel_worker_logs_run_started_idx
-  on public.sentinel_worker_logs (run_started_at);
-
-alter table public.sentinel_worker_logs enable row level security;
-
-create policy if not exists sentinel_worker_logs_service_role on public.sentinel_worker_logs
-  for all
-  using (auth.role() = 'service_role')
-  with check (auth.role() = 'service_role');
-
 -- Rate limit request tracker (persists across restarts)
 create table if not exists public.sentinel_rate_limit_requests (
   id bigserial primary key,
@@ -524,3 +456,42 @@ create policy if not exists sentinel_rate_limit_requests_service_role on public.
 -- Prefixed but deprecated tables
 -- drop table if exists public.sentinel_user_worker_schedules cascade;
 -- drop table if exists public.sentinel_users_data cascade;
+
+-- User travel settings (blacklist items, notification threshold)
+create table if not exists public.sentinel_user_travel_settings (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  blacklisted_items integer[] not null default '{}',
+  notification_threshold integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create or replace function public.sentinel_user_travel_settings_update_timestamp()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists sentinel_user_travel_settings_set_updated_at on public.sentinel_user_travel_settings;
+create trigger sentinel_user_travel_settings_set_updated_at
+before update on public.sentinel_user_travel_settings
+for each row
+execute procedure public.sentinel_user_travel_settings_update_timestamp();
+
+alter table public.sentinel_user_travel_settings enable row level security;
+
+create policy if not exists sentinel_user_travel_settings_select_self on public.sentinel_user_travel_settings
+  for select
+  using (auth.uid() = user_id);
+
+create policy if not exists sentinel_user_travel_settings_update_self on public.sentinel_user_travel_settings
+  for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create policy if not exists sentinel_user_travel_settings_insert_self on public.sentinel_user_travel_settings
+  for insert
+  with check (auth.uid() = user_id);
+

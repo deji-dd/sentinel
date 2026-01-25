@@ -15,9 +15,18 @@ const MAX_REQUESTS_PER_WINDOW = 50; // Per-user limit: 50 req/min (Torn allows 1
 
 /**
  * Hash API key for storage (don't store raw keys)
+ * Uses a secret pepper for additional security
  */
 function hashApiKey(apiKey: string): string {
-  return createHash("sha256").update(apiKey).digest("hex");
+  const pepper = process.env.API_KEY_HASH_PEPPER;
+  if (!pepper) {
+    throw new Error(
+      "API_KEY_HASH_PEPPER environment variable is required for secure rate limiting",
+    );
+  }
+  return createHash("sha256")
+    .update(apiKey + pepper)
+    .digest("hex");
 }
 
 /**
