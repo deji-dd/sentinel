@@ -3,8 +3,9 @@ module.exports = {
     {
       name: "sentinel-worker",
       cwd: "/home/deji/repos/sentinel/apps/worker",
-      script: "--env-file=.env dist/index.js",
+      script: "dist/index.js",
       interpreter: "node",
+      node_args: ["--env-file=.env"],
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
@@ -30,8 +31,9 @@ module.exports = {
     {
       name: "sentinel-bot",
       cwd: "/home/deji/repos/sentinel/apps/bot",
-      script: "--env-file=.env dist/index.js",
+      script: "dist/index.js",
       interpreter: "node",
+      node_args: ["--env-file=.env"],
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
