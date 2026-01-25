@@ -46,6 +46,11 @@ next-env.d.ts
 /apps/ui/next-env.d.ts
 /apps/worker/node_modules
 /apps/worker/dist
+/apps/bot/dist
+/apps/bot/node_modules
 
 .archive/
+
+# PM2 logs
+logs/
 .github/
