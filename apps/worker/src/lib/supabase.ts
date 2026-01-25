@@ -3,14 +3,24 @@ import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./encryption.js";
 import { TABLE_NAMES } from "./constants.js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// Use local Supabase in development, cloud in production
+const isDev = process.env.NODE_ENV === "development";
+const supabaseUrl = isDev
+  ? process.env.SUPABASE_URL_LOCAL || "http://127.0.0.1:54321"
+  : process.env.SUPABASE_URL!;
+const supabaseServiceKey = isDev
+  ? process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL!
+  : process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error(
-    "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are required",
+    `Missing Supabase credentials for ${isDev ? "local" : "cloud"} environment`,
   );
 }
+
+console.log(
+  `[Supabase] Connected to ${isDev ? "local" : "cloud"} instance: ${supabaseUrl}`,
+);
 
 export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
