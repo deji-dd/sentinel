@@ -1,18 +1,3 @@
-const fs = require("fs");
-const dotenv = require("dotenv");
-
-function loadEnv(filePath) {
-  try {
-    return dotenv.parse(fs.readFileSync(filePath));
-  } catch (err) {
-    console.warn(`PM2 env load skipped for ${filePath}: ${err.message}`);
-    return {};
-  }
-}
-
-const workerEnv = loadEnv("/home/deji/repos/sentinel/apps/worker/.env");
-const botEnv = loadEnv("/home/deji/repos/sentinel/apps/bot/.env");
-
 module.exports = {
   apps: [
     {
@@ -21,8 +6,11 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       node_args: [],
+      env_file: "/home/deji/repos/sentinel/apps/worker/.env",
       env: {
-        ...workerEnv,
+        NODE_ENV: "production",
+      },
+      env_production: {
         NODE_ENV: "production",
       },
       instances: 1,
@@ -50,8 +38,11 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       node_args: [],
+      env_file: "/home/deji/repos/sentinel/apps/bot/.env",
       env: {
-        ...botEnv,
+        NODE_ENV: "production",
+      },
+      env_production: {
         NODE_ENV: "production",
       },
       instances: 1,
