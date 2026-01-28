@@ -1,4 +1,4 @@
-import { TORN_ERROR_CODES } from "../lib/constants.js";
+import { TORN_ERROR_CODES } from "@sentinel/shared";
 
 interface TornKeyInfoResponse {
   info?: {

@@ -14,7 +14,7 @@ import {
   createTornApiClient,
 } from "../services/torn-client.js";
 import { encrypt } from "../lib/encryption.js";
-import { TABLE_NAMES } from "../lib/constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 export const data = {
   name: "setup",

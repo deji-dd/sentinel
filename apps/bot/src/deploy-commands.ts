@@ -1,5 +1,8 @@
 import "dotenv/config";
 import { REST, Routes } from "discord.js";
+import * as setupCommand from "./commands/setup.js";
+import * as settingsCommand from "./commands/settings.js";
+import * as searchCommand from "./commands/search.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -23,18 +26,15 @@ console.log(
 );
 
 const commands = [
-  {
-    name: "setup",
-    description: "Link your Torn City account to Sentinel",
-    integration_types: [0, 1],
-    contexts: [0, 1, 2],
-  },
+  setupCommand.data,
   {
     name: "travel",
     description: "Get travel recommendations from Torn City",
-    integration_types: [0, 1], // 0 = Guild, 1 = User (bot DMs and private channels)
-    contexts: [0, 1, 2], // 0 = Guild, 1 = Bot DM, 2 = Private Channel
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
   },
+  settingsCommand.data,
+  searchCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);
