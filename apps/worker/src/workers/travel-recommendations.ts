@@ -9,6 +9,8 @@ import {
   getDestinationTravelTimes,
   getDestinations,
   upsertTravelRecommendations,
+  getTravelSettingsByUserIds,
+  getTornItemsWithCategories,
   type TravelRecommendation,
   type StockCacheRow,
 } from "../lib/supabase.js";
@@ -61,12 +63,16 @@ async function syncTravelRecommendations(): Promise<void> {
     cooldownsByUser,
     travelTimes,
     destinations,
+    settingsByUser,
+    tornItems,
   ] = await Promise.all([
     getTravelStockCache(),
     getUserBarsByUserIds(eligibleUsers.map((u) => u.user_id)),
     getUserCooldownsByUserIds(eligibleUsers.map((u) => u.user_id)),
     getDestinationTravelTimes(),
     getDestinations(),
+    getTravelSettingsByUserIds(eligibleUsers.map((u) => u.user_id)),
+    getTornItemsWithCategories(),
   ]);
 
   // Index destinations and travel times by ID
@@ -108,6 +114,7 @@ async function syncTravelRecommendations(): Promise<void> {
     const bars = barsByUser.get(userId);
     const cooldowns = cooldownsByUser.get(userId);
     const apiKey = apiKeysByUser.get(userId);
+    const settings = settingsByUser.get(userId);
 
     if (!travel || !bars || !cooldowns || !apiKey) {
       continue;
@@ -179,6 +186,20 @@ async function syncTravelRecommendations(): Promise<void> {
         // stockRecords are already sorted by last_updated DESC from getTravelStockCache
         // The first record is the latest state for this item
         if (stockRecords.length === 0) continue;
+
+        // Apply user's blacklisted items filter
+        if (settings?.blacklisted_items?.includes(itemId)) {
+          continue;
+        }
+
+        // Apply user's blacklisted categories filter
+        const itemData = tornItems.get(itemId);
+        if (
+          itemData?.category_id &&
+          settings?.blacklisted_categories?.includes(itemData.category_id)
+        ) {
+          continue;
+        }
 
         const latest = stockRecords[0];
         const lastUpdated = new Date(latest.last_updated);
@@ -253,6 +274,23 @@ async function syncTravelRecommendations(): Promise<void> {
       // Pick best item
       const bestItem = itemRois[0];
 
+      const profitPerTrip = bestItem.profitPerItem * capacity;
+      const profitPerMinute = profitPerTrip / roundTripMinutes;
+
+      // Apply user's profit threshold filters
+      if (
+        settings?.min_profit_per_trip &&
+        profitPerTrip < settings.min_profit_per_trip
+      ) {
+        continue;
+      }
+      if (
+        settings?.min_profit_per_minute &&
+        profitPerMinute < settings.min_profit_per_minute
+      ) {
+        continue;
+      }
+
       // Build message
       const messages: string[] = [];
       if (roundTripSeconds > (bars.energy_time_to_full || Infinity)) {
@@ -270,8 +308,6 @@ async function syncTravelRecommendations(): Promise<void> {
 
       const message = messages.length > 0 ? messages.join(" | ") : null;
 
-      const profitPerTrip = bestItem.profitPerItem * capacity;
-      const profitPerMinute = profitPerTrip / roundTripMinutes;
       const cashToCarry = bestItem.stockCost * capacity;
 
       allRecommendations.push({
