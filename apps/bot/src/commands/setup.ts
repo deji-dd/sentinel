@@ -35,7 +35,8 @@ export async function execute(
     await interaction.reply({
       content:
         "❌ You already have an account linked to Sentinel. If you need to update your API key, please contact support.",
-      flags: MessageFlags.Ephemeral,
+      // Only use ephemeral flag in servers, not DMs (DMs are already private)
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -70,7 +71,10 @@ export async function handleModalSubmit(
   const discordId = interaction.user.id;
 
   // Defer reply immediately to prevent timeout
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferReply({
+    // Only use ephemeral flag in servers, not DMs
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
+  });
 
   try {
     // Double-check user doesn't already exist

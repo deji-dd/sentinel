@@ -92,6 +92,11 @@ export async function handleTravelSettings(
     .setColor(0x0099ff)
     .addFields(
       {
+        name: "Alerts Enabled",
+        value: settings.alerts_enabled ? "✅ Yes" : "❌ No",
+        inline: true,
+      },
+      {
         name: "Alert Cooldown",
         value: `${settings.alert_cooldown_minutes} minutes`,
         inline: true,
@@ -136,6 +141,14 @@ export async function handleTravelSettings(
     .setCustomId("travel_setting_select")
     .setPlaceholder("Choose a setting to edit")
     .addOptions(
+      {
+        label: "Alerts Toggle",
+        description: settings.alerts_enabled
+          ? "Currently: Enabled"
+          : "Currently: Disabled",
+        value: "alerts_enabled",
+        emoji: "🔔",
+      },
       {
         label: "Alert Cooldown",
         description: `Current: ${settings.alert_cooldown_minutes} minutes`,
@@ -199,14 +212,16 @@ export async function handleTravelSettingSelect(
     await interaction.reply({
       content:
         "❌ Your account is no longer linked. Please run `/setup` again.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
 
   const selectedSetting = interaction.values[0];
 
-  if (selectedSetting === "alert_cooldown") {
+  if (selectedSetting === "alerts_enabled") {
+    await handleToggleAlertsEnabled(interaction, supabase, userId);
+  } else if (selectedSetting === "alert_cooldown") {
     await handleEditAlertCooldown(interaction, supabase, userId);
   } else if (selectedSetting === "min_profit_trip") {
     await handleEditMinProfitTrip(interaction, supabase, userId);
@@ -220,6 +235,40 @@ export async function handleTravelSettingSelect(
 }
 
 // Setting edit handlers (now accept userId and StringSelectMenuInteraction)
+async function handleToggleAlertsEnabled(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const { data: settings } = await supabase
+    .from(TABLE_NAMES.TRAVEL_SETTINGS)
+    .select("alerts_enabled")
+    .eq("user_id", userId)
+    .single();
+
+  const newValue = !settings?.alerts_enabled;
+
+  const { error } = await supabase
+    .from(TABLE_NAMES.TRAVEL_SETTINGS)
+    .update({ alerts_enabled: newValue })
+    .eq("user_id", userId);
+
+  if (error) {
+    await interaction.reply({
+      content: "❌ Failed to update alerts setting.",
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
+    });
+    return;
+  }
+
+  await interaction.reply({
+    content: newValue
+      ? "✅ Travel alerts **enabled**. You will receive DMs when profitable opportunities are found."
+      : "❌ Travel alerts **disabled**. You will not receive DM notifications.",
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
+  });
+}
+
 async function handleEditAlertCooldown(
   interaction: StringSelectMenuInteraction,
   supabase: SupabaseClient,
@@ -399,16 +448,17 @@ export async function handleModalAlertCooldown(
   if (!userId) {
     await interaction.reply({
       content: "❌ Your account is no longer linked.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
 
   const value = parseInt(interaction.fields.getTextInputValue("value"));
-  if (isNaN(value) || value < 0) {
+  if (isNaN(value) || value < 15) {
     await interaction.reply({
-      content: "❌ Invalid cooldown value. Must be a positive number.",
-      flags: MessageFlags.Ephemeral,
+      content:
+        "❌ Invalid cooldown value. Must be at least 15 minutes to prevent spam.",
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -421,14 +471,14 @@ export async function handleModalAlertCooldown(
   if (error) {
     await interaction.reply({
       content: "❌ Failed to update setting.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
 
   await interaction.reply({
     content: `✅ Alert cooldown updated to ${value} minutes.`,
-    flags: MessageFlags.Ephemeral,
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
   });
 }
 
@@ -440,7 +490,7 @@ export async function handleModalMinProfitTrip(
   if (!userId) {
     await interaction.reply({
       content: "❌ Your account is no longer linked.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -448,10 +498,11 @@ export async function handleModalMinProfitTrip(
   const valueStr = interaction.fields.getTextInputValue("value").trim();
   const value = valueStr ? parseInt(valueStr) : null;
 
-  if (valueStr && (isNaN(value!) || value! < 0)) {
+  if (valueStr && (isNaN(value!) || value! < 100000)) {
     await interaction.reply({
-      content: "❌ Invalid profit value. Must be a positive number or empty.",
-      flags: MessageFlags.Ephemeral,
+      content:
+        "❌ Invalid profit value. Must be at least $100,000 or empty to disable.",
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -464,7 +515,7 @@ export async function handleModalMinProfitTrip(
   if (error) {
     await interaction.reply({
       content: "❌ Failed to update setting.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -473,7 +524,7 @@ export async function handleModalMinProfitTrip(
     content: value
       ? `✅ Minimum profit per trip set to $${value.toLocaleString()}.`
       : "✅ Minimum profit per trip filter disabled.",
-    flags: MessageFlags.Ephemeral,
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
   });
 }
 
@@ -485,7 +536,7 @@ export async function handleModalMinProfitMinute(
   if (!userId) {
     await interaction.reply({
       content: "❌ Your account is no longer linked.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -493,10 +544,11 @@ export async function handleModalMinProfitMinute(
   const valueStr = interaction.fields.getTextInputValue("value").trim();
   const value = valueStr ? parseInt(valueStr) : null;
 
-  if (valueStr && (isNaN(value!) || value! < 0)) {
+  if (valueStr && (isNaN(value!) || value! < 1000)) {
     await interaction.reply({
-      content: "❌ Invalid profit value. Must be a positive number or empty.",
-      flags: MessageFlags.Ephemeral,
+      content:
+        "❌ Invalid profit value. Must be at least $1,000 or empty to disable.",
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -509,7 +561,7 @@ export async function handleModalMinProfitMinute(
   if (error) {
     await interaction.reply({
       content: "❌ Failed to update setting.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -518,7 +570,7 @@ export async function handleModalMinProfitMinute(
     content: value
       ? `✅ Minimum profit per minute set to $${value.toLocaleString()}.`
       : "✅ Minimum profit per minute filter disabled.",
-    flags: MessageFlags.Ephemeral,
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
   });
 }
 
@@ -530,7 +582,7 @@ export async function handleModalBlacklistedItems(
   if (!userId) {
     await interaction.reply({
       content: "❌ Your account is no longer linked.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -546,14 +598,14 @@ export async function handleModalBlacklistedItems(
     if (error) {
       await interaction.reply({
         content: "❌ Failed to update setting.",
-        flags: MessageFlags.Ephemeral,
+        ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
       });
       return;
     }
 
     await interaction.reply({
       content: "✅ Item blacklist cleared.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -606,14 +658,14 @@ export async function handleModalBlacklistedItems(
   if (error) {
     await interaction.reply({
       content: "❌ Failed to update setting.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
 
   await interaction.reply({
     content: `✅ Item blacklist updated with ${uniqueIds.length} item(s).`,
-    flags: MessageFlags.Ephemeral,
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
   });
 }
 
@@ -625,7 +677,7 @@ export async function handleModalBlacklistedCategories(
   if (!userId) {
     await interaction.reply({
       content: "❌ Your account is no longer linked.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -641,14 +693,14 @@ export async function handleModalBlacklistedCategories(
     if (error) {
       await interaction.reply({
         content: "❌ Failed to update setting.",
-        flags: MessageFlags.Ephemeral,
+        ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
       });
       return;
     }
 
     await interaction.reply({
       content: "✅ Category blacklist cleared.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -701,13 +753,13 @@ export async function handleModalBlacklistedCategories(
   if (error) {
     await interaction.reply({
       content: "❌ Failed to update setting.",
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
 
   await interaction.reply({
     content: `✅ Category blacklist updated with ${uniqueIds.length} category/ies.`,
-    flags: MessageFlags.Ephemeral,
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
   });
 }

@@ -59,7 +59,9 @@ export async function handleAccountSettingsModal(
   interaction: ModalSubmitInteraction,
   supabase: SupabaseClient,
 ) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.deferReply({
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
+  });
 
   const discordId = interaction.user.id;
   const userId = await getAuthorizedUser(supabase, discordId);

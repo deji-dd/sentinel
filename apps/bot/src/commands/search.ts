@@ -47,7 +47,7 @@ export async function execute(
     if (error) {
       await interaction.reply({
         content: "❌ Failed to search items. Please try again.",
-        flags: MessageFlags.Ephemeral,
+        ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
       });
       return;
     }
@@ -55,7 +55,7 @@ export async function execute(
     if (!items || items.length === 0) {
       await interaction.reply({
         content: `No items found matching "${query}".`,
-        flags: MessageFlags.Ephemeral,
+        ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
       });
       return;
     }
@@ -78,7 +78,7 @@ export async function execute(
 
     await interaction.reply({
       embeds: [embed],
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
   } else if (subcommand === "category") {
     // List all categories
@@ -90,7 +90,7 @@ export async function execute(
     if (error) {
       await interaction.reply({
         content: "❌ Failed to fetch categories. Please try again.",
-        flags: MessageFlags.Ephemeral,
+        ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
       });
       return;
     }
@@ -98,7 +98,7 @@ export async function execute(
     if (!categories || categories.length === 0) {
       await interaction.reply({
         content: "No categories found.",
-        flags: MessageFlags.Ephemeral,
+        ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
       });
       return;
     }
@@ -121,7 +121,7 @@ export async function execute(
 
     await interaction.reply({
       embeds: [embed],
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
   }
 }
