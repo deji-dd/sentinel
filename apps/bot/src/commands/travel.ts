@@ -13,7 +13,10 @@ export async function executeTravel(
 ): Promise<void> {
   try {
     // Defer the reply immediately (Discord requires response within 3 seconds)
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({
+      // Only use ephemeral flag in servers, not DMs
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
+    });
 
     // Check if user is authorized
     const discordId = interaction.user.id;

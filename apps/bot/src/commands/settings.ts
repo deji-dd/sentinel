@@ -41,7 +41,7 @@ export async function execute(
 
     await interaction.reply({
       embeds: [notLinkedEmbed],
-      flags: MessageFlags.Ephemeral,
+      ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
     });
     return;
   }
@@ -82,6 +82,6 @@ export async function execute(
   await interaction.reply({
     embeds: [embed],
     components: [row],
-    flags: MessageFlags.Ephemeral,
+    ...(interaction.guild && { flags: MessageFlags.Ephemeral }),
   });
 }

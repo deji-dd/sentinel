@@ -13,8 +13,8 @@ import { TABLE_NAMES } from "../lib/constants.js";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
-const DISCORD_WORKER_KEY = "user_discord_worker";
-const DISCORD_SYNC_NAME = "user_discord_worker";
+const DISCORD_WORKER_KEY = "user_data_worker";
+const DISCORD_SYNC_NAME = "user_data_worker";
 
 async function syncUserDataHandler(): Promise<void> {
   const users = await getAllUsers();
