@@ -5,7 +5,7 @@ import {
   upsertUserBars,
   type UserBarsData,
 } from "../lib/supabase.js";
-import { fetchTornUserBars } from "../services/torn.js";
+import { tornApi } from "../services/torn-client.js";
 import { logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
@@ -25,7 +25,7 @@ async function syncUserBarsHandler(): Promise<void> {
   for (const user of users) {
     try {
       const apiKey = decrypt(user.api_key);
-      const barsResponse = await fetchTornUserBars(apiKey);
+      const barsResponse = await tornApi.get("/user/bars", { apiKey });
       const bars = barsResponse.bars;
 
       if (!bars) {

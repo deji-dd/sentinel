@@ -10,15 +10,30 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Use local Supabase in development, cloud in production
+const isDev = process.env.NODE_ENV === "development";
+const SUPABASE_URL = isDev
+  ? process.env.SUPABASE_URL_LOCAL || "http://127.0.0.1:54321"
+  : process.env.SUPABASE_URL;
+const SUPABASE_KEY = isDev
+  ? process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL
+  : process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error(
-    "Error: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required",
+    `Error: Missing Supabase credentials for ${isDev ? "local" : "cloud"} environment`,
+  );
+  console.error(
+    isDev
+      ? "Required: SUPABASE_URL_LOCAL and SUPABASE_SERVICE_ROLE_KEY_LOCAL"
+      : "Required: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY",
   );
   process.exit(1);
 }
+
+console.log(
+  `[Trigger] Using ${isDev ? "local" : "cloud"} Supabase: ${SUPABASE_URL}`,
+);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
