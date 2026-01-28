@@ -3,6 +3,10 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { executeTravel } from "./commands/travel.js";
 import * as setupCommand from "./commands/setup.js";
+import * as settingsCommand from "./commands/settings.js";
+import * as travelSettings from "./commands/settings-travel.js";
+import * as accountSettings from "./commands/settings-account.js";
+import * as searchCommand from "./commands/search.js";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -57,6 +61,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await executeTravel(interaction, supabase);
     } else if (interaction.commandName === "setup") {
       await setupCommand.execute(interaction, supabase);
+    } else if (interaction.commandName === "settings") {
+      await settingsCommand.execute(interaction, supabase);
+    } else if (interaction.commandName === "search") {
+      await searchCommand.execute(interaction, supabase);
     }
     return;
   }
@@ -65,6 +73,37 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isModalSubmit()) {
     if (interaction.customId === "setup-modal") {
       await setupCommand.handleModalSubmit(interaction, supabase);
+    } else if (interaction.customId === "account_settings_modal") {
+      await accountSettings.handleAccountSettingsModal(interaction, supabase);
+    } else if (interaction.customId === "modal_alert_cooldown") {
+      await travelSettings.handleModalAlertCooldown(interaction, supabase);
+    } else if (interaction.customId === "modal_min_profit_trip") {
+      await travelSettings.handleModalMinProfitTrip(interaction, supabase);
+    } else if (interaction.customId === "modal_min_profit_minute") {
+      await travelSettings.handleModalMinProfitMinute(interaction, supabase);
+    } else if (interaction.customId === "modal_blacklisted_items") {
+      await travelSettings.handleModalBlacklistedItems(interaction, supabase);
+    } else if (interaction.customId === "modal_blacklisted_categories") {
+      await travelSettings.handleModalBlacklistedCategories(
+        interaction,
+        supabase,
+      );
+    }
+    return;
+  }
+
+  // Handle string select menus
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === "settings_module_select") {
+      const selectedModule = interaction.values[0];
+
+      if (selectedModule === "travel") {
+        await travelSettings.handleTravelSettings(interaction, supabase);
+      } else if (selectedModule === "account") {
+        await accountSettings.handleAccountSettings(interaction, supabase);
+      }
+    } else if (interaction.customId === "travel_setting_select") {
+      await travelSettings.handleTravelSettingSelect(interaction, supabase);
     }
     return;
   }

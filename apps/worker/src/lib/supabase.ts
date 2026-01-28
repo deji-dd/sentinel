@@ -100,6 +100,16 @@ export interface TornItemRow {
   name: string;
   image: string | null;
   type: string | null;
+  category_id?: number | null;
+}
+
+export interface TravelSettings {
+  user_id: string;
+  alert_cooldown_minutes: number;
+  blacklisted_items: number[];
+  blacklisted_categories: number[];
+  min_profit_per_trip?: number | null;
+  min_profit_per_minute?: number | null;
 }
 
 export async function getAllUsers(): Promise<User[]> {
@@ -113,6 +123,28 @@ export async function getAllUsers(): Promise<User[]> {
   }
 
   return data || [];
+}
+
+export async function getTravelSettingsByUserIds(
+  userIds: string[],
+): Promise<Map<string, TravelSettings>> {
+  const map = new Map<string, TravelSettings>();
+  if (!userIds.length) return map;
+
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TRAVEL_SETTINGS)
+    .select("*")
+    .in("user_id", userIds);
+
+  if (error) {
+    throw new Error(`Failed to fetch travel settings: ${error.message}`);
+  }
+
+  (data || []).forEach((row) => {
+    map.set((row as any).user_id as string, row as TravelSettings);
+  });
+
+  return map;
 }
 
 export async function getTravelDataByUserIds(
@@ -310,6 +342,57 @@ export async function upsertTornItems(items: TornItemRow[]): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to upsert torn items: ${error.message}`);
+  }
+}
+
+export async function getTornItemsWithCategories(): Promise<
+  Map<number, TornItemRow>
+> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TORN_ITEMS)
+    .select("item_id, name, image, type, category_id");
+
+  if (error) {
+    throw new Error(`Failed to fetch torn items: ${error.message}`);
+  }
+
+  const map = new Map<number, TornItemRow>();
+  (data || []).forEach((item) => {
+    map.set((item as any).item_id as number, item as TornItemRow);
+  });
+
+  return map;
+}
+
+/**
+ * Sync torn categories - only inserts new categories, never updates.
+ * This preserves category IDs across runs.
+ */
+export async function syncTornCategories(
+  categoryNames: string[],
+): Promise<void> {
+  if (!categoryNames.length) return;
+
+  // Get existing categories
+  const { data: existing } = await supabase
+    .from(TABLE_NAMES.TORN_CATEGORIES)
+    .select("name");
+
+  const existingNames = new Set(existing?.map((c) => c.name) || []);
+
+  // Filter to only new categories
+  const newCategories = categoryNames
+    .filter((name) => !existingNames.has(name))
+    .map((name) => ({ name }));
+
+  if (newCategories.length > 0) {
+    const { error } = await supabase
+      .from(TABLE_NAMES.TORN_CATEGORIES)
+      .insert(newCategories);
+
+    if (error) {
+      throw new Error(`Failed to insert torn categories: ${error.message}`);
+    }
   }
 }
 

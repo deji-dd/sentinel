@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { TABLE_NAMES } from "./constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 interface UserData {
   user_id: string;

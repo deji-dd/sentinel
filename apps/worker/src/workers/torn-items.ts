@@ -4,8 +4,11 @@ import { logWarn } from "../lib/logger.js";
 import {
   getValidApiKeys,
   upsertTornItems,
+  syncTornCategories,
+  supabase,
   type TornItemRow,
 } from "../lib/supabase.js";
+import { TABLE_NAMES } from "../lib/constants.js";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
@@ -30,7 +33,10 @@ function nextUtcThreeAm(): string {
   return target.toISOString();
 }
 
-function normalizeItems(response: any): TornItemRow[] {
+function normalizeItems(
+  response: any,
+  categoryNameToId: Map<string, number>,
+): TornItemRow[] {
   const container = response.items;
   if (!container) return [];
 
@@ -46,12 +52,14 @@ function normalizeItems(response: any): TornItemRow[] {
 
       const image = typeof item.image === "string" ? item.image : null;
       const type = typeof item.type === "string" ? item.type : null;
+      const category_id = type ? categoryNameToId.get(type) || null : null;
 
       return {
         item_id: id,
         name,
         image,
         type,
+        category_id,
       } as TornItemRow;
     })
     .filter((row): row is TornItemRow => Boolean(row));
@@ -65,7 +73,36 @@ async function syncTornItems(): Promise<void> {
 
   // Use the first available key; API returns full list in one call
   const response = await tornApi.get("/torn/items", { apiKey: apiKeys[0] });
-  const items = normalizeItems(response);
+
+  // Extract unique categories from items
+  const categories = new Set<string>();
+  const itemsArray: any[] = Array.isArray(response.items)
+    ? response.items
+    : Object.values(response.items as Record<string, any>);
+
+  for (const item of itemsArray) {
+    if (item.type && typeof item.type === "string") {
+      categories.add(item.type);
+    }
+  }
+
+  // Sync categories first (insert new ones only)
+  if (categories.size > 0) {
+    await syncTornCategories(Array.from(categories));
+  }
+
+  // Fetch all categories to map names to IDs
+  const { data: categoryData } = await supabase
+    .from(TABLE_NAMES.TORN_CATEGORIES)
+    .select("id, name");
+
+  const categoryNameToId = new Map<string, number>();
+  categoryData?.forEach((cat) => {
+    categoryNameToId.set(cat.name, cat.id);
+  });
+
+  // Normalize items with category IDs
+  const items = normalizeItems(response, categoryNameToId);
 
   if (!items.length) {
     logWarn(WORKER_NAME, "No items received from Torn API");
