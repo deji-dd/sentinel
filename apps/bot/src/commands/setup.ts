@@ -9,7 +9,10 @@ import {
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { userExists } from "../lib/auth.js";
-import { validateTornApiKey } from "../services/torn.js";
+import {
+  validateTornApiKey,
+  createTornApiClient,
+} from "../services/torn-client.js";
 import { encrypt } from "../lib/encryption.js";
 import { TABLE_NAMES } from "../lib/constants.js";
 
@@ -81,9 +84,12 @@ export async function handleModalSubmit(
 
     const apiKey = interaction.fields.getTextInputValue("api-key").trim();
 
-    // Validate API key with Torn API
+    // Create Torn API client with rate limiting
+    const tornApi = createTornApiClient(supabase);
+
+    // Validate API key with Torn API (with rate limiting)
     const { playerId, playerName, isDonator, accessLevel } =
-      await validateTornApiKey(apiKey);
+      await validateTornApiKey(apiKey, tornApi);
 
     const email = `${playerId}@sentinel.com`;
     const randomPassword = crypto.randomUUID();

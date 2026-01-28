@@ -6,7 +6,7 @@ import {
   upsertTornItems,
   type TornItemRow,
 } from "../lib/supabase.js";
-import { fetchTornItems, type TornItemsResponse } from "../services/torn.js";
+import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
 const DAILY_CADENCE_SECONDS = 86400; // 24h
@@ -30,8 +30,8 @@ function nextUtcThreeAm(): string {
   return target.toISOString();
 }
 
-function normalizeItems(response: TornItemsResponse): TornItemRow[] {
-  const container = (response as any).items;
+function normalizeItems(response: any): TornItemRow[] {
+  const container = response.items;
   if (!container) return [];
 
   const itemsArray: any[] = Array.isArray(container)
@@ -64,7 +64,7 @@ async function syncTornItems(): Promise<void> {
   }
 
   // Use the first available key; API returns full list in one call
-  const response = await fetchTornItems(apiKeys[0]);
+  const response = await tornApi.get("/torn/items", { apiKey: apiKeys[0] });
   const items = normalizeItems(response);
 
   if (!items.length) {

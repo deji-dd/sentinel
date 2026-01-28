@@ -13,7 +13,7 @@ import {
   type StockCacheRow,
 } from "../lib/supabase.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { fetchTornItemMarket } from "../services/torn.js";
+import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "travel_recommendations_worker";
 const STOCK_STALENESS_MINUTES = 30;
@@ -194,11 +194,11 @@ async function syncTravelRecommendations(): Promise<void> {
         // Fetch market price using rotated API key
         let marketPrice: number;
         try {
-          const marketResp = await fetchTornItemMarket(
-            getNextApiKey(),
-            itemId,
-            1,
-          );
+          const marketResp = await tornApi.get("/market/{id}/itemmarket", {
+            apiKey: getNextApiKey(),
+            pathParams: { id: itemId },
+            queryParams: { limit: 1 },
+          });
           const listings = marketResp.itemmarket?.listings || [];
           if (!listings.length || !listings[0].price) {
             continue;
