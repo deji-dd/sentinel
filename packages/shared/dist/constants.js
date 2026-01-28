@@ -16,5 +16,21 @@ export const TABLE_NAMES = {
     TORN_DESTINATIONS: "sentinel_torn_destinations",
     DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
     RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
+    USER_ALERTS: "sentinel_user_alerts",
+};
+/** Alert module types */
+export const ALERT_MODULES = {
+    TRAVEL: "travel",
+    // Future: CRIMES: "crimes", FACTION: "faction", etc.
+};
+/** Validation constants for user settings */
+export const SETTINGS_LIMITS = {
+    TRAVEL: {
+        MIN_ALERT_COOLDOWN_MINUTES: 15,
+        MIN_PROFIT_PER_TRIP: 100000, // $100k minimum
+        MIN_PROFIT_PER_MINUTE: 1000, // $1k/min minimum
+        MAX_BLACKLISTED_ITEMS: 100,
+        MAX_BLACKLISTED_CATEGORIES: 20,
+    },
 };
 //# sourceMappingURL=constants.js.map

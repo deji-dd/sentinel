@@ -7,6 +7,7 @@ import * as settingsCommand from "./commands/settings.js";
 import * as travelSettings from "./commands/settings-travel.js";
 import * as accountSettings from "./commands/settings-account.js";
 import * as searchCommand from "./commands/search.js";
+import { initHttpServer } from "./lib/http-server.js";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -52,6 +53,10 @@ const client = new Client({
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Bot is online as ${readyClient.user.tag}`);
+
+  // Start HTTP server for worker communication
+  const httpPort = isDev ? 3001 : parseInt(process.env.HTTP_PORT || "3001");
+  initHttpServer(client, supabase, httpPort);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

@@ -16,5 +16,20 @@ export declare const TABLE_NAMES: {
     readonly TORN_DESTINATIONS: "sentinel_torn_destinations";
     readonly DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times";
     readonly RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user";
+    readonly USER_ALERTS: "sentinel_user_alerts";
+};
+/** Alert module types */
+export declare const ALERT_MODULES: {
+    readonly TRAVEL: "travel";
+};
+/** Validation constants for user settings */
+export declare const SETTINGS_LIMITS: {
+    TRAVEL: {
+        MIN_ALERT_COOLDOWN_MINUTES: number;
+        MIN_PROFIT_PER_TRIP: number;
+        MIN_PROFIT_PER_MINUTE: number;
+        MAX_BLACKLISTED_ITEMS: number;
+        MAX_BLACKLISTED_CATEGORIES: number;
+    };
 };
 //# sourceMappingURL=constants.d.ts.map
