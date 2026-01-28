@@ -1,6 +1,7 @@
 import {
   ActionRowBuilder,
   type ChatInputCommandInteraction,
+  MessageFlags,
   ModalBuilder,
   type ModalSubmitInteraction,
   TextInputBuilder,
@@ -31,7 +32,7 @@ export async function execute(
     await interaction.reply({
       content:
         "❌ You already have an account linked to Sentinel. If you need to update your API key, please contact support.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -39,13 +40,13 @@ export async function execute(
   // Create modal for API key input
   const modal = new ModalBuilder()
     .setCustomId("setup-modal")
-    .setTitle("Link Torn City Account");
+    .setTitle("Account Linking");
 
   const apiKeyInput = new TextInputBuilder()
     .setCustomId("api-key")
-    .setLabel("Torn API Key (16 characters)")
+    .setLabel("Enter your Torn API Key (16 characters)")
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder("Your 16-character API key")
+    .setPlaceholder("Encrypted with AES-256-GCM • Requires Level 3+")
     .setRequired(true)
     .setMinLength(16)
     .setMaxLength(16);
@@ -66,7 +67,7 @@ export async function handleModalSubmit(
   const discordId = interaction.user.id;
 
   // Defer reply immediately to prevent timeout
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
     // Double-check user doesn't already exist
@@ -99,89 +100,103 @@ export async function handleModalSubmit(
       (u) => u.email?.toLowerCase() === email.toLowerCase(),
     );
 
-    let userId: string;
+    if (existingUser) {
+      throw new Error(
+        `This Torn account is already linked to another Discord user. Each Torn account can only be linked once.`,
+      );
+    }
 
-    if (!existingUser) {
-      // Create new Supabase auth user
-      const { data: newUser, error: signupError } =
-        await supabase.auth.admin.createUser({
-          email,
-          password: randomPassword,
-          email_confirm: true,
-        });
+    // Create new Supabase auth user
+    const { data: newUser, error: signupError } =
+      await supabase.auth.admin.createUser({
+        email,
+        password: randomPassword,
+        email_confirm: true,
+      });
 
-      if (signupError || !newUser.user) {
+    if (signupError || !newUser.user) {
+      throw new Error(
+        `Failed to create user: ${signupError?.message || "Unknown error"}`,
+      );
+    }
+
+    const userId = newUser.user.id;
+
+    // Rollback mechanism - track what needs cleanup on error
+    let needsAuthCleanup = true;
+    let needsUserTableCleanup = false;
+
+    try {
+      // Encrypt and store API key
+      const encryptedKey = encrypt(apiKey);
+
+      const { error: upsertKeyError } = await supabase
+        .from(TABLE_NAMES.USERS)
+        .upsert(
+          {
+            user_id: userId,
+            api_key: encryptedKey,
+          },
+          { onConflict: "user_id" },
+        );
+
+      if (upsertKeyError) {
+        throw new Error(`Failed to store API key: ${upsertKeyError.message}`);
+      }
+
+      needsUserTableCleanup = true;
+
+      // Store user data with Discord ID
+      const { error: upsertDataError } = await supabase
+        .from(TABLE_NAMES.USER_DATA)
+        .upsert(
+          {
+            user_id: userId,
+            player_id: playerId,
+            name: playerName,
+            is_donator: isDonator,
+            discord_id: discordId,
+          },
+          { onConflict: "user_id" },
+        );
+
+      if (upsertDataError) {
         throw new Error(
-          `Failed to create user: ${signupError?.message || "Unknown error"}`,
+          `Failed to store user data: ${upsertDataError.message}`,
         );
       }
 
-      userId = newUser.user.id;
-    } else {
-      // User exists - update password
-      userId = existingUser.id;
+      // Success - no cleanup needed
+      needsAuthCleanup = false;
 
-      const { error: updateError } = await supabase.auth.admin.updateUserById(
-        userId,
-        {
-          password: randomPassword,
-          email_confirm: true,
-        },
+      await interaction.editReply(
+        `✅ **Account linked successfully!**\n\n` +
+          `👤 **Player:** ${playerName} [${playerId}]\n` +
+          `🔑 **Access Level:** ${accessLevel === 3 ? "Limited" : "Full"}\n` +
+          `Your API key has been securely encrypted and stored. You can now use Sentinel commands!\n\n` +
+          `⚠️ **Security Notice:**\n` +
+          `• Your API key is encrypted using AES-256-GCM\n` +
+          `• Never share your API key with anyone\n` +
+          `• If your key is compromised, regenerate it in Torn and contact support`,
       );
+    } catch (setupError) {
+      // Rollback: Clean up any partial data
+      console.error("[Setup] Error during setup, rolling back:", setupError);
 
-      if (updateError) {
-        throw new Error(
-          `Failed to update user credentials: ${updateError.message}`,
-        );
+      if (needsUserTableCleanup) {
+        await supabase
+          .from(TABLE_NAMES.USER_DATA)
+          .delete()
+          .eq("user_id", userId);
+        await supabase.from(TABLE_NAMES.USERS).delete().eq("user_id", userId);
       }
+
+      if (needsAuthCleanup) {
+        await supabase.auth.admin.deleteUser(userId);
+      }
+
+      throw setupError;
     }
-
-    // Encrypt and store API key
-    const encryptedKey = encrypt(apiKey);
-
-    const { error: upsertKeyError } = await supabase
-      .from(TABLE_NAMES.USERS)
-      .upsert(
-        {
-          user_id: userId,
-          api_key: encryptedKey,
-        },
-        { onConflict: "user_id" },
-      );
-
-    if (upsertKeyError) {
-      throw new Error(`Failed to store API key: ${upsertKeyError.message}`);
-    }
-
-    // Store user data with Discord ID
-    const { error: upsertDataError } = await supabase
-      .from(TABLE_NAMES.USER_DATA)
-      .upsert(
-        {
-          user_id: userId,
-          player_id: playerId,
-          name: playerName,
-          is_donator: isDonator,
-          discord_id: discordId,
-        },
-        { onConflict: "user_id" },
-      );
-
-    if (upsertDataError) {
-      throw new Error(`Failed to store user data: ${upsertDataError.message}`);
-    }
-
-    await interaction.editReply(
-      `✅ **Account linked successfully!**\n\n` +
-        `👤 **Player:** ${playerName} [${playerId}]\n` +
-        `🔑 **Access Level:** ${accessLevel === 3 ? "Limited" : "Full"}\n` +
-        `💎 **Donator:** ${isDonator ? "Yes" : "No"}\n\n` +
-        `Your API key has been securely encrypted and stored. You can now use Sentinel commands!\n\n` +
-        `⚠️ **Security Notice:**\n` +
-        `• Your API key is encrypted using AES-256-GCM\n` +
-        `• Never share your API key with anyone\n` +
-        `• If your key is compromised, regenerate it in Torn and contact support`,
-    );
   } catch (error) {
     console.error("[Setup] Error during modal submit:", error);
     const errorMessage =

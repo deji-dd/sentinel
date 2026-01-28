@@ -15,10 +15,12 @@ interface TornKeyInfoResponse {
   };
 }
 
-interface TornUserBasicResponse {
-  name?: string;
-  player_id?: number;
-  donator?: number;
+interface TornUserProfileResponse {
+  profile?: {
+    id: number;
+    name: string;
+    donator_status: string;
+  };
   error?: {
     code: number;
     error: string;
@@ -78,11 +80,9 @@ export async function validateTornApiKey(
     );
   }
 
-  const playerId = parseInt(keyData.info.user.id, 10);
-
-  // Fetch user basic info to get name and donator status
+  // Fetch user profile to get name and donator status
   const userResponse = await fetch(
-    `https://api.torn.com/v2/user?selections=profile&key=${apiKey}`,
+    `https://api.torn.com/v2/user/profile?key=${apiKey}`,
     {
       headers: { Accept: "application/json" },
     },
@@ -92,7 +92,7 @@ export async function validateTornApiKey(
     throw new Error("Failed to fetch user profile from Torn API");
   }
 
-  const userData: TornUserBasicResponse = await userResponse.json();
+  const userData: TornUserProfileResponse = await userResponse.json();
 
   if (userData.error) {
     const errorMessage =
@@ -101,14 +101,14 @@ export async function validateTornApiKey(
     throw new Error(errorMessage);
   }
 
-  if (!userData.name || !userData.player_id) {
+  if (!userData.profile?.name || !userData.profile?.id) {
     throw new Error("Invalid user profile response from Torn API");
   }
 
   return {
-    playerId: userData.player_id,
-    playerName: userData.name,
-    isDonator: userData.donator === 1,
+    playerId: userData.profile.id,
+    playerName: userData.profile.name,
+    isDonator: userData.profile.donator_status === "Donator",
     accessLevel: keyData.info.access.level,
   };
 }
