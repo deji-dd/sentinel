@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { EmbedBuilder, type ChatInputCommandInteraction } from "discord.js";
+import {
+  EmbedBuilder,
+  MessageFlags,
+  type ChatInputCommandInteraction,
+} from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAuthorizedUser } from "../lib/auth.js";
 
@@ -9,7 +13,7 @@ export async function executeTravel(
 ): Promise<void> {
   try {
     // Defer the reply immediately (Discord requires response within 3 seconds)
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     // Check if user is authorized
     const discordId = interaction.user.id;
@@ -38,7 +42,7 @@ export async function executeTravel(
     }
 
     // Fetch user data for display
-    const { data: userData, error: userError } = await supabase
+    const { data: userData } = await supabase
       .from("sentinel_user_data")
       .select("name")
       .eq("user_id", userId)
@@ -90,8 +94,8 @@ export async function executeTravel(
     const profitPerTrip = topRec.profit_per_trip
       ? `$${Number(topRec.profit_per_trip).toLocaleString("en-US")}`
       : "N/A";
-    const cashToCarry = topRec.profit_per_trip
-      ? `$${Number(topRec.profit_per_trip).toLocaleString("en-US")}`
+    const cashToCarry = topRec.cash_to_carry
+      ? `$${Number(topRec.cash_to_carry).toLocaleString("en-US")}`
       : "N/A";
     const roundTripTime = topRec.round_trip_minutes
       ? (() => {
@@ -116,7 +120,8 @@ export async function executeTravel(
           day: "numeric",
           hour: "2-digit",
           minute: "2-digit",
-        })
+          timeZone: "UTC",
+        }) + " TCT"
       : "Unknown";
 
     const warningText = topRec.message ? `⚠️ Warning: ${topRec.message}` : null;

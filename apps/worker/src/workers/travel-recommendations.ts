@@ -272,6 +272,7 @@ async function syncTravelRecommendations(): Promise<void> {
 
       const profitPerTrip = bestItem.profitPerItem * capacity;
       const profitPerMinute = profitPerTrip / roundTripMinutes;
+      const cashToCarry = bestItem.stockCost * capacity;
 
       allRecommendations.push({
         user_id: userId,
@@ -280,6 +281,7 @@ async function syncTravelRecommendations(): Promise<void> {
         profit_per_trip: profitPerTrip,
         profit_per_minute: profitPerMinute,
         round_trip_minutes: roundTripMinutes,
+        cash_to_carry: cashToCarry,
         message,
       });
     }
