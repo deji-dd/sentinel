@@ -1,0 +1,30 @@
+{
+  "name": "@sentinel/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./torn": {
+      "types": "./dist/torn.d.ts",
+      "import": "./dist/torn.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/generated/torn-api.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.91.0"
+  }
+}

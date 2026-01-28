@@ -1,5 +1,5 @@
-/** Centralized table name constants for Sentinel UI. */
-export const TABLE_NAMES = {
-  USERS: "sentinel_users",
-  TRAVEL_DATA: "sentinel_travel_data",
-} as const;
+/**
+ * UI-specific constants
+ * Re-export shared constants for convenience
+ */
+export { TABLE_NAMES, TORN_ERROR_CODES } from "@sentinel/shared";

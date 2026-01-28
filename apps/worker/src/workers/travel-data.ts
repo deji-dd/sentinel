@@ -5,7 +5,7 @@ import {
   upsertTravelData,
   type TravelData,
 } from "../lib/supabase.js";
-import { fetchTornUserTravel, fetchTornUserPerks } from "../services/torn.js";
+import { tornApi } from "../services/torn-client.js";
 import { logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { dateToIsoOrNull, epochSecondsToDate } from "../lib/time.js";
@@ -127,8 +127,17 @@ async function syncTravelDataHandler(): Promise<void> {
 
       // Fetch travel status and perks (v1 API)
       const [travelResponse, perksResponse] = await Promise.all([
-        fetchTornUserTravel(apiKey),
-        fetchTornUserPerks(apiKey),
+        tornApi.get("/user/travel", { apiKey }),
+        tornApi.getRaw<{
+          property_perks?: string[];
+          stock_perks?: string[];
+          book_perks?: string[];
+          education_perks?: string[];
+          enhancer_perks?: string[];
+          faction_perks?: string[];
+          job_perks?: string[];
+          merit_perks?: string[];
+        }>("/user/", apiKey, { selections: "perks" }),
       ]);
 
       const travel = travelResponse.travel;

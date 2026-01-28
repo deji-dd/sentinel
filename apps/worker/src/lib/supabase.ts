@@ -372,6 +372,7 @@ export interface TravelRecommendation {
   profit_per_trip?: number | null;
   profit_per_minute?: number | null;
   round_trip_minutes?: number | null;
+  cash_to_carry?: number | null;
   recommendation_rank?: number | null;
   message?: string | null;
 }

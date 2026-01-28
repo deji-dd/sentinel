@@ -5,10 +5,7 @@ import {
   upsertUserData,
   type UserProfileData,
 } from "../lib/supabase.js";
-import {
-  fetchTornUserProfile,
-  fetchTornUserDiscord,
-} from "../services/torn.js";
+import { tornApi } from "../services/torn-client.js";
 import { log, logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
@@ -32,7 +29,7 @@ async function syncUserDataHandler(): Promise<void> {
   for (const user of users) {
     try {
       const apiKey = decrypt(user.api_key);
-      const profileResponse = await fetchTornUserProfile(apiKey);
+      const profileResponse = await tornApi.get("/user/profile", { apiKey });
       const profile = profileResponse.profile;
 
       if (!profile?.id || !profile?.name) {
@@ -106,7 +103,7 @@ async function syncDiscordHandler(): Promise<void> {
       // Fetch discord data
       let discordId: string | null = null;
       try {
-        const discordResponse = await fetchTornUserDiscord(apiKey);
+        const discordResponse = await tornApi.get("/user/discord", { apiKey });
         discordId = discordResponse.discord?.discord_id || null;
       } catch {
         // Discord link is optional, continue without it

@@ -9,10 +9,26 @@ function requireEnv(name: string): string {
   return value;
 }
 
-const discordToken = requireEnv("DISCORD_BOT_TOKEN");
-const clientId = requireEnv("DISCORD_CLIENT_ID");
+// Use local Discord bot in development, production bot in production
+const isDev = process.env.NODE_ENV === "development";
+const discordToken = isDev
+  ? requireEnv("DISCORD_BOT_TOKEN_LOCAL")
+  : requireEnv("DISCORD_BOT_TOKEN");
+const clientId = isDev
+  ? requireEnv("DISCORD_CLIENT_ID_LOCAL")
+  : requireEnv("DISCORD_CLIENT_ID");
+
+console.log(
+  `[Deploy Commands] Using ${isDev ? "local" : "production"} Discord bot`,
+);
 
 const commands = [
+  {
+    name: "setup",
+    description: "Link your Torn City account to Sentinel",
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
   {
     name: "travel",
     description: "Get travel recommendations from Torn City",

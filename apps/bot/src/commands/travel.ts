@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { EmbedBuilder, type ChatInputCommandInteraction } from "discord.js";
+import {
+  EmbedBuilder,
+  MessageFlags,
+  type ChatInputCommandInteraction,
+} from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAuthorizedUser } from "../lib/auth.js";
 
 export async function executeTravel(
   interaction: ChatInputCommandInteraction,
@@ -8,29 +13,23 @@ export async function executeTravel(
 ): Promise<void> {
   try {
     // Defer the reply immediately (Discord requires response within 3 seconds)
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    // Use interaction.user.id (Discord user ID) to identify the user
-    const userId = interaction.user.id;
+    // Check if user is authorized
+    const discordId = interaction.user.id;
+    const userId = await getAuthorizedUser(supabase, discordId);
 
-    // Fetch travel recommendations for this Discord user with their Torn name
-    const { data: userData, error: userError } = await supabase
-      .from("sentinel_user_data")
-      .select("user_id, name")
-      .eq("discord_id", userId)
-      .single();
-
-    if (userError || !userData) {
+    if (!userId) {
       const notLinkedEmbed = new EmbedBuilder()
         .setColor(0xdc2626)
-        .setTitle("Account Not Linked")
+        .setTitle("❌ Account Not Linked")
         .setDescription(
-          "Your Discord account is not linked to Torn. Please authenticate first to see your travel recommendations.",
+          "Your Discord account is not linked to Sentinel. Please use `/setup` first to link your Torn account.",
         )
         .addFields({
-          name: "What to do?",
+          name: "🔗 How to Link",
           value:
-            "Use the authentication command to link your Torn account with your Discord profile.",
+            "Run the `/setup` command and follow the instructions to securely link your Torn City account.",
           inline: false,
         })
         .setFooter({ text: "Sentinel Travel Recommendations" })
@@ -42,10 +41,16 @@ export async function executeTravel(
       return;
     }
 
-    // Now we have the sentinel user_id, fetch the top recommendation with destination details
-    const tornUserId = userData.user_id;
-    const tornName = userData.name;
+    // Fetch user data for display
+    const { data: userData } = await supabase
+      .from("sentinel_user_data")
+      .select("name")
+      .eq("user_id", userId)
+      .single();
 
+    const tornName = userData?.name || "Unknown";
+
+    // Fetch the top recommendation with destination details
     const { data: travelRecs, error: recsError } = await supabase
       .from("sentinel_travel_recommendations")
       .select(
@@ -55,7 +60,7 @@ export async function executeTravel(
         sentinel_torn_items!best_item_id(name)
       `,
       )
-      .eq("user_id", tornUserId)
+      .eq("user_id", userId)
       .order("recommendation_rank", { ascending: true })
       .limit(1);
 
@@ -89,8 +94,8 @@ export async function executeTravel(
     const profitPerTrip = topRec.profit_per_trip
       ? `$${Number(topRec.profit_per_trip).toLocaleString("en-US")}`
       : "N/A";
-    const cashToCarry = topRec.profit_per_trip
-      ? `$${Number(topRec.profit_per_trip).toLocaleString("en-US")}`
+    const cashToCarry = topRec.cash_to_carry
+      ? `$${Number(topRec.cash_to_carry).toLocaleString("en-US")}`
       : "N/A";
     const roundTripTime = topRec.round_trip_minutes
       ? (() => {
@@ -115,7 +120,8 @@ export async function executeTravel(
           day: "numeric",
           hour: "2-digit",
           minute: "2-digit",
-        })
+          timeZone: "UTC",
+        }) + " TCT"
       : "Unknown";
 
     const warningText = topRec.message ? `⚠️ Warning: ${topRec.message}` : null;

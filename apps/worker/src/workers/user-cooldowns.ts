@@ -5,7 +5,7 @@ import {
   upsertUserCooldowns,
   type UserCooldownsData,
 } from "../lib/supabase.js";
-import { fetchTornUserCooldowns } from "../services/torn.js";
+import { tornApi } from "../services/torn-client.js";
 import { logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 
@@ -25,7 +25,9 @@ async function syncUserCooldownsHandler(): Promise<void> {
   for (const user of users) {
     try {
       const apiKey = decrypt(user.api_key);
-      const cooldownsResponse = await fetchTornUserCooldowns(apiKey);
+      const cooldownsResponse = await tornApi.get("/user/cooldowns", {
+        apiKey,
+      });
       const cooldowns = cooldownsResponse.cooldowns;
 
       if (!cooldowns) {
