@@ -1,5 +1,5 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey, upsertUserData, type UserProfileData } from "../lib/supabase.js";
+import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
 import { log, logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -11,22 +11,8 @@ const DB_WORKER_KEY = "user_data_worker";
 const DISCORD_WORKER_KEY = "user_data_worker";
 const DISCORD_SYNC_NAME = "user_data_worker";
 
-// Personalized bot mode: single user ID from environment
-const PERSONAL_USER_ID: string = (() => {
-  const userId = process.env.SENTINEL_USER_ID;
-  if (!userId) {
-    throw new Error(
-      "SENTINEL_USER_ID environment variable is required for personalized bot mode",
-    );
-  }
-  return userId;
-})();
-
 async function syncUserDataHandler(): Promise<void> {
   const apiKey = getPersonalApiKey();
-
-  const updates: UserProfileData[] = [];
-  const errors: Array<{ userId: string; error: string }> = [];
 
   try {
     const profileResponse = await tornApi.get("/user/profile", { apiKey });
@@ -39,52 +25,31 @@ async function syncUserDataHandler(): Promise<void> {
     const isDonator =
       (profile.donator_status || "").toLowerCase() === "donator";
 
-    updates.push({
-      user_id: PERSONAL_USER_ID,
-      player_id: profile.id,
-      name: profile.name,
-      is_donator: isDonator,
-      profile_image: profile.image || null,
-    });
+    // Personalized mode: single-row upsert (id = 1)
+    const { error } = await supabase
+      .from(TABLE_NAMES.USER_DATA)
+      .upsert(
+        {
+          id: 1,
+          player_id: profile.id,
+          name: profile.name,
+          is_donator: isDonator,
+          profile_image: profile.image || null,
+        },
+        { onConflict: "id" },
+      );
+
+    if (error) {
+      throw error;
+    }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
-    errors.push({ userId: PERSONAL_USER_ID, error: errorMessage });
-    logError(WORKER_NAME, `${PERSONAL_USER_ID}: ${errorMessage}`);
-  }
-
-  if (updates.length > 0) {
-    await upsertUserData(updates);
-  }
-
-  if (errors.length > 0) {
-    logWarn(WORKER_NAME, `Profile sync failed: ${errors[0]?.error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logError(WORKER_NAME, `Profile sync failed: ${errorMessage}`);
   }
 }
 
 async function syncDiscordHandler(): Promise<void> {
   const apiKey = getPersonalApiKey();
-
-  // Only update if user_data row exists (avoid inserting null player_id)
-  const { data: existingRow, error: existingError } = await supabase
-    .from(TABLE_NAMES.USER_DATA)
-    .select("user_id")
-    .eq("user_id", PERSONAL_USER_ID)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(
-      `Failed to fetch user_data row for discord sync: ${existingError.message}`,
-    );
-  }
-
-  if (!existingRow) {
-    // Skip discord sync if profile hasn't been synced yet
-    return;
-  }
-
-  const updates: UserProfileData[] = [];
-  const errors: Array<{ userId: string; error: string }> = [];
 
   try {
     // Fetch discord data
@@ -94,45 +59,21 @@ async function syncDiscordHandler(): Promise<void> {
       discordId = discordResponse.discord?.discord_id || null;
     } catch {
       // Discord link is optional, continue without it
-      log(DISCORD_SYNC_NAME, `${PERSONAL_USER_ID}: No Discord linked`);
+      log(DISCORD_SYNC_NAME, "No Discord linked");
     }
 
-    updates.push({
-      user_id: PERSONAL_USER_ID,
-      discord_id: discordId,
-    } as UserProfileData);
-  } catch (_error) {
-    const errorMessage =
-      _error instanceof Error ? _error.message : String(_error);
-    errors.push({ userId: PERSONAL_USER_ID, error: errorMessage });
-    logError(
-      DISCORD_SYNC_NAME,
-      `${PERSONAL_USER_ID}: Discord sync failed - ${errorMessage}`,
-    );
-  }
+    // Personalized mode: single-row update (id = 1)
+    const { error } = await supabase
+      .from(TABLE_NAMES.USER_DATA)
+      .update({ discord_id: discordId })
+      .eq("id", 1);
 
-  if (updates.length > 0) {
-    // Use UPDATE instead of upsert to avoid inserting rows with null player_id
-    for (const update of updates) {
-      const { error: updateError } = await supabase
-        .from(TABLE_NAMES.USER_DATA)
-        .update({ discord_id: update.discord_id })
-        .eq("user_id", update.user_id);
-
-      if (updateError) {
-        logError(
-          DISCORD_SYNC_NAME,
-          `Failed to update discord_id for ${update.user_id}: ${updateError.message}`,
-        );
-      }
+    if (error) {
+      throw error;
     }
-  }
-
-  if (errors.length > 0) {
-    logWarn(
-      DISCORD_SYNC_NAME,
-      `Discord sync failed: ${errors[0]?.error}`,
-    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logError(DISCORD_SYNC_NAME, `Discord sync failed - ${errorMessage}`);
   }
 }
 
