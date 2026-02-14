@@ -125,6 +125,20 @@ export async function getAllUsers(): Promise<User[]> {
   return data || [];
 }
 
+/**
+ * Get the API key from environment variable (personalized bot mode)
+ * This replaces the multi-user pattern with a single configured API key
+ */
+export function getPersonalApiKey(): string {
+  const apiKey = process.env.TORN_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "TORN_API_KEY environment variable is not set. Required for personalized bot mode.",
+    );
+  }
+  return apiKey;
+}
+
 export async function getTravelSettingsByUserIds(
   userIds: string[],
 ): Promise<Map<string, TravelSettings>> {

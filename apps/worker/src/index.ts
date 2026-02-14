@@ -12,12 +12,6 @@ function startAllWorkers(): void {
   logSection("🚀 Starting Sentinel workers");
 
   try {
-    // Travel stock cache worker (every 5 minutes)
-    startTravelStockCacheWorker();
-
-    // Travel data worker (fixed 30s cadence)
-    startTravelDataWorker();
-
     // Torn items worker (daily at ~03:00 UTC)
     startTornItemsWorker();
 
@@ -30,11 +24,11 @@ function startAllWorkers(): void {
     // User cooldowns worker (every 30s)
     startUserCooldownsWorker();
 
-    // Travel recommendations worker (every 5 minutes)
-    startTravelRecommendationsWorker();
-
-    // Travel alerts worker (every 5 minutes)
-    startTravelAlerts();
+    // ⚠️  DISABLED: Travel module workers (on backburner)
+    // - startTravelStockCacheWorker(); // every 5 minutes
+    // - startTravelDataWorker(); // fixed 30s cadence
+    // - startTravelRecommendationsWorker(); // every 5 minutes
+    // - startTravelAlerts(); // every 5 minutes
 
     logSection("✅ All workers started");
   } catch (error) {

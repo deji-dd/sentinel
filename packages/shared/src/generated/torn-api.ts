@@ -15,7 +15,7 @@ export interface paths {
          * Get your ammo information
          * @description Requires minimal key. <br>
          */
-        get: operations["39826224a85f3a0dde89080ce7489685"];
+        get: operations["getMyAmmo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -35,7 +35,7 @@ export interface paths {
          * Get your detailed attacks
          * @description Requires limited access key. <br>
          */
-        get: operations["3acc98a3016974b786cb01e04e1ced04"];
+        get: operations["getMyAttacks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -55,7 +55,7 @@ export interface paths {
          * Get your simplified attacks
          * @description Requires limited access key. <br>Returns up to 1,000 rows. <br>
          */
-        get: operations["e995691fd9845c8b4a91f065ac9c8420"];
+        get: operations["getMyAttacksSimplified"];
         put?: never;
         post?: never;
         delete?: never;
@@ -75,7 +75,7 @@ export interface paths {
          * Get your bars information
          * @description Requires minimal access key. <br>
          */
-        get: operations["62b16119fb11b6a4d12864987f2a7223"];
+        get: operations["getMyBars"];
         put?: never;
         post?: never;
         delete?: never;
@@ -95,7 +95,7 @@ export interface paths {
          * Get your basic profile information
          * @description Requires public access key. <br>
          */
-        get: operations["310ed4d7970121be1c01fc6cb8c14f49"];
+        get: operations["getMyBasicInformation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -115,7 +115,7 @@ export interface paths {
          * Get basic profile information for a specific user
          * @description Requires public access key. <br>
          */
-        get: operations["a20c3fcd0afc00cc428f4a8c24467356"];
+        get: operations["getUserBasicInformation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -135,7 +135,7 @@ export interface paths {
          * Get your battlestats
          * @description Requires limited access key. <br>
          */
-        get: operations["b2395a36b6f5668ade16f460a593b236"];
+        get: operations["getMyBattlestats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -155,7 +155,7 @@ export interface paths {
          * Get bounties placed on you
          * @description Requires public access key. <br>
          */
-        get: operations["c85fd102a25aaec3aa98611d0da6c219"];
+        get: operations["getMyBounties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -175,7 +175,7 @@ export interface paths {
          * Get bounties placed on a specific user
          * @description Requires public access key. <br>
          */
-        get: operations["eb5eca5c6b978ee23ef74035c14ff4cc"];
+        get: operations["getUserBounties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -195,7 +195,7 @@ export interface paths {
          * Get your calendar events start time
          * @description Requires minimal access key. <br>Only available to yourself.
          */
-        get: operations["4cc4cc6fa3764f9732db9589e91d7739"];
+        get: operations["getMyCalendarTime"];
         put?: never;
         post?: never;
         delete?: never;
@@ -215,7 +215,7 @@ export interface paths {
          * Get your competition information
          * @description Requires public access key.
          */
-        get: operations["e9a7cd580a231f5a31212d4601a5f686"];
+        get: operations["getMyCompetitionInfo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -235,7 +235,7 @@ export interface paths {
          * Get competition information for a specific player
          * @description Requires public access key.
          */
-        get: operations["3ff933d6a90488c30fb55a9d25e0f2d8"];
+        get: operations["getUserCompetitionInfo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -255,7 +255,7 @@ export interface paths {
          * Get your cooldowns information
          * @description Requires minimal access key. <br>
          */
-        get: operations["fe1a505c4c4b83c667fa9e7313045d8b"];
+        get: operations["getMyCooldowns"];
         put?: never;
         post?: never;
         delete?: never;
@@ -275,7 +275,7 @@ export interface paths {
          * Get your crime statistics
          * @description Requires minimal access key. <br>Return the details and statistics about for a specific crime.
          */
-        get: operations["37f1e394f9d6e3f6fd436fae3e9b9ac4"];
+        get: operations["getMyCrimes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -295,7 +295,7 @@ export interface paths {
          * Get your discord information
          * @description Requires public key. <br>
          */
-        get: operations["68f0493291a1ad38d42053d861b1bba5"];
+        get: operations["getMyDiscord"];
         put?: never;
         post?: never;
         delete?: never;
@@ -315,7 +315,7 @@ export interface paths {
          * Get discord information for a specific user
          * @description Requires public access key. <br>
          */
-        get: operations["6bb6623979be4fa4149f0eab3fda3c53"];
+        get: operations["getUserDiscord"];
         put?: never;
         post?: never;
         delete?: never;
@@ -333,9 +333,9 @@ export interface paths {
         };
         /**
          * Get your education information
-         * @description The response contains a list of complete eduactions and of a current education (if any).
+         * @description Requires minimal access key. <br>The response contains a list of complete eduactions and of a current education (if any).
          */
-        get: operations["fddc6adc5139d8a1e0a151d80816dba7"];
+        get: operations["getMyEducation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -355,7 +355,7 @@ export interface paths {
          * Get your enlisted cars
          * @description Requires minimal access key. <br>Returns a list of all user enlisted cars.
          */
-        get: operations["dc3deee7629610931240be337c47a8ee"];
+        get: operations["getMyEnlistedCars"];
         put?: never;
         post?: never;
         delete?: never;
@@ -375,7 +375,7 @@ export interface paths {
          * Get your equipment & clothing
          * @description Requires minimal access key.
          */
-        get: operations["273c3a96077332793a1b6ffe21c10218"];
+        get: operations["getMyEquipment"];
         put?: never;
         post?: never;
         delete?: never;
@@ -395,7 +395,7 @@ export interface paths {
          * Get your events
          * @description Requires limited access key. <br> Unfortunately, the 'sort' parameter is not available for this selection.
          */
-        get: operations["10a22547e0c48046ade435e0b63dfe55"];
+        get: operations["getMyEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -415,7 +415,7 @@ export interface paths {
          * Get your faction information
          * @description Requires public access key.
          */
-        get: operations["c82d282102d0d4f54768a6a465639673"];
+        get: operations["getMyFaction"];
         put?: never;
         post?: never;
         delete?: never;
@@ -435,7 +435,7 @@ export interface paths {
          * Get faction information for a specific player
          * @description Requires public access key.
          */
-        get: operations["94dfc0c0663c9dc53241abbc59e39597"];
+        get: operations["getUserFaction"];
         put?: never;
         post?: never;
         delete?: never;
@@ -455,7 +455,7 @@ export interface paths {
          * Get updates on your threads and posts
          * @description Requires minimal access key. <br>This selection returns data visible in 'Feed' section on forum page. Feed is sorted by timestamp descending. Only a maximum of 100 rows are returned.
          */
-        get: operations["17f99b99fac9601887dd1d001b95bb08"];
+        get: operations["getMyForumFeed"];
         put?: never;
         post?: never;
         delete?: never;
@@ -475,7 +475,7 @@ export interface paths {
          * Get updates on your friends' activity
          * @description Requires minimal access key. <br>This selection returns data visible in 'Friends' section on forum page. Feed is sorted by timestamp descending. Only a maximum of 100 rows are returned.
          */
-        get: operations["2ceb7f08dc5f06a01d1fbe50425414c1"];
+        get: operations["getMyForumFriendsUpdates"];
         put?: never;
         post?: never;
         delete?: never;
@@ -495,7 +495,7 @@ export interface paths {
          * Get your posts
          * @description Requires public access key. <br>Returns 20 posts per page.
          */
-        get: operations["cc3a21ed98c1a80ffeeda4e33c75b9a0"];
+        get: operations["getMyForumPosts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -515,7 +515,7 @@ export interface paths {
          * Get posts for a specific player
          * @description Requires public access key. <br>Returns 20 posts per page for a specific player.
          */
-        get: operations["423ceffcad89f9ee7abfb85bed32b692"];
+        get: operations["getUserForumPosts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -535,7 +535,7 @@ export interface paths {
          * Get updates on threads you subscribed to
          * @description Requires minimal access key. <br>This selection returns data visible in 'Subscribed Threads' section on forum page. Threads are sorted in the same way as on site.
          */
-        get: operations["92c7e86065c3d18b000e825aa6688eed"];
+        get: operations["getMyForumSubscribedThreads"];
         put?: never;
         post?: never;
         delete?: never;
@@ -555,7 +555,7 @@ export interface paths {
          * Get your threads
          * @description Requires public access key. <br>Returns 100 threads per page. The field 'new_posts' is also available, indicating the amount of unread posts with a Minimum API key (or higher).
          */
-        get: operations["807adc6a64d86e07d629a15dde8c6105"];
+        get: operations["getMyForumThreads"];
         put?: never;
         post?: never;
         delete?: never;
@@ -575,7 +575,7 @@ export interface paths {
          * Get threads for a specific player
          * @description Requires public access key. <br>Returns 100 threads per page for a specific player. When requesting data for the key owner, a field 'new_posts' is also available, indicating the amount of unread posts. Minimum API key is required for that.
          */
-        get: operations["481c6645dae298b54f0630ef7de81dba"];
+        get: operations["getUserForumThreads"];
         put?: never;
         post?: never;
         delete?: never;
@@ -595,7 +595,7 @@ export interface paths {
          * Get your hall of fame rankings
          * @description Requires public access key. <br>When requesting selection with Limited, Full or Custom key, battle_stats selection will be populated.
          */
-        get: operations["959a3a302d736b416ec1edd4def8fe91"];
+        get: operations["getMyHoF"];
         put?: never;
         post?: never;
         delete?: never;
@@ -615,7 +615,7 @@ export interface paths {
          * Get hall of fame rankings for a specific player
          * @description Requires public access key. <br>The battle_stats selection will be populated only when requesting selection with Limited, Full or Custom key and for yourself.
          */
-        get: operations["f86d41c9434e42d22f9ff46ecc4e5b88"];
+        get: operations["getUserHoF"];
         put?: never;
         post?: never;
         delete?: never;
@@ -635,7 +635,7 @@ export interface paths {
          * Get your achieved honors
          * @description Requires minimal access key. <br>
          */
-        get: operations["03bcd69dc16d287da5a5c1239b1e35ae"];
+        get: operations["getMyHonors"];
         put?: never;
         post?: never;
         delete?: never;
@@ -655,7 +655,7 @@ export interface paths {
          * Get your icons information
          * @description Requires public access key. <br> When requesting data for yourself with 'Custom', 'Limited' or 'Full' access keys, the response will be of type UserIconPrivate, otherwise UserIconPublic.
          */
-        get: operations["40cf7455b4cf6e8cc08e1b82125fad53"];
+        get: operations["getMyIcons"];
         put?: never;
         post?: never;
         delete?: never;
@@ -675,7 +675,7 @@ export interface paths {
          * Get icons information for a specific player
          * @description Requires public access key.<br> When requesting data for yourself with 'Custom', 'Limited' or 'Full' access keys, the response will be of type UserIconPrivate, otherwise UserIconPublic.
          */
-        get: operations["72c4c23b9d60172e696c9a104e56b7bd"];
+        get: operations["getUserIcons"];
         put?: never;
         post?: never;
         delete?: never;
@@ -692,10 +692,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get your item market listings for a specific item
+         * Get your item market listings
          * @description Requires limited access key. <br>
          */
-        get: operations["8fcbe4dcf8a3a28e31e2eaab877feea1"];
+        get: operations["getMyItemMarketListings"];
         put?: never;
         post?: never;
         delete?: never;
@@ -715,7 +715,7 @@ export interface paths {
          * Get your job information
          * @description Requires public access key.
          */
-        get: operations["3ce15c1a0fa2f1c2c35a88f659f1f4b3"];
+        get: operations["getMyJob"];
         put?: never;
         post?: never;
         delete?: never;
@@ -735,7 +735,7 @@ export interface paths {
          * Get job information for a specific player
          * @description Requires public access key.
          */
-        get: operations["3046478bdee661f77bace171f60de62f"];
+        get: operations["getUserJob"];
         put?: never;
         post?: never;
         delete?: never;
@@ -755,7 +755,7 @@ export interface paths {
          * Get your jobpoints
          * @description Requires minimal access key. <br>
          */
-        get: operations["7d6d988f4aa00b9526c082c2b4247743"];
+        get: operations["getMyJobPoints"];
         put?: never;
         post?: never;
         delete?: never;
@@ -775,7 +775,7 @@ export interface paths {
          * Get your starter job positions
          * @description Requires minimal access key. <br>
          */
-        get: operations["facf1ddeef80a440229941f49aec6ccc"];
+        get: operations["getMyJobRanks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -795,7 +795,7 @@ export interface paths {
          * Get your friends, enemies or targets list
          * @description Requires limited access key. <br>
          */
-        get: operations["e93ba44fcc7ad2eb3063dec7469ee2f6"];
+        get: operations["getMyContactsList"];
         put?: never;
         post?: never;
         delete?: never;
@@ -813,9 +813,9 @@ export interface paths {
         };
         /**
          * Get your logs
-         * @description Requires limited access key. <br> It's possible to pass a list of log ids or a log category id.<br>
+         * @description Requires full access key. <br> It's possible to pass a list of log ids or a log category id.<br>
          */
-        get: operations["f354f40bc5d6cbadf57fdecb453c976f"];
+        get: operations["getMyLogs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -835,7 +835,7 @@ export interface paths {
          * Get your achieved medals
          * @description Requires minimal access key. <br>
          */
-        get: operations["5c1d150273feb0c553f6cfb96071bf1b"];
+        get: operations["getMyMedals"];
         put?: never;
         post?: never;
         delete?: never;
@@ -855,7 +855,7 @@ export interface paths {
          * Get your merits
          * @description Requires minimal access key. <br>
          */
-        get: operations["af17d832a1ff8c1d327f262886b39fec"];
+        get: operations["getMyMerits"];
         put?: never;
         post?: never;
         delete?: never;
@@ -875,7 +875,7 @@ export interface paths {
          * Get your messages
          * @description Requires limited access key. <br>
          */
-        get: operations["20c7b7a3f7395c2afa73597327f401a3"];
+        get: operations["getMyMessages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -895,7 +895,7 @@ export interface paths {
          * Get your current missions information
          * @description Requires minimal access key. <br>
          */
-        get: operations["98a38ba406509483a08bde6bee6f676c"];
+        get: operations["getMyMissions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -915,7 +915,7 @@ export interface paths {
          * Get your current wealth
          * @description Requires limited access key. <br>
          */
-        get: operations["bcda13a4bb3c826ee6c79fb6209d7b69"];
+        get: operations["getMyMoney"];
         put?: never;
         post?: never;
         delete?: never;
@@ -935,7 +935,7 @@ export interface paths {
          * Get your unseen events
          * @description Requires limited access key. <br>
          */
-        get: operations["945b8ac03944ca79eb0ae8a640aeab3b"];
+        get: operations["getMyNewEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -955,7 +955,7 @@ export interface paths {
          * Get your unseen messages
          * @description Requires limited access key. <br>
          */
-        get: operations["8859066800e0652740bfb17f8ecd15a2"];
+        get: operations["getMyNewMessages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -975,7 +975,7 @@ export interface paths {
          * Get your notifications
          * @description Requires minimal access key. <br>
          */
-        get: operations["6c73f06efc23903e15343c95e426b7ad"];
+        get: operations["getMyNotifications"];
         put?: never;
         post?: never;
         delete?: never;
@@ -995,7 +995,7 @@ export interface paths {
          * Get your current ongoing organized crime
          * @description Requires minimal access key. <br>
          */
-        get: operations["3c6f8acbfcb398592e3f3b65ab91a40f"];
+        get: operations["getMyOrganizedCrime"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1021,7 +1021,7 @@ export interface paths {
          *      * Historical stats can be fetched via 'stat' query parameter. It's only possible to pass up to 10 historical stats at once (the rest is trimmed). When requesting historical stats the response will be of type UserPersonalStatsHistoric.
          *      * Use 'timestamp' query parameter to get historical stats at the certain point in time. It's possible some historical stats didn't exist at the given timestamp, and for such stats you will not receive anything back.
          */
-        get: operations["388e8008ae1c2645819af76d71ef92a5"];
+        get: operations["getMyPersonalStats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1047,7 +1047,7 @@ export interface paths {
          *      *  It's possible to request specific stats via 'stat' parameter. In this case the response will vary depending on the stats requested. Private stats are still available only to the key owner (with Limited or higher key).
          *      *  Additionally, historical stats can also be fetched via 'stat' query parameter, but 'timestamp' parameter must be provided as well. It's only possible to pass up to 10 historical stats at once (the rest is trimmed). When requesting historical stats the response will be of type UserPersonalStatsHistoric.
          */
-        get: operations["6ac851069df2c33e53cc69eecae44f1e"];
+        get: operations["getUserPersonalStats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1067,7 +1067,7 @@ export interface paths {
          * Get your own profile
          * @description Requires public access key.
          */
-        get: operations["e945ec5e68a2794a7a7310000fbfba99"];
+        get: operations["getMyProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1087,7 +1087,7 @@ export interface paths {
          * Get profile information for a specific player
          * @description Requires public access key.
          */
-        get: operations["dda77cdddd962fb60f1beed24330ca93"];
+        get: operations["getUserProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1107,7 +1107,7 @@ export interface paths {
          * Get your own properties
          * @description Requires public access key. <br>Extended responses are available when requesting the data with Limited or higher access keys.
          */
-        get: operations["574a416ca46717830f03a2f685955b87"];
+        get: operations["getMyProperties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1127,7 +1127,7 @@ export interface paths {
          * Get specific user's properties
          * @description Requires public access key. <br>Extended responses are available when requesting the data with Limited or higher access keys for yourself or your spouse.
          */
-        get: operations["601f7b38ac25e1ac47b33fb64120198b"];
+        get: operations["getUserProperties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1147,7 +1147,7 @@ export interface paths {
          * Get your current property
          * @description Requires public access key. <br>
          */
-        get: operations["0452cb8fd031b80d3b7e9fcb7b0bdf09"];
+        get: operations["getMyProperty"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1167,7 +1167,7 @@ export interface paths {
          * Get specific user's property
          * @description Requires public access key. <br>
          */
-        get: operations["f36ce18449194dd9d2b62bccd4bb8343"];
+        get: operations["getUserProperty"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1187,7 +1187,7 @@ export interface paths {
          * Get user races
          * @description Requires minimal access key. <br>Returns a list of user races, ordered by race start timestamp.
          */
-        get: operations["ba6e495bf0c6b2e87db337c1a09f4852"];
+        get: operations["getMyRaces"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1207,7 +1207,7 @@ export interface paths {
          * Get your current racing records
          * @description Requires minimal access key. <br>
          */
-        get: operations["e1b2c1039ea41f7607b9c94660fc72cb"];
+        get: operations["getMyRacingRecords"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1227,7 +1227,7 @@ export interface paths {
          * Get your refills information
          * @description Requires minimal access key. <br>
          */
-        get: operations["f504d71a34f5cb3398bee32d6f67ee0e"];
+        get: operations["getMyRefills"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1248,7 +1248,7 @@ export interface paths {
          * @description Requires limited access key. <br>
          *      * The default limit is set to 25. However, the limit can be set to 100 for the 'stats' category.
          */
-        get: operations["6ba15a813fe1cc014564e9dba892e022"];
+        get: operations["getMyReports"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1268,7 +1268,7 @@ export interface paths {
          * Get your detailed revives
          * @description Requires limited access key. <br>
          */
-        get: operations["3c847eb1325040798f37a7492108e094"];
+        get: operations["getMyRevives"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1288,7 +1288,7 @@ export interface paths {
          * Get your simplified revives
          * @description Requires limited access key. <br>
          */
-        get: operations["8820cd889afde899353037ca5a0f9a07"];
+        get: operations["getMyRevivesSimplified"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1308,7 +1308,7 @@ export interface paths {
          * Get your skills
          * @description Requires minimal access key. <br>
          */
-        get: operations["242cd6844d92aec0223d9c5c88e66403"];
+        get: operations["getMySkills"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1328,7 +1328,7 @@ export interface paths {
          * Get your travel information
          * @description Requires minimal access key. <br>
          */
-        get: operations["b129b86b2f3902d6f875da827d0dee17"];
+        get: operations["getMyTravelInformation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1345,10 +1345,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get your virus information
+         * Get your virus coding information
          * @description Requires minimal access key. <br>
          */
-        get: operations["5e94a9ab2363bed4a7dfdef02ce135f6"];
+        get: operations["getMyVirusCodingInformation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1368,7 +1368,7 @@ export interface paths {
          * Get your weapon experience information
          * @description Requires minimal key. <br>
          */
-        get: operations["0b35f182b0a14eccc166ec542f1e7234"];
+        get: operations["getMyWeaponExp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1388,7 +1388,7 @@ export interface paths {
          * Get your working stats
          * @description Requires minimal access key. <br>
          */
-        get: operations["8c3acc9ecc8ec39baac5d2be8235d458"];
+        get: operations["getMyWorkstats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1408,7 +1408,7 @@ export interface paths {
          * Get all available user selections
          * @description Requires public access key. <br>
          */
-        get: operations["c0a6c91697cd1683c39b3c0649a18ec8"];
+        get: operations["getUserLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1428,7 +1428,7 @@ export interface paths {
          * Get current server time
          * @description Requires public access key. <br>
          */
-        get: operations["a72308321da0c4a2c31c60218acc7a85"];
+        get: operations["getUserTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1448,7 +1448,7 @@ export interface paths {
          * Get any User selection
          * @description Key access level depends on the required selections. <br>Choose one or more selections (comma separated).
          */
-        get: operations["ce480599312126b8a5d77ced3ab8caa8"];
+        get: operations["getUserGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1468,7 +1468,7 @@ export interface paths {
          * Get your faction's applications
          * @description Requires minimal access key with faction API access permissions. <br>
          */
-        get: operations["9f7dccb023d81a8da7f5f6a359658a64"];
+        get: operations["getMyFactionApplications"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1488,7 +1488,7 @@ export interface paths {
          * Get your faction's detailed attacks
          * @description Requires limited access key with faction API access permissions. <br>
          */
-        get: operations["cb5b38ba64c389e706526df8bc8af9b6"];
+        get: operations["getMyFactionAttacks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1508,7 +1508,7 @@ export interface paths {
          * Get your faction's simplified attacks
          * @description Requires limited access key with faction API access permissions. <br>
          */
-        get: operations["8551280aaaf9819aa94be5c469a523de"];
+        get: operations["getMyFactionAttacksSimplified"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1528,7 +1528,7 @@ export interface paths {
          * Get your faction's & member's balance details
          * @description Requires limited access key with faction API access permissions. <br>
          */
-        get: operations["3ca2c0319f960b728ffece8e322cf40f"];
+        get: operations["getMyFactionBalance"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1548,7 +1548,7 @@ export interface paths {
          * Get your faction's basic details
          * @description Requires public access key. <br> The 'is_enlisted' value will be populated if you have API faction permissions (with custom, limited or full access keys), otherwise it will be set as null.
          */
-        get: operations["fb363bf0e1d54296bd4d5dd554ad9825"];
+        get: operations["getMyFactionBasicInformation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1568,7 +1568,7 @@ export interface paths {
          * Get a faction's basic details
          * @description Requires public access key. <br> The 'is_enlisted' value will be populated if you're requesting data for your faction and have faction permissions (with custom, limited or full access keys), otherwise it will be set as null.
          */
-        get: operations["a09da2d5f951a49d974dbec3149b3a24"];
+        get: operations["getFactionBasicInformation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1588,7 +1588,7 @@ export interface paths {
          * Get your faction's current chain
          * @description Requires public access key. <br>
          */
-        get: operations["aee5679a81c6a7bcd3862c0aafd6b558"];
+        get: operations["getMyFactionChain"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1608,7 +1608,7 @@ export interface paths {
          * Get a faction's current chain
          * @description Requires public access key. <br>
          */
-        get: operations["ec8f82e15a321adbb20e615024d9dff6"];
+        get: operations["getFactionChain"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1628,7 +1628,7 @@ export interface paths {
          * Get a list of your faction's completed chains
          * @description Requires public access key. <br>
          */
-        get: operations["dfc0adb55af4aeeeebc2d82309c71eea"];
+        get: operations["getMyFactionCompletedChains"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1648,7 +1648,7 @@ export interface paths {
          * Get a list of a faction's completed chains
          * @description Requires public access key. <br>
          */
-        get: operations["dd88ca1ffafed80457916da5298a3422"];
+        get: operations["getFactionCompletedChains"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1668,7 +1668,7 @@ export interface paths {
          * Get your faction's latest chain report
          * @description Requires public access key. <br> This includes currently ongoing chains.
          */
-        get: operations["614a2f2bdd7fb6df778b7657c75d1113"];
+        get: operations["getMyFactionLatestChainReport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1688,7 +1688,7 @@ export interface paths {
          * Get a chain report
          * @description Requires public access key. <br> Chain reports for ongoing chains are available only for your own faction.
          */
-        get: operations["21a251c2ec9f6c93b89fb715196bb8be"];
+        get: operations["getChainReport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1708,7 +1708,7 @@ export interface paths {
          * Get your faction's challenge contributors
          * @description Requires limiteed access key with faction API access permissions. <br>
          */
-        get: operations["40eb7627818eb777fdc713ed78209c6b"];
+        get: operations["getMyFactionContributors"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1732,7 +1732,7 @@ export interface paths {
          *      * For categories 'recruiting' & 'expired', the ordering field is 'expired_at'.
          *      * For category 'planning', the ordering field is 'ready_at'.
          */
-        get: operations["72e5db8a773908fedff4bb002f3f4406"];
+        get: operations["getMyFactionOrganizedCrimes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1752,7 +1752,7 @@ export interface paths {
          * Get a specific organized crime
          * @description Requires minimal access key with faction API access permissions. <br>
          */
-        get: operations["b4867db9b02fa7dcd31b2073f2a936ce"];
+        get: operations["getMyFactionOrganizedCrime"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1772,7 +1772,7 @@ export interface paths {
          * Get your faction's hall of fame rankings.
          * @description Requires public access key. <br>
          */
-        get: operations["e104b0b606664d06d9638111702301f3"];
+        get: operations["getMyFactionHoF"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1792,7 +1792,7 @@ export interface paths {
          * Get a faction's hall of fame rankings.
          * @description Requires public access key. <br>
          */
-        get: operations["a775ca7831f4cad88c308be28f50e597"];
+        get: operations["getFactionHoF"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1812,7 +1812,7 @@ export interface paths {
          * Get a list of your faction's members
          * @description Requires public access key. <br> The 'revive_setting' value will be populated (not Unknown) if you have faction permissions (with custom, limited or full access keys), otherwise it will be set as 'Unknown'.
          */
-        get: operations["03d304564e4f84e3f258e5b8059bcc22"];
+        get: operations["getMyFactionMembers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1832,7 +1832,7 @@ export interface paths {
          * Get a list of a faction's members
          * @description Requires public access key. <br> The 'revive_setting' value will be populated (not Unknown) if you're requesting data for your own faction and have faction permissions (with custom, limited or full access keys), otherwise it will be set as 'Unknown'.
          */
-        get: operations["99a899c0094645475fd6254b423fea43"];
+        get: operations["getFactionMembers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1852,7 +1852,7 @@ export interface paths {
          * Get your faction's news details
          * @description Requires minimal access key with faction API access permissions. <br> It is possible to pass up to 10 categories at the time (comma separated). Categories 'attack', 'depositFunds' and 'giveFunds' are only available with 'Custom', 'Limited' or 'Full' access keys.
          */
-        get: operations["1da64889366de71140f2c15ad14b67b1"];
+        get: operations["getMyFactionNews"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1872,7 +1872,7 @@ export interface paths {
          * Get your faction's positions details
          * @description Requires minimal access key with faction API access permissions. <br>
          */
-        get: operations["77dae3b930e2e2f9f7608567db0b94f4"];
+        get: operations["getMyFactionPositions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1892,7 +1892,7 @@ export interface paths {
          * Get a list of current rackets
          * @description Requires public access key. <br>
          */
-        get: operations["f750d219e54329ae300c4db384dd5dcd"];
+        get: operations["getFactionRackets"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1912,7 +1912,7 @@ export interface paths {
          * Get raid war details
          * @description Requires public access key. <br>
          */
-        get: operations["9a48477c16e86235efce00a11d56510f"];
+        get: operations["getRaidReport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1932,7 +1932,7 @@ export interface paths {
          * Get raids history for your faction
          * @description Requires public access key. <br>
          */
-        get: operations["6a2b0604d0ebe31933f93facfa69f171"];
+        get: operations["getMyFactionRaidsHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1952,7 +1952,7 @@ export interface paths {
          * Get a faction's raids history
          * @description Requires public access key. <br>
          */
-        get: operations["67622543dbbc4857f1ea575be5af7fcd"];
+        get: operations["getFactionRaidsHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1972,7 +1972,7 @@ export interface paths {
          * Get ranked wars history for your faction
          * @description Requires public access key. <br> Use offset to get older results which are always ordered descending.
          */
-        get: operations["4f5d624a86e2d389a7a738b6b3ce8c9e"];
+        get: operations["getMyFactionRankedWarsHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1992,7 +1992,7 @@ export interface paths {
          * Get a faction's ranked wars history
          * @description Requires public access key. <br> Use offset to get older results which are always ordered descending.
          */
-        get: operations["5b6646714e5ae1cc397bdec877f55691"];
+        get: operations["getFactionRankedWarsHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2012,7 +2012,7 @@ export interface paths {
          * Get ranked war details
          * @description Requires public access key. <br>
          */
-        get: operations["db49842d88e193777dc695e54769113e"];
+        get: operations["getRankedWarReport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2033,7 +2033,7 @@ export interface paths {
          * @description Requires limited access key. <br>
          *      *  The default limit is set to 25. However, the limit can be set to 100 for the 'stats' category.
          */
-        get: operations["e8bd37f10cc5e0e8d6694bb306f3a1e4"];
+        get: operations["getMyFactionReports"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2053,7 +2053,7 @@ export interface paths {
          * Get your faction's detailed revives
          * @description Requires limited access key with faction API access permissions. <br>
          */
-        get: operations["486fcda26ed1aa6aba8ec7091080723b"];
+        get: operations["getMyFactionRevives"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2073,7 +2073,7 @@ export interface paths {
          * Get your faction's simplified revives
          * @description Requires limited access key with faction API access permissions. <br>
          */
-        get: operations["f17a4064779e8de5200238816c233c02"];
+        get: operations["getMyFactionRevivesSimplified"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2093,7 +2093,7 @@ export interface paths {
          * Search factions by name or other criteria
          * @description Requires public access key. <br>This selection is standalone and cannot be used together with other selections.
          */
-        get: operations["01c192f9b41ce29372df54667bea2b43"];
+        get: operations["getFactionSearch"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2113,7 +2113,7 @@ export interface paths {
          * Get your faction's challenges stats
          * @description Requires minimal access key with faction API access permissions. <br>
          */
-        get: operations["806d9dc7e5fcf9e1ee9c3cdf7f035392"];
+        get: operations["getMyFactionStats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2133,7 +2133,7 @@ export interface paths {
          * Get a list of your faction's territories
          * @description Requires public access key. <br>
          */
-        get: operations["fa6b3fbb14e5f3a71279b058bd751754"];
+        get: operations["getMyFactionTerritory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2153,7 +2153,7 @@ export interface paths {
          * Get a list of a faction's territories
          * @description Requires public access key. <br>
          */
-        get: operations["4dce518364dad91fb3503e0382adfadf"];
+        get: operations["getFactionTerritory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2173,7 +2173,7 @@ export interface paths {
          * Get a list territory ownership
          * @description Requires public access key. <br>
          */
-        get: operations["bf56fb8aba4d6810e9b96402e25b931d"];
+        get: operations["getTerritoryOwnership"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2193,7 +2193,7 @@ export interface paths {
          * Get territory wars history for your faction
          * @description Requires public access key. <br>
          */
-        get: operations["0258963246159d1e3e54547c32aac7c8"];
+        get: operations["getMyFactionTerritoryWarsHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2213,7 +2213,7 @@ export interface paths {
          * Get a faction's territory wars history
          * @description Requires public access key. <br>
          */
-        get: operations["76ce672d50a66fc0a832f9088e5436af"];
+        get: operations["getFactionTerritoryWarsHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2233,7 +2233,7 @@ export interface paths {
          * Get territory war details
          * @description Requires public access key. <br>
          */
-        get: operations["4e8aeafde7b5fc9918d166cda150fa91"];
+        get: operations["getTerritoryWarReport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2253,7 +2253,7 @@ export interface paths {
          * Get your faction's upgrades
          * @description Requires minimal access key with faction API access permissions. <br>
          */
-        get: operations["959f415abf48cb753414cec179b1b039"];
+        get: operations["getMyFactionUpgrades"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2273,7 +2273,7 @@ export interface paths {
          * Get faction warfare
          * @description Requires public access key. <br>The response depends on the selected category.
          */
-        get: operations["ae7f06db4618d3e7927fd700cfa58f16"];
+        get: operations["getWarfare"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2293,7 +2293,7 @@ export interface paths {
          * Get your faction's wars & pacts details
          * @description Requires public access key. <br>
          */
-        get: operations["b31cce9916e77431c08822844a0dbf2b"];
+        get: operations["getMyFactionWars"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2313,7 +2313,7 @@ export interface paths {
          * Get a faction's wars & pacts details
          * @description Requires public access key. <br>
          */
-        get: operations["c370823454d5ea28fc0df9a5b6a24c54"];
+        get: operations["getFactionWars"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2330,7 +2330,7 @@ export interface paths {
             cookie?: never;
         };
         /** @description Requires public access key. <br> */
-        get: operations["065bcbaa654fc44ce7b8ea574b84f7b9"];
+        get: operations["getFactionLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2350,7 +2350,7 @@ export interface paths {
          * Get current server time
          * @description Requires public access key. <br>
          */
-        get: operations["627df4d7d8b91c62dacb66ff373aab5c"];
+        get: operations["getFactionTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2370,7 +2370,7 @@ export interface paths {
          * Get any Faction selection
          * @description Key access level depends on the required selections. <br> Choose one or more selections (comma separated).
          */
-        get: operations["dd89e28b1f1ed88853b09ecc982e4e66"];
+        get: operations["getFactionGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2390,7 +2390,7 @@ export interface paths {
          * Get publicly available forum categories
          * @description Requires public access key. <br>
          */
-        get: operations["79b21191b87da275f3b87a7a1a233d04"];
+        get: operations["getForumCategories"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2410,7 +2410,7 @@ export interface paths {
          * Get specific forum thread posts
          * @description Requires public access key. <br>Returns 20 posts per page for a specific thread. <br> By default, it uses 'offset', but it's possible to filter posts with 'from' & 'to' parameters.
          */
-        get: operations["9c5eeb1aebb102b7c62fab11974c359a"];
+        get: operations["getForumThreadPosts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2430,7 +2430,7 @@ export interface paths {
          * Get specific thread details
          * @description Requires public access key. <br>Contains details of a thread including topic content and poll (if any).
          */
-        get: operations["a4618a3901c01413c14b75e984495a9b"];
+        get: operations["getForumThread"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2450,7 +2450,7 @@ export interface paths {
          * Get threads across all forum categories
          * @description Requires public access key. <br>
          */
-        get: operations["d2d64a69cedfdce19a50eff117e2c166"];
+        get: operations["getForumAllThreads"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2470,7 +2470,7 @@ export interface paths {
          * Get threads for specific public forum category or categories
          * @description Requires public access key. <br>
          */
-        get: operations["715cb3a4df0a9bf8094a53dc3259b633"];
+        get: operations["getForumThreads"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2490,7 +2490,7 @@ export interface paths {
          * Get all available forum selections
          * @description Requires public access key. <br>
          */
-        get: operations["f0805d0b7ad26c62ddd2fa8d0d332ba4"];
+        get: operations["getForumLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2510,7 +2510,7 @@ export interface paths {
          * Get current server time
          * @description Requires public access key. <br>
          */
-        get: operations["ec72c2a8cd96c88e4d228221bf6bf42f"];
+        get: operations["getForumTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2530,7 +2530,7 @@ export interface paths {
          * Get any Forum selection
          * @description Requires public access key. <br>Choose one or more selections (comma separated).
          */
-        get: operations["21915cf0228ce3677261cdce27fb39e2"];
+        get: operations["getForumGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2551,7 +2551,7 @@ export interface paths {
          * @description Available for any key. <br>
          *      * This selection contains up to last 250 request logs.
          */
-        get: operations["0d6dae59c9b3419c18d2a4ca0da757e6"];
+        get: operations["getKeyLog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2571,7 +2571,7 @@ export interface paths {
          * Get current key info
          * @description Available for any key. <br>
          */
-        get: operations["e6d387f16971004628eeca2d6473f825"];
+        get: operations["getKeyInfo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2588,7 +2588,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get any Key selection */
-        get: operations["c6ccbb0a05ebf3b307c82a4c89275e52"];
+        get: operations["getKeyGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2608,7 +2608,7 @@ export interface paths {
          * Get specific item auction house listings
          * @description Requires public access key. <br>
          */
-        get: operations["c28901b60d97e6ddf7d07d7a195f022a"];
+        get: operations["getMarketAuctionHouseListing"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2628,7 +2628,7 @@ export interface paths {
          * Get specific item auction house listings
          * @description Requires public access key. <br>
          */
-        get: operations["54c84ce84920ff49fac183f7ab7480cb"];
+        get: operations["getMarketAuctionHouseItem"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2648,7 +2648,7 @@ export interface paths {
          * Get auction house listings
          * @description Requires public access key. <br>
          */
-        get: operations["635ca1ff9b7062b8d8e0bf00252479cd"];
+        get: operations["getMarketAuctionHouse"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2668,7 +2668,7 @@ export interface paths {
          * Get bazaar directory
          * @description Requires public access key. <br> The default response is of type 'BazaarWeekly', but if a category is chosen, the response will be of type 'BazaarSpecialized'.
          */
-        get: operations["422876deda064e2f3a2cc3c4bf6d73a9"];
+        get: operations["getMarketBazaar"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2688,7 +2688,7 @@ export interface paths {
          * Get item specialized bazaar directory
          * @description Requires public access key. <br>
          */
-        get: operations["8254489388603bf1b21740e6f71bef06"];
+        get: operations["getMarketBazaarItem"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2708,7 +2708,7 @@ export interface paths {
          * Get item market listings
          * @description Requires public access key. <br>
          */
-        get: operations["f535a33bf405e7bd60918e536f827e5c"];
+        get: operations["getMarketItemMarketItem"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2728,7 +2728,7 @@ export interface paths {
          * Get properties market listings
          * @description Requires public access key. <br>
          */
-        get: operations["17e406574ff1eb686891c0fb0e15343a"];
+        get: operations["getMarketProperties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2748,7 +2748,7 @@ export interface paths {
          * Get properties rental listings
          * @description Requires public access key. <br>
          */
-        get: operations["38cd1a2c47e266a703a13e0dd401f4a9"];
+        get: operations["getMarketPropertiesRental"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2768,7 +2768,7 @@ export interface paths {
          * Get all available market selections
          * @description Requires public access key. <br>
          */
-        get: operations["22a00095ad734485b6dacdc12c1f62ff"];
+        get: operations["getMarketLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2788,7 +2788,7 @@ export interface paths {
          * Get current server time
          * @description Requires public access key. <br>
          */
-        get: operations["ad0c908328835d9672d157fe84eac884"];
+        get: operations["getMarketTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2808,7 +2808,7 @@ export interface paths {
          * Get any Market selection
          * @description Requires public access key. <br>Choose one or more selections (comma separated).
          */
-        get: operations["8e78be3fa3d353f59f8654fcc1c2199c"];
+        get: operations["getMarketGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2828,7 +2828,7 @@ export interface paths {
          * Get cars and their racing stats
          * @description Requires public access key. <br>Returns the stat details about racing cars.
          */
-        get: operations["ab5b44b00bf70d7a8587a3c2c9deeb17"];
+        get: operations["getRacingCars"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2848,7 +2848,7 @@ export interface paths {
          * Get all possible car upgrades
          * @description Requires public access key. <br>Returns the details about all possible car upgrades.
          */
-        get: operations["c9e76cf48aa3c4bac4c8b33f1c0c9a17"];
+        get: operations["getRacingCarUpgrades"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2868,7 +2868,7 @@ export interface paths {
          * Get races
          * @description Requires public access key. <br>Returns a list of races, ordered by race start timestamp.
          */
-        get: operations["4be921a67d32b5e82c68835ef56175d0"];
+        get: operations["getRacingRaces"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2888,7 +2888,7 @@ export interface paths {
          * Get specific race details
          * @description Requires public access key. <br>Returns the details of a race.
          */
-        get: operations["76925256951bb63fd28534c8c479b27b"];
+        get: operations["getRacingRaceDetails"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2908,7 +2908,7 @@ export interface paths {
          * Get track records
          * @description Requires public access key. <br>Returns a list of 5 best lap records for the chosen track and car class.
          */
-        get: operations["5fbc62db3b9380b155d7e33100620da7"];
+        get: operations["getRacingTrackRecords"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2928,7 +2928,7 @@ export interface paths {
          * Get race tracks and descriptions
          * @description Requires public access key. <br>Returns the details about racing tracks.
          */
-        get: operations["6e4507cc442d6f099d0170b78a35bf8d"];
+        get: operations["getRacingTracks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2948,7 +2948,7 @@ export interface paths {
          * Get all available racing selections
          * @description Requires public access key. <br>
          */
-        get: operations["8bd16be9aa517fedf717c9a79ff47e2c"];
+        get: operations["getRacingLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2968,7 +2968,7 @@ export interface paths {
          * Get current server time
          * @description Requires public access key. <br>
          */
-        get: operations["eb1ae216aa2949a8db0702df474d174c"];
+        get: operations["getRacingTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2988,7 +2988,7 @@ export interface paths {
          * Get any Racing selection
          * @description Requires public access key. <br>Choose one or more selections (comma separated).
          */
-        get: operations["39b8ce36e3fffc9e2aa1d0aed9ebccda"];
+        get: operations["getRacingGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3008,7 +3008,7 @@ export interface paths {
          * Get a specific property
          * @description Requires public access key. <br>
          */
-        get: operations["87bd73ddaf3749bce7cbf5aa28e921e2"];
+        get: operations["getProperty"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3028,7 +3028,7 @@ export interface paths {
          * Get all available property selections
          * @description Requires public access key. <br>
          */
-        get: operations["87fe6e3a7ec186e108922fed781c8d6d"];
+        get: operations["getPropertyLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3048,7 +3048,7 @@ export interface paths {
          * Get current server time
          * @description Requires public access key. <br>
          */
-        get: operations["423c130a5cdf6bc801c42537c07fddec"];
+        get: operations["getPropertyTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3068,7 +3068,7 @@ export interface paths {
          * Get any property selection
          * @description Requires public access key. <br>Choose one or more selections (comma separated).
          */
-        get: operations["2a45b6d9d77224d9a1e13d0b698f6c4b"];
+        get: operations["getPropertyGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3088,7 +3088,7 @@ export interface paths {
          * Get attack log details
          * @description Requires public key. <br>
          */
-        get: operations["61c2d0bc6980cf8d730fe48eb81f417b"];
+        get: operations["getTornAttackLog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3108,7 +3108,7 @@ export interface paths {
          * Get bounties
          * @description Requires public key. <br>
          */
-        get: operations["279e811630fa497fb2cae268c70992e2"];
+        get: operations["getTornBounties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3128,7 +3128,7 @@ export interface paths {
          * Get calendar information
          * @description Requires public access key. <br> Get the details about competitions & events in the running year.
          */
-        get: operations["e95c96ef528248341647a5704630320e"];
+        get: operations["getTornCalendar"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3148,7 +3148,7 @@ export interface paths {
          * Get crimes information
          * @description Requires public access key. <br> Return the details about released crimes.
          */
-        get: operations["b73ff4e5a9dd28905060da24ca76efde"];
+        get: operations["getTornCrimes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3168,7 +3168,7 @@ export interface paths {
          * Get education information
          * @description Requires public access key.<br>
          */
-        get: operations["992f8b71435ca78ba96f1e5298c25152"];
+        get: operations["getTornEducation"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3188,7 +3188,7 @@ export interface paths {
          * Get current standings for all elimination teams
          * @description Requires public key.
          */
-        get: operations["a6ce3192de2a723c7eedef7951eeb258"];
+        get: operations["getTornElimination"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3208,7 +3208,7 @@ export interface paths {
          * Get players in a specific elimination team
          * @description Requires public key.
          */
-        get: operations["ccc5b888a920b5c707d97c29b38d6e43"];
+        get: operations["getTornEliminationTeam"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3228,7 +3228,7 @@ export interface paths {
          * Get faction hall of fame positions for a specific category
          * @description Requires public access key. <br>
          */
-        get: operations["2a67e4b84813ee97a398be48e544abf5"];
+        get: operations["getTornFactionHoF"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3248,7 +3248,7 @@ export interface paths {
          * Get full faction tree
          * @description Requires public access key. <br>
          */
-        get: operations["f45431b364546bb20b0ca909e9ac686e"];
+        get: operations["getTornFactionTree"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3268,7 +3268,7 @@ export interface paths {
          * Get all honors
          * @description Requires public access key. <br>
          */
-        get: operations["4b7322594732b4e263f2e612f648e6a4"];
+        get: operations["getTornHonors"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3288,7 +3288,7 @@ export interface paths {
          * Get specific honors
          * @description Requires public access key. <br>
          */
-        get: operations["bdbbefa4dc1cd7f146f500816ccbec1a"];
+        get: operations["getTornHonorsSpecific"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3308,7 +3308,7 @@ export interface paths {
          * Get player hall of fame positions for a specific category
          * @description Requires public key.
          */
-        get: operations["911d56b49218cef2102be3de73f82f01"];
+        get: operations["getTornHoF"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3328,7 +3328,7 @@ export interface paths {
          * Get information about ammo
          * @description Requires public key.
          */
-        get: operations["2e799e84fcfa9b722f856e859df909f8"];
+        get: operations["getTornItemAmmo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3348,7 +3348,7 @@ export interface paths {
          * Get information about a specific item
          * @description Requires public key.
          */
-        get: operations["bb6524988f52a1e75729c05a825b91c8"];
+        get: operations["getTornItemDetails"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3368,7 +3368,7 @@ export interface paths {
          * Get information about weapon upgrades
          * @description Requires public key.
          */
-        get: operations["80ad6ebd50b6c075427c04d2f54d7af5"];
+        get: operations["getTornItemMods"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3388,7 +3388,7 @@ export interface paths {
          * Get information about items
          * @description Requires public key.<br>Default category is 'All'.<br>Details are not populated when requesting the category 'All'.
          */
-        get: operations["0f4c4c07e1dfacbda689b2a0d62ccda4"];
+        get: operations["getTornItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3408,7 +3408,7 @@ export interface paths {
          * Get information about items
          * @description Requires public key.<br>Details are always populated when available.
          */
-        get: operations["a4fedadcac3aada40131288e4e3d6c2d"];
+        get: operations["getTornItemsSpecific"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3428,7 +3428,7 @@ export interface paths {
          * Get available log categories
          * @description Requires public key. <br>
          */
-        get: operations["2f68d7e04d218e26005be3eeca6de583"];
+        get: operations["getTornLogCategories"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3448,7 +3448,7 @@ export interface paths {
          * Get all available log ids
          * @description Requires public key. <br>
          */
-        get: operations["d4cb87bc2502a517c49525b910a6dd82"];
+        get: operations["getTornLogTypes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3468,7 +3468,7 @@ export interface paths {
          * Get available log ids for a specific log category
          * @description Requires public key. <br>
          */
-        get: operations["7be904fbcb98a7bb724f0c5b02a37a25"];
+        get: operations["getTornLogTypesSpecific"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3488,7 +3488,7 @@ export interface paths {
          * Get all medals
          * @description Requires public access key. <br>
          */
-        get: operations["c6e00a242c309a53a98852b225de5e0b"];
+        get: operations["getTornMedals"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3508,7 +3508,7 @@ export interface paths {
          * Get specific medals
          * @description Requires public access key. <br>
          */
-        get: operations["a2f817c8fb95707aa71a7b28bed08a56"];
+        get: operations["getTornMedalsSpecific"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3528,7 +3528,7 @@ export interface paths {
          * Get all merits
          * @description Requires public access key. <br>
          */
-        get: operations["06198712e3cfdee6b3d5ea11fb6754ef"];
+        get: operations["getTornMerits"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3548,7 +3548,7 @@ export interface paths {
          * Get organized crimes information
          * @description Requires public access key. <br> Return the details about released faction organized crimes.
          */
-        get: operations["b64b8cf22cd9e9c8916bc01439f6b069"];
+        get: operations["getTornOrganizedCrimes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3568,7 +3568,7 @@ export interface paths {
          * Get properties details
          * @description Requires public access key. <br>
          */
-        get: operations["c44f572f4672071280a28e6f8217c3b6"];
+        get: operations["getTornProperties"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3588,7 +3588,7 @@ export interface paths {
          * Get Subcrimes information
          * @description Requires public access key. <br> Return the details about possible actions for a specific crime.
          */
-        get: operations["ad45b0f57a1109977f605581fc294bda"];
+        get: operations["getTornSubcrimes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3608,7 +3608,7 @@ export interface paths {
          * Get territory details
          * @description Requires public access key. <br>
          */
-        get: operations["37f1828422f3080da21f9eb4aa576686"];
+        get: operations["getTornTerritory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3628,7 +3628,7 @@ export interface paths {
          * Get all available torn selections
          * @description Requires public key. <br>
          */
-        get: operations["2baae03f953cd57fd5303dd1d04efae0"];
+        get: operations["getTornLookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3648,7 +3648,7 @@ export interface paths {
          * Get current server time
          * @description Requires public key. <br>
          */
-        get: operations["6f8cffcdae9fe97110b8d46c3991f109"];
+        get: operations["getTornTimestamp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3668,7 +3668,7 @@ export interface paths {
          * Get any Torn selection
          * @description Requires public access key. <br> Choose one or more selections (comma separated).
          */
-        get: operations["1846c4cf1e6878553e36571dc9cac29f"];
+        get: operations["getTornGeneric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4208,6 +4208,247 @@ export interface components {
             _metadata: components["schemas"]["RequestMetadataWithLinks"];
         };
         SelectionCategoryEnum: components["schemas"]["ReportTypeEnum"] | components["schemas"]["UserListEnum"] | components["schemas"]["PersonalStatsCategoryEnum"] | components["schemas"]["RacingRaceTypeEnum"];
+        ErrorUnknown: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 0;
+            error: string;
+        };
+        ErrorKeyEmpty: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 1;
+            error: string;
+        };
+        ErrorIncorrectKey: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 2;
+            error: string;
+        };
+        ErrorWrongType: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 3;
+            error: string;
+        };
+        ErrorWrongFields: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 4;
+            error: string;
+        };
+        ErrorTooManyRequests: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 5;
+            error: string;
+        };
+        ErrorIncorrectId: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 6;
+            error: string;
+        };
+        ErrorIncorrectIdEntityRelation: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 7;
+            error: string;
+        };
+        ErrorIpBlocked: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 8;
+            error: string;
+        };
+        ErrorApiDisabled: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 9;
+            error: string;
+        };
+        ErrorKeyOwnerInFederalJail: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 10;
+            error: string;
+        };
+        ErrorKeyChangeCooldown: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 11;
+            error: string;
+        };
+        ErrorKeyReadError: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 12;
+            error: string;
+        };
+        ErrorKeyTemporaryDisabled: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 13;
+            error: string;
+        };
+        ErrorDailyReadLimitReached: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 14;
+            error: string;
+        };
+        ErrorLogUnavailable: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 15;
+            error: string;
+        };
+        ErrorAccessLevelTooLow: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 16;
+            error: string;
+        };
+        ErrorBackendError: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 17;
+            error: string;
+        };
+        ErrorApiKeyPaused: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 18;
+            error: string;
+        };
+        ErrorMustMigrateToCrimesV2: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 19;
+            error: string;
+        };
+        ErrorRaceNotFinished: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 20;
+            error: string;
+        };
+        ErrorIncorrectCategory: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 21;
+            error: string;
+        };
+        ErrorOnlyAvailableInApiV1: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 22;
+            error: string;
+        };
+        ErrorOnlyAvailableInApiV2: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 23;
+            error: string;
+        };
+        ErrorClosedTemporarily: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 24;
+            error: string;
+        };
+        ErrorInvalidStatRequested: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 25;
+            error: string;
+        };
+        ErrorOnlyCategoryOrStatsAllowed: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 26;
+            error: string;
+        };
+        ErrorMustMigrateToOrganizedCrimesV2: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 27;
+            error: string;
+        };
+        ErrorIncorrectLogId: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 28;
+            error: string;
+        };
+        ErrorCategorySelectionUnavailableForInteractionLogs: {
+            /**
+             * Format: int32
+             * @enum {integer}
+             */
+            code: 29;
+            error: string;
+        };
+        ApiError: components["schemas"]["ErrorUnknown"] | components["schemas"]["ErrorKeyEmpty"] | components["schemas"]["ErrorIncorrectKey"] | components["schemas"]["ErrorWrongType"] | components["schemas"]["ErrorWrongFields"] | components["schemas"]["ErrorTooManyRequests"] | components["schemas"]["ErrorIncorrectId"] | components["schemas"]["ErrorIncorrectIdEntityRelation"] | components["schemas"]["ErrorIpBlocked"] | components["schemas"]["ErrorApiDisabled"] | components["schemas"]["ErrorKeyOwnerInFederalJail"] | components["schemas"]["ErrorKeyChangeCooldown"] | components["schemas"]["ErrorKeyReadError"] | components["schemas"]["ErrorKeyTemporaryDisabled"] | components["schemas"]["ErrorDailyReadLimitReached"] | components["schemas"]["ErrorLogUnavailable"] | components["schemas"]["ErrorAccessLevelTooLow"] | components["schemas"]["ErrorBackendError"] | components["schemas"]["ErrorApiKeyPaused"] | components["schemas"]["ErrorMustMigrateToCrimesV2"] | components["schemas"]["ErrorRaceNotFinished"] | components["schemas"]["ErrorIncorrectCategory"] | components["schemas"]["ErrorOnlyAvailableInApiV1"] | components["schemas"]["ErrorOnlyAvailableInApiV2"] | components["schemas"]["ErrorClosedTemporarily"] | components["schemas"]["ErrorInvalidStatRequested"] | components["schemas"]["ErrorOnlyCategoryOrStatsAllowed"] | components["schemas"]["ErrorMustMigrateToOrganizedCrimesV2"] | components["schemas"]["ErrorIncorrectLogId"] | components["schemas"]["ErrorCategorySelectionUnavailableForInteractionLogs"];
         UserEquipment: components["schemas"]["TornItemDetails"] & {
             /** Format: int32 */
             slot: number;
@@ -8153,7 +8394,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    "39826224a85f3a0dde89080ce7489685": {
+    getMyAmmo: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8180,7 +8421,7 @@ export interface operations {
             };
         };
     };
-    "3acc98a3016974b786cb01e04e1ced04": {
+    getMyAttacks: {
         parameters: {
             query?: {
                 /**
@@ -8219,7 +8460,7 @@ export interface operations {
             };
         };
     };
-    e995691fd9845c8b4a91f065ac9c8420: {
+    getMyAttacksSimplified: {
         parameters: {
             query?: {
                 /**
@@ -8258,7 +8499,7 @@ export interface operations {
             };
         };
     };
-    "62b16119fb11b6a4d12864987f2a7223": {
+    getMyBars: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8285,7 +8526,7 @@ export interface operations {
             };
         };
     };
-    "310ed4d7970121be1c01fc6cb8c14f49": {
+    getMyBasicInformation: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -8314,7 +8555,7 @@ export interface operations {
             };
         };
     };
-    a20c3fcd0afc00cc428f4a8c24467356: {
+    getUserBasicInformation: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -8346,15 +8587,15 @@ export interface operations {
             };
         };
     };
-    b2395a36b6f5668ade16f460a593b236: {
+    getMyBattlestats: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Limited).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyLimited"];
             };
             header?: never;
             path?: never;
@@ -8373,7 +8614,7 @@ export interface operations {
             };
         };
     };
-    c85fd102a25aaec3aa98611d0da6c219: {
+    getMyBounties: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8400,7 +8641,7 @@ export interface operations {
             };
         };
     };
-    eb5eca5c6b978ee23ef74035c14ff4cc: {
+    getUserBounties: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8430,7 +8671,7 @@ export interface operations {
             };
         };
     };
-    "4cc4cc6fa3764f9732db9589e91d7739": {
+    getMyCalendarTime: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8457,7 +8698,7 @@ export interface operations {
             };
         };
     };
-    e9a7cd580a231f5a31212d4601a5f686: {
+    getMyCompetitionInfo: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8484,7 +8725,7 @@ export interface operations {
             };
         };
     };
-    "3ff933d6a90488c30fb55a9d25e0f2d8": {
+    getUserCompetitionInfo: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8514,7 +8755,7 @@ export interface operations {
             };
         };
     };
-    fe1a505c4c4b83c667fa9e7313045d8b: {
+    getMyCooldowns: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8541,7 +8782,7 @@ export interface operations {
             };
         };
     };
-    "37f1e394f9d6e3f6fd436fae3e9b9ac4": {
+    getMyCrimes: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8571,7 +8812,7 @@ export interface operations {
             };
         };
     };
-    "68f0493291a1ad38d42053d861b1bba5": {
+    getMyDiscord: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8598,7 +8839,7 @@ export interface operations {
             };
         };
     };
-    "6bb6623979be4fa4149f0eab3fda3c53": {
+    getUserDiscord: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8628,15 +8869,15 @@ export interface operations {
             };
         };
     };
-    fddc6adc5139d8a1e0a151d80816dba7: {
+    getMyEducation: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -8655,7 +8896,7 @@ export interface operations {
             };
         };
     };
-    dc3deee7629610931240be337c47a8ee: {
+    getMyEnlistedCars: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8682,7 +8923,7 @@ export interface operations {
             };
         };
     };
-    "273c3a96077332793a1b6ffe21c10218": {
+    getMyEquipment: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8709,7 +8950,7 @@ export interface operations {
             };
         };
     };
-    "10a22547e0c48046ade435e0b63dfe55": {
+    getMyEvents: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -8743,7 +8984,7 @@ export interface operations {
             };
         };
     };
-    c82d282102d0d4f54768a6a465639673: {
+    getMyFaction: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8770,7 +9011,7 @@ export interface operations {
             };
         };
     };
-    "94dfc0c0663c9dc53241abbc59e39597": {
+    getUserFaction: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8800,7 +9041,7 @@ export interface operations {
             };
         };
     };
-    "17f99b99fac9601887dd1d001b95bb08": {
+    getMyForumFeed: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8827,7 +9068,7 @@ export interface operations {
             };
         };
     };
-    "2ceb7f08dc5f06a01d1fbe50425414c1": {
+    getMyForumFriendsUpdates: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8854,7 +9095,7 @@ export interface operations {
             };
         };
     };
-    cc3a21ed98c1a80ffeeda4e33c75b9a0: {
+    getMyForumPosts: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -8890,7 +9131,7 @@ export interface operations {
             };
         };
     };
-    "423ceffcad89f9ee7abfb85bed32b692": {
+    getUserForumPosts: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -8929,7 +9170,7 @@ export interface operations {
             };
         };
     };
-    "92c7e86065c3d18b000e825aa6688eed": {
+    getMyForumSubscribedThreads: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -8956,7 +9197,7 @@ export interface operations {
             };
         };
     };
-    "807adc6a64d86e07d629a15dde8c6105": {
+    getMyForumThreads: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100Default20"];
@@ -8990,7 +9231,7 @@ export interface operations {
             };
         };
     };
-    "481c6645dae298b54f0630ef7de81dba": {
+    getUserForumThreads: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100Default20"];
@@ -9027,7 +9268,7 @@ export interface operations {
             };
         };
     };
-    "959a3a302d736b416ec1edd4def8fe91": {
+    getMyHoF: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9054,7 +9295,7 @@ export interface operations {
             };
         };
     };
-    f86d41c9434e42d22f9ff46ecc4e5b88: {
+    getUserHoF: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9084,15 +9325,15 @@ export interface operations {
             };
         };
     };
-    "03bcd69dc16d287da5a5c1239b1e35ae": {
+    getMyHonors: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -9111,7 +9352,7 @@ export interface operations {
             };
         };
     };
-    "40cf7455b4cf6e8cc08e1b82125fad53": {
+    getMyIcons: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9138,7 +9379,7 @@ export interface operations {
             };
         };
     };
-    "72c4c23b9d60172e696c9a104e56b7bd": {
+    getUserIcons: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9168,7 +9409,7 @@ export interface operations {
             };
         };
     };
-    "8fcbe4dcf8a3a28e31e2eaab877feea1": {
+    getMyItemMarketListings: {
         parameters: {
             query?: {
                 offset?: components["parameters"]["ApiOffset"];
@@ -9196,7 +9437,7 @@ export interface operations {
             };
         };
     };
-    "3ce15c1a0fa2f1c2c35a88f659f1f4b3": {
+    getMyJob: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9223,7 +9464,7 @@ export interface operations {
             };
         };
     };
-    "3046478bdee661f77bace171f60de62f": {
+    getUserJob: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9253,15 +9494,15 @@ export interface operations {
             };
         };
     };
-    "7d6d988f4aa00b9526c082c2b4247743": {
+    getMyJobPoints: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -9280,7 +9521,7 @@ export interface operations {
             };
         };
     };
-    facf1ddeef80a440229941f49aec6ccc: {
+    getMyJobRanks: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9307,7 +9548,7 @@ export interface operations {
             };
         };
     };
-    e93ba44fcc7ad2eb3063dec7469ee2f6: {
+    getMyContactsList: {
         parameters: {
             query: {
                 /** @description Select list type */
@@ -9342,7 +9583,7 @@ export interface operations {
             };
         };
     };
-    f354f40bc5d6cbadf57fdecb453c976f: {
+    getMyLogs: {
         parameters: {
             query?: {
                 /** @description Log ids, comma separated, e.g. 105,4900,4905 */
@@ -9380,15 +9621,15 @@ export interface operations {
             };
         };
     };
-    "5c1d150273feb0c553f6cfb96071bf1b": {
+    getMyMedals: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -9407,15 +9648,15 @@ export interface operations {
             };
         };
     };
-    af17d832a1ff8c1d327f262886b39fec: {
+    getMyMerits: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -9434,7 +9675,7 @@ export interface operations {
             };
         };
     };
-    "20c7b7a3f7395c2afa73597327f401a3": {
+    getMyMessages: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100Default20"];
@@ -9468,7 +9709,7 @@ export interface operations {
             };
         };
     };
-    "98a38ba406509483a08bde6bee6f676c": {
+    getMyMissions: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9495,15 +9736,15 @@ export interface operations {
             };
         };
     };
-    bcda13a4bb3c826ee6c79fb6209d7b69: {
+    getMyMoney: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Limited).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyLimited"];
             };
             header?: never;
             path?: never;
@@ -9522,7 +9763,7 @@ export interface operations {
             };
         };
     };
-    "945b8ac03944ca79eb0ae8a640aeab3b": {
+    getMyNewEvents: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -9551,7 +9792,7 @@ export interface operations {
             };
         };
     };
-    "8859066800e0652740bfb17f8ecd15a2": {
+    getMyNewMessages: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9578,7 +9819,7 @@ export interface operations {
             };
         };
     };
-    "6c73f06efc23903e15343c95e426b7ad": {
+    getMyNotifications: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9605,7 +9846,7 @@ export interface operations {
             };
         };
     };
-    "3c6f8acbfcb398592e3f3b65ab91a40f": {
+    getMyOrganizedCrime: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9632,7 +9873,7 @@ export interface operations {
             };
         };
     };
-    "388e8008ae1c2645819af76d71ef92a5": {
+    getMyPersonalStats: {
         parameters: {
             query?: {
                 /** @description Stats category. Required unless requesting specific stats via 'stat' query parameter */
@@ -9663,7 +9904,7 @@ export interface operations {
             };
         };
     };
-    "6ac851069df2c33e53cc69eecae44f1e": {
+    getUserPersonalStats: {
         parameters: {
             query?: {
                 cat?: components["schemas"]["PersonalStatsCategoryEnum"];
@@ -9696,7 +9937,7 @@ export interface operations {
             };
         };
     };
-    e945ec5e68a2794a7a7310000fbfba99: {
+    getMyProfile: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -9725,7 +9966,7 @@ export interface operations {
             };
         };
     };
-    dda77cdddd962fb60f1beed24330ca93: {
+    getUserProfile: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -9757,7 +9998,7 @@ export interface operations {
             };
         };
     };
-    "574a416ca46717830f03a2f685955b87": {
+    getMyProperties: {
         parameters: {
             query?: {
                 /** @description It's possible to use this query parameter to filter properties by the key owner or their spouse. */
@@ -9788,7 +10029,7 @@ export interface operations {
             };
         };
     };
-    "601f7b38ac25e1ac47b33fb64120198b": {
+    getUserProperties: {
         parameters: {
             query?: {
                 /** @description It's possible to use this query parameter to filter properties by the key owner or their spouse. */
@@ -9822,7 +10063,7 @@ export interface operations {
             };
         };
     };
-    "0452cb8fd031b80d3b7e9fcb7b0bdf09": {
+    getMyProperty: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9849,7 +10090,7 @@ export interface operations {
             };
         };
     };
-    f36ce18449194dd9d2b62bccd4bb8343: {
+    getUserProperty: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9879,7 +10120,7 @@ export interface operations {
             };
         };
     };
-    ba6e495bf0c6b2e87db337c1a09f4852: {
+    getMyRaces: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100Default20"];
@@ -9915,7 +10156,7 @@ export interface operations {
             };
         };
     };
-    e1b2c1039ea41f7607b9c94660fc72cb: {
+    getMyRacingRecords: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9942,7 +10183,7 @@ export interface operations {
             };
         };
     };
-    f504d71a34f5cb3398bee32d6f67ee0e: {
+    getMyRefills: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -9969,7 +10210,7 @@ export interface operations {
             };
         };
     };
-    "6ba15a813fe1cc014564e9dba892e022": {
+    getMyReports: {
         parameters: {
             query?: {
                 /** @description Used to filter reports with a specific type. */
@@ -10004,7 +10245,7 @@ export interface operations {
             };
         };
     };
-    "3c847eb1325040798f37a7492108e094": {
+    getMyRevives: {
         parameters: {
             query?: {
                 /**
@@ -10045,7 +10286,7 @@ export interface operations {
             };
         };
     };
-    "8820cd889afde899353037ca5a0f9a07": {
+    getMyRevivesSimplified: {
         parameters: {
             query?: {
                 /**
@@ -10086,15 +10327,15 @@ export interface operations {
             };
         };
     };
-    "242cd6844d92aec0223d9c5c88e66403": {
+    getMySkills: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -10113,7 +10354,7 @@ export interface operations {
             };
         };
     };
-    b129b86b2f3902d6f875da827d0dee17: {
+    getMyTravelInformation: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10140,7 +10381,7 @@ export interface operations {
             };
         };
     };
-    "5e94a9ab2363bed4a7dfdef02ce135f6": {
+    getMyVirusCodingInformation: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10167,7 +10408,7 @@ export interface operations {
             };
         };
     };
-    "0b35f182b0a14eccc166ec542f1e7234": {
+    getMyWeaponExp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10194,15 +10435,15 @@ export interface operations {
             };
         };
     };
-    "8c3acc9ecc8ec39baac5d2be8235d458": {
+    getMyWorkstats: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
             };
             header?: never;
             path?: never;
@@ -10221,7 +10462,7 @@ export interface operations {
             };
         };
     };
-    c0a6c91697cd1683c39b3c0649a18ec8: {
+    getUserLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10248,7 +10489,7 @@ export interface operations {
             };
         };
     };
-    a72308321da0c4a2c31c60218acc7a85: {
+    getUserTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10275,7 +10516,7 @@ export interface operations {
             };
         };
     };
-    ce480599312126b8a5d77ced3ab8caa8: {
+    getUserGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */
@@ -10324,7 +10565,7 @@ export interface operations {
             };
         };
     };
-    "9f7dccb023d81a8da7f5f6a359658a64": {
+    getMyFactionApplications: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10351,7 +10592,7 @@ export interface operations {
             };
         };
     };
-    cb5b38ba64c389e706526df8bc8af9b6: {
+    getMyFactionAttacks: {
         parameters: {
             query?: {
                 /**
@@ -10390,7 +10631,7 @@ export interface operations {
             };
         };
     };
-    "8551280aaaf9819aa94be5c469a523de": {
+    getMyFactionAttacksSimplified: {
         parameters: {
             query?: {
                 /**
@@ -10429,7 +10670,7 @@ export interface operations {
             };
         };
     };
-    "3ca2c0319f960b728ffece8e322cf40f": {
+    getMyFactionBalance: {
         parameters: {
             query?: {
                 /** @description By default, this selection will return only current faction's member balances, and the option 'all' will return all current members balances + additionally those of ex-members which do have money or points on their balance. */
@@ -10458,7 +10699,7 @@ export interface operations {
             };
         };
     };
-    fb363bf0e1d54296bd4d5dd554ad9825: {
+    getMyFactionBasicInformation: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10485,7 +10726,7 @@ export interface operations {
             };
         };
     };
-    a09da2d5f951a49d974dbec3149b3a24: {
+    getFactionBasicInformation: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10515,7 +10756,7 @@ export interface operations {
             };
         };
     };
-    aee5679a81c6a7bcd3862c0aafd6b558: {
+    getMyFactionChain: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10542,7 +10783,7 @@ export interface operations {
             };
         };
     };
-    ec8f82e15a321adbb20e615024d9dff6: {
+    getFactionChain: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10572,7 +10813,7 @@ export interface operations {
             };
         };
     };
-    dfc0adb55af4aeeeebc2d82309c71eea: {
+    getMyFactionCompletedChains: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -10606,7 +10847,7 @@ export interface operations {
             };
         };
     };
-    dd88ca1ffafed80457916da5298a3422: {
+    getFactionCompletedChains: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -10643,7 +10884,7 @@ export interface operations {
             };
         };
     };
-    "614a2f2bdd7fb6df778b7657c75d1113": {
+    getMyFactionLatestChainReport: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10670,7 +10911,7 @@ export interface operations {
             };
         };
     };
-    "21a251c2ec9f6c93b89fb715196bb8be": {
+    getChainReport: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10700,7 +10941,7 @@ export interface operations {
             };
         };
     };
-    "40eb7627818eb777fdc713ed78209c6b": {
+    getMyFactionContributors: {
         parameters: {
             query: {
                 /** @description Get contributors for this field. */
@@ -10711,8 +10952,8 @@ export interface operations {
                 timestamp?: components["parameters"]["ApiTimestamp"];
                 /** @description Comment for your tool/service/bot/website to be visible in the logs. */
                 comment?: components["parameters"]["ApiComment"];
-                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
-                key?: components["parameters"]["ApiKeyPublic"];
+                /** @description API key (Limited).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyLimited"];
             };
             header?: never;
             path?: never;
@@ -10731,7 +10972,7 @@ export interface operations {
             };
         };
     };
-    "72e5db8a773908fedff4bb002f3f4406": {
+    getMyFactionOrganizedCrimes: {
         parameters: {
             query?: {
                 /** @description Category of organized crimes returned. Category 'available' includes both 'recruiting' & 'planning', and category 'completed' includes both 'successful' & 'failure'<br>Default category is 'all'. */
@@ -10769,7 +11010,7 @@ export interface operations {
             };
         };
     };
-    b4867db9b02fa7dcd31b2073f2a936ce: {
+    getMyFactionOrganizedCrime: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10799,7 +11040,7 @@ export interface operations {
             };
         };
     };
-    e104b0b606664d06d9638111702301f3: {
+    getMyFactionHoF: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10826,7 +11067,7 @@ export interface operations {
             };
         };
     };
-    a775ca7831f4cad88c308be28f50e597: {
+    getFactionHoF: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10856,7 +11097,7 @@ export interface operations {
             };
         };
     };
-    "03d304564e4f84e3f258e5b8059bcc22": {
+    getMyFactionMembers: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -10885,7 +11126,7 @@ export interface operations {
             };
         };
     };
-    "99a899c0094645475fd6254b423fea43": {
+    getFactionMembers: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -10917,7 +11158,7 @@ export interface operations {
             };
         };
     };
-    "1da64889366de71140f2c15ad14b67b1": {
+    getMyFactionNews: {
         parameters: {
             query: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -10955,7 +11196,7 @@ export interface operations {
             };
         };
     };
-    "77dae3b930e2e2f9f7608567db0b94f4": {
+    getMyFactionPositions: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -10982,7 +11223,7 @@ export interface operations {
             };
         };
     };
-    f750d219e54329ae300c4db384dd5dcd: {
+    getFactionRackets: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11009,7 +11250,7 @@ export interface operations {
             };
         };
     };
-    "9a48477c16e86235efce00a11d56510f": {
+    getRaidReport: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11039,7 +11280,7 @@ export interface operations {
             };
         };
     };
-    "6a2b0604d0ebe31933f93facfa69f171": {
+    getMyFactionRaidsHistory: {
         parameters: {
             query?: {
                 /** @description Timestamp that sets the lower limit for the data returned. Data returned will be after this time */
@@ -11073,7 +11314,7 @@ export interface operations {
             };
         };
     };
-    "67622543dbbc4857f1ea575be5af7fcd": {
+    getFactionRaidsHistory: {
         parameters: {
             query?: {
                 /** @description Timestamp that sets the lower limit for the data returned. Data returned will be after this time */
@@ -11110,7 +11351,7 @@ export interface operations {
             };
         };
     };
-    "4f5d624a86e2d389a7a738b6b3ce8c9e": {
+    getMyFactionRankedWarsHistory: {
         parameters: {
             query?: {
                 offset?: components["parameters"]["ApiOffset"];
@@ -11145,7 +11386,7 @@ export interface operations {
             };
         };
     };
-    "5b6646714e5ae1cc397bdec877f55691": {
+    getFactionRankedWarsHistory: {
         parameters: {
             query?: {
                 offset?: components["parameters"]["ApiOffset"];
@@ -11177,7 +11418,7 @@ export interface operations {
             };
         };
     };
-    db49842d88e193777dc695e54769113e: {
+    getRankedWarReport: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11207,7 +11448,7 @@ export interface operations {
             };
         };
     };
-    e8bd37f10cc5e0e8d6694bb306f3a1e4: {
+    getMyFactionReports: {
         parameters: {
             query?: {
                 /** @description Used to filter reports with a specific type. */
@@ -11242,7 +11483,7 @@ export interface operations {
             };
         };
     };
-    "486fcda26ed1aa6aba8ec7091080723b": {
+    getMyFactionRevives: {
         parameters: {
             query?: {
                 /**
@@ -11283,7 +11524,7 @@ export interface operations {
             };
         };
     };
-    f17a4064779e8de5200238816c233c02: {
+    getMyFactionRevivesSimplified: {
         parameters: {
             query?: {
                 /**
@@ -11324,7 +11565,7 @@ export interface operations {
             };
         };
     };
-    "01c192f9b41ce29372df54667bea2b43": {
+    getFactionSearch: {
         parameters: {
             query?: {
                 /** @description Name  to search for. */
@@ -11366,7 +11607,7 @@ export interface operations {
             };
         };
     };
-    "806d9dc7e5fcf9e1ee9c3cdf7f035392": {
+    getMyFactionStats: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11393,7 +11634,7 @@ export interface operations {
             };
         };
     };
-    fa6b3fbb14e5f3a71279b058bd751754: {
+    getMyFactionTerritory: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11420,7 +11661,7 @@ export interface operations {
             };
         };
     };
-    "4dce518364dad91fb3503e0382adfadf": {
+    getFactionTerritory: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11450,7 +11691,7 @@ export interface operations {
             };
         };
     };
-    bf56fb8aba4d6810e9b96402e25b931d: {
+    getTerritoryOwnership: {
         parameters: {
             query?: {
                 offset?: components["parameters"]["ApiOffset"];
@@ -11479,7 +11720,7 @@ export interface operations {
             };
         };
     };
-    "0258963246159d1e3e54547c32aac7c8": {
+    getMyFactionTerritoryWarsHistory: {
         parameters: {
             query?: {
                 /** @description Timestamp that sets the lower limit for the data returned. Data returned will be after this time */
@@ -11513,7 +11754,7 @@ export interface operations {
             };
         };
     };
-    "76ce672d50a66fc0a832f9088e5436af": {
+    getFactionTerritoryWarsHistory: {
         parameters: {
             query?: {
                 /** @description Timestamp that sets the lower limit for the data returned. Data returned will be after this time */
@@ -11550,7 +11791,7 @@ export interface operations {
             };
         };
     };
-    "4e8aeafde7b5fc9918d166cda150fa91": {
+    getTerritoryWarReport: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11580,7 +11821,7 @@ export interface operations {
             };
         };
     };
-    "959f415abf48cb753414cec179b1b039": {
+    getMyFactionUpgrades: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11607,7 +11848,7 @@ export interface operations {
             };
         };
     };
-    ae7f06db4618d3e7927fd700cfa58f16: {
+    getWarfare: {
         parameters: {
             query: {
                 cat: components["schemas"]["FactionWarfareTypeEnum"];
@@ -11642,7 +11883,7 @@ export interface operations {
             };
         };
     };
-    b31cce9916e77431c08822844a0dbf2b: {
+    getMyFactionWars: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11669,7 +11910,7 @@ export interface operations {
             };
         };
     };
-    c370823454d5ea28fc0df9a5b6a24c54: {
+    getFactionWars: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11699,7 +11940,7 @@ export interface operations {
             };
         };
     };
-    "065bcbaa654fc44ce7b8ea574b84f7b9": {
+    getFactionLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11726,7 +11967,7 @@ export interface operations {
             };
         };
     };
-    "627df4d7d8b91c62dacb66ff373aab5c": {
+    getFactionTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11753,7 +11994,7 @@ export interface operations {
             };
         };
     };
-    dd89e28b1f1ed88853b09ecc982e4e66: {
+    getFactionGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */
@@ -11801,7 +12042,7 @@ export interface operations {
             };
         };
     };
-    "79b21191b87da275f3b87a7a1a233d04": {
+    getForumCategories: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11828,7 +12069,7 @@ export interface operations {
             };
         };
     };
-    "9c5eeb1aebb102b7c62fab11974c359a": {
+    getForumThreadPosts: {
         parameters: {
             query?: {
                 /** @description Determines if fields include HTML or not ('Hospitalized by <a href=...>user</a>' vs 'Hospitalized by user'). */
@@ -11867,7 +12108,7 @@ export interface operations {
             };
         };
     };
-    a4618a3901c01413c14b75e984495a9b: {
+    getForumThread: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11897,7 +12138,7 @@ export interface operations {
             };
         };
     };
-    d2d64a69cedfdce19a50eff117e2c166: {
+    getForumAllThreads: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -11931,7 +12172,7 @@ export interface operations {
             };
         };
     };
-    "715cb3a4df0a9bf8094a53dc3259b633": {
+    getForumThreads: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -11968,7 +12209,7 @@ export interface operations {
             };
         };
     };
-    f0805d0b7ad26c62ddd2fa8d0d332ba4: {
+    getForumLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -11995,7 +12236,7 @@ export interface operations {
             };
         };
     };
-    ec72c2a8cd96c88e4d228221bf6bf42f: {
+    getForumTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12022,7 +12263,7 @@ export interface operations {
             };
         };
     };
-    "21915cf0228ce3677261cdce27fb39e2": {
+    getForumGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */
@@ -12063,7 +12304,7 @@ export interface operations {
             };
         };
     };
-    "0d6dae59c9b3419c18d2a4ca0da757e6": {
+    getKeyLog: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -12092,7 +12333,7 @@ export interface operations {
             };
         };
     };
-    e6d387f16971004628eeca2d6473f825: {
+    getKeyInfo: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12119,7 +12360,7 @@ export interface operations {
             };
         };
     };
-    c6ccbb0a05ebf3b307c82a4c89275e52: {
+    getKeyGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */
@@ -12150,7 +12391,7 @@ export interface operations {
             };
         };
     };
-    c28901b60d97e6ddf7d07d7a195f022a: {
+    getMarketAuctionHouseListing: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12180,7 +12421,7 @@ export interface operations {
             };
         };
     };
-    "54c84ce84920ff49fac183f7ab7480cb": {
+    getMarketAuctionHouseItem: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100Default20"];
@@ -12217,7 +12458,7 @@ export interface operations {
             };
         };
     };
-    "635ca1ff9b7062b8d8e0bf00252479cd": {
+    getMarketAuctionHouse: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100Default20"];
@@ -12251,7 +12492,7 @@ export interface operations {
             };
         };
     };
-    "422876deda064e2f3a2cc3c4bf6d73a9": {
+    getMarketBazaar: {
         parameters: {
             query?: {
                 /** @description Category of specialized bazaars returned */
@@ -12280,7 +12521,7 @@ export interface operations {
             };
         };
     };
-    "8254489388603bf1b21740e6f71bef06": {
+    getMarketBazaarItem: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12310,7 +12551,7 @@ export interface operations {
             };
         };
     };
-    f535a33bf405e7bd60918e536f827e5c: {
+    getMarketItemMarketItem: {
         parameters: {
             query?: {
                 /** @description Used to filter weapons with a specific bonus. */
@@ -12344,7 +12585,7 @@ export interface operations {
             };
         };
     };
-    "17e406574ff1eb686891c0fb0e15343a": {
+    getMarketProperties: {
         parameters: {
             query?: {
                 offset?: components["parameters"]["ApiOffset"];
@@ -12378,7 +12619,7 @@ export interface operations {
             };
         };
     };
-    "38cd1a2c47e266a703a13e0dd401f4a9": {
+    getMarketPropertiesRental: {
         parameters: {
             query?: {
                 offset?: components["parameters"]["ApiOffset"];
@@ -12412,7 +12653,7 @@ export interface operations {
             };
         };
     };
-    "22a00095ad734485b6dacdc12c1f62ff": {
+    getMarketLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12439,7 +12680,7 @@ export interface operations {
             };
         };
     };
-    ad0c908328835d9672d157fe84eac884: {
+    getMarketTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12466,7 +12707,7 @@ export interface operations {
             };
         };
     };
-    "8e78be3fa3d353f59f8654fcc1c2199c": {
+    getMarketGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */
@@ -12507,7 +12748,7 @@ export interface operations {
             };
         };
     };
-    ab5b44b00bf70d7a8587a3c2c9deeb17: {
+    getRacingCars: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12534,7 +12775,7 @@ export interface operations {
             };
         };
     };
-    c9e76cf48aa3c4bac4c8b33f1c0c9a17: {
+    getRacingCarUpgrades: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12561,7 +12802,7 @@ export interface operations {
             };
         };
     };
-    "4be921a67d32b5e82c68835ef56175d0": {
+    getRacingRaces: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -12597,7 +12838,7 @@ export interface operations {
             };
         };
     };
-    "76925256951bb63fd28534c8c479b27b": {
+    getRacingRaceDetails: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12627,7 +12868,7 @@ export interface operations {
             };
         };
     };
-    "5fbc62db3b9380b155d7e33100620da7": {
+    getRacingTrackRecords: {
         parameters: {
             query: {
                 /** @description Car class */
@@ -12659,7 +12900,7 @@ export interface operations {
             };
         };
     };
-    "6e4507cc442d6f099d0170b78a35bf8d": {
+    getRacingTracks: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12686,7 +12927,7 @@ export interface operations {
             };
         };
     };
-    "8bd16be9aa517fedf717c9a79ff47e2c": {
+    getRacingLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12713,7 +12954,7 @@ export interface operations {
             };
         };
     };
-    eb1ae216aa2949a8db0702df474d174c: {
+    getRacingTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12740,7 +12981,7 @@ export interface operations {
             };
         };
     };
-    "39b8ce36e3fffc9e2aa1d0aed9ebccda": {
+    getRacingGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */
@@ -12781,7 +13022,7 @@ export interface operations {
             };
         };
     };
-    "87bd73ddaf3749bce7cbf5aa28e921e2": {
+    getProperty: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12811,7 +13052,7 @@ export interface operations {
             };
         };
     };
-    "87fe6e3a7ec186e108922fed781c8d6d": {
+    getPropertyLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12838,7 +13079,7 @@ export interface operations {
             };
         };
     };
-    "423c130a5cdf6bc801c42537c07fddec": {
+    getPropertyTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12865,7 +13106,7 @@ export interface operations {
             };
         };
     };
-    "2a45b6d9d77224d9a1e13d0b698f6c4b": {
+    getPropertyGeneric: {
         parameters: {
             query: {
                 /** @description Selection names */
@@ -12896,7 +13137,7 @@ export interface operations {
             };
         };
     };
-    "61c2d0bc6980cf8d730fe48eb81f417b": {
+    getTornAttackLog: {
         parameters: {
             query: {
                 /** @description Code of the attack log. E.g. d51ad4fe6be884b309b142e2d1d4f807 */
@@ -12930,7 +13171,7 @@ export interface operations {
             };
         };
     };
-    "279e811630fa497fb2cae268c70992e2": {
+    getTornBounties: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -12959,7 +13200,7 @@ export interface operations {
             };
         };
     };
-    e95c96ef528248341647a5704630320e: {
+    getTornCalendar: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -12986,7 +13227,7 @@ export interface operations {
             };
         };
     };
-    b73ff4e5a9dd28905060da24ca76efde: {
+    getTornCrimes: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13013,7 +13254,7 @@ export interface operations {
             };
         };
     };
-    "992f8b71435ca78ba96f1e5298c25152": {
+    getTornEducation: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13040,7 +13281,7 @@ export interface operations {
             };
         };
     };
-    a6ce3192de2a723c7eedef7951eeb258: {
+    getTornElimination: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13067,7 +13308,7 @@ export interface operations {
             };
         };
     };
-    ccc5b888a920b5c707d97c29b38d6e43: {
+    getTornEliminationTeam: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -13099,7 +13340,7 @@ export interface operations {
             };
         };
     };
-    "2a67e4b84813ee97a398be48e544abf5": {
+    getTornFactionHoF: {
         parameters: {
             query: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -13130,7 +13371,7 @@ export interface operations {
             };
         };
     };
-    f45431b364546bb20b0ca909e9ac686e: {
+    getTornFactionTree: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13157,7 +13398,7 @@ export interface operations {
             };
         };
     };
-    "4b7322594732b4e263f2e612f648e6a4": {
+    getTornHonors: {
         parameters: {
             query?: {
                 limit?: components["parameters"]["ApiLimitDefault20"];
@@ -13188,7 +13429,7 @@ export interface operations {
             };
         };
     };
-    bdbbefa4dc1cd7f146f500816ccbec1a: {
+    getTornHonorsSpecific: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13218,7 +13459,7 @@ export interface operations {
             };
         };
     };
-    "911d56b49218cef2102be3de73f82f01": {
+    getTornHoF: {
         parameters: {
             query: {
                 limit?: components["parameters"]["ApiLimit100"];
@@ -13249,7 +13490,7 @@ export interface operations {
             };
         };
     };
-    "2e799e84fcfa9b722f856e859df909f8": {
+    getTornItemAmmo: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13276,7 +13517,7 @@ export interface operations {
             };
         };
     };
-    bb6524988f52a1e75729c05a825b91c8: {
+    getTornItemDetails: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13306,7 +13547,7 @@ export interface operations {
             };
         };
     };
-    "80ad6ebd50b6c075427c04d2f54d7af5": {
+    getTornItemMods: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13333,7 +13574,7 @@ export interface operations {
             };
         };
     };
-    "0f4c4c07e1dfacbda689b2a0d62ccda4": {
+    getTornItems: {
         parameters: {
             query?: {
                 /** @description Item category type */
@@ -13364,7 +13605,7 @@ export interface operations {
             };
         };
     };
-    a4fedadcac3aada40131288e4e3d6c2d: {
+    getTornItemsSpecific: {
         parameters: {
             query?: {
                 /** @description Sort rows from newest to oldest<br>Default ordering is ascending */
@@ -13396,7 +13637,7 @@ export interface operations {
             };
         };
     };
-    "2f68d7e04d218e26005be3eeca6de583": {
+    getTornLogCategories: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13423,7 +13664,7 @@ export interface operations {
             };
         };
     };
-    d4cb87bc2502a517c49525b910a6dd82: {
+    getTornLogTypes: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13450,7 +13691,7 @@ export interface operations {
             };
         };
     };
-    "7be904fbcb98a7bb724f0c5b02a37a25": {
+    getTornLogTypesSpecific: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13480,7 +13721,7 @@ export interface operations {
             };
         };
     };
-    c6e00a242c309a53a98852b225de5e0b: {
+    getTornMedals: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13507,7 +13748,7 @@ export interface operations {
             };
         };
     };
-    a2f817c8fb95707aa71a7b28bed08a56: {
+    getTornMedalsSpecific: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13537,7 +13778,7 @@ export interface operations {
             };
         };
     };
-    "06198712e3cfdee6b3d5ea11fb6754ef": {
+    getTornMerits: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13564,7 +13805,7 @@ export interface operations {
             };
         };
     };
-    b64b8cf22cd9e9c8916bc01439f6b069: {
+    getTornOrganizedCrimes: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13591,7 +13832,7 @@ export interface operations {
             };
         };
     };
-    c44f572f4672071280a28e6f8217c3b6: {
+    getTornProperties: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13618,7 +13859,7 @@ export interface operations {
             };
         };
     };
-    ad45b0f57a1109977f605581fc294bda: {
+    getTornSubcrimes: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13648,7 +13889,7 @@ export interface operations {
             };
         };
     };
-    "37f1828422f3080da21f9eb4aa576686": {
+    getTornTerritory: {
         parameters: {
             query?: {
                 /** @description Specific territory id or a list of territory ids (comma separated) */
@@ -13679,7 +13920,7 @@ export interface operations {
             };
         };
     };
-    "2baae03f953cd57fd5303dd1d04efae0": {
+    getTornLookup: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13706,7 +13947,7 @@ export interface operations {
             };
         };
     };
-    "6f8cffcdae9fe97110b8d46c3991f109": {
+    getTornTimestamp: {
         parameters: {
             query?: {
                 /** @description Timestamp to bypass cache */
@@ -13733,7 +13974,7 @@ export interface operations {
             };
         };
     };
-    "1846c4cf1e6878553e36571dc9cac29f": {
+    getTornGeneric: {
         parameters: {
             query?: {
                 /** @description Selection names */

@@ -2,6 +2,7 @@ import { executeSync } from "../lib/sync.js";
 import { decrypt } from "../lib/encryption.js";
 import {
   getAllUsers,
+  getPersonalApiKey,
   upsertUserData,
   type UserProfileData,
 } from "../lib/supabase.js";
@@ -16,11 +17,22 @@ const DB_WORKER_KEY = "user_data_worker";
 const DISCORD_WORKER_KEY = "user_data_worker";
 const DISCORD_SYNC_NAME = "user_data_worker";
 
-async function syncUserDataHandler(): Promise<void> {
-  const users = await getAllUsers();
+// Get the single personalized user ID from environment or use a default UUID
+const PERSONAL_USER_ID = process.env.SENTINEL_USER_ID || "f47ac10b-58cc-4372-a567-0e02b2c3d479";
 
-  if (users.length === 0) {
-    return;
+async function syncUserDataHandler(): Promise<void> {
+  // Personalized bot mode: use single API key from environment
+  let users: Array<{ user_id: string; api_key: string }>;
+  
+  try {
+    const apiKey = getPersonalApiKey();
+    users = [{ user_id: PERSONAL_USER_ID, api_key: apiKey }];
+  } catch (error) {
+    // Fall back to multi-user mode if TORN_API_KEY not set
+    users = await getAllUsers();
+    if (users.length === 0) {
+      return;
+    }
   }
 
   const updates: UserProfileData[] = [];
@@ -28,7 +40,10 @@ async function syncUserDataHandler(): Promise<void> {
 
   for (const user of users) {
     try {
-      const apiKey = decrypt(user.api_key);
+      // In personalized mode, API key is not encrypted; in multi-user mode, it is
+      const apiKey = user.api_key.length === 16 
+        ? user.api_key 
+        : decrypt(user.api_key);
       const profileResponse = await tornApi.get("/user/profile", { apiKey });
       const profile = profileResponse.profile;
 
@@ -64,10 +79,18 @@ async function syncUserDataHandler(): Promise<void> {
 }
 
 async function syncDiscordHandler(): Promise<void> {
-  const users = await getAllUsers();
-
-  if (users.length === 0) {
-    return;
+  // Personalized bot mode: use single API key from environment
+  let users: Array<{ user_id: string; api_key: string }>;
+  
+  try {
+    const apiKey = getPersonalApiKey();
+    users = [{ user_id: PERSONAL_USER_ID, api_key: apiKey }];
+  } catch (error) {
+    // Fall back to multi-user mode if TORN_API_KEY not set
+    users = await getAllUsers();
+    if (users.length === 0) {
+      return;
+    }
   }
 
   // Only update users that already have user_data rows (avoid inserting null player_id)
@@ -98,7 +121,10 @@ async function syncDiscordHandler(): Promise<void> {
     }
 
     try {
-      const apiKey = decrypt(user.api_key);
+      // In personalized mode, API key is not encrypted; in multi-user mode, it is
+      const apiKey = user.api_key.length === 16 
+        ? user.api_key 
+        : decrypt(user.api_key);
 
       // Fetch discord data
       let discordId: string | null = null;
