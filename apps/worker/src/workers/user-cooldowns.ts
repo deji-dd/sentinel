@@ -10,6 +10,10 @@ import { TABLE_NAMES } from "../lib/constants.js";
 const WORKER_NAME = "user_cooldowns_worker";
 const DB_WORKER_KEY = "user_cooldowns_worker";
 
+function formatDuration(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
+}
+
 async function syncUserCooldownsHandler(): Promise<void> {
   const apiKey = getPersonalApiKey();
   const startTime = Date.now();
@@ -59,11 +63,17 @@ async function syncUserCooldownsHandler(): Promise<void> {
     const elapsed = Date.now() - startTime;
     if (error instanceof Object && "message" in error && "code" in error) {
       // PostgreSQL/Supabase error object
-      logError(WORKER_NAME, `Cooldowns sync failed: ${(error as any).message} (${elapsed}ms)`);
+      logError(
+        WORKER_NAME,
+        `Cooldowns sync failed: ${(error as any).message} (${formatDuration(elapsed)})`,
+      );
     } else {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logError(WORKER_NAME, `Cooldowns sync failed: ${errorMessage} (${elapsed}ms)`);
+      logError(
+        WORKER_NAME,
+        `Cooldowns sync failed: ${errorMessage} (${formatDuration(elapsed)})`,
+      );
     }
     throw error; // Re-throw so executeSync knows this failed
   }

@@ -12,6 +12,10 @@ const DB_WORKER_KEY = "user_data_worker";
 const DISCORD_WORKER_KEY = "user_data_worker";
 const DISCORD_SYNC_NAME = "user_data_worker";
 
+function formatDuration(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
+}
+
 async function syncUserDataHandler(): Promise<void> {
   const apiKey = getPersonalApiKey();
   const startTime = Date.now();
@@ -45,11 +49,17 @@ async function syncUserDataHandler(): Promise<void> {
     const elapsed = Date.now() - startTime;
     if (error instanceof Object && "message" in error && "code" in error) {
       // PostgreSQL/Supabase error object
-      logError(WORKER_NAME, `Profile sync failed: ${(error as any).message} (${elapsed}ms)`);
+      logError(
+        WORKER_NAME,
+        `Profile sync failed: ${(error as any).message} (${formatDuration(elapsed)})`,
+      );
     } else {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logError(WORKER_NAME, `Profile sync failed: ${errorMessage} (${elapsed}ms)`);
+      logError(
+        WORKER_NAME,
+        `Profile sync failed: ${errorMessage} (${formatDuration(elapsed)})`,
+      );
     }
     throw error; // Re-throw so executeSync knows this failed
   }
@@ -98,7 +108,10 @@ async function syncDiscordHandler(): Promise<void> {
   } catch (error) {
     const elapsed = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(DISCORD_SYNC_NAME, `Discord sync failed - ${errorMessage} (${elapsed}ms)`);
+    logError(
+      DISCORD_SYNC_NAME,
+      `Discord sync failed - ${errorMessage} (${formatDuration(elapsed)})`,
+    );
     throw error; // Re-throw so executeSync knows this failed
   }
 }
