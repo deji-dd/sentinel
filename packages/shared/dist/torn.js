@@ -43,12 +43,9 @@ export class TornApiClient {
      */
     async get(path, options) {
         const { apiKey, pathParams, queryParams } = options;
-        console.log(`[TornApi] Starting GET ${path}`);
         // Apply rate limiting if configured
         if (this.rateLimitTracker) {
-            console.log("[TornApi] Checking rate limits...");
             await this.rateLimitTracker.waitIfNeeded(apiKey);
-            console.log("[TornApi] Rate limit check passed");
         }
         // Build URL with path parameters
         let url = `${TORN_API_BASE}${this.buildPath(path, pathParams)}`;
@@ -63,20 +60,16 @@ export class TornApiClient {
             }
         }
         url += `?${params.toString()}`;
-        console.log(`[TornApi] URL: ${url.replace(apiKey, "***")}`);
         // Make request with timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
-            console.log(`[TornApi] Request timeout after ${this.timeout}ms`);
             controller.abort();
         }, this.timeout);
         try {
-            console.log("[TornApi] Sending fetch request...");
             const response = await fetch(url, {
                 signal: controller.signal,
                 headers: { Accept: "application/json" },
             });
-            console.log(`[TornApi] Received response: ${response.status}`);
             const data = (await response.json());
             // Check for API errors
             if (data && typeof data === "object" && "error" in data) {
@@ -89,11 +82,8 @@ export class TornApiClient {
             }
             // Record request for rate limiting
             if (this.rateLimitTracker) {
-                console.log("[TornApi] Recording request completion...");
                 await this.rateLimitTracker.recordRequest(apiKey);
-                console.log("[TornApi] Request recorded");
             }
-            console.log("[TornApi] Request completed successfully");
             return data;
         }
         finally {

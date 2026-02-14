@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { executeSync } from "../lib/sync.js";
 import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
-import { log, logError } from "../lib/logger.js";
+import { logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "../lib/constants.js";
@@ -40,24 +41,29 @@ async function syncUserCooldownsHandler(): Promise<void> {
     }
 
     // Personalized mode: upsert using player_id as primary key
-    const { error } = await supabase
-      .from(TABLE_NAMES.USER_COOLDOWNS)
-      .upsert(
-        {
-          player_id: userData.player_id,
-          drug: cooldowns.drug || 0,
-          medical: cooldowns.medical || 0,
-          booster: cooldowns.booster || 0,
-        },
-        { onConflict: "player_id" },
-      );
+    const { error } = await supabase.from(TABLE_NAMES.USER_COOLDOWNS).upsert(
+      {
+        player_id: userData.player_id,
+        drug: cooldowns.drug || 0,
+        medical: cooldowns.medical || 0,
+        booster: cooldowns.booster || 0,
+      },
+      { onConflict: "player_id" },
+    );
 
     if (error) {
       throw error;
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(WORKER_NAME, `Cooldowns sync failed: ${errorMessage}`);
+    if (error instanceof Object && "message" in error && "code" in error) {
+      // PostgreSQL/Supabase error object
+      logError(WORKER_NAME, `Cooldowns sync failed: ${(error as any).message}`);
+    } else {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logError(WORKER_NAME, `Cooldowns sync failed: ${errorMessage}`);
+    }
+    throw error; // Re-throw so executeSync knows this failed
   }
 }
 
@@ -69,7 +75,7 @@ export function startUserCooldownsWorker(): void {
     handler: async () => {
       return await executeSync({
         name: WORKER_NAME,
-        timeout: 30000,
+        timeout: 10000,
         handler: syncUserCooldownsHandler,
       });
     },
