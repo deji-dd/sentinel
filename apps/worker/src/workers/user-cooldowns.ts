@@ -12,6 +12,7 @@ const DB_WORKER_KEY = "user_cooldowns_worker";
 
 async function syncUserCooldownsHandler(): Promise<void> {
   const apiKey = getPersonalApiKey();
+  const startTime = Date.now();
 
   try {
     const cooldownsResponse = await tornApi.get("/user/cooldowns", {
@@ -55,13 +56,14 @@ async function syncUserCooldownsHandler(): Promise<void> {
       throw error;
     }
   } catch (error) {
+    const elapsed = Date.now() - startTime;
     if (error instanceof Object && "message" in error && "code" in error) {
       // PostgreSQL/Supabase error object
-      logError(WORKER_NAME, `Cooldowns sync failed: ${(error as any).message}`);
+      logError(WORKER_NAME, `Cooldowns sync failed: ${(error as any).message} (${elapsed}ms)`);
     } else {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logError(WORKER_NAME, `Cooldowns sync failed: ${errorMessage}`);
+      logError(WORKER_NAME, `Cooldowns sync failed: ${errorMessage} (${elapsed}ms)`);
     }
     throw error; // Re-throw so executeSync knows this failed
   }
