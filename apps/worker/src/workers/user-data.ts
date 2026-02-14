@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
 import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
-import { log, logError, logWarn } from "../lib/logger.js";
+import { log, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "../lib/constants.js";
@@ -25,18 +25,17 @@ async function syncUserDataHandler(): Promise<void> {
     const isDonator =
       (profile.donator_status || "").toLowerCase() === "donator";
 
-    // Personalized mode: single-row upsert (id = 1)
+    // Personalized mode: upsert using player_id as primary key
     const { error } = await supabase
       .from(TABLE_NAMES.USER_DATA)
       .upsert(
         {
-          id: 1,
           player_id: profile.id,
           name: profile.name,
           is_donator: isDonator,
           profile_image: profile.image || null,
         },
-        { onConflict: "id" },
+        { onConflict: "player_id" },
       );
 
     if (error) {
@@ -62,11 +61,29 @@ async function syncDiscordHandler(): Promise<void> {
       log(DISCORD_SYNC_NAME, "No Discord linked");
     }
 
-    // Personalized mode: single-row update (id = 1)
+    // Fetch user's player_id first (to know which row to update)
+    // We need at least one profile sync to have happened
+    const { data: userData, error: fetchError } = await supabase
+      .from(TABLE_NAMES.USER_DATA)
+      .select("player_id")
+      .limit(1)
+      .maybeSingle();
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    if (!userData?.player_id) {
+      // Profile hasn't been synced yet, skip discord sync
+      log(DISCORD_SYNC_NAME, "Skipping: profile not yet synced");
+      return;
+    }
+
+    // Update with player_id as key
     const { error } = await supabase
       .from(TABLE_NAMES.USER_DATA)
       .update({ discord_id: discordId })
-      .eq("id", 1);
+      .eq("player_id", userData.player_id);
 
     if (error) {
       throw error;

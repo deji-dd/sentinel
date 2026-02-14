@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
 import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
-import { logError, logWarn } from "../lib/logger.js";
+import { log, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "../lib/constants.js";
@@ -37,12 +37,29 @@ async function syncUserBarsHandler(): Promise<void> {
     const nerveTimeToFull =
       (nerveMaximum - nerveCurrent) * nerveSecondsPerPoint;
 
-    // Personalized mode: single-row upsert (id = 1)
+    // Fetch player_id from user_data (set by profile sync worker)
+    const { data: userData, error: fetchError } = await supabase
+      .from(TABLE_NAMES.USER_DATA)
+      .select("player_id")
+      .limit(1)
+      .maybeSingle();
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    if (!userData?.player_id) {
+      throw new Error(
+        "Profile not synced yet - bars cannot be stored without player_id",
+      );
+    }
+
+    // Personalized mode: upsert using player_id as primary key
     const { error } = await supabase
       .from(TABLE_NAMES.USER_BARS)
       .upsert(
         {
-          id: 1,
+          player_id: userData.player_id,
           energy_current: energyCurrent,
           energy_maximum: energyMaximum,
           nerve_current: nerveCurrent,
@@ -56,15 +73,14 @@ async function syncUserBarsHandler(): Promise<void> {
           nerve_flat_time_to_full: nerveFlatTimeToFull,
           nerve_time_to_full: nerveTimeToFull,
         },
-        { onConflict: "id" },
+        { onConflict: "player_id" },
       );
 
     if (error) {
       throw error;
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     logError(WORKER_NAME, `Bars sync failed: ${errorMessage}`);
   }
 }

@@ -61,12 +61,15 @@ export class DatabaseRateLimiter implements RateLimitTracker {
     const now = new Date();
 
     try {
+      console.log("[RateLimiter] Inserting request into database...");
       await this.supabase.from(this.tableName).insert({
         api_key_hash: keyHash,
         requested_at: now.toISOString(),
       });
+      console.log("[RateLimiter] Request inserted successfully");
     } catch (error) {
-      console.error("Failed to record per-user request:", error);
+      console.error("[RateLimiter] Failed to record per-user request:", error);
+      throw error;
     }
   }
 
@@ -163,6 +166,7 @@ export class DatabaseRateLimiter implements RateLimitTracker {
         const age = now - oldestRequest.getTime();
         const waitTime = this.windowMs - age + 100; // +100ms buffer
         if (waitTime > 0) {
+          console.log(`[RateLimiter] Rate limit reached, waiting ${waitTime}ms`);
           await new Promise((resolve) => setTimeout(resolve, waitTime));
           // Recursively check again in case multiple requests need to wait
           return this.waitIfNeeded(apiKey);
@@ -170,7 +174,7 @@ export class DatabaseRateLimiter implements RateLimitTracker {
       }
     }
 
-    // Record this request
-    await this.recordRequest(apiKey);
+    // Do NOT record the request here - let TornApiClient do it after successful API call
+    console.log("[RateLimiter] Rate limit check passed, ready to make API call");
   }
 }
