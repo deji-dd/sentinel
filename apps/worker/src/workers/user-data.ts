@@ -1,11 +1,5 @@
 import { executeSync } from "../lib/sync.js";
-import { decrypt } from "../lib/encryption.js";
-import {
-  getAllUsers,
-  getPersonalApiKey,
-  upsertUserData,
-  type UserProfileData,
-} from "../lib/supabase.js";
+import { getPersonalApiKey, upsertUserData, type UserProfileData } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
 import { log, logError, logWarn } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -17,56 +11,46 @@ const DB_WORKER_KEY = "user_data_worker";
 const DISCORD_WORKER_KEY = "user_data_worker";
 const DISCORD_SYNC_NAME = "user_data_worker";
 
-// Get the single personalized user ID from environment or use a default UUID
-const PERSONAL_USER_ID = process.env.SENTINEL_USER_ID || "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+// Personalized bot mode: single user ID from environment
+const PERSONAL_USER_ID: string = (() => {
+  const userId = process.env.SENTINEL_USER_ID;
+  if (!userId) {
+    throw new Error(
+      "SENTINEL_USER_ID environment variable is required for personalized bot mode",
+    );
+  }
+  return userId;
+})();
 
 async function syncUserDataHandler(): Promise<void> {
-  // Personalized bot mode: use single API key from environment
-  let users: Array<{ user_id: string; api_key: string }>;
-  
-  try {
-    const apiKey = getPersonalApiKey();
-    users = [{ user_id: PERSONAL_USER_ID, api_key: apiKey }];
-  } catch (error) {
-    // Fall back to multi-user mode if TORN_API_KEY not set
-    users = await getAllUsers();
-    if (users.length === 0) {
-      return;
-    }
-  }
+  const apiKey = getPersonalApiKey();
 
   const updates: UserProfileData[] = [];
   const errors: Array<{ userId: string; error: string }> = [];
 
-  for (const user of users) {
-    try {
-      // In personalized mode, API key is not encrypted; in multi-user mode, it is
-      const apiKey = user.api_key.length === 16 
-        ? user.api_key 
-        : decrypt(user.api_key);
-      const profileResponse = await tornApi.get("/user/profile", { apiKey });
-      const profile = profileResponse.profile;
+  try {
+    const profileResponse = await tornApi.get("/user/profile", { apiKey });
+    const profile = profileResponse.profile;
 
-      if (!profile?.id || !profile?.name) {
-        throw new Error("Missing profile id or name in Torn response");
-      }
-
-      const isDonator =
-        (profile.donator_status || "").toLowerCase() === "donator";
-
-      updates.push({
-        user_id: user.user_id,
-        player_id: profile.id,
-        name: profile.name,
-        is_donator: isDonator,
-        profile_image: profile.image || null,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      errors.push({ userId: user.user_id, error: errorMessage });
-      logError(WORKER_NAME, `${user.user_id}: ${errorMessage}`);
+    if (!profile?.id || !profile?.name) {
+      throw new Error("Missing profile id or name in Torn response");
     }
+
+    const isDonator =
+      (profile.donator_status || "").toLowerCase() === "donator";
+
+    updates.push({
+      user_id: PERSONAL_USER_ID,
+      player_id: profile.id,
+      name: profile.name,
+      is_donator: isDonator,
+      profile_image: profile.image || null,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    errors.push({ userId: PERSONAL_USER_ID, error: errorMessage });
+    logError(WORKER_NAME, `${PERSONAL_USER_ID}: ${errorMessage}`);
   }
 
   if (updates.length > 0) {
@@ -74,81 +58,57 @@ async function syncUserDataHandler(): Promise<void> {
   }
 
   if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length}/${users.length} users failed`);
+    logWarn(WORKER_NAME, `Profile sync failed: ${errors[0]?.error}`);
   }
 }
 
 async function syncDiscordHandler(): Promise<void> {
-  // Personalized bot mode: use single API key from environment
-  let users: Array<{ user_id: string; api_key: string }>;
-  
-  try {
-    const apiKey = getPersonalApiKey();
-    users = [{ user_id: PERSONAL_USER_ID, api_key: apiKey }];
-  } catch (error) {
-    // Fall back to multi-user mode if TORN_API_KEY not set
-    users = await getAllUsers();
-    if (users.length === 0) {
-      return;
-    }
-  }
+  const apiKey = getPersonalApiKey();
 
-  // Only update users that already have user_data rows (avoid inserting null player_id)
-  const userIds = users.map((u) => u.user_id);
-  const { data: existingRows, error: existingError } = await supabase
+  // Only update if user_data row exists (avoid inserting null player_id)
+  const { data: existingRow, error: existingError } = await supabase
     .from(TABLE_NAMES.USER_DATA)
     .select("user_id")
-    .in("user_id", userIds);
+    .eq("user_id", PERSONAL_USER_ID)
+    .maybeSingle();
 
   if (existingError) {
     throw new Error(
-      `Failed to fetch user_data rows for discord sync: ${existingError.message}`,
+      `Failed to fetch user_data row for discord sync: ${existingError.message}`,
     );
   }
 
-  const existingUserIds = new Set(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (existingRows || []).map((r: any) => r.user_id),
-  );
+  if (!existingRow) {
+    // Skip discord sync if profile hasn't been synced yet
+    return;
+  }
 
   const updates: UserProfileData[] = [];
   const errors: Array<{ userId: string; error: string }> = [];
 
-  for (const user of users) {
-    if (!existingUserIds.has(user.user_id)) {
-      // Skip users without a profile row yet; the hourly profile sync will create them
-      continue;
-    }
-
+  try {
+    // Fetch discord data
+    let discordId: string | null = null;
     try {
-      // In personalized mode, API key is not encrypted; in multi-user mode, it is
-      const apiKey = user.api_key.length === 16 
-        ? user.api_key 
-        : decrypt(user.api_key);
-
-      // Fetch discord data
-      let discordId: string | null = null;
-      try {
-        const discordResponse = await tornApi.get("/user/discord", { apiKey });
-        discordId = discordResponse.discord?.discord_id || null;
-      } catch {
-        // Discord link is optional, continue without it
-        log(DISCORD_SYNC_NAME, `${user.user_id}: No Discord linked`);
-      }
-
-      updates.push({
-        user_id: user.user_id,
-        discord_id: discordId,
-      } as UserProfileData);
-    } catch (_error) {
-      const errorMessage =
-        _error instanceof Error ? _error.message : String(_error);
-      errors.push({ userId: user.user_id, error: errorMessage });
-      logError(
-        DISCORD_SYNC_NAME,
-        `${user.user_id}: Discord sync failed - ${errorMessage}`,
-      );
+      const discordResponse = await tornApi.get("/user/discord", { apiKey });
+      discordId = discordResponse.discord?.discord_id || null;
+    } catch {
+      // Discord link is optional, continue without it
+      log(DISCORD_SYNC_NAME, `${PERSONAL_USER_ID}: No Discord linked`);
     }
+
+    updates.push({
+      user_id: PERSONAL_USER_ID,
+      discord_id: discordId,
+    } as UserProfileData);
+  } catch (_error) {
+    const errorMessage =
+      _error instanceof Error ? _error.message : String(_error);
+    errors.push({ userId: PERSONAL_USER_ID, error: errorMessage });
+    logError(
+      DISCORD_SYNC_NAME,
+      `${PERSONAL_USER_ID}: Discord sync failed - ${errorMessage}`,
+    );
   }
 
   if (updates.length > 0) {
@@ -171,7 +131,7 @@ async function syncDiscordHandler(): Promise<void> {
   if (errors.length > 0) {
     logWarn(
       DISCORD_SYNC_NAME,
-      `Discord sync: ${errors.length}/${users.length} users failed`,
+      `Discord sync failed: ${errors[0]?.error}`,
     );
   }
 }
