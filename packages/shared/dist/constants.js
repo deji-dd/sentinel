@@ -17,6 +17,8 @@ export const TABLE_NAMES = {
     DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
     RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
     USER_ALERTS: "sentinel_user_alerts",
+    USER_SNAPSHOTS: "sentinel_user_snapshots",
+    FINANCE_SETTINGS: "sentinel_finance_settings",
 };
 /** Alert module types */
 export const ALERT_MODULES = {

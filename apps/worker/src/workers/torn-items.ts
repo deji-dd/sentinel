@@ -2,7 +2,7 @@ import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { logWarn } from "../lib/logger.js";
 import {
-  getValidApiKeys,
+  getPersonalApiKey,
   upsertTornItems,
   syncTornCategories,
   supabase,
@@ -66,19 +66,18 @@ function normalizeItems(
 }
 
 async function syncTornItems(): Promise<void> {
-  const apiKeys = await getValidApiKeys();
-  if (!apiKeys.length) {
-    throw new Error("No valid API keys available for Torn items sync");
-  }
+  const apiKey = getPersonalApiKey();
 
-  // Use the first available key; API returns full list in one call
-  const response = await tornApi.get("/torn/items", { apiKey: apiKeys[0] });
+  // Torn API returns full item list in one call
+  const response = await tornApi.get("/torn/items", { apiKey });
 
   // Extract unique categories from items
   const categories = new Set<string>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const itemsArray: any[] = Array.isArray(response.items)
     ? response.items
-    : Object.values(response.items as Record<string, any>);
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.values(response.items as Record<string, any>);
 
   for (const item of itemsArray) {
     if (item.type && typeof item.type === "string") {

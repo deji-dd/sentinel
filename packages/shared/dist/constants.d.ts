@@ -17,6 +17,8 @@ export declare const TABLE_NAMES: {
     readonly DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times";
     readonly RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user";
     readonly USER_ALERTS: "sentinel_user_alerts";
+    readonly USER_SNAPSHOTS: "sentinel_user_snapshots";
+    readonly FINANCE_SETTINGS: "sentinel_finance_settings";
 };
 /** Alert module types */
 export declare const ALERT_MODULES: {
