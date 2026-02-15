@@ -47,7 +47,8 @@ export class DatabaseRateLimiter {
             });
         }
         catch (error) {
-            console.error("Failed to record per-user request:", error);
+            console.error("[RateLimiter] Failed to record per-user request:", error);
+            throw error;
         }
     }
     /**
@@ -139,8 +140,7 @@ export class DatabaseRateLimiter {
                 }
             }
         }
-        // Record this request
-        await this.recordRequest(apiKey);
+        // Do NOT record the request here - let TornApiClient do it after successful API call
     }
 }
 //# sourceMappingURL=rate-limiter.js.map

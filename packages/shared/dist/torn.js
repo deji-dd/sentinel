@@ -1,6 +1,6 @@
 const TORN_API_BASE = "https://api.torn.com/v2";
 const TORN_API_V1_BASE = "https://api.torn.com";
-const REQUEST_TIMEOUT = 10000; // 10 seconds
+const REQUEST_TIMEOUT = 30000; // 30 seconds - increased from 10s for better reliability
 export const TORN_ERROR_CODES = {
     0: "Unknown error",
     1: "Key is empty",
@@ -62,7 +62,9 @@ export class TornApiClient {
         url += `?${params.toString()}`;
         // Make request with timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+        }, this.timeout);
         try {
             const response = await fetch(url, {
                 signal: controller.signal,

@@ -113,7 +113,9 @@ async function fetchTorn<T>(url: string): Promise<T> {
 
     const data = (await response.json()) as T & { error?: { code: number } };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((data as any)?.error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const code = (data as any).error?.code;
       const errorMessage =
         code !== undefined

@@ -34,7 +34,7 @@ type ResponseData<Path extends keyof paths> = paths[Path] extends {
 
 const TORN_API_BASE = "https://api.torn.com/v2";
 const TORN_API_V1_BASE = "https://api.torn.com";
-const REQUEST_TIMEOUT = 10000; // 10 seconds
+const REQUEST_TIMEOUT = 30000; // 30 seconds - increased from 10s for better reliability
 
 export interface TornApiError {
   error: {
@@ -136,14 +136,15 @@ export class TornApiClient {
 
     // Make request with timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, this.timeout);
 
     try {
       const response = await fetch(url, {
         signal: controller.signal,
         headers: { Accept: "application/json" },
       });
-
       const data = (await response.json()) as any;
 
       // Check for API errors
@@ -162,7 +163,6 @@ export class TornApiClient {
       if (this.rateLimitTracker) {
         await this.rateLimitTracker.recordRequest(apiKey);
       }
-
       return data as ResponseData<Path>;
     } finally {
       clearTimeout(timeoutId);

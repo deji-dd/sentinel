@@ -22,14 +22,4 @@ export declare const TABLE_NAMES: {
 export declare const ALERT_MODULES: {
     readonly TRAVEL: "travel";
 };
-/** Validation constants for user settings */
-export declare const SETTINGS_LIMITS: {
-    TRAVEL: {
-        MIN_ALERT_COOLDOWN_MINUTES: number;
-        MIN_PROFIT_PER_TRIP: number;
-        MIN_PROFIT_PER_MINUTE: number;
-        MAX_BLACKLISTED_ITEMS: number;
-        MAX_BLACKLISTED_CATEGORIES: number;
-    };
-};
 //# sourceMappingURL=constants.d.ts.map
