@@ -53,17 +53,20 @@ pnpm bot:build
 # Ensure logs directory exists
 mkdir -p logs
 
-echo "Ensuring PM2 processes are running..."
-pm2 start "${REPO_DIR}/ecosystem.config.js" --env production >/dev/null 2>&1 || true
-
+echo "Restarting PM2 processes..."
+# Delete old processes to avoid cached config issues
 for app in "${PM2_APPS[@]}"; do
   if pm2 list | grep -q "\b${app}\b"; then
-    echo "Reloading ${app}..."
-    pm2 reload "${app}"
-  else
-    echo "Starting ${app} from ecosystem.config.js..."
-    pm2 start "${REPO_DIR}/ecosystem.config.js" --only "${app}" --env production
+    echo "Deleting old ${app} process..."
+    pm2 delete "${app}" >/dev/null 2>&1 || true
   fi
 done
+
+# Start fresh with current ecosystem config
+echo "Starting processes from ecosystem.config.js..."
+pm2 start "${REPO_DIR}/ecosystem.config.js" --env production
+
+# Save PM2 process list
+pm2 save
 
 echo "Deploy complete."
