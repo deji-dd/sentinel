@@ -6,6 +6,7 @@ import { startUserDataWorker } from "./workers/user-data.js";
 import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
 import { startTornItemsWorker } from "./workers/torn-items.js";
+import { startTornGymsWorker } from "./workers/torn-gyms.js";
 import {
   startUserSnapshotWorker,
   startUserSnapshotPruningWorker,
@@ -18,6 +19,9 @@ function startAllWorkers(): void {
   try {
     // Torn items worker (daily at ~03:00 UTC)
     startTornItemsWorker();
+
+    // Torn gyms worker (daily at ~03:00 UTC)
+    startTornGymsWorker();
 
     // User data worker (every hour)
     startUserDataWorker();
