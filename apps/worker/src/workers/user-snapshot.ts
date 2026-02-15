@@ -79,7 +79,7 @@ function calculateLiquidCash(
 }
 
 /**
- * Take a snapshot of the user's current state (financial, stats, and training)
+ * Take a snapshot of the user's current state (financial, stats, training, bars, and cooldowns)
  */
 async function takeSnapshot(): Promise<void> {
   const apiKey = getPersonalApiKey();
@@ -87,30 +87,21 @@ async function takeSnapshot(): Promise<void> {
 
   try {
     // Fetch all data in parallel
-    // Note: Networth (bookie) available via v2 /user selections, still has 1-hour cache
-    // Personalstats available in v2, gym from basic /user endpoint
-    const [
-      moneyResponse,
-      networthResponse,
-      personalStatsResponse,
-      userResponse,
-      companyResponse,
-    ] = await Promise.all([
-      tornApi.get("/user/money", { apiKey }),
-      // v2 - networth with bookie value (1-hour cache)
+    const [userResponse, companyResponse] = await Promise.all([
+      // v2 - combined user selections (money, networth, personalstats, gym, bars, cooldowns)
       tornApi.get("/user", {
         apiKey,
-        queryParams: { selections: ["networth"] },
-      }),
-      // v2 - personalstats for training stats
-      tornApi.get("/user", {
-        apiKey,
-        queryParams: { selections: ["personalstats"], cat: "all" },
-      }),
-      // v2 - gym selection from user endpoint
-      tornApi.get("/user", {
-        apiKey,
-        queryParams: { selections: ["gym"] },
+        queryParams: {
+          selections: [
+            "money",
+            "networth",
+            "personalstats",
+            "gym",
+            "bars",
+            "cooldowns",
+          ],
+          cat: "all",
+        },
       }),
       // v1 only - company endpoint
       tornApi.getRaw<V1CompanyResponse>("/company", apiKey, {
@@ -119,12 +110,17 @@ async function takeSnapshot(): Promise<void> {
     ]);
 
     // Extract money data
-    const wallet = moneyResponse.money.wallet || 0;
-    const netWorth = moneyResponse.money.daily_networth || 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const money = (userResponse as any).money;
+    if (!money) {
+      throw new Error("Missing money in Torn response");
+    }
+    const wallet = money.wallet || 0;
+    const netWorth = money.daily_networth || 0;
 
-    // Extract bookie value and timestamp from v2 networth response
-    const networthData = hasNetworth(networthResponse)
-      ? networthResponse.networth
+    // Extract bookie value and timestamp from v2 networth selection
+    const networthData = hasNetworth(userResponse)
+      ? userResponse.networth
       : undefined;
     const bookieValue = networthData?.bookie || 0;
     const bookieTimestamp = networthData?.timestamp || 0;
@@ -132,9 +128,9 @@ async function takeSnapshot(): Promise<void> {
       ? new Date(bookieTimestamp * 1000).toISOString()
       : null;
 
-    // Extract stats from v2 personalstats response
-    const personalStats = hasPersonalStats(personalStatsResponse)
-      ? personalStatsResponse.personalstats || {}
+    // Extract stats from v2 personalstats selection
+    const personalStats = hasPersonalStats(userResponse)
+      ? userResponse.personalstats || {}
       : {};
     const strength = personalStats.strength || 0;
     const speed = personalStats.speed || 0;
@@ -142,9 +138,46 @@ async function takeSnapshot(): Promise<void> {
     const dexterity = personalStats.dexterity || 0;
     const statsTotal = personalStats.totalstats || 0;
 
-    // Extract gym from v2 gym selection response
+    // Extract gym from v2 gym selection
     const gymData = (userResponse as GymSelectionResponse).gym || {};
     const activeGym = gymData.id || null;
+
+    // Extract bars data from user response
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bars = (userResponse as any).bars;
+    if (!bars) {
+      throw new Error("Missing bars in Torn response");
+    }
+    const energyCurrent = bars.energy?.current || 0;
+    const energyMaximum = bars.energy?.maximum || 0;
+    const nerveCurrent = bars.nerve?.current || 0;
+    const nerveMaximum = bars.nerve?.maximum || 0;
+    const happyCurrent = bars.happy?.current || 0;
+    const happyMaximum = bars.happy?.maximum || 0;
+    const lifeCurrent = bars.life?.current || 0;
+    const lifeMaximum = bars.life?.maximum || 0;
+    const chainCurrent = bars.chain?.current || 0;
+    const chainMaximum = bars.chain?.max || 0;
+
+    // Calculate time to full for energy and nerve
+    const energySecondsPerPoint = energyMaximum === 150 ? 120 : 180;
+    const nerveSecondsPerPoint = 300;
+    const energyFlatTimeToFull = energyMaximum * energySecondsPerPoint;
+    const nerveFlatTimeToFull = nerveMaximum * nerveSecondsPerPoint;
+    const energyTimeToFull =
+      (energyMaximum - energyCurrent) * energySecondsPerPoint;
+    const nerveTimeToFull =
+      (nerveMaximum - nerveCurrent) * nerveSecondsPerPoint;
+
+    // Extract cooldowns data from user response
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cooldowns = (userResponse as any).cooldowns;
+    if (!cooldowns) {
+      throw new Error("Missing cooldowns in Torn response");
+    }
+    const drugCooldown = cooldowns.drug || 0;
+    const medicalCooldown = cooldowns.medical || 0;
+    const boosterCooldown = cooldowns.booster || 0;
 
     // Calculate liquid cash
     const companyFunds = companyResponse.company_detailed?.company_funds || 0;
@@ -172,6 +205,23 @@ async function takeSnapshot(): Promise<void> {
       defense,
       dexterity,
       active_gym: activeGym,
+      energy_current: energyCurrent,
+      energy_maximum: energyMaximum,
+      nerve_current: nerveCurrent,
+      nerve_maximum: nerveMaximum,
+      happy_current: happyCurrent,
+      happy_maximum: happyMaximum,
+      life_current: lifeCurrent,
+      life_maximum: lifeMaximum,
+      chain_current: chainCurrent,
+      chain_maximum: chainMaximum,
+      energy_flat_time_to_full: energyFlatTimeToFull,
+      energy_time_to_full: energyTimeToFull,
+      nerve_flat_time_to_full: nerveFlatTimeToFull,
+      nerve_time_to_full: nerveTimeToFull,
+      drug_cooldown: drugCooldown,
+      medical_cooldown: medicalCooldown,
+      booster_cooldown: boosterCooldown,
     });
 
     if (error) {
