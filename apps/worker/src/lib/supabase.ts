@@ -58,7 +58,6 @@ export interface UserProfileData {
   name: string;
   is_donator: boolean;
   profile_image: string | null;
-  discord_id?: string | null;
   updated_at?: string;
 }
 

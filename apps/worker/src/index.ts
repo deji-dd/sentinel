@@ -7,9 +7,9 @@ import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
 import { startTornItemsWorker } from "./workers/torn-items.js";
 import {
-  startFinanceSnapshotWorker,
-  startFinancePruningWorker,
-} from "./workers/finance-snapshot.js";
+  startUserSnapshotWorker,
+  startUserSnapshotPruningWorker,
+} from "./workers/user-snapshot.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -28,11 +28,11 @@ function startAllWorkers(): void {
     // User cooldowns worker (every 30s)
     startUserCooldownsWorker();
 
-    // Finance snapshot worker (every 30s)
-    startFinanceSnapshotWorker();
+    // User snapshot worker (every 30s)
+    startUserSnapshotWorker();
 
-    // Finance pruning worker (every hour)
-    startFinancePruningWorker();
+    // User snapshot pruning worker (every hour)
+    startUserSnapshotPruningWorker();
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes

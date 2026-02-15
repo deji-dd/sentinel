@@ -1,15 +1,13 @@
 import { executeSync } from "../lib/sync.js";
 import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
-import { log, logError } from "../lib/logger.js";
+import { logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "../lib/constants.js";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
-const DISCORD_WORKER_KEY = "user_discord_worker";
-const DISCORD_SYNC_NAME = "user_discord_worker";
 
 function formatDuration(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
@@ -65,57 +63,6 @@ async function syncUserDataHandler(): Promise<void> {
   }
 }
 
-async function syncDiscordHandler(): Promise<void> {
-  const apiKey = getPersonalApiKey();
-  const startTime = Date.now();
-
-  try {
-    // Check if profile has been synced first (quick DB query)
-    const { data: userData, error: fetchError } = await supabase
-      .from(TABLE_NAMES.USER_DATA)
-      .select("player_id")
-      .limit(1)
-      .maybeSingle();
-
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    if (!userData?.player_id) {
-      // Profile hasn't been synced yet, skip discord sync
-      return;
-    }
-
-    // Profile exists, now fetch discord data (optional, can timeout)
-    let discordId: string | null = null;
-    try {
-      const discordResponse = await tornApi.get("/user/discord", { apiKey });
-      discordId = discordResponse.discord?.discord_id || null;
-    } catch {
-      // Discord link is optional, continue without it
-      log(DISCORD_SYNC_NAME, "No Discord linked");
-    }
-
-    // Update with player_id as key
-    const { error } = await supabase
-      .from(TABLE_NAMES.USER_DATA)
-      .update({ discord_id: discordId })
-      .eq("player_id", userData.player_id);
-
-    if (error) {
-      throw error;
-    }
-  } catch (error) {
-    const elapsed = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(
-      DISCORD_SYNC_NAME,
-      `Discord sync failed - ${errorMessage} (${formatDuration(elapsed)})`,
-    );
-    throw error; // Re-throw so executeSync knows this failed
-  }
-}
-
 export function startUserDataWorker(): void {
   // Hourly profile sync
   startDbScheduledRunner({
@@ -127,20 +74,6 @@ export function startUserDataWorker(): void {
         name: WORKER_NAME,
         timeout: 10000,
         handler: syncUserDataHandler,
-      });
-    },
-  });
-
-  // Daily discord sync (separate worker)
-  startDbScheduledRunner({
-    worker: DISCORD_WORKER_KEY,
-    defaultCadenceSeconds: 86400, // 24 hours
-    pollIntervalMs: 5000,
-    handler: async () => {
-      return await executeSync({
-        name: DISCORD_SYNC_NAME,
-        timeout: 10000,
-        handler: syncDiscordHandler,
       });
     },
   });

@@ -6,7 +6,8 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "../lib/constants.js";
 
-const WORKER_NAME = "finance_snapshot_worker";
+const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
+const PRUNING_WORKER_NAME = "user_snapshot_pruning_worker";
 const SNAPSHOT_CADENCE_SECONDS = 30; // Take snapshot every 30 seconds
 const PRUNE_CADENCE_SECONDS = 3600; // Prune old snapshots every hour
 
@@ -33,6 +34,9 @@ type NetworthSelectionResponse = {
 };
 type PersonalStatsSelectionResponse = {
   personalstats?: Record<string, number>;
+};
+type GymSelectionResponse = {
+  gym?: { id?: number };
 };
 
 function hasNetworth(response: unknown): response is NetworthSelectionResponse {
@@ -75,19 +79,21 @@ function calculateLiquidCash(
 }
 
 /**
- * Take a financial snapshot of the user's current state
+ * Take a snapshot of the user's current state (financial, stats, and training)
  */
 async function takeSnapshot(): Promise<void> {
   const apiKey = getPersonalApiKey();
+  const startTime = Date.now();
 
   try {
     // Fetch all data in parallel
     // Note: Networth (bookie) available via v2 /user selections, still has 1-hour cache
-    // Personalstats available in v2
+    // Personalstats available in v2, gym from basic /user endpoint
     const [
       moneyResponse,
       networthResponse,
       personalStatsResponse,
+      userResponse,
       companyResponse,
     ] = await Promise.all([
       tornApi.get("/user/money", { apiKey }),
@@ -100,6 +106,11 @@ async function takeSnapshot(): Promise<void> {
       tornApi.get("/user", {
         apiKey,
         queryParams: { selections: ["personalstats"], cat: "all" },
+      }),
+      // v2 - gym selection from user endpoint
+      tornApi.get("/user", {
+        apiKey,
+        queryParams: { selections: ["gym"] },
       }),
       // v1 only - company endpoint
       tornApi.getRaw<V1CompanyResponse>("/company", apiKey, {
@@ -131,6 +142,10 @@ async function takeSnapshot(): Promise<void> {
     const dexterity = personalStats.dexterity || 0;
     const statsTotal = personalStats.totalstats || 0;
 
+    // Extract gym from v2 gym selection response
+    const gymData = (userResponse as GymSelectionResponse).gym || {};
+    const activeGym = gymData.id || null;
+
     // Calculate liquid cash
     const companyFunds = companyResponse.company_detailed?.company_funds || 0;
     const advertisingBudget =
@@ -156,14 +171,28 @@ async function takeSnapshot(): Promise<void> {
       speed,
       defense,
       dexterity,
+      active_gym: activeGym,
     });
 
     if (error) {
       throw error;
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(WORKER_NAME, `Snapshot failed: ${errorMessage}`);
+    const elapsed = Date.now() - startTime;
+    let errorMessage = "Unknown error";
+    if (typeof error === "object" && error !== null && "message" in error) {
+      errorMessage = (error as { message: string }).message;
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    } else {
+      errorMessage = String(error);
+    }
+    const duration =
+      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
+    logError(
+      SNAPSHOT_WORKER_NAME,
+      `Sync failed: ${errorMessage} (${duration})`,
+    );
     throw error;
   }
 }
@@ -174,6 +203,7 @@ async function takeSnapshot(): Promise<void> {
  * - Keep hourly snapshots forever
  */
 async function pruneSnapshots(): Promise<void> {
+  const startTime = Date.now();
   try {
     const oneWeekAgo = new Date(
       Date.now() - 7 * 24 * 60 * 60 * 1000,
@@ -232,23 +262,33 @@ async function pruneSnapshots(): Promise<void> {
       }
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError("finance_pruning_worker", `Pruning failed: ${errorMessage}`);
+    const elapsed = Date.now() - startTime;
+    let errorMessage = "Unknown error";
+    if (typeof error === "object" && error !== null && "message" in error) {
+      errorMessage = (error as { message: string }).message;
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    } else {
+      errorMessage = String(error);
+    }
+    const duration =
+      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
+    logError(PRUNING_WORKER_NAME, `Sync failed: ${errorMessage} (${duration})`);
     throw error;
   }
 }
 
 /**
- * Start the finance snapshot worker (takes snapshots every 30s)
+ * Start the user snapshot worker (takes snapshots every 30s)
  */
-export function startFinanceSnapshotWorker(): void {
+export function startUserSnapshotWorker(): void {
   startDbScheduledRunner({
-    worker: WORKER_NAME,
+    worker: SNAPSHOT_WORKER_NAME,
     defaultCadenceSeconds: SNAPSHOT_CADENCE_SECONDS,
     pollIntervalMs: 5000,
     handler: async () => {
       return await executeSync({
-        name: WORKER_NAME,
+        name: SNAPSHOT_WORKER_NAME,
         timeout: 60000, // 1 minute
         handler: takeSnapshot,
       });
@@ -257,16 +297,16 @@ export function startFinanceSnapshotWorker(): void {
 }
 
 /**
- * Start the finance pruning worker (prunes old snapshots every hour)
+ * Start the user snapshot pruning worker (prunes old snapshots every hour)
  */
-export function startFinancePruningWorker(): void {
+export function startUserSnapshotPruningWorker(): void {
   startDbScheduledRunner({
-    worker: "finance_pruning_worker",
+    worker: PRUNING_WORKER_NAME,
     defaultCadenceSeconds: PRUNE_CADENCE_SECONDS,
     pollIntervalMs: 5000,
     handler: async () => {
       return await executeSync({
-        name: "finance_pruning_worker",
+        name: PRUNING_WORKER_NAME,
         timeout: 120000, // 2 minutes
         handler: pruneSnapshots,
       });
