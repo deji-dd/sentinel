@@ -28,6 +28,25 @@ interface V1CompanyResponse {
   company_employees?: CompanyEmployees;
 }
 
+type NetworthSelectionResponse = {
+  networth?: { bookie?: number; timestamp?: number };
+};
+type PersonalStatsSelectionResponse = {
+  personalstats?: Record<string, number>;
+};
+
+function hasNetworth(response: unknown): response is NetworthSelectionResponse {
+  return !!response && typeof response === "object" && "networth" in response;
+}
+
+function hasPersonalStats(
+  response: unknown,
+): response is PersonalStatsSelectionResponse {
+  return (
+    !!response && typeof response === "object" && "personalstats" in response
+  );
+}
+
 /**
  * Calculate liquid cash available (cash on hand + company funds + bookie value minus locked amounts)
  */
@@ -63,8 +82,8 @@ async function takeSnapshot(): Promise<void> {
 
   try {
     // Fetch all data in parallel
-    // Note: V2 /user endpoint with selections replaces v1 endpoint
-    // Networth has a hard 1-hour global cache that cannot be bypassed
+    // Note: Networth (bookie) available via v2 /user selections, still has 1-hour cache
+    // Personalstats available in v2
     const [
       moneyResponse,
       networthResponse,
@@ -72,14 +91,17 @@ async function takeSnapshot(): Promise<void> {
       companyResponse,
     ] = await Promise.all([
       tornApi.get("/user/money", { apiKey }),
+      // v2 - networth with bookie value (1-hour cache)
       tornApi.get("/user", {
         apiKey,
         queryParams: { selections: ["networth"] },
       }),
+      // v2 - personalstats for training stats
       tornApi.get("/user", {
         apiKey,
-        queryParams: { selections: ["personalstats"] },
+        queryParams: { selections: ["personalstats"], cat: "all" },
       }),
+      // v1 only - company endpoint
       tornApi.getRaw<V1CompanyResponse>("/company", apiKey, {
         selections: "detailed,employees",
       }),
@@ -89,18 +111,20 @@ async function takeSnapshot(): Promise<void> {
     const wallet = moneyResponse.money.wallet || 0;
     const netWorth = moneyResponse.money.daily_networth || 0;
 
-    // Extract bookie value and timestamp from v2 response
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const networthData = (networthResponse as any).networth;
+    // Extract bookie value and timestamp from v2 networth response
+    const networthData = hasNetworth(networthResponse)
+      ? networthResponse.networth
+      : undefined;
     const bookieValue = networthData?.bookie || 0;
     const bookieTimestamp = networthData?.timestamp || 0;
     const bookieUpdatedAt = bookieTimestamp
       ? new Date(bookieTimestamp * 1000).toISOString()
       : null;
 
-    // Extract stats from v2 response
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const personalStats = (personalStatsResponse as any).personalstats || {};
+    // Extract stats from v2 personalstats response
+    const personalStats = hasPersonalStats(personalStatsResponse)
+      ? personalStatsResponse.personalstats || {}
+      : {};
     const strength = personalStats.strength || 0;
     const speed = personalStats.speed || 0;
     const defense = personalStats.defense || 0;
