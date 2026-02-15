@@ -34,15 +34,18 @@ function nextUtcThreeAm(): string {
 }
 
 function normalizeItems(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   response: any,
   categoryNameToId: Map<string, number>,
 ): TornItemRow[] {
   const container = response.items;
   if (!container) return [];
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const itemsArray: any[] = Array.isArray(container)
     ? container
-    : Object.values(container as Record<string, any>);
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.values(container as Record<string, any>);
 
   return itemsArray
     .map((item) => {
