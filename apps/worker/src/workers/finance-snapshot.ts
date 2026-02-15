@@ -23,6 +23,7 @@ interface CompanyEmployees {
 interface V1NetworthResponse {
   networth?: {
     bookie?: number;
+    timestamp?: number;
   };
 }
 
@@ -35,11 +36,12 @@ interface V1CompanyResponse {
 }
 
 /**
- * Calculate liquid cash available (cash on hand + company funds minus locked amounts)
+ * Calculate liquid cash available (cash on hand + company funds + bookie value minus locked amounts)
  */
 function calculateLiquidCash(
   wallet: number,
   companyFunds: number,
+  bookieValue: number,
   advertisingBudget: number,
   employees: CompanyEmployees,
 ): number {
@@ -57,7 +59,7 @@ function calculateLiquidCash(
   }
 
   const availableCompanyFunds = Math.max(0, companyFunds - lockedFunds);
-  return wallet + availableCompanyFunds;
+  return wallet + availableCompanyFunds + bookieValue;
 }
 
 /**
@@ -90,8 +92,12 @@ async function takeSnapshot(): Promise<void> {
     const wallet = moneyResponse.money.wallet || 0;
     const netWorth = moneyResponse.money.daily_networth || 0;
 
-    // Extract bookie value
+    // Extract bookie value and timestamp
     const bookieValue = networthResponse.networth?.bookie || 0;
+    const bookieTimestamp = networthResponse.networth?.timestamp || 0;
+    const bookieUpdatedAt = bookieTimestamp
+      ? new Date(bookieTimestamp * 1000).toISOString()
+      : null;
 
     // Extract stats
     const personalStats = personalStatsResponse.personalstats || {};
@@ -110,6 +116,7 @@ async function takeSnapshot(): Promise<void> {
     const liquidCash = calculateLiquidCash(
       wallet,
       companyFunds,
+      bookieValue,
       advertisingBudget,
       employees,
     );
@@ -118,6 +125,7 @@ async function takeSnapshot(): Promise<void> {
     const { error } = await supabase.from(TABLE_NAMES.USER_SNAPSHOTS).insert({
       liquid_cash: liquidCash,
       bookie_value: bookieValue,
+      bookie_updated_at: bookieUpdatedAt,
       net_worth: netWorth,
       stats_total: statsTotal,
       strength,

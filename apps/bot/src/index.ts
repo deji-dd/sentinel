@@ -7,7 +7,10 @@ import * as settingsCommand from "./commands/settings.js";
 import * as travelSettings from "./commands/settings-travel.js";
 import * as accountSettings from "./commands/settings-account.js";
 import * as searchCommand from "./commands/search.js";
+import * as financeCommand from "./commands/finance.js";
+import * as financeSettingsCommand from "./commands/finance-settings.js";
 import { initHttpServer } from "./lib/http-server.js";
+import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -47,6 +50,8 @@ const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
   },
 });
 
+const authorizedDiscordUserId = getAuthorizedDiscordUserId();
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
@@ -60,57 +65,100 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  // Handle chat input commands
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === "travel") {
-      await executeTravel(interaction, supabase);
-    } else if (interaction.commandName === "setup") {
-      await setupCommand.execute(interaction, supabase);
-    } else if (interaction.commandName === "settings") {
-      await settingsCommand.execute(interaction, supabase);
-    } else if (interaction.commandName === "search") {
-      await searchCommand.execute(interaction, supabase);
-    }
-    return;
-  }
-
-  // Handle modal submissions
-  if (interaction.isModalSubmit()) {
-    if (interaction.customId === "setup-modal") {
-      await setupCommand.handleModalSubmit(interaction, supabase);
-    } else if (interaction.customId === "account_settings_modal") {
-      await accountSettings.handleAccountSettingsModal(interaction, supabase);
-    } else if (interaction.customId === "modal_alert_cooldown") {
-      await travelSettings.handleModalAlertCooldown(interaction, supabase);
-    } else if (interaction.customId === "modal_min_profit_trip") {
-      await travelSettings.handleModalMinProfitTrip(interaction, supabase);
-    } else if (interaction.customId === "modal_min_profit_minute") {
-      await travelSettings.handleModalMinProfitMinute(interaction, supabase);
-    } else if (interaction.customId === "modal_blacklisted_items") {
-      await travelSettings.handleModalBlacklistedItems(interaction, supabase);
-    } else if (interaction.customId === "modal_blacklisted_categories") {
-      await travelSettings.handleModalBlacklistedCategories(
-        interaction,
-        supabase,
-      );
-    }
-    return;
-  }
-
-  // Handle string select menus
-  if (interaction.isStringSelectMenu()) {
-    if (interaction.customId === "settings_module_select") {
-      const selectedModule = interaction.values[0];
-
-      if (selectedModule === "travel") {
-        await travelSettings.handleTravelSettings(interaction, supabase);
-      } else if (selectedModule === "account") {
-        await accountSettings.handleAccountSettings(interaction, supabase);
+  try {
+    if (interaction.guild) {
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          content:
+            "This bot only works in DMs. Please message me directly to use commands.",
+        });
       }
-    } else if (interaction.customId === "travel_setting_select") {
-      await travelSettings.handleTravelSettingSelect(interaction, supabase);
+      return;
     }
-    return;
+
+    if (interaction.user.id !== authorizedDiscordUserId) {
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          content: "You are not authorized to use this bot.",
+        });
+      }
+      return;
+    }
+
+    // Handle chat input commands
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === "travel") {
+        await executeTravel(interaction, supabase);
+      } else if (interaction.commandName === "setup") {
+        await setupCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "settings") {
+        await settingsCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "search") {
+        await searchCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "finance") {
+        await financeCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "finance-settings") {
+        await financeSettingsCommand.execute(interaction);
+      }
+      return;
+    }
+
+    // Handle modal submissions
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === "setup-modal") {
+        await setupCommand.handleModalSubmit(interaction, supabase);
+      } else if (interaction.customId === "account_settings_modal") {
+        await accountSettings.handleAccountSettingsModal(interaction, supabase);
+      } else if (interaction.customId === "finance_settings_modal") {
+        await financeSettingsCommand.handleModalSubmit(interaction, supabase);
+      } else if (interaction.customId === "modal_alert_cooldown") {
+        await travelSettings.handleModalAlertCooldown(interaction, supabase);
+      } else if (interaction.customId === "modal_min_profit_trip") {
+        await travelSettings.handleModalMinProfitTrip(interaction, supabase);
+      } else if (interaction.customId === "modal_min_profit_minute") {
+        await travelSettings.handleModalMinProfitMinute(interaction, supabase);
+      } else if (interaction.customId === "modal_blacklisted_items") {
+        await travelSettings.handleModalBlacklistedItems(interaction, supabase);
+      } else if (interaction.customId === "modal_blacklisted_categories") {
+        await travelSettings.handleModalBlacklistedCategories(
+          interaction,
+          supabase,
+        );
+      }
+      return;
+    }
+
+    // Handle string select menus
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === "settings_module_select") {
+        const selectedModule = interaction.values[0];
+
+        if (selectedModule === "travel") {
+          await travelSettings.handleTravelSettings(interaction, supabase);
+        } else if (selectedModule === "account") {
+          await accountSettings.handleAccountSettings(interaction, supabase);
+        }
+      } else if (interaction.customId === "travel_setting_select") {
+        await travelSettings.handleTravelSettingSelect(interaction, supabase);
+      }
+      return;
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected bot error";
+
+    console.error("Bot interaction error:", error);
+
+    if (!interaction.isRepliable()) {
+      return;
+    }
+
+    const content = `❌ ${message}`;
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content });
+    } else {
+      await interaction.reply({ content });
+    }
   }
 });
 
