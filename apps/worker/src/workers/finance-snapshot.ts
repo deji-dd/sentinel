@@ -20,13 +20,6 @@ interface CompanyEmployees {
   [playerId: string]: CompanyEmployee;
 }
 
-interface V1NetworthResponse {
-  networth?: {
-    bookie?: number;
-    timestamp?: number;
-  };
-}
-
 interface V1CompanyResponse {
   company_detailed?: {
     company_funds?: number;
@@ -70,7 +63,8 @@ async function takeSnapshot(): Promise<void> {
 
   try {
     // Fetch all data in parallel
-    // Note: V1 networth endpoint has a hard 1-hour global cache that cannot be bypassed
+    // Note: V2 /user endpoint with selections replaces v1 endpoint
+    // Networth has a hard 1-hour global cache that cannot be bypassed
     const [
       moneyResponse,
       networthResponse,
@@ -78,11 +72,14 @@ async function takeSnapshot(): Promise<void> {
       companyResponse,
     ] = await Promise.all([
       tornApi.get("/user/money", { apiKey }),
-      tornApi.getRaw<V1NetworthResponse>("/user", apiKey, {
-        selections: "networth",
+      tornApi.get("/user", {
+        apiKey,
+        queryParams: { selections: ["networth"] },
       }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tornApi.getRaw<any>("/user", apiKey, { selections: "personalstats" }),
+      tornApi.get("/user", {
+        apiKey,
+        queryParams: { selections: ["personalstats"] },
+      }),
       tornApi.getRaw<V1CompanyResponse>("/company", apiKey, {
         selections: "detailed,employees",
       }),
@@ -92,15 +89,18 @@ async function takeSnapshot(): Promise<void> {
     const wallet = moneyResponse.money.wallet || 0;
     const netWorth = moneyResponse.money.daily_networth || 0;
 
-    // Extract bookie value and timestamp
-    const bookieValue = networthResponse.networth?.bookie || 0;
-    const bookieTimestamp = networthResponse.networth?.timestamp || 0;
+    // Extract bookie value and timestamp from v2 response
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const networthData = (networthResponse as any).networth;
+    const bookieValue = networthData?.bookie || 0;
+    const bookieTimestamp = networthData?.timestamp || 0;
     const bookieUpdatedAt = bookieTimestamp
       ? new Date(bookieTimestamp * 1000).toISOString()
       : null;
 
-    // Extract stats
-    const personalStats = personalStatsResponse.personalstats || {};
+    // Extract stats from v2 response
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const personalStats = (personalStatsResponse as any).personalstats || {};
     const strength = personalStats.strength || 0;
     const speed = personalStats.speed || 0;
     const defense = personalStats.defense || 0;
