@@ -130,7 +130,12 @@ export class TornApiClient {
     if (queryParams) {
       for (const [key, value] of Object.entries(queryParams)) {
         if (value !== undefined && value !== null) {
-          params.append(key, String(value));
+          // Handle arrays by joining with commas (standard for API query params)
+          if (Array.isArray(value)) {
+            params.append(key, value.join(","));
+          } else {
+            params.append(key, String(value));
+          }
         }
       }
     }
