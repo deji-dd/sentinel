@@ -1,6 +1,6 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logWarn } from "../lib/logger.js";
+import { logError } from "../lib/logger.js";
 import { getPersonalApiKey, supabase } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
 
@@ -48,15 +48,19 @@ async function syncTornGyms(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const gymsData: any = (response as any).gyms;
   if (!gymsData || typeof gymsData !== "object") {
-    logWarn(WORKER_NAME, "No gyms data received from Torn API");
-    return;
+    logError(WORKER_NAME, "No gyms data received from Torn API");
+    throw new Error("No gyms data in response");
   }
 
-  // Convert gyms object to array
+  // Convert gyms object to array, preserving IDs from object keys
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const gymsArray: any[] = Array.isArray(gymsData)
     ? gymsData
-    : Object.values(gymsData);
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.entries(gymsData).map(([id, gym]: [string, any]) => ({
+        ...gym,
+        id: Number(id),
+      }));
 
   // Normalize gym data
   const gyms: GymRow[] = gymsArray
@@ -78,8 +82,8 @@ async function syncTornGyms(): Promise<void> {
     .filter((gym): gym is GymRow => Boolean(gym));
 
   if (gyms.length === 0) {
-    logWarn(WORKER_NAME, "No valid gyms received from Torn API");
-    return;
+    logError(WORKER_NAME, "No valid gyms parsed from API response");
+    throw new Error("No valid gyms parsed from response");
   }
 
   // Upsert gyms (replace existing)
