@@ -1,11 +1,15 @@
-import { startTravelDataWorker } from "./workers/travel-data.js";
-import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
-import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
-import { startTravelAlerts } from "./workers/travel-alerts.js";
+// import { startTravelDataWorker } from "./workers/travel-data.js";
+// import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
+// import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
+// import { startTravelAlerts } from "./workers/travel-alerts.js";
 import { startUserDataWorker } from "./workers/user-data.js";
 import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
 import { startTornItemsWorker } from "./workers/torn-items.js";
+import {
+  startFinanceSnapshotWorker,
+  startFinancePruningWorker,
+} from "./workers/finance-snapshot.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -23,6 +27,12 @@ function startAllWorkers(): void {
 
     // User cooldowns worker (every 30s)
     startUserCooldownsWorker();
+
+    // Finance snapshot worker (every 30s)
+    startFinanceSnapshotWorker();
+
+    // Finance pruning worker (every hour)
+    startFinancePruningWorker();
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes

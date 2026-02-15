@@ -14,6 +14,16 @@ export function getPersonalUserId(): string {
   return userId;
 }
 
+export function getAuthorizedDiscordUserId(): string {
+  const discordUserId = process.env.SENTINEL_DISCORD_USER_ID;
+  if (!discordUserId) {
+    throw new Error(
+      "SENTINEL_DISCORD_USER_ID environment variable is required for bot access control",
+    );
+  }
+  return discordUserId;
+}
+
 /**
  * Check if a user exists in the database (legacy - deprecated)
  * DEPRECATED: Kept for compatibility during migration
