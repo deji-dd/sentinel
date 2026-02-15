@@ -76,9 +76,11 @@ async function syncTornItems(): Promise<void> {
 
   // Extract unique categories from items
   const categories = new Set<string>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const itemsArray: any[] = Array.isArray(response.items)
     ? response.items
-    : Object.values(response.items as Record<string, any>);
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.values(response.items as Record<string, any>);
 
   for (const item of itemsArray) {
     if (item.type && typeof item.type === "string") {

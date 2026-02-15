@@ -41,3 +41,21 @@ COMMENT ON COLUMN sentinel_finance_settings.min_reserve IS 'Minimum cash reserve
 COMMENT ON COLUMN sentinel_finance_settings.split_bookie IS 'Percentage of excess funds for bookie (default: 60%)';
 COMMENT ON COLUMN sentinel_finance_settings.split_training IS 'Percentage of excess funds for training (default: 30%)';
 COMMENT ON COLUMN sentinel_finance_settings.split_gear IS 'Percentage of excess funds for gear (default: 10%)';
+
+-- Enable RLS and create policies for unrestricted access
+ALTER TABLE sentinel_user_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sentinel_finance_settings ENABLE ROW LEVEL SECURITY;
+
+-- Service role access (for workers)
+CREATE POLICY "sentinel_user_snapshots_service_role" ON sentinel_user_snapshots
+  USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+
+CREATE POLICY "sentinel_finance_settings_service_role" ON sentinel_finance_settings
+  USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+
+-- Authenticated user access (for UI)
+CREATE POLICY "sentinel_user_snapshots_authenticated" ON sentinel_user_snapshots
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "sentinel_finance_settings_authenticated" ON sentinel_finance_settings
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);

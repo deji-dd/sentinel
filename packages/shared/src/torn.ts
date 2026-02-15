@@ -123,7 +123,7 @@ export class TornApiClient {
     // Add query parameters
     const params = new URLSearchParams();
     params.append("key", apiKey);
-    
+
     // Add epoch timestamp to bypass global cache
     params.append("timestamp", String(Math.floor(Date.now() / 1000)));
 

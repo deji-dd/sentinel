@@ -6,7 +6,7 @@ import {
   ensureWorkerRegistered,
   insertWorkerLog,
 } from "./supabase-helpers.js";
-import { logError, logWarn } from "./logger.js";
+import { logError, logWarn, logDuration } from "./logger.js";
 
 export interface RunConfig {
   worker: string; // worker name, registered in sentinel_workers
@@ -65,6 +65,7 @@ export function startDbScheduledRunner(
             run_finished_at: new Date().toISOString(),
             message: "Skipped: already running or not needed",
           });
+          logWarn(worker, "Skipped: already running");
           return;
         }
 
@@ -76,8 +77,10 @@ export function startDbScheduledRunner(
           run_started_at: new Date(start).toISOString(),
           run_finished_at: new Date().toISOString(),
         });
+        logDuration(worker, "Sync completed", duration);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const duration = Date.now() - start;
         await failWorker(workerId, dueRow.attempts, message);
         await insertWorkerLog({
           worker_id: workerId,
@@ -85,8 +88,9 @@ export function startDbScheduledRunner(
           error_message: message,
           run_started_at: new Date(start).toISOString(),
           run_finished_at: new Date().toISOString(),
+          duration_ms: duration,
         });
-        logError(worker, `Schedule failed: ${message}`);
+        logError(worker, `Sync failed: ${message}`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
