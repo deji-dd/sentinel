@@ -66,7 +66,8 @@ export class DatabaseRateLimiter implements RateLimitTracker {
         requested_at: now.toISOString(),
       });
     } catch (error) {
-      console.error("Failed to record per-user request:", error);
+      console.error("[RateLimiter] Failed to record per-user request:", error);
+      throw error;
     }
   }
 
@@ -170,7 +171,6 @@ export class DatabaseRateLimiter implements RateLimitTracker {
       }
     }
 
-    // Record this request
-    await this.recordRequest(apiKey);
+    // Do NOT record the request here - let TornApiClient do it after successful API call
   }
 }

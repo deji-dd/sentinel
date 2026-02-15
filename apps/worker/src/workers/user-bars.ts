@@ -1,62 +1,68 @@
 import { executeSync } from "../lib/sync.js";
-import { decrypt } from "../lib/encryption.js";
-import {
-  getAllUsers,
-  upsertUserBars,
-  type UserBarsData,
-} from "../lib/supabase.js";
+import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
-import { logError, logWarn } from "../lib/logger.js";
+import { logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
+import { supabase } from "../lib/supabase.js";
+import { TABLE_NAMES } from "../lib/constants.js";
 
 const WORKER_NAME = "user_bars_worker";
 const DB_WORKER_KEY = "user_bars_worker";
 
+function formatDuration(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
+}
+
 async function syncUserBarsHandler(): Promise<void> {
-  const users = await getAllUsers();
+  const apiKey = getPersonalApiKey();
+  const startTime = Date.now();
 
-  if (users.length === 0) {
-    return;
-  }
+  try {
+    const barsResponse = await tornApi.get("/user/bars", { apiKey });
+    const bars = barsResponse.bars;
 
-  const updates: UserBarsData[] = [];
-  const errors: Array<{ userId: string; error: string }> = [];
+    if (!bars) {
+      throw new Error("Missing bars in Torn response");
+    }
 
-  for (const user of users) {
-    try {
-      const apiKey = decrypt(user.api_key);
-      const barsResponse = await tornApi.get("/user/bars", { apiKey });
-      const bars = barsResponse.bars;
+    const energyCurrent = bars.energy?.current || 0;
+    const energyMaximum = bars.energy?.maximum || 0;
+    const nerveCurrent = bars.nerve?.current || 0;
+    const nerveMaximum = bars.nerve?.maximum || 0;
 
-      if (!bars) {
-        throw new Error("Missing bars in Torn response");
-      }
+    // Calculate energy regen rate (seconds per point)
+    const energySecondsPerPoint = energyMaximum === 150 ? 120 : 180;
+    const nerveSecondsPerPoint = 300;
 
-      const energyCurrent = bars.energy?.current || 0;
-      const energyMaximum = bars.energy?.maximum || 0;
-      const nerveCurrent = bars.nerve?.current || 0;
-      const nerveMaximum = bars.nerve?.maximum || 0;
+    // Time to full from 0 (in seconds)
+    const energyFlatTimeToFull = energyMaximum * energySecondsPerPoint;
+    const nerveFlatTimeToFull = nerveMaximum * nerveSecondsPerPoint;
+    const energyTimeToFull =
+      (energyMaximum - energyCurrent) * energySecondsPerPoint;
+    const nerveTimeToFull =
+      (nerveMaximum - nerveCurrent) * nerveSecondsPerPoint;
 
-      // Calculate energy regen rate (seconds per point)
-      // If max = 150: 5 energy per 10 minutes = 120 seconds per point
-      // If max = 100: 5 energy per 15 minutes = 180 seconds per point
-      const energySecondsPerPoint = energyMaximum === 150 ? 120 : 180;
+    // Fetch player_id from user_data (set by profile sync worker)
+    const { data: userData, error: fetchError } = await supabase
+      .from(TABLE_NAMES.USER_DATA)
+      .select("player_id")
+      .limit(1)
+      .maybeSingle();
 
-      // Calculate nerve regen rate: 1 nerve per 5 minutes = 300 seconds per point
-      const nerveSecondsPerPoint = 300;
+    if (fetchError) {
+      throw fetchError;
+    }
 
-      // Time to full from 0 (in seconds)
-      const energyFlatTimeToFull = energyMaximum * energySecondsPerPoint;
-      const nerveFlatTimeToFull = nerveMaximum * nerveSecondsPerPoint;
+    if (!userData?.player_id) {
+      throw new Error(
+        "Profile not synced yet - bars cannot be stored without player_id",
+      );
+    }
 
-      // Time to full from current value (in seconds)
-      const energyTimeToFull =
-        (energyMaximum - energyCurrent) * energySecondsPerPoint;
-      const nerveTimeToFull =
-        (nerveMaximum - nerveCurrent) * nerveSecondsPerPoint;
-
-      updates.push({
-        user_id: user.user_id,
+    // Personalized mode: upsert using player_id as primary key
+    const { error } = await supabase.from(TABLE_NAMES.USER_BARS).upsert(
+      {
+        player_id: userData.player_id,
         energy_current: energyCurrent,
         energy_maximum: energyMaximum,
         nerve_current: nerveCurrent,
@@ -69,21 +75,31 @@ async function syncUserBarsHandler(): Promise<void> {
         energy_time_to_full: energyTimeToFull,
         nerve_flat_time_to_full: nerveFlatTimeToFull,
         nerve_time_to_full: nerveTimeToFull,
-      });
-    } catch (error) {
+      },
+      { onConflict: "player_id" },
+    );
+
+    if (error) {
+      throw error;
+    }
+  } catch (error) {
+    const elapsed = Date.now() - startTime;
+    if (error instanceof Object && "message" in error && "code" in error) {
+      // PostgreSQL/Supabase error object
+      logError(
+        WORKER_NAME,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        `Bars sync failed: ${(error as any).message} (${formatDuration(elapsed)})`,
+      );
+    } else {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      errors.push({ userId: user.user_id, error: errorMessage });
-      logError(WORKER_NAME, `${user.user_id}: ${errorMessage}`);
+      logError(
+        WORKER_NAME,
+        `Bars sync failed: ${errorMessage} (${formatDuration(elapsed)})`,
+      );
     }
-  }
-
-  if (updates.length > 0) {
-    await upsertUserBars(updates);
-  }
-
-  if (errors.length > 0) {
-    logWarn(WORKER_NAME, `${errors.length}/${users.length} users failed`);
+    throw error; // Re-throw so executeSync knows this failed
   }
 }
 
@@ -95,7 +111,7 @@ export function startUserBarsWorker(): void {
     handler: async () => {
       return await executeSync({
         name: WORKER_NAME,
-        timeout: 30000,
+        timeout: 10000,
         handler: syncUserBarsHandler,
       });
     },

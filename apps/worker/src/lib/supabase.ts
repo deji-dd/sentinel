@@ -113,6 +113,8 @@ export interface TravelSettings {
 }
 
 export async function getAllUsers(): Promise<User[]> {
+  // DEPRECATED: Multi-user support removed in personalized bot pivot
+  // Kept for compatibility with legacy code only
   const { data, error } = await supabase
     .from(TABLE_NAMES.USERS)
     .select("*")
@@ -123,6 +125,20 @@ export async function getAllUsers(): Promise<User[]> {
   }
 
   return data || [];
+}
+
+/**
+ * Get the API key from environment variable (personalized bot mode)
+ * Required env var: TORN_API_KEY - the raw 16-character API key
+ */
+export function getPersonalApiKey(): string {
+  const apiKey = process.env.TORN_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "TORN_API_KEY environment variable is required for personalized bot mode",
+    );
+  }
+  return apiKey;
 }
 
 export async function getTravelSettingsByUserIds(

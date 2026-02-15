@@ -3,7 +3,7 @@
  * Handles lock mechanism to prevent overlapping syncs.
  */
 
-import { logError, logWarn, logDuration } from "./logger.js";
+import { logWarn, logDuration } from "./logger.js";
 
 interface SyncState {
   isRunning: boolean;
@@ -59,9 +59,11 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
     const duration = Date.now() - (state.startTime || 0);
     logDuration(name, "Sync completed", duration);
     return true;
-  } catch (error) {
-    // Don't log here - let the scheduler handle error logging
-    throw error;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  } catch (_error) {
+    // Handler threw an error - it already logged the details
+    // Just unlock and return false to indicate failure
+    return false;
   } finally {
     // Unlock
     state.isRunning = false;
