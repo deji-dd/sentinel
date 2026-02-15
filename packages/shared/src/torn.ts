@@ -46,29 +46,34 @@ export interface TornApiError {
 export const TORN_ERROR_CODES: Record<number, string> = {
   0: "Unknown error",
   1: "Key is empty",
-  2: "Incorrect Key: API key is wrong/incorrect format",
-  5: "Too many requests: Rate limited (max 100 per minute)",
-  6: "Incorrect ID: User ID doesn't exist",
-  7: "Incorrect ID: Faction ID doesn't exist",
-  8: "Incorrect ID: Company ID doesn't exist",
-  9: "Function disabled: API disabled by admin",
-  10: "Key not found: API key owner is in federal jail",
-  11: "Key change error: Cannot change API key owner in tutorial",
-  12: "Key read error: Could not read key from database",
-  13: "The key is temporarily disabled due to owner inactivity",
+  2: "Incorrect key",
+  3: "Wrong type",
+  4: "Wrong fields",
+  5: "Too many requests",
+  6: "Incorrect ID",
+  7: "Incorrect ID/entity relation",
+  8: "IP blocked",
+  9: "API disabled",
+  10: "Key owner in federal jail",
+  11: "Key change cooldown",
+  12: "Key read error",
+  13: "Key temporarily disabled",
   14: "Daily read limit reached",
-  15: "Temporary error: API disabled for system maintenance",
-  16: "Access level insufficient: Key does not have permission",
-  17: "Backend error: API encountered an error",
-  18: "API system overloaded",
-  19: "Backend database error",
-  20: "System error: API encountered an error",
-  21: "System maintenance",
-  22: "Invalid response: API response missing required fields",
-  23: "Invalid route: API endpoint does not exist",
-  24: "Invalid request: Malformed request parameters",
-  25: "Invalid access level: Not allowed with current key access",
-  26: "Key paused: API key has been paused by owner",
+  15: "Log unavailable",
+  16: "Access level too low",
+  17: "Backend error",
+  18: "API key paused",
+  19: "Must migrate to Crimes v2",
+  20: "Race not finished",
+  21: "Incorrect category",
+  22: "Only available in API v1",
+  23: "Only available in API v2",
+  24: "Closed temporarily",
+  25: "Invalid stat requested",
+  26: "Only category or stats allowed",
+  27: "Must migrate to Organized Crimes v2",
+  28: "Incorrect log ID",
+  29: "Category selection unavailable for interaction logs",
 };
 
 /**
@@ -130,7 +135,12 @@ export class TornApiClient {
     if (queryParams) {
       for (const [key, value] of Object.entries(queryParams)) {
         if (value !== undefined && value !== null) {
-          params.append(key, String(value));
+          // Handle arrays by joining with commas (standard for API query params)
+          if (Array.isArray(value)) {
+            params.append(key, value.join(","));
+          } else {
+            params.append(key, String(value));
+          }
         }
       }
     }
@@ -154,7 +164,9 @@ export class TornApiClient {
       if (data && typeof data === "object" && "error" in data) {
         const error = data.error as { code: number; error: string };
         const errorMessage =
-          TORN_ERROR_CODES[error.code] || `Error code ${error.code}`;
+          TORN_ERROR_CODES[error.code] ||
+          error.error ||
+          `Error code ${error.code}`;
         throw new Error(errorMessage);
       }
 
@@ -217,7 +229,9 @@ export class TornApiClient {
       if (data && typeof data === "object" && "error" in data) {
         const error = data.error as { code: number; error: string };
         const errorMessage =
-          TORN_ERROR_CODES[error.code] || `Error code ${error.code}`;
+          TORN_ERROR_CODES[error.code] ||
+          error.error ||
+          `Error code ${error.code}`;
         throw new Error(errorMessage);
       }
 
