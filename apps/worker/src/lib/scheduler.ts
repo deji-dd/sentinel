@@ -54,9 +54,17 @@ export function startDbScheduledRunner(
         const duration = Date.now() - start;
 
         // If handler returns false, it indicates a skipped run (e.g., already running)
-        // Move the schedule forward but avoid recording a success log with zero duration.
+        // Move the schedule forward and log the skip for visibility.
         if (result === false) {
           await completeWorker(workerId, dueRow.cadence_seconds);
+          await insertWorkerLog({
+            worker_id: workerId,
+            duration_ms: 0,
+            status: "success",
+            run_started_at: new Date(start).toISOString(),
+            run_finished_at: new Date().toISOString(),
+            message: "Skipped: already running or not needed",
+          });
           return;
         }
 

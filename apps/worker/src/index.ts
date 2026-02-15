@@ -1,7 +1,7 @@
-import { startTravelDataWorker } from "./workers/travel-data.js";
-import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
-import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
-import { startTravelAlerts } from "./workers/travel-alerts.js";
+// import { startTravelDataWorker } from "./workers/travel-data.js";
+// import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
+// import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
+// import { startTravelAlerts } from "./workers/travel-alerts.js";
 import { startUserDataWorker } from "./workers/user-data.js";
 import { startUserBarsWorker } from "./workers/user-bars.js";
 import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
