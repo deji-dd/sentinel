@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { executeSync } from "../lib/sync.js";
 import { getPersonalApiKey } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
@@ -65,6 +64,7 @@ async function syncUserCooldownsHandler(): Promise<void> {
       // PostgreSQL/Supabase error object
       logError(
         WORKER_NAME,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         `Cooldowns sync failed: ${(error as any).message} (${formatDuration(elapsed)})`,
       );
     } else {
