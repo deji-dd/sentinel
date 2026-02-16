@@ -4,7 +4,7 @@ import { tornApi } from "../services/torn-client.js";
 import { logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
-import { TABLE_NAMES } from "../lib/constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";

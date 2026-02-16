@@ -1,37 +1,5 @@
 import type { paths } from "./generated/torn-api.js";
 
-type PathsWithMethod<Method extends keyof paths[keyof paths]> = {
-  [Path in keyof paths]: Method extends keyof paths[Path] ? Path : never;
-}[keyof paths];
-
-type GetPaths = PathsWithMethod<"get">;
-
-type PathParameters<Path extends keyof paths> = paths[Path] extends {
-  get: { parameters: { path: infer P } };
-}
-  ? P
-  : never;
-
-type QueryParameters<Path extends keyof paths> = paths[Path] extends {
-  get: { parameters: { query?: infer Q } };
-}
-  ? Q
-  : never;
-
-type ResponseData<Path extends keyof paths> = paths[Path] extends {
-  get: {
-    responses: {
-      200: {
-        content: {
-          "application/json": infer R;
-        };
-      };
-    };
-  };
-}
-  ? R
-  : never;
-
 const TORN_API_BASE = "https://api.torn.com/v2";
 const TORN_API_V1_BASE = "https://api.torn.com";
 const REQUEST_TIMEOUT = 30000; // 30 seconds - increased from 10s for better reliability
@@ -105,16 +73,16 @@ export class TornApiClient {
   }
 
   /**
-   * Make a type-safe GET request to the Torn API
+   * Make a GET request to the Torn API v2 (supports both typed and dynamic paths)
    */
-  async get<Path extends GetPaths>(
-    path: Path,
+  async get<T = any>(
+    path: string,
     options: {
       apiKey: string;
-      pathParams?: PathParameters<Path>;
-      queryParams?: Omit<QueryParameters<Path>, "key">;
+      pathParams?: Record<string, string | number>;
+      queryParams?: Record<string, string | string[]>;
     },
-  ): Promise<ResponseData<Path>> {
+  ): Promise<T> {
     const { apiKey, pathParams, queryParams } = options;
 
     // Apply rate limiting if configured
@@ -158,11 +126,11 @@ export class TornApiClient {
         signal: controller.signal,
         headers: { Accept: "application/json" },
       });
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as T;
 
       // Check for API errors
       if (data && typeof data === "object" && "error" in data) {
-        const error = data.error as { code: number; error: string };
+        const error = (data as any).error as { code: number; error: string };
         const errorMessage =
           TORN_ERROR_CODES[error.code] ||
           error.error ||
@@ -178,7 +146,7 @@ export class TornApiClient {
       if (this.rateLimitTracker) {
         await this.rateLimitTracker.recordRequest(apiKey);
       }
-      return data as ResponseData<Path>;
+      return data;
     } finally {
       clearTimeout(timeoutId);
     }

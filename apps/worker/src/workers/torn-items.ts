@@ -8,7 +8,7 @@ import {
   supabase,
   type TornItemRow,
 } from "../lib/supabase.js";
-import { TABLE_NAMES } from "../lib/constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";

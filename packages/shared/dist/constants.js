@@ -13,12 +13,17 @@ export const TABLE_NAMES = {
     WORKER_LOGS: "sentinel_worker_logs",
     TORN_ITEMS: "sentinel_torn_items",
     TORN_CATEGORIES: "sentinel_torn_categories",
+    TORN_GYMS: "sentinel_torn_gyms",
     TORN_DESTINATIONS: "sentinel_torn_destinations",
     DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
     RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
     USER_ALERTS: "sentinel_user_alerts",
     USER_SNAPSHOTS: "sentinel_user_snapshots",
     FINANCE_SETTINGS: "sentinel_finance_settings",
+    TRAINING_RECOMMENDATIONS: "sentinel_training_recommendations",
+    STAT_BUILDS: "sentinel_stat_builds",
+    STAT_BUILD_CONFIGURATIONS: "sentinel_stat_build_configurations",
+    STAT_BUILD_PREFERENCES: "sentinel_user_build_preferences",
 };
 /** Alert module types */
 export const ALERT_MODULES = {

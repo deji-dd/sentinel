@@ -1,5 +1,5 @@
 import { supabase } from "./supabase.js";
-import { TABLE_NAMES } from "./constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 export interface WorkerRow {
   id: string;

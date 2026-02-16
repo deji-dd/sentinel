@@ -20,6 +20,10 @@ export const TABLE_NAMES = {
   USER_ALERTS: "sentinel_user_alerts",
   USER_SNAPSHOTS: "sentinel_user_snapshots",
   FINANCE_SETTINGS: "sentinel_finance_settings",
+  TRAINING_RECOMMENDATIONS: "sentinel_training_recommendations",
+  STAT_BUILDS: "sentinel_stat_builds",
+  STAT_BUILD_CONFIGURATIONS: "sentinel_stat_build_configurations",
+  STAT_BUILD_PREFERENCES: "sentinel_user_build_preferences",
 } as const;
 
 /** Alert module types */

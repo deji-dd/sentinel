@@ -9,6 +9,7 @@ import {
   startUserSnapshotWorker,
   startUserSnapshotPruningWorker,
 } from "./workers/user-snapshot.js";
+import { startTrainingRecommendationsWorker } from "./workers/training-recommendations.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -29,6 +30,9 @@ function startAllWorkers(): void {
 
     // User snapshot pruning worker (every hour)
     startUserSnapshotPruningWorker();
+
+    // Training recommendations worker (every 10 minutes)
+    startTrainingRecommendationsWorker();
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes
