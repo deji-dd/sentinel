@@ -13,12 +13,17 @@ export declare const TABLE_NAMES: {
     readonly WORKER_LOGS: "sentinel_worker_logs";
     readonly TORN_ITEMS: "sentinel_torn_items";
     readonly TORN_CATEGORIES: "sentinel_torn_categories";
+    readonly TORN_GYMS: "sentinel_torn_gyms";
     readonly TORN_DESTINATIONS: "sentinel_torn_destinations";
     readonly DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times";
     readonly RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user";
     readonly USER_ALERTS: "sentinel_user_alerts";
     readonly USER_SNAPSHOTS: "sentinel_user_snapshots";
     readonly FINANCE_SETTINGS: "sentinel_finance_settings";
+    readonly TRAINING_RECOMMENDATIONS: "sentinel_training_recommendations";
+    readonly STAT_BUILDS: "sentinel_stat_builds";
+    readonly STAT_BUILD_CONFIGURATIONS: "sentinel_stat_build_configurations";
+    readonly STAT_BUILD_PREFERENCES: "sentinel_user_build_preferences";
 };
 /** Alert module types */
 export declare const ALERT_MODULES: {

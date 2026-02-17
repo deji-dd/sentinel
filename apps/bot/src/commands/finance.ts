@@ -136,28 +136,19 @@ export async function execute(
       // Total liquid available includes wallet + company + bookie
       const totalLiquidAvailable = spendableLiquid;
 
-      // Target budget allocations
-      const targetBookiePercent = rawSettings.split_bookie / normalizedTotal;
-      const targetTrainingPercent =
-        rawSettings.split_training / normalizedTotal;
-
-      // When calculating bookie budget: we need to reach target% of total liquid
-      // If we already have X in bookie, we only need to add (target% × total - X)
-      // But for display purposes, we show how much MORE to add to reach target
+      // Calculate target amounts for each budget directly from spendable liquid
       const targetBookieAmount = Math.floor(
-        totalLiquidAvailable * targetBookiePercent,
-      );
-      const bookieBudgetNeeded = Math.max(0, targetBookieAmount - bookieValue);
-
-      // Training and gear budgets come from what's left after allocating to bookie target
-      const afterBookieAllocation = Math.max(
-        0,
-        totalLiquidAvailable - targetBookieAmount,
+        totalLiquidAvailable * (rawSettings.split_bookie / normalizedTotal),
       );
       const trainingBudget = Math.floor(
-        afterBookieAllocation * targetTrainingPercent,
+        totalLiquidAvailable * (rawSettings.split_training / normalizedTotal),
       );
-      const gearBudget = Math.max(0, afterBookieAllocation - trainingBudget);
+      const gearBudget = Math.floor(
+        totalLiquidAvailable * (rawSettings.split_gear / normalizedTotal),
+      );
+
+      // Bookie budget needed is how much more we need to add to reach target
+      const bookieBudgetNeeded = Math.max(0, targetBookieAmount - bookieValue);
 
       const embed = new EmbedBuilder()
         .setColor(0x22c55e)

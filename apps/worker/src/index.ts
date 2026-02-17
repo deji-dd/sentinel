@@ -3,13 +3,13 @@
 // import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
 // import { startTravelAlerts } from "./workers/travel-alerts.js";
 import { startUserDataWorker } from "./workers/user-data.js";
-import { startUserBarsWorker } from "./workers/user-bars.js";
-import { startUserCooldownsWorker } from "./workers/user-cooldowns.js";
 import { startTornItemsWorker } from "./workers/torn-items.js";
+import { startTornGymsWorker } from "./workers/torn-gyms.js";
 import {
-  startFinanceSnapshotWorker,
-  startFinancePruningWorker,
-} from "./workers/finance-snapshot.js";
+  startUserSnapshotWorker,
+  startUserSnapshotPruningWorker,
+} from "./workers/user-snapshot.js";
+import { startTrainingRecommendationsWorker } from "./workers/training-recommendations.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -19,20 +19,20 @@ function startAllWorkers(): void {
     // Torn items worker (daily at ~03:00 UTC)
     startTornItemsWorker();
 
+    // Torn gyms worker (daily at ~03:00 UTC)
+    startTornGymsWorker();
+
     // User data worker (every hour)
     startUserDataWorker();
 
-    // User bars worker (every 30s)
-    startUserBarsWorker();
+    // User snapshot worker (every 30s - includes bars and cooldowns)
+    startUserSnapshotWorker();
 
-    // User cooldowns worker (every 30s)
-    startUserCooldownsWorker();
+    // User snapshot pruning worker (every hour)
+    startUserSnapshotPruningWorker();
 
-    // Finance snapshot worker (every 30s)
-    startFinanceSnapshotWorker();
-
-    // Finance pruning worker (every hour)
-    startFinancePruningWorker();
+    // Training recommendations worker (every 10 minutes)
+    startTrainingRecommendationsWorker();
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes

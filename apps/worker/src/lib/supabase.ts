@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./encryption.js";
-import { TABLE_NAMES } from "./constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -58,7 +58,6 @@ export interface UserProfileData {
   name: string;
   is_donator: boolean;
   profile_image: string | null;
-  discord_id?: string | null;
   updated_at?: string;
 }
 

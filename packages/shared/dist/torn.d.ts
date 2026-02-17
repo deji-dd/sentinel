@@ -1,33 +1,3 @@
-import type { paths } from "./generated/torn-api.js";
-type PathsWithMethod<Method extends keyof paths[keyof paths]> = {
-    [Path in keyof paths]: Method extends keyof paths[Path] ? Path : never;
-}[keyof paths];
-type GetPaths = PathsWithMethod<"get">;
-type PathParameters<Path extends keyof paths> = paths[Path] extends {
-    get: {
-        parameters: {
-            path: infer P;
-        };
-    };
-} ? P : never;
-type QueryParameters<Path extends keyof paths> = paths[Path] extends {
-    get: {
-        parameters: {
-            query?: infer Q;
-        };
-    };
-} ? Q : never;
-type ResponseData<Path extends keyof paths> = paths[Path] extends {
-    get: {
-        responses: {
-            200: {
-                content: {
-                    "application/json": infer R;
-                };
-            };
-        };
-    };
-} ? R : never;
 export interface TornApiError {
     error: {
         code: number;
@@ -57,13 +27,13 @@ export declare class TornApiClient {
     private timeout;
     constructor(config?: TornApiConfig);
     /**
-     * Make a type-safe GET request to the Torn API
+     * Make a GET request to the Torn API v2 (supports both typed and dynamic paths)
      */
-    get<Path extends GetPaths>(path: Path, options: {
+    get<T = any>(path: string, options: {
         apiKey: string;
-        pathParams?: PathParameters<Path>;
-        queryParams?: Omit<QueryParameters<Path>, "key">;
-    }): Promise<ResponseData<Path>>;
+        pathParams?: Record<string, string | number>;
+        queryParams?: Record<string, string | string[]>;
+    }): Promise<T>;
     /**
      * Make a raw GET request to the Torn API (for v1 endpoints not in OpenAPI spec)
      */
@@ -99,5 +69,4 @@ export declare class ApiKeyRotator {
      */
     getKeyCount(): number;
 }
-export {};
 //# sourceMappingURL=torn.d.ts.map
