@@ -8,7 +8,7 @@ import {
   supabase,
   type TornItemRow,
 } from "../lib/supabase.js";
-import { TABLE_NAMES } from "../lib/constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
@@ -33,16 +33,49 @@ function nextUtcThreeAm(): string {
   return target.toISOString();
 }
 
+/**
+ * Parse energy gain from effect text
+ * Example: "Increases energy by 250 and happiness by 75..."
+ */
+function parseEnergyGain(effect: string | null): number {
+  if (!effect || typeof effect !== "string") return 0;
+  const match = effect.match(/energy\s+by\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+/**
+ * Parse happiness gain from effect text
+ */
+function parseHappyGain(effect: string | null): number {
+  if (!effect || typeof effect !== "string") return 0;
+  const match = effect.match(/happiness\s+by\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+/**
+ * Map item type to cooldown category
+ */
+function mapTypeToCooldown(type: string | null): string | null {
+  if (!type) return null;
+  if (type === "Drug") return "drug";
+  if (type === "Booster") return "booster";
+  if (type === "Medical") return "medical";
+  return null;
+}
+
 function normalizeItems(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   response: any,
   categoryNameToId: Map<string, number>,
 ): TornItemRow[] {
   const container = response.items;
   if (!container) return [];
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const itemsArray: any[] = Array.isArray(container)
     ? container
-    : Object.values(container as Record<string, any>);
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.values(container as Record<string, any>);
 
   return itemsArray
     .map((item) => {
@@ -53,6 +86,11 @@ function normalizeItems(
       const image = typeof item.image === "string" ? item.image : null;
       const type = typeof item.type === "string" ? item.type : null;
       const category_id = type ? categoryNameToId.get(type) || null : null;
+      const effect = typeof item.effect === "string" ? item.effect : null;
+      const value =
+        typeof item.value === "number"
+          ? item.value
+          : Number(item.value) || null;
 
       return {
         item_id: id,
@@ -60,6 +98,11 @@ function normalizeItems(
         image,
         type,
         category_id,
+        effect,
+        energy_gain: parseEnergyGain(effect),
+        happy_gain: parseHappyGain(effect),
+        cooldown: mapTypeToCooldown(type),
+        value,
       } as TornItemRow;
     })
     .filter((row): row is TornItemRow => Boolean(row));

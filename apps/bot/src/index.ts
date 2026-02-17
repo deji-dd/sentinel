@@ -9,6 +9,9 @@ import * as accountSettings from "./commands/settings-account.js";
 import * as searchCommand from "./commands/search.js";
 import * as financeCommand from "./commands/finance.js";
 import * as financeSettingsCommand from "./commands/finance-settings.js";
+import * as forceRunCommand from "./commands/force-run.js";
+import * as deployCommandsCommand from "./commands/deploy-commands.js";
+import * as settingsBuildCommand from "./commands/settings-build.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 
@@ -99,6 +102,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await financeCommand.execute(interaction, supabase);
       } else if (interaction.commandName === "finance-settings") {
         await financeSettingsCommand.execute(interaction);
+      } else if (interaction.commandName === "force-run") {
+        await forceRunCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "settings-build") {
+        await settingsBuildCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "deploy-commands") {
+        await deployCommandsCommand.execute(interaction);
       }
       return;
     }
@@ -140,6 +149,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
       } else if (interaction.customId === "travel_setting_select") {
         await travelSettings.handleTravelSettingSelect(interaction, supabase);
+      } else if (interaction.customId === "build_select_menu") {
+        await settingsBuildCommand.handleBuildSelectMenu(interaction, supabase);
+      } else if (interaction.customId.startsWith("main_stat_select_menu")) {
+        // Extract build ID from customId (format: main_stat_select_menu|{buildId})
+        const buildId = interaction.customId.split("|")[1];
+        await settingsBuildCommand.handleStatSelectMenu(
+          interaction,
+          supabase,
+          buildId,
+        );
       }
       return;
     }
