@@ -53,6 +53,7 @@ export async function execute(
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
+    const verifyCommand = await import("../general/verify.js");
 
     // Map of module names to commands
     const commandsByModule: Record<string, any[]> = {
@@ -80,6 +81,7 @@ export async function execute(
         forceRunCommand.data.toJSON(),
         deployCommandsCommand.data.toJSON(),
         setupGuildCommand.data.toJSON(),
+        verifyCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {

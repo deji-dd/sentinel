@@ -6,6 +6,7 @@ import * as financeSettingsCommand from "./commands/personal/finance-settings.js
 import * as forceRunCommand from "./commands/personal/force-run.js";
 import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
 import * as setupGuildCommand from "./commands/personal/setup-guild.js";
+import * as verifyCommand from "./commands/general/verify.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -115,6 +116,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await financeCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "finance-settings") {
           await financeSettingsCommand.execute(interaction);
+        } else if (interaction.commandName === "verify") {
+          await verifyCommand.execute(interaction);
         }
       }
       return;
