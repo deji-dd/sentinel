@@ -5,11 +5,11 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
-  type StringSelectMenuInteraction,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
+  type ButtonInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -17,29 +17,15 @@ import { encrypt } from "../../lib/encryption.js";
 
 export const data = new SlashCommandBuilder()
   .setName("config")
-  .setDescription("Configure guild settings (admin only)")
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("api-key")
-      .setDescription("Set the Torn API key for this guild"),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("modules")
-      .setDescription("Configure enabled modules for this guild"),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("nickname-template")
-      .setDescription("Set the nickname template for verified users"),
-  );
+  .setDescription("Configure guild settings");
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
   supabase: SupabaseClient,
 ): Promise<void> {
   try {
-    const subcommand = interaction.options.getSubcommand();
+    await interaction.deferReply({ ephemeral: true });
+
     const guildId = interaction.guildId;
 
     if (!guildId) {
@@ -48,9 +34,8 @@ export async function execute(
         .setTitle("❌ Error")
         .setDescription("This command can only be used in a guild.");
 
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [errorEmbed],
-        ephemeral: true,
       });
       return;
     }
@@ -70,20 +55,62 @@ export async function execute(
           "Please run `/setup-guild` first to initialize this guild.",
         );
 
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [errorEmbed],
-        ephemeral: true,
       });
       return;
     }
 
-    if (subcommand === "api-key") {
-      await handleApiKeyConfig(interaction, supabase, guildId);
-    } else if (subcommand === "modules") {
-      await handleModulesConfig(interaction, supabase, guildId, guildConfig);
-    } else if (subcommand === "nickname-template") {
-      await handleNicknameTemplateConfig(interaction, supabase, guildId);
-    }
+    // Show current config with edit buttons
+    const configEmbed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle("Guild Configuration")
+      .setDescription("Current settings for this guild:")
+      .addFields(
+        {
+          name: "API Key",
+          value: guildConfig.api_key
+            ? "✅ Configured"
+            : "❌ Not configured",
+          inline: true,
+        },
+        {
+          name: "Nickname Template",
+          value: guildConfig.nickname_template || "{name}#{id}",
+          inline: true,
+        },
+        {
+          name: "Enabled Modules",
+          value:
+            guildConfig.enabled_modules.length > 0
+              ? guildConfig.enabled_modules.join(", ")
+              : "None",
+          inline: false,
+        },
+      )
+      .setFooter({
+        text: "Use the buttons below to modify settings",
+      });
+
+    const editApiKeyBtn = new ButtonBuilder()
+      .setCustomId("config_edit_api_key")
+      .setLabel("Set API Key")
+      .setStyle(ButtonStyle.Primary);
+
+    const editNicknameBtn = new ButtonBuilder()
+      .setCustomId("config_edit_nickname")
+      .setLabel("Edit Nickname Template")
+      .setStyle(ButtonStyle.Secondary);
+
+    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      editApiKeyBtn,
+      editNicknameBtn,
+    );
+
+    await interaction.editReply({
+      embeds: [configEmbed],
+      components: [buttonRow],
+    });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in config command:", errorMsg);
@@ -105,120 +132,107 @@ export async function execute(
   }
 }
 
-async function handleApiKeyConfig(
-  interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
-  guildId: string,
+// Handler for API key button
+export async function handleSetApiKeyButton(
+  interaction: ButtonInteraction,
 ): Promise<void> {
-  // Show a modal for entering the API key
-  const modal = new ModalBuilder()
-    .setCustomId("config_api_key_modal")
-    .setTitle("Configure Torn API Key");
+  try {
+    // Show a modal for entering the API key
+    const modal = new ModalBuilder()
+      .setCustomId("config_api_key_modal")
+      .setTitle("Configure Torn API Key");
 
-  const apiKeyInput = new TextInputBuilder()
-    .setCustomId("api_key_input")
-    .setLabel("Torn API Key")
-    .setPlaceholder("Enter your 16-character Torn API key")
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setMaxLength(16)
-    .setMinLength(16);
+    const apiKeyInput = new TextInputBuilder()
+      .setCustomId("api_key_input")
+      .setLabel("Torn API Key")
+      .setPlaceholder("Enter your 16-character Torn API key")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(16)
+      .setMinLength(16);
 
-  const row = new ActionRowBuilder<TextInputBuilder>().addComponents(apiKeyInput);
-  modal.addComponents(row);
+    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      apiKeyInput,
+    );
+    modal.addComponents(row);
 
-  await interaction.showModal(modal);
+    await interaction.showModal(modal);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in set API key button handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
 
-  // Store guildId in the custom ID context for later retrieval
-  // Note: Discord.js doesn't provide direct way to pass context to modal handlers,
-  // so we'll handle this in the modal submission handler
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+    } else {
+      await interaction.reply({
+        embeds: [errorEmbed],
+        ephemeral: true,
+      });
+    }
+  }
 }
 
-async function handleModulesConfig(
-  interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
-  guildId: string,
-  guildConfig: any,
+// Handler for nickname template button
+export async function handleEditNicknameButton(
+  interaction: ButtonInteraction,
 ): Promise<void> {
-  await interaction.deferReply({ ephemeral: true });
+  try {
+    // Show a modal for entering the nickname template
+    const modal = new ModalBuilder()
+      .setCustomId("config_nickname_template_modal")
+      .setTitle("Configure Nickname Template");
 
-  const availableModules = [
-    { name: "Finance", value: "finance" },
-    { name: "Search", value: "search" },
-  ];
+    const templateInput = new TextInputBuilder()
+      .setCustomId("nickname_template_input")
+      .setLabel("Nickname Template")
+      .setPlaceholder("e.g., {name}#{id}")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setValue("{name}#{id}");
 
-  const moduleOptions = availableModules.map((module) =>
-    new StringSelectMenuOptionBuilder()
-      .setLabel(module.name)
-      .setValue(module.value)
-      .setDefault(guildConfig.enabled_modules.includes(module.value)),
-  );
+    const descriptionInput = new TextInputBuilder()
+      .setCustomId("description_input")
+      .setLabel("Description (optional)")
+      .setPlaceholder(
+        "Use {name} for player name and {id} for Torn player ID",
+      )
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(false);
 
-  const moduleSelectMenu = new StringSelectMenuBuilder()
-    .setCustomId(`config_modules_select|${guildId}`)
-    .setPlaceholder("Select modules to enable...")
-    .setMinValues(0)
-    .setMaxValues(availableModules.length)
-    .addOptions(moduleOptions);
+    const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      templateInput,
+    );
+    const row2 = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      descriptionInput,
+    );
+    modal.addComponents(row1, row2);
 
-  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-    moduleSelectMenu,
-  );
+    await interaction.showModal(modal);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit nickname button handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x3b82f6)
-    .setTitle("Configure Enabled Modules")
-    .setDescription("Select which modules to enable for this guild:")
-    .addFields({
-      name: "Currently Enabled",
-      value:
-        guildConfig.enabled_modules.length > 0
-          ? guildConfig.enabled_modules.join(", ")
-          : "None",
-    });
-
-  await interaction.editReply({
-    embeds: [embed],
-    components: [row],
-  });
-}
-
-async function handleNicknameTemplateConfig(
-  interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
-  guildId: string,
-): Promise<void> {
-  // Show a modal for entering the nickname template
-  const modal = new ModalBuilder()
-    .setCustomId("config_nickname_template_modal")
-    .setTitle("Configure Nickname Template");
-
-  const templateInput = new TextInputBuilder()
-    .setCustomId("nickname_template_input")
-    .setLabel("Nickname Template")
-    .setPlaceholder("e.g., {name}#{id}")
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setValue("{name}#{id}");
-
-  const descriptionInput = new TextInputBuilder()
-    .setCustomId("description_input")
-    .setLabel("Description")
-    .setPlaceholder(
-      "Use {name} for player name and {id} for Torn player ID (read-only)",
-    )
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(false);
-
-  const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(
-    templateInput,
-  );
-  const row2 = new ActionRowBuilder<TextInputBuilder>().addComponents(
-    descriptionInput,
-  );
-  modal.addComponents(row1, row2);
-
-  await interaction.showModal(modal);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+    } else {
+      await interaction.reply({
+        embeds: [errorEmbed],
+        ephemeral: true,
+      });
+    }
+  }
 }
 
 // Handler for API key modal submission
@@ -244,7 +258,7 @@ export async function handleApiKeyModalSubmit(
       return;
     }
 
-    // Remove the encryptionKey check before encrypting
+    // Encrypt the API key
     const encryptedApiKey = encrypt(apiKey);
 
     // Update guild config with encrypted API key
@@ -288,68 +302,6 @@ export async function handleApiKeyModalSubmit(
 
     await interaction.editReply({
       embeds: [errorEmbed],
-    });
-  }
-}
-
-// Handler for modules select menu
-export async function handleModulesSelect(
-  interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const customIdParts = interaction.customId.split("|");
-    const guildId = customIdParts[1];
-    const selectedModules = interaction.values;
-
-    // Update guild config with selected modules
-    const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ enabled_modules: selectedModules })
-      .eq("guild_id", guildId);
-
-    if (error) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("❌ Failed to Update Modules")
-        .setDescription(error.message);
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("✅ Modules Updated")
-      .setDescription("Guild module configuration has been saved.")
-      .addFields({
-        name: "Enabled Modules",
-        value:
-          selectedModules.length > 0
-            ? selectedModules.join(", ")
-            : "None (you can update this later)",
-      });
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in modules select handler:", errorMsg);
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("❌ Error")
-      .setDescription(errorMsg);
-
-    await interaction.editReply({
-      embeds: [errorEmbed],
-      components: [],
     });
   }
 }

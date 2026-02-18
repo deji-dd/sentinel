@@ -134,7 +134,10 @@ export async function execute(
           successCount++;
           deploymentResults.push({ guild: guildId, status: "✅" });
         } catch (err) {
-          console.error(`Failed to deploy to guild ${guildConfig.guild_id}:`, err);
+          console.error(
+            `Failed to deploy to guild ${guildConfig.guild_id}:`,
+            err,
+          );
           failureCount++;
           deploymentResults.push({ guild: guildConfig.guild_id, status: "❌" });
         }
@@ -159,7 +162,9 @@ export async function execute(
           name: "🌍 Deployments",
           value:
             deploymentResults.length > 0
-              ? deploymentResults.map((r) => `${r.status} ${r.guild}`).join("\n")
+              ? deploymentResults
+                  .map((r) => `${r.status} ${r.guild}`)
+                  .join("\n")
               : "None",
         },
       )

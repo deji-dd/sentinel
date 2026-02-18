@@ -126,12 +126,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    // Handle buttons
+    if (interaction.isButton()) {
+      if (interaction.customId === "config_edit_api_key") {
+        await configCommand.handleSetApiKeyButton(interaction);
+      } else if (interaction.customId === "config_edit_nickname") {
+        await configCommand.handleEditNicknameButton(interaction);
+      }
+      return;
+    }
+
     // Handle modals
     if (interaction.isModalSubmit()) {
       if (interaction.customId === "config_api_key_modal") {
         await configCommand.handleApiKeyModalSubmit(interaction, supabase);
       } else if (interaction.customId === "config_nickname_template_modal") {
-        await configCommand.handleNicknameTemplateModalSubmit(interaction, supabase);
+        await configCommand.handleNicknameTemplateModalSubmit(
+          interaction,
+          supabase,
+        );
       }
       return;
     }
@@ -142,8 +155,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await setupGuildCommand.handleGuildSelect(interaction, supabase);
       } else if (interaction.customId.startsWith("setup_modules_select")) {
         await setupGuildCommand.handleModulesSelect(interaction, supabase);
-      } else if (interaction.customId.startsWith("config_modules_select")) {
-        await configCommand.handleModulesSelect(interaction, supabase);
       }
       return;
     }
