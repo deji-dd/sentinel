@@ -24,6 +24,9 @@ export const TABLE_NAMES = {
     STAT_BUILDS: "sentinel_stat_builds",
     STAT_BUILD_CONFIGURATIONS: "sentinel_stat_build_configurations",
     STAT_BUILD_PREFERENCES: "sentinel_user_build_preferences",
+    VERIFIED_USERS: "sentinel_verified_users",
+    GUILD_MODULES: "sentinel_guild_modules",
+    FACTION_ROLES: "sentinel_faction_roles",
 };
 /** Alert module types */
 export const ALERT_MODULES = {

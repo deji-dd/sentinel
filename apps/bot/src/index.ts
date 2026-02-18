@@ -1,19 +1,14 @@
 import "dotenv/config";
-import { Client, Events, GatewayIntentBits } from "discord.js";
+import { Client, Events, GatewayIntentBits, EmbedBuilder } from "discord.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { executeTravel } from "./commands/travel.js";
-import * as setupCommand from "./commands/setup.js";
-import * as settingsCommand from "./commands/settings.js";
-import * as travelSettings from "./commands/settings-travel.js";
-import * as accountSettings from "./commands/settings-account.js";
-import * as searchCommand from "./commands/search.js";
-import * as financeCommand from "./commands/finance.js";
-import * as financeSettingsCommand from "./commands/finance-settings.js";
-import * as forceRunCommand from "./commands/force-run.js";
-import * as deployCommandsCommand from "./commands/deploy-commands.js";
-import * as settingsBuildCommand from "./commands/settings-build.js";
+import * as financeCommand from "./commands/personal/finance.js";
+import * as financeSettingsCommand from "./commands/personal/finance-settings.js";
+import * as forceRunCommand from "./commands/personal/force-run.js";
+import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
+import * as setupGuildCommand from "./commands/personal/setup-guild.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -69,96 +64,68 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    if (interaction.guild) {
-      if (interaction.isRepliable()) {
-        await interaction.reply({
-          content:
-            "This bot only works in DMs. Please message me directly to use commands.",
-        });
-      }
-      return;
-    }
-
-    if (interaction.user.id !== authorizedDiscordUserId) {
-      if (interaction.isRepliable()) {
-        await interaction.reply({
-          content: "You are not authorized to use this bot.",
-        });
-      }
-      return;
-    }
-
     // Handle chat input commands
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "travel") {
-        await executeTravel(interaction, supabase);
-      } else if (interaction.commandName === "setup") {
-        await setupCommand.execute(interaction, supabase);
-      } else if (interaction.commandName === "settings") {
-        await settingsCommand.execute(interaction, supabase);
-      } else if (interaction.commandName === "search") {
-        await searchCommand.execute(interaction, supabase);
-      } else if (interaction.commandName === "finance") {
-        await financeCommand.execute(interaction, supabase);
-      } else if (interaction.commandName === "finance-settings") {
-        await financeSettingsCommand.execute(interaction);
-      } else if (interaction.commandName === "force-run") {
+      // Admin-only commands bypass guild initialization check
+      if (interaction.commandName === "force-run") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
         await forceRunCommand.execute(interaction, supabase);
-      } else if (interaction.commandName === "settings-build") {
-        await settingsBuildCommand.execute(interaction, supabase);
       } else if (interaction.commandName === "deploy-commands") {
-        await deployCommandsCommand.execute(interaction);
-      }
-      return;
-    }
-
-    // Handle modal submissions
-    if (interaction.isModalSubmit()) {
-      if (interaction.customId === "setup-modal") {
-        await setupCommand.handleModalSubmit(interaction, supabase);
-      } else if (interaction.customId === "account_settings_modal") {
-        await accountSettings.handleAccountSettingsModal(interaction, supabase);
-      } else if (interaction.customId === "finance_settings_modal") {
-        await financeSettingsCommand.handleModalSubmit(interaction, supabase);
-      } else if (interaction.customId === "modal_alert_cooldown") {
-        await travelSettings.handleModalAlertCooldown(interaction, supabase);
-      } else if (interaction.customId === "modal_min_profit_trip") {
-        await travelSettings.handleModalMinProfitTrip(interaction, supabase);
-      } else if (interaction.customId === "modal_min_profit_minute") {
-        await travelSettings.handleModalMinProfitMinute(interaction, supabase);
-      } else if (interaction.customId === "modal_blacklisted_items") {
-        await travelSettings.handleModalBlacklistedItems(interaction, supabase);
-      } else if (interaction.customId === "modal_blacklisted_categories") {
-        await travelSettings.handleModalBlacklistedCategories(
-          interaction,
-          supabase,
-        );
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await deployCommandsCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "setup-guild") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await setupGuildCommand.execute(interaction, supabase, client);
+      } else {
+        // Regular commands (personal commands only exist in admin guild)
+        if (interaction.commandName === "finance") {
+          await financeCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "finance-settings") {
+          await financeSettingsCommand.execute(interaction);
+        }
       }
       return;
     }
 
     // Handle string select menus
     if (interaction.isStringSelectMenu()) {
-      if (interaction.customId === "settings_module_select") {
-        const selectedModule = interaction.values[0];
-
-        if (selectedModule === "travel") {
-          await travelSettings.handleTravelSettings(interaction, supabase);
-        } else if (selectedModule === "account") {
-          await accountSettings.handleAccountSettings(interaction, supabase);
-        }
-      } else if (interaction.customId === "travel_setting_select") {
-        await travelSettings.handleTravelSettingSelect(interaction, supabase);
-      } else if (interaction.customId === "build_select_menu") {
-        await settingsBuildCommand.handleBuildSelectMenu(interaction, supabase);
-      } else if (interaction.customId.startsWith("main_stat_select_menu")) {
-        // Extract build ID from customId (format: main_stat_select_menu|{buildId})
-        const buildId = interaction.customId.split("|")[1];
-        await settingsBuildCommand.handleStatSelectMenu(
-          interaction,
-          supabase,
-          buildId,
-        );
+      if (interaction.customId === "setup_guild_select") {
+        await setupGuildCommand.handleGuildSelect(interaction, supabase);
+      } else if (interaction.customId.startsWith("setup_modules_select")) {
+        await setupGuildCommand.handleModulesSelect(interaction, supabase);
       }
       return;
     }
@@ -172,11 +139,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    const content = `❌ ${message}`;
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(message);
+
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ content });
+      await interaction.editReply({ embeds: [errorEmbed] });
     } else {
-      await interaction.reply({ content });
+      await interaction.reply({ embeds: [errorEmbed] });
     }
   }
 });
