@@ -7,7 +7,7 @@ import {
   EmbedBuilder,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAuthorizedUser } from "../lib/auth.js";
+import { getAuthorizedUser } from "../../lib/auth.js";
 
 export const data = {
   name: "settings",

@@ -1,10 +1,10 @@
 import "dotenv/config";
 import { REST, Routes } from "discord.js";
-import * as financeCommand from "./commands/finance.js";
-import * as financeSettingsCommand from "./commands/finance-settings.js";
-import * as forceRunCommand from "./commands/force-run.js";
-import * as settingsBuildCommand from "./commands/settings-build.js";
-import * as deployCommandsCommand from "./commands/deploy-commands.js";
+import * as financeCommand from "./commands/personal/finance.js";
+import * as financeSettingsCommand from "./commands/personal/finance-settings.js";
+import * as forceRunCommand from "./commands/personal/force-run.js";
+import * as settingsBuildCommand from "./commands/personal/settings-build.js";
+import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];

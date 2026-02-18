@@ -10,7 +10,7 @@ import {
   type ModalSubmitInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAuthorizedUser } from "../lib/auth.js";
+import { getAuthorizedUser } from "../../lib/auth.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
 export async function handleTravelSettings(

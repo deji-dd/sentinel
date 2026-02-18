@@ -1,17 +1,17 @@
 import "dotenv/config";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { executeTravel } from "./commands/travel.js";
-import * as setupCommand from "./commands/setup.js";
-import * as settingsCommand from "./commands/settings.js";
-import * as travelSettings from "./commands/settings-travel.js";
-import * as accountSettings from "./commands/settings-account.js";
-import * as searchCommand from "./commands/search.js";
-import * as financeCommand from "./commands/finance.js";
-import * as financeSettingsCommand from "./commands/finance-settings.js";
-import * as forceRunCommand from "./commands/force-run.js";
-import * as deployCommandsCommand from "./commands/deploy-commands.js";
-import * as settingsBuildCommand from "./commands/settings-build.js";
+import { executeTravel } from "./commands/personal/travel.js";
+import * as setupCommand from "./commands/personal/setup.js";
+import * as settingsCommand from "./commands/personal/settings.js";
+import * as travelSettings from "./commands/personal/settings-travel.js";
+import * as accountSettings from "./commands/personal/settings-account.js";
+import * as searchCommand from "./commands/personal/search.js";
+import * as financeCommand from "./commands/personal/finance.js";
+import * as financeSettingsCommand from "./commands/personal/finance-settings.js";
+import * as forceRunCommand from "./commands/personal/force-run.js";
+import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
+import * as settingsBuildCommand from "./commands/personal/settings-build.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 

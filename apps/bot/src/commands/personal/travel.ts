@@ -5,7 +5,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAuthorizedUser } from "../lib/auth.js";
+import { getAuthorizedUser } from "../../lib/auth.js";
 
 export async function executeTravel(
   interaction: ChatInputCommandInteraction,
