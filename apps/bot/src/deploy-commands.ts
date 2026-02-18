@@ -7,6 +7,7 @@ import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
 import * as setupGuildCommand from "./commands/personal/setup-guild.js";
 import * as forceRunCommand from "./commands/personal/force-run.js";
 import * as verifyCommand from "./commands/general/verify.js";
+import * as configCommand from "./commands/general/config.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -38,6 +39,7 @@ const commands = [
   deployCommandsCommand.data.toJSON(),
   setupGuildCommand.data.toJSON(),
   verifyCommand.data.toJSON(),
+  configCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

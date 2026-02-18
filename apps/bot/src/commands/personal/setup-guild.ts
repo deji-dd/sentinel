@@ -114,7 +114,7 @@ export async function handleGuildSelect(
 
     // Check if guild is already configured
     const { data: existingConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_MODULES)
+      .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", selectedGuildId)
       .single();
@@ -142,7 +142,7 @@ export async function handleGuildSelect(
 
     // Initialize new guild with empty modules
     const { error: insertError } = await supabase
-      .from(TABLE_NAMES.GUILD_MODULES)
+      .from(TABLE_NAMES.GUILD_CONFIG)
       .insert({
         guild_id: selectedGuildId,
         enabled_modules: [],
@@ -226,7 +226,7 @@ export async function handleModulesSelect(
 
     // Update guild config with selected modules
     const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_MODULES)
+      .from(TABLE_NAMES.GUILD_CONFIG)
       .update({
         enabled_modules: selectedModules,
       })

@@ -7,6 +7,7 @@ import * as forceRunCommand from "./commands/personal/force-run.js";
 import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
 import * as setupGuildCommand from "./commands/personal/setup-guild.js";
 import * as verifyCommand from "./commands/general/verify.js";
+import * as configCommand from "./commands/general/config.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -117,8 +118,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } else if (interaction.commandName === "finance-settings") {
           await financeSettingsCommand.execute(interaction);
         } else if (interaction.commandName === "verify") {
-          await verifyCommand.execute(interaction);
+          await verifyCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "config") {
+          await configCommand.execute(interaction, supabase);
         }
+      }
+      return;
+    }
+
+    // Handle modals
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === "config_api_key_modal") {
+        await configCommand.handleApiKeyModalSubmit(interaction, supabase);
+      } else if (interaction.customId === "config_nickname_template_modal") {
+        await configCommand.handleNicknameTemplateModalSubmit(interaction, supabase);
       }
       return;
     }
@@ -129,6 +142,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await setupGuildCommand.handleGuildSelect(interaction, supabase);
       } else if (interaction.customId.startsWith("setup_modules_select")) {
         await setupGuildCommand.handleModulesSelect(interaction, supabase);
+      } else if (interaction.customId.startsWith("config_modules_select")) {
+        await configCommand.handleModulesSelect(interaction, supabase);
       }
       return;
     }
