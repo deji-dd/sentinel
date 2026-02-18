@@ -45,8 +45,13 @@ export async function execute(
       .single();
 
     if (lookupError || !worker) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Worker Not Found")
+        .setDescription(`Worker **${workerName}** does not exist`);
+
       await interaction.editReply({
-        content: `❌ Worker not found: ${workerName}`,
+        embeds: [errorEmbed],
       });
       return;
     }
@@ -58,8 +63,13 @@ export async function execute(
       .eq("worker_id", worker.id);
 
     if (triggerError) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Failed to Trigger Worker")
+        .setDescription(triggerError.message);
+
       await interaction.editReply({
-        content: `❌ Failed to trigger worker: ${triggerError.message}`,
+        embeds: [errorEmbed],
       });
       return;
     }
@@ -91,8 +101,13 @@ export async function execute(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in force-run command:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
     await interaction.editReply({
-      content: `❌ Failed to trigger worker: ${errorMsg}`,
+      embeds: [errorEmbed],
     });
   }
 }
