@@ -1,14 +1,18 @@
 import "dotenv/config";
 import { Client, Events, GatewayIntentBits, EmbedBuilder } from "discord.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import * as financeCommand from "./commands/personal/finance.js";
-import * as financeSettingsCommand from "./commands/personal/finance-settings.js";
-import * as forceRunCommand from "./commands/personal/force-run.js";
-import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
-import * as setupGuildCommand from "./commands/personal/setup-guild.js";
-import * as verifyCommand from "./commands/general/verify.js";
-import * as verifyallCommand from "./commands/general/verifyall.js";
-import * as configCommand from "./commands/general/config.js";
+import * as financeCommand from "./commands/personal/finance/finance.js";
+import * as financeSettingsCommand from "./commands/personal/finance/finance-settings.js";
+import * as forceRunCommand from "./commands/personal/admin/force-run.js";
+import * as deployCommandsCommand from "./commands/personal/admin/deploy-commands.js";
+import * as setupGuildCommand from "./commands/personal/admin/setup-guild.js";
+import * as teardownGuildCommand from "./commands/personal/admin/teardown-guild.js";
+import * as addBotCommand from "./commands/personal/admin/add-bot.js";
+import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
+import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
+import * as verifyCommand from "./commands/general/verify/verify.js";
+import * as verifyallCommand from "./commands/general/verify/verifyall.js";
+import * as configCommand from "./commands/general/admin/config.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -117,6 +121,62 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
         await setupGuildCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "add-bot") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await addBotCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "teardown-guild") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await teardownGuildCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "enable-module") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await enableModuleCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "guild-status") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await guildStatusCommand.execute(interaction, supabase, client);
       } else {
         // Regular commands (personal commands only exist in admin guild)
         if (interaction.commandName === "finance") {
@@ -186,6 +246,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await setupGuildCommand.handleGuildSelect(interaction, supabase);
       } else if (interaction.customId.startsWith("setup_modules_select")) {
         await setupGuildCommand.handleModulesSelect(interaction, supabase);
+      } else if (interaction.customId === "teardown_guild_select") {
+        await teardownGuildCommand.handleTeardownGuildSelect(
+          interaction,
+          supabase,
+          client,
+        );
+      } else if (interaction.customId === "enable_module_guild_select") {
+        await enableModuleCommand.handleGuildSelect(interaction, supabase);
+      } else if (interaction.customId.startsWith("enable_module_toggle")) {
+        await enableModuleCommand.handleModuleToggle(
+          interaction,
+          supabase,
+          client,
+        );
       }
       return;
     }

@@ -15,7 +15,7 @@ import {
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { encrypt } from "../../lib/encryption.js";
+import { encrypt } from "../../../lib/encryption.js";
 
 export const data = new SlashCommandBuilder()
   .setName("config")

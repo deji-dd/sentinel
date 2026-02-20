@@ -6,8 +6,8 @@ import {
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { decrypt } from "../../lib/encryption.js";
-import { botTornApi } from "../../lib/torn-api.js";
+import { decrypt } from "../../../lib/encryption.js";
+import { botTornApi } from "../../../lib/torn-api.js";
 
 export const data = new SlashCommandBuilder()
   .setName("verifyall")

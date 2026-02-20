@@ -40,13 +40,13 @@ export async function execute(
       return;
     }
 
-    // Get list of guilds the bot is in
-    const guilds = client.guilds.cache.map((guild) => ({
+    // Get list of all guilds the bot is in
+    const allGuilds = client.guilds.cache.map((guild) => ({
       id: guild.id,
       name: guild.name,
     }));
 
-    if (guilds.length === 0) {
+    if (allGuilds.length === 0) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ No Guilds")
@@ -58,8 +58,36 @@ export async function execute(
       return;
     }
 
-    // Create select menu for guild selection
-    const guildOptions = guilds.map((guild) =>
+    // Get list of already configured guilds
+    const { data: configuredGuilds } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("guild_id");
+
+    const configuredGuildIds = new Set(
+      configuredGuilds?.map((config) => config.guild_id) || [],
+    );
+
+    // Filter to only uninitialized guilds
+    const uninitializedGuilds = allGuilds.filter(
+      (guild) => !configuredGuildIds.has(guild.id),
+    );
+
+    if (uninitializedGuilds.length === 0) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("⚠️ All Guilds Initialized")
+        .setDescription(
+          "All guilds the bot is in have already been initialized.",
+        );
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Create select menu for uninitialized guild selection
+    const guildOptions = uninitializedGuilds.map((guild) =>
       new StringSelectMenuOptionBuilder()
         .setLabel(guild.name.substring(0, 100))
         .setValue(guild.id)
@@ -82,7 +110,7 @@ export async function execute(
         "Select a guild to initialize. You can then enable modules for that guild.",
       )
       .setFooter({
-        text: `${guilds.length} guild(s) available`,
+        text: `${uninitializedGuilds.length} uninitialized guild(s) available`,
       });
 
     await interaction.editReply({
@@ -179,11 +207,10 @@ export async function handleGuildSelect(
       // Don't fail the entire setup, just log the warning
     }
 
-    // Show module selection
+    // Show module selection - only general modules, admin is auto-included
     const availableModules = [
-      { name: "Finance", value: "finance" },
-      { name: "Search", value: "search" },
-      // Add more modules as they're created
+      { name: "Verify", value: "verify" },
+      // Add more general modules as they're created
     ];
 
     const moduleOptions = availableModules.map((module) =>
@@ -240,11 +267,14 @@ export async function handleModulesSelect(
     const guildId = customIdParts[1];
     const selectedModules = interaction.values;
 
+    // Always include admin module for all guilds
+    const modulesToEnable = ["admin", ...selectedModules];
+
     // Update guild config with selected modules
     const { error } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({
-        enabled_modules: selectedModules,
+        enabled_modules: modulesToEnable,
       })
       .eq("guild_id", guildId);
 
@@ -261,22 +291,119 @@ export async function handleModulesSelect(
       return;
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("✅ Guild Setup Complete")
-      .setDescription(`Guild **${guildId}** has been configured.`)
-      .addFields({
-        name: "Enabled Modules",
-        value:
-          selectedModules.length > 0
-            ? selectedModules.join(", ")
-            : "None (you can update this later)",
+    // Automatically deploy commands to the guild
+    const isDev = process.env.NODE_ENV === "development";
+    const token = isDev
+      ? process.env.DISCORD_BOT_TOKEN_LOCAL
+      : process.env.DISCORD_BOT_TOKEN;
+    const clientId = isDev
+      ? process.env.DISCORD_CLIENT_ID_LOCAL
+      : process.env.DISCORD_CLIENT_ID;
+
+    if (!token || !clientId) {
+      const warningEmbed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("✅ Guild Setup Complete (Deployment Skipped)")
+        .setDescription(`Guild **${guildId}** has been configured.`)
+        .addFields({
+          name: "Enabled Modules",
+          value:
+            modulesToEnable.length > 1
+              ? modulesToEnable.join(", ")
+              : "admin (config only)",
+        })
+        .setFooter({
+          text: "Note: Commands missing bot credentials",
+        });
+
+      await interaction.editReply({
+        embeds: [warningEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    // Deploy commands to the guild
+    const { REST, Routes } = await import("discord.js");
+    const rest = new REST({ version: "10" }).setToken(token);
+
+    const commands = [];
+
+    // Load config command (always deployed)
+    const configCommand = await import("../../general/admin/config.js");
+    commands.push(configCommand.data.toJSON());
+
+    // Conditionally load modules
+    if (modulesToEnable.includes("verify")) {
+      const verifyCommand = await import("../../general/verify/verify.js");
+      const verifyallCommand =
+        await import("../../general/verify/verifyall.js");
+      commands.push(verifyCommand.data.toJSON());
+      commands.push(verifyallCommand.data.toJSON());
+    }
+
+    try {
+      await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+        body: commands,
       });
 
-    await interaction.editReply({
-      embeds: [embed],
-      components: [],
-    });
+      const embed = new EmbedBuilder()
+        .setColor(0x22c55e)
+        .setTitle("✅ Guild Setup Complete")
+        .setDescription(`Guild **${guildId}** has been configured.`)
+        .addFields({
+          name: "Enabled Modules",
+          value:
+            modulesToEnable.length > 1
+              ? modulesToEnable.join(", ")
+              : "admin (config only)",
+        })
+        .addFields({
+          name: "Commands Deployed",
+          value: `${commands.length} command(s) registered to the guild`,
+        })
+        .setFooter({
+          text: `Check /guild-status for overview`,
+        });
+
+      await interaction.editReply({
+        embeds: [embed],
+        components: [],
+      });
+    } catch (deployError) {
+      const deployErrorMsg =
+        deployError instanceof Error
+          ? deployError.message
+          : String(deployError);
+      console.error(
+        `Failed to deploy commands to guild ${guildId}:`,
+        deployErrorMsg,
+      );
+
+      const warningEmbed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("✅ Guild Setup Complete (Deployment Partial)")
+        .setDescription(`Guild **${guildId}** has been configured.`)
+        .addFields({
+          name: "Enabled Modules",
+          value:
+            modulesToEnable.length > 1
+              ? modulesToEnable.join(", ")
+              : "admin (config only)",
+        })
+        .addFields({
+          name: "Deployment Issue",
+          value: deployErrorMsg,
+        })
+        .setFooter({
+          text: "Use /deploy-commands to retry deployment",
+        });
+
+      await interaction.editReply({
+        embeds: [warningEmbed],
+        components: [],
+      });
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in modules select handler:", errorMsg);

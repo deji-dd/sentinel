@@ -10,7 +10,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(
   interaction: ChatInputCommandInteraction,
   supabase: SupabaseClient,
-  client: Client,
+  _client: Client,
 ): Promise<void> {
   try {
     await interaction.deferReply();
@@ -47,19 +47,23 @@ export async function execute(
 
     const rest = new REST({ version: "10" }).setToken(token);
 
-    // Load all available commands
-    const financeCommand = await import("./finance.js");
-    const financeSettingsCommand = await import("./finance-settings.js");
+    // Load all available commands with updated paths
+    const verifyCommand = await import("../../general/verify/verify.js");
+    const verifyallCommand = await import("../../general/verify/verifyall.js");
+    const configCommand = await import("../../general/admin/config.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
-    const verifyCommand = await import("../general/verify.js");
-    const verifyallCommand = await import("../general/verifyall.js");
-    const configCommand = await import("../general/config.js");
+    const teardownGuildCommand = await import("./teardown-guild.js");
+    const addBotCommand = await import("./add-bot.js");
+    const enableModuleCommand = await import("./enable-module.js");
+    const guildStatusCommand = await import("./guild-status.js");
 
     // Map of module names to commands
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const commandsByModule: Record<string, any[]> = {
-      finance: [financeCommand.data.toJSON(), financeSettingsCommand.data],
+      verify: [verifyCommand.data.toJSON(), verifyallCommand.data.toJSON()],
+      admin: [configCommand.data.toJSON()],
     };
 
     let successCount = 0;
@@ -78,14 +82,16 @@ export async function execute(
     // Deploy to admin guild (always)
     try {
       const adminCommands = [
-        financeCommand.data.toJSON(),
-        financeSettingsCommand.data,
         forceRunCommand.data.toJSON(),
         deployCommandsCommand.data.toJSON(),
         setupGuildCommand.data.toJSON(),
+        teardownGuildCommand.data.toJSON(),
+        addBotCommand.data.toJSON(),
+        enableModuleCommand.data.toJSON(),
+        guildStatusCommand.data.toJSON(),
+        configCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
-        configCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
@@ -117,6 +123,7 @@ export async function execute(
           const guildId = guildConfig.guild_id;
           const enabledModules: string[] = guildConfig.enabled_modules || [];
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let guildCommands: any[] = [];
 
           for (const module of enabledModules) {
