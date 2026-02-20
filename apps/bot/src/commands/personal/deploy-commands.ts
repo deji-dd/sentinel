@@ -54,6 +54,7 @@ export async function execute(
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
     const verifyCommand = await import("../general/verify.js");
+    const verifyallCommand = await import("../general/verifyall.js");
     const configCommand = await import("../general/config.js");
 
     // Map of module names to commands
@@ -83,6 +84,7 @@ export async function execute(
         deployCommandsCommand.data.toJSON(),
         setupGuildCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
+        verifyallCommand.data.toJSON(),
         configCommand.data.toJSON(),
       ];
 

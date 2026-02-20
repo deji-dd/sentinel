@@ -7,9 +7,11 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  RoleSelectMenuBuilder,
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
   type ButtonInteraction,
+  type RoleSelectMenuInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -52,13 +54,33 @@ export async function execute(
         .setColor(0xef4444)
         .setTitle("❌ Guild Not Initialized")
         .setDescription(
-          "Please run `/setup-guild` first to initialize this guild.",
+          "Please contact the bot owner to initialize this guild.",
         );
 
       await interaction.editReply({
         embeds: [errorEmbed],
       });
       return;
+    }
+
+    // Fetch faction role mappings
+    const { data: factionRoles } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .select("*")
+      .eq("guild_id", guildId)
+      .order("faction_id", { ascending: true });
+
+    // Format faction roles display
+    let factionRolesDisplay = "None configured";
+    if (factionRoles && factionRoles.length > 0) {
+      factionRolesDisplay = factionRoles
+        .map((fr) => {
+          const rolesMention = fr.role_ids
+            .map((roleId: string) => `<@&${roleId}>`)
+            .join(", ");
+          return `Faction ${fr.faction_id}: ${rolesMention}`;
+        })
+        .join("\n");
     }
 
     // Show current config with edit buttons
@@ -69,14 +91,17 @@ export async function execute(
       .addFields(
         {
           name: "API Key",
-          value: guildConfig.api_key
-            ? "✅ Configured"
-            : "❌ Not configured",
+          value: guildConfig.api_key ? "✅ Configured" : "❌ Not configured",
+          inline: true,
+        },
+        {
+          name: "Auto Verify",
+          value: guildConfig.auto_verify ? "✅ Enabled" : "❌ Disabled",
           inline: true,
         },
         {
           name: "Nickname Template",
-          value: guildConfig.nickname_template || "{name}#{id}",
+          value: `\`${guildConfig.nickname_template || "{name}#{id}"}\``,
           inline: true,
         },
         {
@@ -85,6 +110,11 @@ export async function execute(
             guildConfig.enabled_modules.length > 0
               ? guildConfig.enabled_modules.join(", ")
               : "None",
+          inline: false,
+        },
+        {
+          name: "Faction Role Mappings",
+          value: factionRolesDisplay,
           inline: false,
         },
       )
@@ -97,19 +127,50 @@ export async function execute(
       .setLabel("Set API Key")
       .setStyle(ButtonStyle.Primary);
 
+    const toggleAutoVerifyBtn = new ButtonBuilder()
+      .setCustomId("config_toggle_auto_verify")
+      .setLabel(
+        guildConfig.auto_verify ? "Disable Auto Verify" : "Enable Auto Verify",
+      )
+      .setStyle(
+        guildConfig.auto_verify ? ButtonStyle.Danger : ButtonStyle.Success,
+      );
+
     const editNicknameBtn = new ButtonBuilder()
       .setCustomId("config_edit_nickname")
       .setLabel("Edit Nickname Template")
       .setStyle(ButtonStyle.Secondary);
 
-    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const addFactionRoleBtn = new ButtonBuilder()
+      .setCustomId("config_add_faction_role")
+      .setLabel("Add Faction Role")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("➕");
+
+    const removeFactionRoleBtn = new ButtonBuilder()
+      .setCustomId("config_remove_faction_role")
+      .setLabel("Remove Faction Role")
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji("➖")
+      .setDisabled(!factionRoles || factionRoles.length === 0);
+
+    const buttonRow1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       editApiKeyBtn,
+      toggleAutoVerifyBtn,
+    );
+
+    const buttonRow2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       editNicknameBtn,
+    );
+
+    const buttonRow3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      addFactionRoleBtn,
+      removeFactionRoleBtn,
     );
 
     await interaction.editReply({
       embeds: [configEmbed],
-      components: [buttonRow],
+      components: [buttonRow1, buttonRow2, buttonRow3],
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -191,19 +252,22 @@ export async function handleEditNicknameButton(
     const templateInput = new TextInputBuilder()
       .setCustomId("nickname_template_input")
       .setLabel("Nickname Template")
-      .setPlaceholder("e.g., {name}#{id}")
+      .setPlaceholder("e.g., {name} | {tag}")
       .setStyle(TextInputStyle.Short)
       .setRequired(true)
       .setValue("{name}#{id}");
 
     const descriptionInput = new TextInputBuilder()
       .setCustomId("description_input")
-      .setLabel("Description (optional)")
+      .setLabel("Available Variables")
       .setPlaceholder(
-        "Use {name} for player name and {id} for Torn player ID",
+        "{name} = player name\n{id} = Torn player ID\n{tag} = faction tag (e.g., [ABC])",
       )
       .setStyle(TextInputStyle.Paragraph)
-      .setRequired(false);
+      .setRequired(false)
+      .setValue(
+        "Variables:\n• {name} - Player name\n• {id} - Torn player ID\n• {tag} - Faction tag",
+      );
 
     const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(
       templateInput,
@@ -370,6 +434,460 @@ export async function handleNicknameTemplateModalSubmit(
 
     await interaction.editReply({
       embeds: [errorEmbed],
+    });
+  }
+}
+
+// Handler for auto verify toggle button
+export async function handleToggleAutoVerifyButton(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const guildId = interaction.guildId;
+
+    if (!guildId) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Error")
+        .setDescription("Unable to determine guild.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Get current auto_verify status
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("auto_verify")
+      .eq("guild_id", guildId)
+      .single();
+
+    if (!guildConfig) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Error")
+        .setDescription("Guild configuration not found.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Toggle the setting
+    const newValue = !guildConfig.auto_verify;
+
+    const { error } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .update({ auto_verify: newValue })
+      .eq("guild_id", guildId);
+
+    if (error) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Failed to Update Setting")
+        .setDescription(error.message);
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("✅ Auto Verify Updated")
+      .setDescription(
+        `Auto verification is now **${newValue ? "enabled" : "disabled"}**`,
+      )
+      .setFooter({
+        text: newValue
+          ? "New members will be automatically verified on join"
+          : "New members will not be automatically verified",
+      });
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in toggle auto verify handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    await interaction.editReply({
+      embeds: [errorEmbed],
+    });
+  }
+}
+
+// Handler for add faction role button
+export async function handleAddFactionRoleButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    // Show a modal for entering faction ID only
+    const modal = new ModalBuilder()
+      .setCustomId("config_add_faction_role_modal")
+      .setTitle("Add Faction Role Mapping");
+
+    const factionIdInput = new TextInputBuilder()
+      .setCustomId("faction_id_input")
+      .setLabel("Torn Faction ID")
+      .setPlaceholder("Enter the numeric faction ID (e.g., 12345)")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      factionIdInput,
+    );
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in add faction role button handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+    } else {
+      await interaction.reply({
+        embeds: [errorEmbed],
+        ephemeral: true,
+      });
+    }
+  }
+}
+
+// Handler for remove faction role button
+export async function handleRemoveFactionRoleButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    // Show a modal for entering faction ID to remove
+    const modal = new ModalBuilder()
+      .setCustomId("config_remove_faction_role_modal")
+      .setTitle("Remove Faction Role Mapping");
+
+    const factionIdInput = new TextInputBuilder()
+      .setCustomId("faction_id_input")
+      .setLabel("Torn Faction ID to Remove")
+      .setPlaceholder("Enter the faction ID to remove mapping")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      factionIdInput,
+    );
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in remove faction role button handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+    } else {
+      await interaction.reply({
+        embeds: [errorEmbed],
+        ephemeral: true,
+      });
+    }
+  }
+}
+
+// Handler for add faction role modal submission
+export async function handleAddFactionRoleModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const factionIdStr =
+      interaction.fields.getTextInputValue("faction_id_input");
+    const guildId = interaction.guildId;
+
+    if (!guildId) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Error")
+        .setDescription("Unable to determine guild.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Validate faction ID is a number
+    const factionId = parseInt(factionIdStr, 10);
+    if (isNaN(factionId)) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Invalid Faction ID")
+        .setDescription("Faction ID must be a valid number.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Check if faction already has role mapping
+    const { data: existingMapping } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .select("role_ids")
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId)
+      .single();
+
+    // Show role select menu
+    const selectEmbed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle("🎯 Select Roles")
+      .setDescription(
+        `Select one or more roles to assign to members of **Faction ${factionId}**`,
+      );
+
+    if (existingMapping && existingMapping.role_ids.length > 0) {
+      const currentRoles = existingMapping.role_ids
+        .map((roleId: string) => `<@&${roleId}>`)
+        .join(", ");
+      selectEmbed.addFields({
+        name: "Current Roles",
+        value: currentRoles,
+        inline: false,
+      });
+    }
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId(`config_faction_role_select_${factionId}`)
+      .setPlaceholder("Select roles for this faction")
+      .setMinValues(1)
+      .setMaxValues(10); // Allow up to 10 roles
+
+    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      roleSelect,
+    );
+
+    await interaction.editReply({
+      embeds: [selectEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in add faction role modal handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    await interaction.editReply({
+      embeds: [errorEmbed],
+    });
+  }
+}
+
+// Handler for remove faction role modal submission
+export async function handleRemoveFactionRoleModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const factionIdStr =
+      interaction.fields.getTextInputValue("faction_id_input");
+    const guildId = interaction.guildId;
+
+    if (!guildId) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Error")
+        .setDescription("Unable to determine guild.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Validate faction ID is a number
+    const factionId = parseInt(factionIdStr, 10);
+    if (isNaN(factionId)) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Invalid Faction ID")
+        .setDescription("Faction ID must be a valid number.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    // Delete the faction role mapping
+    const { error } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .delete()
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId);
+
+    if (error) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Failed to Remove Mapping")
+        .setDescription(error.message);
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("✅ Faction Role Mapping Removed")
+      .setDescription(`Removed role mapping for faction **${factionId}**`)
+      .setFooter({
+        text: "Existing users will keep their roles",
+      });
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in remove faction role modal handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    await interaction.editReply({
+      embeds: [errorEmbed],
+    });
+  }
+}
+
+// Handler for role select menu
+export async function handleFactionRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Error")
+        .setDescription("Unable to determine guild.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    // Extract faction ID from custom ID
+    const factionId = parseInt(
+      interaction.customId.replace("config_faction_role_select_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Error")
+        .setDescription("Invalid faction ID.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    // Get selected role IDs
+    const roleIds = interaction.values;
+
+    // Insert or update the faction role mapping
+    const { error } = await supabase.from(TABLE_NAMES.FACTION_ROLES).upsert(
+      {
+        guild_id: guildId,
+        faction_id: factionId,
+        role_ids: roleIds,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "guild_id,faction_id",
+      },
+    );
+
+    if (error) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Failed to Save Mapping")
+        .setDescription(error.message);
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    const rolesMention = roleIds.map((id) => `<@&${id}>`).join(", ");
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("✅ Faction Role Mapping Saved")
+      .setDescription(
+        `Faction **${factionId}** will now be assigned:\n${rolesMention}`,
+      )
+      .setFooter({
+        text: "This will apply to newly verified users",
+      });
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction role select handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    await interaction.editReply({
+      embeds: [errorEmbed],
+      components: [],
     });
   }
 }

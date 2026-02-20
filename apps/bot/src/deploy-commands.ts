@@ -7,6 +7,7 @@ import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
 import * as setupGuildCommand from "./commands/personal/setup-guild.js";
 import * as forceRunCommand from "./commands/personal/force-run.js";
 import * as verifyCommand from "./commands/general/verify.js";
+import * as verifyallCommand from "./commands/general/verifyall.js";
 import * as configCommand from "./commands/general/config.js";
 
 function requireEnv(name: string): string {
@@ -39,6 +40,7 @@ const commands = [
   deployCommandsCommand.data.toJSON(),
   setupGuildCommand.data.toJSON(),
   verifyCommand.data.toJSON(),
+  verifyallCommand.data.toJSON(),
   configCommand.data.toJSON(),
 ];
 

@@ -43,7 +43,7 @@ export async function execute(
     // Get guild config and API key
     const { data: guildConfig, error: configError } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_key")
+      .select("api_key, nickname_template")
       .eq("guild_id", guildId)
       .single();
 
@@ -94,8 +94,11 @@ export async function execute(
         code: number;
         error: string;
       };
-    }>(`/user/${targetUser.id}/discord/faction`, {
+    }>(`/user/${targetUser.id}`, {
       apiKey,
+      queryParams: {
+        selections: "discord,faction",
+      },
     });
 
     // Handle API errors
@@ -147,9 +150,67 @@ export async function execute(
       });
     }
 
-    successEmbed.setFooter({
-      text: "Use /config to manage faction role assignments",
+    // Store verification in database
+    await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
+      discord_id: targetUser.id,
+      torn_player_id: response.profile?.id,
+      torn_player_name: response.profile?.name,
+      faction_id: response.faction?.id || null,
+      faction_name: response.faction?.name || null,
+      verified_at: new Date().toISOString(),
     });
+
+    // Apply nickname template
+    if (interaction.guild) {
+      try {
+        const member = await interaction.guild.members.fetch(targetUser.id);
+        const nickname = guildConfig.nickname_template
+          .replace("{name}", response.profile?.name || "")
+          .replace("{id}", (response.profile?.id || "").toString())
+          .replace("{tag}", ""); // Tag not available in this API response
+
+        await member.setNickname(nickname);
+      } catch (nicknameError) {
+        console.error("Failed to set nickname:", nicknameError);
+        // Don't fail verification if nickname update fails
+      }
+    }
+
+    // Check for faction role mapping and assign if exists
+    if (response.faction?.id && interaction.guild) {
+      const { data: factionRole } = await supabase
+        .from(TABLE_NAMES.FACTION_ROLES)
+        .select("role_ids")
+        .eq("guild_id", interaction.guildId)
+        .eq("faction_id", response.faction.id)
+        .single();
+
+      if (factionRole && factionRole.role_ids.length > 0) {
+        try {
+          const member = await interaction.guild.members.fetch(targetUser.id);
+          await member.roles.add(factionRole.role_ids);
+          const rolesMention = factionRole.role_ids
+            .map((roleId: string) => `<@&${roleId}>`)
+            .join(", ");
+          successEmbed.addFields({
+            name: "Roles Assigned",
+            value: rolesMention,
+            inline: true,
+          });
+        } catch (roleError) {
+          console.error("Failed to assign roles:", roleError);
+          successEmbed.setFooter({
+            text: "Verified but failed to assign roles (check bot permissions)",
+          });
+        }
+      }
+    }
+
+    if (!successEmbed.data.footer) {
+      successEmbed.setFooter({
+        text: "Use /config to manage faction role assignments",
+      });
+    }
 
     await interaction.editReply({
       embeds: [successEmbed],

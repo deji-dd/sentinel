@@ -1003,6 +1003,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/organizedcrimes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get available slots for organized crimes with status 'Recruiting'
+         * @description Requires minimal access key. <br>Unlike 'faction' -> 'crimes', this selection only shows empty slots, and only for crimes with the 'Recruiting' status.
+         */
+        get: operations["getMyAvailableOrganizedCrimes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/personalstats": {
         parameters: {
             query?: never;
@@ -3750,6 +3770,11 @@ export interface components {
         TornFactionHofCategory: "respect" | "chains" | "rank";
         /** @enum {string} */
         TornOrganizedCrimePositionId: "P1" | "P2" | "P3" | "P4" | "P5" | "P6";
+        /**
+         * @deprecated
+         * @description This field is now available in 'position_info' object as 'id' field.<br>This field will be removed on 1st of June 2026.
+         */
+        TornOrganizedCrimePositionIdDeprecated: components["schemas"]["TornOrganizedCrimePositionId"];
         /** @enum {string} */
         FactionTerritoryWarResultEnum: "success_assault" | "fail_assault" | "end_with_nap" | "end_with_destroy_attack" | "end_with_destroy_defense" | "end_with_peace_treaty";
         /** @enum {string} */
@@ -4448,6 +4473,10 @@ export interface components {
             error: string;
         };
         ApiError: components["schemas"]["ErrorUnknown"] | components["schemas"]["ErrorKeyEmpty"] | components["schemas"]["ErrorIncorrectKey"] | components["schemas"]["ErrorWrongType"] | components["schemas"]["ErrorWrongFields"] | components["schemas"]["ErrorTooManyRequests"] | components["schemas"]["ErrorIncorrectId"] | components["schemas"]["ErrorIncorrectIdEntityRelation"] | components["schemas"]["ErrorIpBlocked"] | components["schemas"]["ErrorApiDisabled"] | components["schemas"]["ErrorKeyOwnerInFederalJail"] | components["schemas"]["ErrorKeyChangeCooldown"] | components["schemas"]["ErrorKeyReadError"] | components["schemas"]["ErrorKeyTemporaryDisabled"] | components["schemas"]["ErrorDailyReadLimitReached"] | components["schemas"]["ErrorLogUnavailable"] | components["schemas"]["ErrorAccessLevelTooLow"] | components["schemas"]["ErrorBackendError"] | components["schemas"]["ErrorApiKeyPaused"] | components["schemas"]["ErrorMustMigrateToCrimesV2"] | components["schemas"]["ErrorRaceNotFinished"] | components["schemas"]["ErrorIncorrectCategory"] | components["schemas"]["ErrorOnlyAvailableInApiV1"] | components["schemas"]["ErrorOnlyAvailableInApiV2"] | components["schemas"]["ErrorClosedTemporarily"] | components["schemas"]["ErrorInvalidStatRequested"] | components["schemas"]["ErrorOnlyCategoryOrStatsAllowed"] | components["schemas"]["ErrorMustMigrateToOrganizedCrimesV2"] | components["schemas"]["ErrorIncorrectLogId"] | components["schemas"]["ErrorCategorySelectionUnavailableForInteractionLogs"];
+        UserOrganizedCrimesResponse: {
+            organizedcrimes?: components["schemas"]["FactionCrime"][];
+            _metadata: components["schemas"]["RequestMetadataWithLinks"];
+        };
         UserEquipment: components["schemas"]["TornItemDetails"] & {
             /** Format: int32 */
             slot: number;
@@ -5395,6 +5424,8 @@ export interface components {
         };
         UserBountiesResponse: {
             bounties: components["schemas"]["Bounty"][];
+            /** Format: int32 */
+            bounties_timestamp: number;
         };
         UserJobRanks: {
             army: components["schemas"]["JobPositionArmyEnum"];
@@ -6428,6 +6459,12 @@ export interface components {
             aggressor: components["schemas"]["FactionRaidReportFaction"];
             defender: components["schemas"]["FactionRaidReportFaction"];
         };
+        FactionSlotPositionInfo: {
+            id: components["schemas"]["TornOrganizedCrimePositionId"];
+            label: string;
+            /** Format: int32 */
+            number: number;
+        };
         FactionRaidReportFaction: {
             id: components["schemas"]["FactionId"];
             name: string;
@@ -7150,9 +7187,14 @@ export interface components {
         };
         FactionCrimeSlot: {
             position: string;
-            position_id: components["schemas"]["TornOrganizedCrimePositionId"];
-            /** Format: int32 */
-            position_number: number;
+            position_info: components["schemas"]["FactionSlotPositionInfo"];
+            position_id?: components["schemas"]["TornOrganizedCrimePositionIdDeprecated"];
+            /**
+             * Format: int32
+             * @deprecated
+             * @description This field is now available in 'position_info' object as 'number' field.<br>This field will be removed on 1st of June 2026.
+             */
+            position_number?: number;
             /** @description Details of item required for the slot, if applicable. */
             item_requirement: {
                 id: components["schemas"]["ItemId"];
@@ -7530,6 +7572,8 @@ export interface components {
         };
         MarketRentalsResponse: {
             rentals: components["schemas"]["MarketRentalDetails"];
+            /** Format: int32 */
+            rentals_timestamp: number;
             _metadata: components["schemas"]["RequestMetadataWithLinks"];
         };
         MarketPropertyDetails: {
@@ -7548,6 +7592,8 @@ export interface components {
         };
         MarketPropertiesResponse: {
             properties: components["schemas"]["MarketPropertyDetails"];
+            /** Format: int32 */
+            properties_timestamp: number;
             _metadata: components["schemas"]["RequestMetadataWithLinks"];
         };
         BazaarWeekly: {
@@ -7945,7 +7991,8 @@ export interface components {
             return: number;
         };
         TornOrganizedCrimeSlot: {
-            id: components["schemas"]["TornOrganizedCrimePositionId"];
+            id?: components["schemas"]["TornOrganizedCrimePositionIdDeprecated"];
+            position_info: components["schemas"]["FactionSlotPositionInfo"];
             name: string;
             required_item: components["schemas"]["TornOrganizedCrimeRequiredItem"] | null;
         };
@@ -8199,6 +8246,8 @@ export interface components {
         };
         TornBountiesResponse: {
             bounties: components["schemas"]["Bounty"][];
+            /** Format: int32 */
+            bounties_timestamp: number;
             _metadata: components["schemas"]["RequestMetadataWithLinks"];
         };
         TornItemAmmo: {
@@ -9868,6 +9917,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOrganizedCrimeResponse"];
+                };
+            };
+        };
+    };
+    getMyAvailableOrganizedCrimes: {
+        parameters: {
+            query?: {
+                /** @description Timestamp to bypass cache */
+                timestamp?: components["parameters"]["ApiTimestamp"];
+                /** @description Comment for your tool/service/bot/website to be visible in the logs. */
+                comment?: components["parameters"]["ApiComment"];
+                /** @description API key (Minimal).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyMinimal"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOrganizedCrimesResponse"];
                 };
             };
         };

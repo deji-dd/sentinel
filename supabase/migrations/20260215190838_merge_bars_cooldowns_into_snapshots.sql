@@ -1,6 +1,12 @@
 -- Merge sentinel_user_bars and sentinel_user_cooldowns into sentinel_user_snapshots
 -- This consolidates all user state data into a single snapshot table for atomic historical tracking
 
+-- Create sentinel_user_snapshots if it doesn't exist (will be used by finance module later)
+CREATE TABLE IF NOT EXISTS sentinel_user_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Add bars columns to sentinel_user_snapshots
 ALTER TABLE sentinel_user_snapshots
   ADD COLUMN IF NOT EXISTS energy_current INTEGER DEFAULT 0,
