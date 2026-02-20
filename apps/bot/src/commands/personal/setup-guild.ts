@@ -163,6 +163,22 @@ export async function handleGuildSelect(
       return;
     }
 
+    // Initialize sync job for this guild
+    const { error: syncJobError } = await supabase
+      .from(TABLE_NAMES.GUILD_SYNC_JOBS)
+      .insert({
+        guild_id: selectedGuildId,
+        next_sync_at: new Date().toISOString(),
+      });
+
+    if (syncJobError) {
+      console.error(
+        `Warning: Failed to create sync job for guild ${selectedGuildId}:`,
+        syncJobError.message,
+      );
+      // Don't fail the entire setup, just log the warning
+    }
+
     // Show module selection
     const availableModules = [
       { name: "Finance", value: "finance" },

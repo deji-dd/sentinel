@@ -1,8 +1,11 @@
-import { type Client, type GuildMember } from "discord.js";
+import { type Client } from "discord.js";
 import { type SupabaseClient } from "@supabase/supabase-js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import {
+  TABLE_NAMES,
+  DatabaseRateLimiter,
+  TornApiClient,
+} from "@sentinel/shared";
 import { decrypt } from "./encryption.js";
-import { botTornApi } from "./torn-api.js";
 
 interface VerifiedUser {
   discord_id: string;
@@ -12,376 +15,355 @@ interface VerifiedUser {
   faction_name: string | null;
 }
 
-interface GuildConfig {
-  guild_id: string;
-  api_key: string;
-  nickname_template: string;
-}
-
 interface FactionRoleMapping {
   guild_id: string;
   faction_id: number;
   role_ids: string[];
 }
 
+interface GuildSyncJob {
+  guild_id: string;
+  last_sync_at: string | null;
+  next_sync_at: string;
+  in_progress: boolean;
+}
+
+interface GuildConfigRecord {
+  guild_id: string;
+  api_key: string;
+  nickname_template: string;
+  sync_interval_seconds: number;
+  enabled_modules: string[];
+  admin_role_ids: string[];
+  verified_role_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 /**
- * Periodic verification sync service
- * - Checks if users have changed their Torn name or faction
- * - Updates Discord nicknames based on current template
- * - Assigns/removes faction roles based on current mappings
- * - Handles users who have disconnected their Discord account
+ * Database-driven guild sync scheduler
+ * - Polls database every 60s for guilds needing sync
+ * - Syncs each guild independently with its own API key
+ * - Respects per-guild rate limits via DatabaseRateLimiter
+ * - Allows guilds to customize sync interval
  */
-export class VerificationSyncService {
+export class GuildSyncScheduler {
   private client: Client;
   private supabase: SupabaseClient;
-  private intervalId: ReturnType<typeof setTimeout> | null = null;
-  private readonly SYNC_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private rateLimiter: DatabaseRateLimiter;
+  private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
 
   constructor(client: Client, supabase: SupabaseClient) {
     this.client = client;
     this.supabase = supabase;
+    this.rateLimiter = new DatabaseRateLimiter({
+      supabase,
+      tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+      hashPepper: process.env.API_KEY_HASH_PEPPER!,
+    });
   }
 
   /**
-   * Start the periodic sync
+   * Start the periodic scheduler
    */
   start(): void {
     if (this.intervalId) {
-      console.log("[Verification Sync] Already running");
+      console.log("[Guild Sync] Scheduler already running");
       return;
     }
 
-    console.log(
-      `[Verification Sync] Starting (interval: ${this.SYNC_INTERVAL_MS / 1000}s)`,
-    );
+    console.log("[Guild Sync] Scheduler starting (polling every 60s)");
+    this.intervalId = setInterval(() => {
+      this.pollAndSync().catch((error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`[Guild Sync] Scheduler error: ${msg}`);
+      });
+    }, this.POLL_INTERVAL_MS);
 
     // Run immediately on start
-    this.sync().catch((error) =>
-      console.error("[Verification Sync] Initial sync failed:", error),
-    );
-
-    // Then run periodically
-    this.intervalId = setInterval(() => {
-      this.sync().catch((error) =>
-        console.error("[Verification Sync] Sync failed:", error),
-      );
-    }, this.SYNC_INTERVAL_MS);
+    this.pollAndSync().catch((error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[Guild Sync] Initial sync error: ${msg}`);
+    });
   }
 
   /**
-   * Stop the periodic sync
+   * Stop the scheduler
    */
   stop(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      console.log("[Verification Sync] Stopped");
+      console.log("[Guild Sync] Scheduler stopped");
     }
   }
 
   /**
-   * Run a single sync cycle
+   * Poll database for guilds needing sync and process them
    */
-  private async sync(): Promise<void> {
-    console.log("[Verification Sync] Starting sync cycle");
+  private async pollAndSync(): Promise<void> {
+    try {
+      // Get all sync jobs that need to run
+      const { data: jobs, error } = await this.supabase
+        .from(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .select("*")
+        .eq("in_progress", false)
+        .lte("next_sync_at", new Date().toISOString())
+        .order("next_sync_at", { ascending: true });
+
+      if (error) {
+        console.error(`[Guild Sync] Failed to fetch jobs: ${error.message}`);
+        return;
+      }
+
+      if (!jobs || jobs.length === 0) {
+        return;
+      }
+
+      console.log(`[Guild Sync] Found ${jobs.length} guild(s) needing sync`);
+
+      // Process each guild sequentially (one at a time)
+      for (const job of jobs as GuildSyncJob[]) {
+        await this.syncGuild(job);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[Guild Sync] Poll error: ${msg}`);
+    }
+  }
+
+  /**
+   * Sync a single guild
+   */
+  private async syncGuild(job: GuildSyncJob): Promise<void> {
+    // Lock the job
+    const { error: lockError } = await this.supabase
+      .from(TABLE_NAMES.GUILD_SYNC_JOBS)
+      .update({ in_progress: true })
+      .eq("guild_id", job.guild_id);
+
+    if (lockError) {
+      console.error(
+        `[Guild Sync] Failed to lock job for guild ${job.guild_id}: ${lockError.message}`,
+      );
+      return;
+    }
 
     try {
+      const { data: guildConfig, error: configError } = await this.supabase
+        .from(TABLE_NAMES.GUILD_CONFIG)
+        .select("*")
+        .eq("guild_id", job.guild_id)
+        .single();
+
+      if (configError || !guildConfig) {
+        console.error(`[Guild Sync] Guild ${job.guild_id} config not found`);
+        return;
+      }
+
+      // Decrypt API key
+      let apiKey: string;
+      try {
+        apiKey = decrypt((guildConfig as GuildConfigRecord).api_key);
+      } catch {
+        console.error(
+          `[Guild Sync] Failed to decrypt API key for guild ${job.guild_id}`,
+        );
+        return;
+      }
+
       // Get all verified users
       const { data: verifiedUsers, error: usersError } = await this.supabase
         .from(TABLE_NAMES.VERIFIED_USERS)
         .select("*");
 
-      if (usersError) {
+      if (usersError || !verifiedUsers) {
         console.error(
-          "[Verification Sync] Failed to fetch verified users:",
-          usersError.message,
+          `[Guild Sync] Failed to fetch verified users: ${usersError?.message}`,
         );
         return;
       }
-
-      if (!verifiedUsers || verifiedUsers.length === 0) {
-        console.log("[Verification Sync] No verified users to sync");
-        return;
-      }
-
-      console.log(
-        `[Verification Sync] Syncing ${verifiedUsers.length} verified users`,
-      );
-
-      // Get all guild configs with API keys
-      const { data: guildConfigs, error: configsError } = await this.supabase
-        .from(TABLE_NAMES.GUILD_CONFIG)
-        .select("guild_id, api_key, nickname_template")
-        .not("api_key", "is", null);
-
-      if (configsError) {
-        console.error(
-          "[Verification Sync] Failed to fetch guild configs:",
-          configsError.message,
-        );
-        return;
-      }
-
-      if (!guildConfigs || guildConfigs.length === 0) {
-        console.log("[Verification Sync] No guilds with API keys configured");
-        return;
-      }
-
-      // Get all faction role mappings
-      const { data: factionMappings } = await this.supabase
-        .from(TABLE_NAMES.FACTION_ROLES)
-        .select("*");
-
-      // Process each guild
-      for (const guild of guildConfigs as GuildConfig[]) {
-        await this.syncGuild(
-          guild,
-          verifiedUsers as VerifiedUser[],
-          (factionMappings as FactionRoleMapping[]) || [],
-        );
-      }
-
-      console.log("[Verification Sync] Sync cycle completed");
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("[Verification Sync] Unexpected error:", errorMsg);
-    }
-  }
-
-  /**
-   * Sync all users in a specific guild
-   */
-  private async syncGuild(
-    guildConfig: GuildConfig,
-    verifiedUsers: VerifiedUser[],
-    allFactionMappings: FactionRoleMapping[],
-  ): Promise<void> {
-    try {
-      // Decrypt API key
-      let apiKey: string;
-      try {
-        apiKey = decrypt(guildConfig.api_key);
-      } catch {
-        console.error(
-          `[Verification Sync] Failed to decrypt API key for guild ${guildConfig.guild_id}`,
-        );
-        return;
-      }
-
-      // Get Discord guild
-      const guild = await this.client.guilds.fetch(guildConfig.guild_id);
-      if (!guild) {
-        console.error(
-          `[Verification Sync] Could not fetch guild ${guildConfig.guild_id}`,
-        );
-        return;
-      }
-
-      // Fetch all guild members
-      const members = await guild.members.fetch();
 
       // Get faction role mappings for this guild
-      const guildFactionMappings = allFactionMappings.filter(
-        (m) => m.guild_id === guildConfig.guild_id,
-      );
+      const { data: factionMappings } = await this.supabase
+        .from(TABLE_NAMES.FACTION_ROLES)
+        .select("*")
+        .eq("guild_id", job.guild_id);
+
+      const discord = this.client.guilds.cache.get(job.guild_id);
+      if (!discord) {
+        console.log(`[Guild Sync] Guild ${job.guild_id} not in cache`);
+        return;
+      }
+
+      // Create Torn API client with per-guild rate limiting
+      const tornApi = new TornApiClient({
+        rateLimitTracker: this.rateLimiter,
+      });
 
       let updatedCount = 0;
       let unchangedCount = 0;
       let removedCount = 0;
+      let errorCount = 0;
 
-      // Process each verified user that's in this guild
-      for (const user of verifiedUsers) {
-        const member = members.get(user.discord_id);
-        if (!member) {
-          // User not in this guild
-          continue;
-        }
-
+      // Sync each verified user
+      for (const user of verifiedUsers as VerifiedUser[]) {
         try {
-          // Call Torn API to get current user data
-          const response = await botTornApi.get(`/user/${user.discord_id}`, {
+          // Use generic any type since response shape is dynamic based on selections parameter
+          const response = await tornApi.get(`/user/${user.discord_id}`, {
             apiKey,
             queryParams: { selections: "discord,faction,profile" },
           });
 
-          // Handle user who disconnected Discord
-          if (response.error?.code === 6) {
-            console.log(
-              `[Verification Sync] User ${user.torn_player_name} [${user.torn_player_id}] disconnected Discord`,
+          // Handle API error - check if response has error property
+          if ("error" in response) {
+            const error = response as unknown as {
+              error: { code: number; error: string };
+            };
+            if (error.error.code === 6) {
+              console.log(
+                `[Guild Sync] User ${user.discord_id} disconnected Discord`,
+              );
+              await this.supabase
+                .from(TABLE_NAMES.VERIFIED_USERS)
+                .delete()
+                .eq("discord_id", user.discord_id);
+              removedCount++;
+              continue;
+            }
+
+            console.warn(
+              `[Guild Sync] API error for ${user.discord_id}: ${error.error.error}`,
             );
-
-            // Remove from verified users
-            await this.supabase
-              .from(TABLE_NAMES.VERIFIED_USERS)
-              .delete()
-              .eq("discord_id", user.discord_id);
-
-            removedCount++;
+            errorCount++;
             continue;
           }
 
-          if (response.error) {
-            console.error(
-              `[Verification Sync] Torn API error for ${user.discord_id}: ${response.error.error}`,
+          // Response shape is dynamic based on selections, so use property access without type assertion
+          const data = response as Record<string, unknown>;
+          const name = data.name as string | undefined;
+          const playerId = data.player_id as number | undefined;
+          const factionData = data.faction as
+            | {
+                faction_id?: number;
+                faction_name?: string;
+                faction_tag?: string;
+              }
+            | undefined;
+
+          if (!name || !playerId) {
+            console.warn(
+              `[Guild Sync] Missing required fields for user ${user.discord_id}`,
             );
+            errorCount++;
             continue;
           }
 
           // Check if anything changed
-          const nameChanged = response.name !== user.torn_player_name;
+          const nameChanged = name !== user.torn_player_name;
           const factionChanged =
-            response.faction?.faction_id !== user.faction_id;
+            factionData?.faction_id !== user.faction_id ||
+            factionData?.faction_name !== user.faction_name;
 
           if (nameChanged || factionChanged) {
-            console.log(
-              `[Verification Sync] Updating ${member.user.username}: ${nameChanged ? "name" : ""}${nameChanged && factionChanged ? " and " : ""}${factionChanged ? "faction" : ""}`,
-            );
-
             // Update database
             await this.supabase
               .from(TABLE_NAMES.VERIFIED_USERS)
               .update({
-                torn_player_name: response.name,
-                faction_id: response.faction?.faction_id || null,
-                faction_name: response.faction?.faction_name || null,
+                torn_player_name: name,
+                faction_id: factionData?.faction_id || null,
+                faction_name: factionData?.faction_name || null,
                 verified_at: new Date().toISOString(),
               })
               .eq("discord_id", user.discord_id);
 
-            // Update Discord nickname
-            await this.updateNickname(
-              member,
-              guildConfig.nickname_template,
-              response.name,
-              response.player_id,
-              response.faction?.faction_tag,
-            );
-
-            // Update faction roles if faction changed
-            if (factionChanged) {
-              await this.updateFactionRoles(
-                member,
-                user.faction_id,
-                response.faction?.faction_id || null,
-                guildFactionMappings,
+            // Update Discord member if in guild
+            const member = await discord.members
+              .fetch(user.discord_id)
+              .catch(() => null);
+            if (member) {
+              // Update nickname
+              const nickname = this.applyNicknameTemplate(
+                (guildConfig as GuildConfigRecord).nickname_template,
+                name,
+                playerId,
+                factionData?.faction_tag,
               );
+              await member.setNickname(nickname).catch(() => {});
+
+              // Update faction roles if faction changed
+              if (
+                factionChanged &&
+                factionMappings &&
+                factionMappings.length > 0
+              ) {
+                const oldFactionMapping = (
+                  factionMappings as FactionRoleMapping[]
+                ).find((m) => m.faction_id === user.faction_id);
+                const newFactionMapping = (
+                  factionMappings as FactionRoleMapping[]
+                ).find((m) => m.faction_id === factionData?.faction_id);
+
+                // Remove old faction roles
+                if (oldFactionMapping) {
+                  await member.roles
+                    .remove(oldFactionMapping.role_ids)
+                    .catch(() => {});
+                }
+
+                // Add new faction roles
+                if (newFactionMapping) {
+                  await member.roles
+                    .add(newFactionMapping.role_ids)
+                    .catch(() => {});
+                }
+              }
             }
 
             updatedCount++;
           } else {
-            // Even if data hasn't changed, check if nickname needs updating
-            // (in case template changed)
-            await this.updateNickname(
-              member,
-              guildConfig.nickname_template,
-              response.name,
-              response.player_id,
-              response.faction?.faction_tag,
-            );
-
             unchangedCount++;
           }
 
-          // Small delay to avoid rate limiting
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          // Rate limiting delay
+          await new Promise((resolve) => setTimeout(resolve, 100));
         } catch (error) {
-          const errorMsg =
-            error instanceof Error ? error.message : String(error);
+          const msg = error instanceof Error ? error.message : String(error);
           console.error(
-            `[Verification Sync] Error syncing user ${user.discord_id}: ${errorMsg}`,
+            `[Guild Sync] Error syncing user ${user.discord_id}: ${msg}`,
           );
+          errorCount++;
         }
       }
 
       console.log(
-        `[Verification Sync] Guild ${guild.name}: ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed`,
+        `[Guild Sync] Guild ${job.guild_id} sync complete: ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed, ${errorCount} errors`,
       );
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[Verification Sync] Error syncing guild ${guildConfig.guild_id}: ${errorMsg}`,
-      );
+    } finally {
+      // Unlock job and update next sync time
+      const config = (await this.supabase
+        .from(TABLE_NAMES.GUILD_CONFIG)
+        .select("sync_interval_seconds")
+        .eq("guild_id", job.guild_id)
+        .single()) as { data: { sync_interval_seconds: number } | null };
+
+      const interval = config.data?.sync_interval_seconds || 3600;
+      const nextSync = new Date(Date.now() + interval * 1000);
+
+      await this.supabase
+        .from(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .update({
+          in_progress: false,
+          last_sync_at: new Date().toISOString(),
+          next_sync_at: nextSync.toISOString(),
+        })
+        .eq("guild_id", job.guild_id);
     }
   }
 
   /**
-   * Update member nickname based on template
-   */
-  private async updateNickname(
-    member: GuildMember,
-    template: string,
-    name: string,
-    tornId: number,
-    factionTag?: string,
-  ): Promise<void> {
-    try {
-      const newNickname = this.applyNicknameTemplate(
-        template,
-        name,
-        tornId,
-        factionTag,
-      );
-
-      // Only update if different
-      if (member.nickname !== newNickname) {
-        await member.setNickname(newNickname);
-        console.log(
-          `[Verification Sync] Updated nickname for ${member.user.username}: ${newNickname}`,
-        );
-      }
-    } catch (error) {
-      console.error(
-        `[Verification Sync] Failed to update nickname for ${member.user.username}:`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Update faction roles when user changes faction
-   */
-  private async updateFactionRoles(
-    member: GuildMember,
-    oldFactionId: number | null,
-    newFactionId: number | null,
-    guildFactionMappings: FactionRoleMapping[],
-  ): Promise<void> {
-    try {
-      // Remove old faction roles
-      if (oldFactionId) {
-        const oldMapping = guildFactionMappings.find(
-          (m) => m.faction_id === oldFactionId,
-        );
-        if (oldMapping && oldMapping.role_ids.length > 0) {
-          await member.roles.remove(oldMapping.role_ids);
-          console.log(
-            `[Verification Sync] Removed old faction roles for ${member.user.username}`,
-          );
-        }
-      }
-
-      // Add new faction roles
-      if (newFactionId) {
-        const newMapping = guildFactionMappings.find(
-          (m) => m.faction_id === newFactionId,
-        );
-        if (newMapping && newMapping.role_ids.length > 0) {
-          await member.roles.add(newMapping.role_ids);
-          console.log(
-            `[Verification Sync] Added new faction roles for ${member.user.username}`,
-          );
-        }
-      }
-    } catch (error) {
-      console.error(
-        `[Verification Sync] Failed to update faction roles for ${member.user.username}:`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Apply nickname template with variable substitution
+   * Apply nickname template with variables
    */
   private applyNicknameTemplate(
     template: string,

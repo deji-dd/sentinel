@@ -26,6 +26,7 @@ export declare const TABLE_NAMES: {
     readonly STAT_BUILD_PREFERENCES: "sentinel_user_build_preferences";
     readonly VERIFIED_USERS: "sentinel_verified_users";
     readonly GUILD_CONFIG: "sentinel_guild_config";
+    readonly GUILD_SYNC_JOBS: "sentinel_guild_sync_jobs";
     readonly FACTION_ROLES: "sentinel_faction_roles";
 };
 /** Alert module types */

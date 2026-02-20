@@ -12,7 +12,7 @@ import * as configCommand from "./commands/general/config.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { VerificationSyncService } from "./lib/verification-sync.js";
+import { GuildSyncScheduler } from "./lib/verification-sync.js";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -65,9 +65,9 @@ client.once(Events.ClientReady, (readyClient) => {
   const httpPort = isDev ? 3001 : parseInt(process.env.HTTP_PORT || "3001");
   initHttpServer(client, supabase, httpPort);
 
-  // Start periodic verification sync
-  const verificationSync = new VerificationSyncService(client, supabase);
-  verificationSync.start();
+  // Start periodic guild sync scheduler
+  const guildSyncScheduler = new GuildSyncScheduler(client, supabase);
+  guildSyncScheduler.start();
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -140,6 +140,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleSetApiKeyButton(interaction);
       } else if (interaction.customId === "config_edit_nickname") {
         await configCommand.handleEditNicknameButton(interaction);
+      } else if (interaction.customId === "config_edit_sync_interval") {
+        await configCommand.handleEditSyncIntervalButton(interaction);
       } else if (interaction.customId === "config_toggle_auto_verify") {
         await configCommand.handleToggleAutoVerifyButton(interaction, supabase);
       } else if (interaction.customId === "config_add_faction_role") {
@@ -156,6 +158,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleApiKeyModalSubmit(interaction, supabase);
       } else if (interaction.customId === "config_nickname_template_modal") {
         await configCommand.handleNicknameTemplateModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "config_sync_interval_modal") {
+        await configCommand.handleSyncIntervalModalSubmit(
           interaction,
           supabase,
         );

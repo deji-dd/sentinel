@@ -105,6 +105,11 @@ export async function execute(
           inline: true,
         },
         {
+          name: "Sync Interval",
+          value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} minutes)`,
+          inline: true,
+        },
+        {
           name: "Enabled Modules",
           value:
             guildConfig.enabled_modules.length > 0
@@ -141,6 +146,11 @@ export async function execute(
       .setLabel("Edit Nickname Template")
       .setStyle(ButtonStyle.Secondary);
 
+    const editSyncIntervalBtn = new ButtonBuilder()
+      .setCustomId("config_edit_sync_interval")
+      .setLabel("Edit Sync Interval")
+      .setStyle(ButtonStyle.Secondary);
+
     const addFactionRoleBtn = new ButtonBuilder()
       .setCustomId("config_add_faction_role")
       .setLabel("Add Faction Role")
@@ -161,6 +171,7 @@ export async function execute(
 
     const buttonRow2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       editNicknameBtn,
+      editSyncIntervalBtn,
     );
 
     const buttonRow3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -889,5 +900,124 @@ export async function handleFactionRoleSelect(
       embeds: [errorEmbed],
       components: [],
     });
+  }
+}
+
+// Handler for sync interval button
+export async function handleEditSyncIntervalButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    // Show a modal for entering the sync interval
+    const modal = new ModalBuilder()
+      .setCustomId("config_sync_interval_modal")
+      .setTitle("Configure Sync Interval");
+
+    const intervalInput = new TextInputBuilder()
+      .setCustomId("sync_interval_input")
+      .setLabel("Sync Interval (seconds)")
+      .setPlaceholder("e.g., 3600 for 1 hour, 1800 for 30 minutes")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setValue("3600");
+
+    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      intervalInput,
+    );
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit sync interval button handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+    } else {
+      await interaction.reply({
+        embeds: [errorEmbed],
+        ephemeral: true,
+      });
+    }
+  }
+}
+
+// Handler for sync interval modal submission
+export async function handleSyncIntervalModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      throw new Error("Guild ID not found");
+    }
+
+    const intervalStr = interaction.fields.getTextInputValue(
+      "sync_interval_input",
+    );
+    const interval = parseInt(intervalStr, 10);
+
+    if (isNaN(interval) || interval < 60 || interval > 86400) {
+      throw new Error(
+        "Sync interval must be between 60 and 86400 seconds (1 minute to 24 hours)",
+      );
+    }
+
+    // Update guild config
+    const { error } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .update({ sync_interval_seconds: interval })
+      .eq("guild_id", guildId);
+
+    if (error) {
+      throw error;
+    }
+
+    // Ensure sync job exists in sentinel_guild_sync_jobs
+    const nextSync = new Date(Date.now() + interval * 1000);
+    await supabase.from(TABLE_NAMES.GUILD_SYNC_JOBS).upsert(
+      {
+        guild_id: guildId,
+        next_sync_at: nextSync.toISOString(),
+      },
+      { onConflict: "guild_id" },
+    );
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x10b981)
+      .setTitle("✅ Sync Interval Updated")
+      .setDescription(
+        `Guild sync interval set to **${interval} seconds** (${Math.round(interval / 60)} minutes)`,
+      );
+
+    await interaction.reply({
+      embeds: [successEmbed],
+      ephemeral: true,
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in sync interval modal handler:", errorMsg);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Error")
+      .setDescription(errorMsg);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+    } else {
+      await interaction.reply({
+        embeds: [errorEmbed],
+        ephemeral: true,
+      });
+    }
   }
 }
