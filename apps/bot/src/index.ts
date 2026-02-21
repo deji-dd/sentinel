@@ -417,7 +417,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
       title: string;
       description: string;
       color: number;
-      data?: { name: string; id: number; faction?: { name: string; tag: string } };
+      data?: {
+        name: string;
+        id: number;
+        faction?: { name: string; tag: string };
+      };
       errorMessage?: string;
     } | null = null;
 
@@ -435,7 +439,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
           verificationResult = {
             status: "not_linked",
             title: "❌ Not Linked to Torn",
-            description: `Your Discord account is not linked to a Torn account. Visit **https://www.torn.com/preferences.php** to link your account.`,
+            description: `Your Discord account is not linked to a Torn account.`,
             color: 0xef4444,
             errorMessage:
               "This Discord account is not linked to any Torn account",
@@ -582,7 +586,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
         if (verificationResult.data) {
           resultEmbed.addFields(
-            { name: "Torn Name", value: verificationResult.data.name, inline: true },
+            {
+              name: "Torn Name",
+              value: verificationResult.data.name,
+              inline: true,
+            },
             {
               name: "Torn ID",
               value: verificationResult.data.id.toString(),

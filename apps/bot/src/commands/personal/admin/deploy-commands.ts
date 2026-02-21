@@ -74,9 +74,8 @@ export async function execute(
     const addBotCommand = await import("./add-bot.js");
     const enableModuleCommand = await import("./enable-module.js");
     const guildStatusCommand = await import("./guild-status.js");
-    const testVerificationDmsCommand = await import(
-      "./test-verification-dms.js"
-    );
+    const testVerificationDmsCommand =
+      await import("./test-verification-dms.js");
 
     // Map of module names to commands
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

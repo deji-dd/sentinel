@@ -67,8 +67,7 @@ export async function execute(
       content: "✅ Sent 3 sample verification messages to your DMs!",
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unexpected error";
+    const message = error instanceof Error ? error.message : "Unexpected error";
 
     console.error("Test verification DMs error:", error);
 
