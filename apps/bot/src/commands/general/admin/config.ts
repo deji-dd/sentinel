@@ -10,12 +10,15 @@ import {
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   MessageFlags,
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
   type ButtonInteraction,
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
+  type ChannelSelectMenuInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -25,6 +28,10 @@ import {
   validateAndFetchFactionDetails,
   storeFactionDetails,
 } from "../../../lib/faction-utils.js";
+import {
+  logGuildError,
+  logGuildSuccess,
+} from "../../../lib/guild-logger.js";
 
 interface ApiKeyEntry {
   key: string; // encrypted
@@ -119,6 +126,16 @@ export async function execute(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in config command:", errorMsg);
+    if (interaction.guildId) {
+      await logGuildError(
+        interaction.guildId,
+        interaction.client,
+        supabase,
+        "Config Command Error",
+        error instanceof Error ? error : errorMsg,
+        `Error running config command for ${interaction.user}.`,
+      );
+    }
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
       .setTitle("Error")
@@ -222,14 +239,25 @@ async function showAdminSettings(
       .join("\n");
   }
 
+  const logChannelDisplay = guildConfig.log_channel_id
+    ? `<#${guildConfig.log_channel_id}>`
+    : "Not configured";
+
   const adminEmbed = new EmbedBuilder()
     .setColor(0x8b5cf6)
     .setTitle("Admin Settings")
-    .addFields({
-      name: "API Keys",
-      value: apiKeyDisplay,
-      inline: false,
-    })
+    .addFields(
+      {
+        name: "API Keys",
+        value: apiKeyDisplay,
+        inline: false,
+      },
+      {
+        name: "Log Channel",
+        value: logChannelDisplay,
+        inline: false,
+      },
+    )
     .setFooter({
       text: "API keys are encrypted and stored securely",
     });
@@ -239,6 +267,11 @@ async function showAdminSettings(
     .setLabel("Manage API Keys")
     .setStyle(ButtonStyle.Primary);
 
+  const editLogChannelBtn = new ButtonBuilder()
+    .setCustomId("config_edit_log_channel")
+    .setLabel("Edit Log Channel")
+    .setStyle(ButtonStyle.Primary);
+
   const backBtn = new ButtonBuilder()
     .setCustomId("config_back_to_menu")
     .setLabel("Back")
@@ -246,6 +279,7 @@ async function showAdminSettings(
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     editKeysBtn,
+    editLogChannelBtn,
     backBtn,
   );
 
@@ -2263,6 +2297,229 @@ export async function handleConfirmAutoVerifyToggle(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in confirm auto verify toggle handler:", errorMsg);
+  }
+}
+
+export async function handleEditLogChannelButton(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("log_channel_id")
+      .eq("guild_id", guildId)
+      .single();
+
+    const channelSelectMenu = new ChannelSelectMenuBuilder()
+      .setCustomId("config_log_channel_select")
+      .setPlaceholder("Select a channel for logging")
+      .addChannelTypes(ChannelType.GuildText);
+
+    const clearBtn = new ButtonBuilder()
+      .setCustomId("config_clear_log_channel")
+      .setLabel("Clear Log Channel")
+      .setStyle(ButtonStyle.Danger);
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("config_back_admin_settings")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const menuRow =
+      new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+        channelSelectMenu,
+      );
+    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      clearBtn,
+      backBtn,
+    );
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8b5cf6)
+      .setTitle("Log Channel Configuration")
+      .setDescription(
+        guildConfig?.log_channel_id
+          ? `Currently set to <#${guildConfig.log_channel_id}>\n\nSelect a new channel or clear the current one.`
+          : "No log channel set. Select a text channel to enable logging.",
+      );
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [menuRow, buttonRow],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit log channel button handler:", errorMsg);
+  }
+}
+
+export async function handleLogChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const selectedChannel = interaction.channels.first();
+    if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Invalid Channel")
+        .setDescription("Please select a text channel.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    // Update guild config with log channel
+    const { error } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .update({ log_channel_id: selectedChannel.id })
+      .eq("guild_id", guildId);
+
+    if (error) {
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Log Channel Update Failed",
+        error.message,
+        `Failed to set log channel to ${selectedChannel}.`,
+      );
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Error")
+        .setDescription("Failed to save log channel configuration.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Log Channel Updated")
+      .setDescription(`Log channel set to ${selectedChannel}`);
+
+    // Log this action
+    await logGuildAudit(supabase, {
+      guildId,
+      actorId: interaction.user.id,
+      action: "log_channel_updated",
+      details: { log_channel_id: selectedChannel.id },
+    });
+
+    await logGuildSuccess(
+      guildId,
+      interaction.client,
+      supabase,
+      "Log Channel Updated",
+      `${interaction.user} set the log channel to ${selectedChannel}.`,
+      [{ name: "Channel", value: selectedChannel.toString(), inline: false }],
+    );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("config_back_admin_settings")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in log channel select handler:", errorMsg);
+  }
+}
+
+export async function handleClearLogChannel(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    // Clear log channel
+    const { error } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .update({ log_channel_id: null })
+      .eq("guild_id", guildId);
+
+    if (error) {
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Log Channel Clear Failed",
+        error.message,
+        `Failed to clear log channel for ${interaction.user}.`,
+      );
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Error")
+        .setDescription("Failed to clear log channel.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Log Channel Cleared")
+      .setDescription("Logging has been disabled.");
+
+    // Log this action
+    await logGuildAudit(supabase, {
+      guildId,
+      actorId: interaction.user.id,
+      action: "log_channel_cleared",
+    });
+
+    await logGuildSuccess(
+      guildId,
+      interaction.client,
+      supabase,
+      "Log Channel Cleared",
+      `${interaction.user} disabled guild logging.`,
+    );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("config_back_admin_settings")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in clear log channel handler:", errorMsg);
   }
 }
 

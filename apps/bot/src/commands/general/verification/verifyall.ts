@@ -11,6 +11,11 @@ import {
   getNextApiKey,
   resolveApiKeysForGuild,
 } from "../../../lib/api-keys.js";
+import {
+  logGuildError,
+  logGuildSuccess,
+  logGuildWarning,
+} from "../../../lib/guild-logger.js";
 
 export const data = new SlashCommandBuilder()
   .setName("verifyall")
@@ -58,6 +63,14 @@ export async function execute(
       .single();
 
     if (configError || !guildConfig) {
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify All Failed: Not Configured",
+        configError?.message || "Missing guild config",
+        `${interaction.user} attempted /verifyall but guild is not configured.`,
+      );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Guild Not Configured")
@@ -76,6 +89,14 @@ export async function execute(
     );
 
     if (apiKeyError) {
+      await logGuildWarning(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify All Warning: API Key Required",
+        apiKeyError,
+        [{ name: "User", value: interaction.user.toString(), inline: true }],
+      );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ API Key Required")
@@ -91,6 +112,14 @@ export async function execute(
     // Fetch all guild members
     const guild = interaction.guild;
     if (!guild) {
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify All Failed",
+        "Unable to fetch guild information",
+        `Guild not available for ${interaction.user}.`,
+      );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Error")
@@ -106,6 +135,14 @@ export async function execute(
     // Fetch all members (may require guild member intent)
     const members = await guild.members.fetch();
     const results: VerificationResult[] = [];
+
+    await logGuildSuccess(
+      guildId,
+      interaction.client,
+      supabase,
+      "Verify All Started",
+      `${interaction.user} started verification for ${members.size} members.`,
+    );
 
     let processed = 0;
     const total = members.size;
@@ -340,9 +377,47 @@ export async function execute(
     }
 
     await interaction.editReply({ embeds: [resultEmbed], components: [] });
+
+    if (errors > 0) {
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify All Completed with Errors",
+        `${errors} error(s) occurred during verification.`,
+        `Verified: ${successful}, Not Linked: ${notLinked}, Errors: ${errors}.`,
+      );
+    } else if (notLinked > 0) {
+      await logGuildWarning(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify All Completed",
+        `Verified: ${successful}, Not Linked: ${notLinked}.`,
+      );
+    } else {
+      await logGuildSuccess(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify All Completed",
+        `Verified: ${successful}, Not Linked: ${notLinked}, Errors: ${errors}.`,
+      );
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in verifyall command:", errorMsg);
+
+    if (interaction.guildId) {
+      await logGuildError(
+        interaction.guildId,
+        interaction.client,
+        supabase,
+        "Verify All Command Error",
+        errorMsg,
+        `Error running /verifyall for ${interaction.user}.`,
+      );
+    }
 
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)

@@ -21,6 +21,11 @@ import * as verifyallCommand from "./commands/general/verification/verifyall.js"
 import * as configCommand from "./commands/general/admin/config.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
+import {
+  logGuildSuccess,
+  logGuildError,
+  logGuildWarning,
+} from "./lib/guild-logger.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { GuildSyncScheduler } from "./lib/verification-sync.js";
 import { getNextApiKey, resolveApiKeysForGuild } from "./lib/api-keys.js";
@@ -256,6 +261,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleBackToAdminSettings(interaction, supabase);
       } else if (interaction.customId === "config_edit_api_keys") {
         await configCommand.handleEditApiKeysButton(interaction, supabase);
+      } else if (interaction.customId === "config_edit_log_channel") {
+        await configCommand.handleEditLogChannelButton(interaction, supabase);
+      } else if (interaction.customId === "config_clear_log_channel") {
+        await configCommand.handleClearLogChannel(interaction, supabase);
       } else if (interaction.customId === "config_add_api_key") {
         await configCommand.handleAddApiKeyButton(interaction);
       } else if (interaction.customId === "config_rotate_api_key") {
@@ -347,11 +356,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       return;
     }
+
+    // Handle channel select menus
+    if (interaction.isChannelSelectMenu()) {
+      if (interaction.customId === "config_log_channel_select") {
+        await configCommand.handleLogChannelSelect(interaction, supabase);
+      }
+      return;
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unexpected bot error";
 
     console.error("Bot interaction error:", error);
+
+    if (interaction.guildId) {
+      await logGuildError(
+        interaction.guildId,
+        client,
+        supabase,
+        "Command Error",
+        error instanceof Error ? error : message,
+        `Error handling interaction ${interaction.id}.`,
+      );
+    }
 
     if (!interaction.isRepliable()) {
       return;
@@ -445,6 +473,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
           console.log(
             `[Auto-Verify] User ${member.user.username} (${member.id}) not linked to Torn`,
           );
+          await logGuildWarning(
+            guildId,
+            client,
+            supabase,
+            "Auto-Verify: Not Linked",
+            `${member.user} is not linked to a Torn account.`,
+            [{ name: "Discord ID", value: member.id, inline: true }],
+          );
         } else {
           // API error
           verificationResult = {
@@ -457,6 +493,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
           console.error(
             `[Auto-Verify] Torn API error for ${member.id}:`,
             response.error.error,
+          );
+          await logGuildError(
+            guildId,
+            client,
+            supabase,
+            "Auto-Verify: Torn API Error",
+            response.error.error,
+            `${member.user} verification failed due to Torn API error.`,
           );
         }
       } else if (response.discord) {
@@ -490,6 +534,17 @@ client.on(Events.GuildMemberAdd, async (member) => {
         console.log(
           `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.name} [${response.player_id}]`,
         );
+        await logGuildSuccess(
+          guildId,
+          client,
+          supabase,
+          "Auto-Verify: Success",
+          `${member.user} verified as **${response.name}** (${response.player_id}).`,
+          [
+            { name: "Discord ID", value: member.id, inline: true },
+            { name: "Torn ID", value: String(response.player_id), inline: true },
+          ],
+        );
 
         // Apply nickname template
         try {
@@ -507,6 +562,16 @@ client.on(Events.GuildMemberAdd, async (member) => {
             `[Auto-Verify] Failed to set nickname for ${member.user.username}:`,
             nicknameError,
           );
+          await logGuildError(
+            guildId,
+            client,
+            supabase,
+            "Auto-Verify: Nickname Failed",
+            nicknameError instanceof Error
+              ? nicknameError
+              : String(nicknameError),
+            `Failed to set nickname for ${member.user}.`,
+          );
         }
 
         // Assign verification role if configured
@@ -520,6 +585,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
             console.error(
               `[Auto-Verify] Failed to assign verification role to ${member.user.username}:`,
               roleError,
+            );
+            await logGuildError(
+              guildId,
+              client,
+              supabase,
+              "Auto-Verify: Verification Role Failed",
+              roleError instanceof Error ? roleError : String(roleError),
+              `Failed to assign verification role to ${member.user}.`,
             );
           }
         }
@@ -543,6 +616,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
               console.error(
                 `[Auto-Verify] Failed to assign roles to ${member.user.username}:`,
                 roleError,
+              );
+              await logGuildError(
+                guildId,
+                client,
+                supabase,
+                "Auto-Verify: Faction Roles Failed",
+                roleError instanceof Error ? roleError : String(roleError),
+                `Failed to assign faction roles to ${member.user}.`,
               );
             }
           }
@@ -571,6 +652,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
       console.error(
         `[Auto-Verify] Error verifying ${member.user.username} (${member.id}):`,
         error,
+      );
+      await logGuildError(
+        guildId,
+        client,
+        supabase,
+        "Auto-Verify: Unexpected Error",
+        error instanceof Error ? error : String(error),
+        `Unexpected error verifying ${member.user}.`,
       );
     }
 
@@ -606,11 +695,27 @@ client.on(Events.GuildMemberAdd, async (member) => {
         console.log(
           `[Auto-Verify] Sent ${verificationResult.status} DM to ${member.user.username}`,
         );
+        await logGuildSuccess(
+          guildId,
+          client,
+          supabase,
+          "Auto-Verify: DM Sent",
+          `Sent ${verificationResult.status} DM to ${member.user}.`,
+          [{ name: "Discord ID", value: member.id, inline: true }],
+        );
       } catch (dmError) {
         // User has DMs disabled or blocked the bot
         console.log(
           `[Auto-Verify] Could not send DM to ${member.user.username}:`,
           dmError instanceof Error ? dmError.message : String(dmError),
+        );
+        await logGuildError(
+          guildId,
+          client,
+          supabase,
+          "Auto-Verify: DM Failed",
+          dmError instanceof Error ? dmError : String(dmError),
+          `Failed to DM ${member.user}.`,
         );
       }
     }
