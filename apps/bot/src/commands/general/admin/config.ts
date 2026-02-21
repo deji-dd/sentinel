@@ -28,10 +28,7 @@ import {
   validateAndFetchFactionDetails,
   storeFactionDetails,
 } from "../../../lib/faction-utils.js";
-import {
-  logGuildError,
-  logGuildSuccess,
-} from "../../../lib/guild-logger.js";
+import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
 
 interface ApiKeyEntry {
   key: string; // encrypted
@@ -651,14 +648,25 @@ export async function handleBackToAdminSettings(
         .join("\n");
     }
 
+    const logChannelDisplay = guildConfig.log_channel_id
+      ? `<#${guildConfig.log_channel_id}>`
+      : "Not configured";
+
     const adminEmbed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Admin Settings")
-      .addFields({
-        name: "API Keys",
-        value: apiKeyDisplay,
-        inline: false,
-      })
+      .addFields(
+        {
+          name: "API Keys",
+          value: apiKeyDisplay,
+          inline: false,
+        },
+        {
+          name: "Log Channel",
+          value: logChannelDisplay,
+          inline: false,
+        },
+      )
       .setFooter({
         text: "API keys are encrypted and stored securely",
       });
@@ -668,6 +676,11 @@ export async function handleBackToAdminSettings(
       .setLabel("Manage API Keys")
       .setStyle(ButtonStyle.Primary);
 
+    const editLogChannelBtn = new ButtonBuilder()
+      .setCustomId("config_edit_log_channel")
+      .setLabel("Edit Log Channel")
+      .setStyle(ButtonStyle.Primary);
+
     const backBtn = new ButtonBuilder()
       .setCustomId("config_back_to_menu")
       .setLabel("Back")
@@ -675,6 +688,7 @@ export async function handleBackToAdminSettings(
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       editKeysBtn,
+      editLogChannelBtn,
       backBtn,
     );
 

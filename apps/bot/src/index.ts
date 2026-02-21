@@ -542,7 +542,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
           `${member.user} verified as **${response.name}** (${response.player_id}).`,
           [
             { name: "Discord ID", value: member.id, inline: true },
-            { name: "Torn ID", value: String(response.player_id), inline: true },
+            {
+              name: "Torn ID",
+              value: String(response.player_id),
+              inline: true,
+            },
           ],
         );
 
