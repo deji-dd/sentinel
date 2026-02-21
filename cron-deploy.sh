@@ -15,7 +15,6 @@ REPO_DIR="${SENTINEL_REPO_DIR:-/home/deji/repos/sentinel}"
 BRANCH="main"
 PNPM_HOME="${HOME}/.local/share/pnpm"
 PATH="${PNPM_HOME}:${PATH}"
-PM2_APPS=("sentinel-worker" "sentinel-bot")
 
 # Verify repo directory exists
 if [[ ! -d "${REPO_DIR}" ]]; then
@@ -53,14 +52,22 @@ pnpm bot:build
 # Ensure logs directory exists
 mkdir -p logs
 
-echo "Restarting PM2 processes..."
-# Delete old processes to avoid cached config issues
-for app in "${PM2_APPS[@]}"; do
-  if pm2 list | grep -q "\b${app}\b"; then
-    echo "Deleting old ${app} process..."
-    pm2 delete "${app}" >/dev/null 2>&1 || true
+# Rotate logs if they get large (compress and archive if >50MB)
+for logfile in logs/*.log; do
+  if [[ -f "${logfile}" ]] && [[ $(stat -f%z "${logfile}" 2>/dev/null || stat -c%s "${logfile}" 2>/dev/null) -gt 52428800 ]]; then
+    echo "Rotating large log file: ${logfile}"
+    gzip -c "${logfile}" > "${logfile}.$(date +%s).gz"
+    > "${logfile}"  # Truncate the log file
   fi
 done
+
+echo "Restarting PM2 processes..."
+# Kill PM2 daemon entirely to clear cached state (fixes ghost builds)
+echo "Killing PM2 daemon to clear cache..."
+pm2 kill >/dev/null 2>&1 || true
+
+# Delete any lingering ecosystem state files
+rm -f "${REPO_DIR}/.pm2/dump.pm2" "${REPO_DIR}/.pm2/module_conf.js" >/dev/null 2>&1 || true
 
 # Start fresh with current ecosystem config
 echo "Starting processes from ecosystem.config.js..."
