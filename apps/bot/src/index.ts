@@ -16,6 +16,7 @@ import * as teardownGuildCommand from "./commands/personal/admin/teardown-guild.
 import * as addBotCommand from "./commands/personal/admin/add-bot.js";
 import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
 import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
+import * as testVerificationDmsCommand from "./commands/personal/admin/test-verification-dms.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
@@ -216,6 +217,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
         await guildStatusCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "test-verification-dms") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await testVerificationDmsCommand.execute(interaction, supabase);
       } else {
         // Regular commands (personal commands only exist in admin guild)
         if (interaction.commandName === "finance") {

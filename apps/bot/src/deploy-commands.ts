@@ -8,6 +8,7 @@ import * as forceRunCommand from "./commands/personal/admin/force-run.js";
 import * as addBotCommand from "./commands/personal/admin/add-bot.js";
 import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
 import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
+import * as testVerificationDmsCommand from "./commands/personal/admin/test-verification-dms.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
@@ -43,6 +44,7 @@ const commands = [
   addBotCommand.data.toJSON(),
   enableModuleCommand.data.toJSON(),
   guildStatusCommand.data.toJSON(),
+  testVerificationDmsCommand.data.toJSON(),
   configCommand.data.toJSON(),
   verifyCommand.data.toJSON(),
   verifyallCommand.data.toJSON(),
