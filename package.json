@@ -17,7 +17,8 @@
     "bot:deploy-commands": "pnpm --filter bot deploy-commands",
     "dev:all": "pnpm -r dev",
     "build:all": "pnpm -r build",
-    "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build"
+    "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build",
+    "supabase:push": "pnpm dlx supabase db push && pnpm dlx supabase db push --local"
   },
   "devDependencies": {
     "openapi-typescript": "^7.10.1"

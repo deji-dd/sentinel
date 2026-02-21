@@ -20,6 +20,14 @@ ALTER TABLE "public"."sentinel_training_recommendations"
 ALTER TABLE "public"."sentinel_training_recommendations"
     ADD COLUMN IF NOT EXISTS "max_quantity_affordable" INTEGER NOT NULL DEFAULT 0;
 
+-- Add best_method_id column if it doesn't exist (migration from best_method to best_method_id)
+ALTER TABLE "public"."sentinel_training_recommendations"
+    ADD COLUMN IF NOT EXISTS "best_method_id" INTEGER;
+
+-- Add better_gym_name column if it doesn't exist
+ALTER TABLE "public"."sentinel_training_recommendations"
+    ADD COLUMN IF NOT EXISTS "better_gym_name" TEXT;
+
 -- Add foreign key constraint to sentinel_torn_items
 ALTER TABLE "public"."sentinel_training_recommendations" 
     ADD CONSTRAINT "sentinel_training_recommendations_best_method_id_fkey" 

@@ -1,11 +1,16 @@
 import "dotenv/config";
 import { REST, Routes } from "discord.js";
 
-import * as financeCommand from "./commands/personal/finance.js";
-import * as financeSettingsCommand from "./commands/personal/finance-settings.js";
-import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
-import * as setupGuildCommand from "./commands/personal/setup-guild.js";
-import * as forceRunCommand from "./commands/personal/force-run.js";
+import * as deployCommandsCommand from "./commands/personal/admin/deploy-commands.js";
+import * as setupGuildCommand from "./commands/personal/admin/setup-guild.js";
+import * as teardownGuildCommand from "./commands/personal/admin/teardown-guild.js";
+import * as forceRunCommand from "./commands/personal/admin/force-run.js";
+import * as addBotCommand from "./commands/personal/admin/add-bot.js";
+import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
+import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
+import * as configCommand from "./commands/general/admin/config.js";
+import * as verifyCommand from "./commands/general/verification/verify.js";
+import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -31,11 +36,16 @@ console.log(
 
 // Deploy to admin guild only on startup
 const commands = [
-  financeCommand.data.toJSON(),
-  financeSettingsCommand.data,
   forceRunCommand.data.toJSON(),
   deployCommandsCommand.data.toJSON(),
   setupGuildCommand.data.toJSON(),
+  teardownGuildCommand.data.toJSON(),
+  addBotCommand.data.toJSON(),
+  enableModuleCommand.data.toJSON(),
+  guildStatusCommand.data.toJSON(),
+  configCommand.data.toJSON(),
+  verifyCommand.data.toJSON(),
+  verifyallCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

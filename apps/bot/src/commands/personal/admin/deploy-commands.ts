@@ -47,16 +47,39 @@ export async function execute(
 
     const rest = new REST({ version: "10" }).setToken(token);
 
-    // Load all available commands
-    const financeCommand = await import("./finance.js");
-    const financeSettingsCommand = await import("./finance-settings.js");
+    const getGuildLabel = async (guildId: string): Promise<string> => {
+      const cachedGuild = client.guilds.cache.get(guildId);
+      if (cachedGuild) {
+        return cachedGuild.name;
+      }
+
+      try {
+        const fetchedGuild = await client.guilds.fetch(guildId);
+        return fetchedGuild.name;
+      } catch (error) {
+        console.warn("Failed to fetch guild name:", error);
+        return guildId;
+      }
+    };
+
+    // Load all available commands with updated paths
+    const verifyCommand = await import("../../general/verification/verify.js");
+    const verifyallCommand =
+      await import("../../general/verification/verifyall.js");
+    const configCommand = await import("../../general/admin/config.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
+    const teardownGuildCommand = await import("./teardown-guild.js");
+    const addBotCommand = await import("./add-bot.js");
+    const enableModuleCommand = await import("./enable-module.js");
+    const guildStatusCommand = await import("./guild-status.js");
 
     // Map of module names to commands
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const commandsByModule: Record<string, any[]> = {
-      finance: [financeCommand.data.toJSON(), financeSettingsCommand.data],
+      verify: [verifyCommand.data.toJSON(), verifyallCommand.data.toJSON()],
+      admin: [configCommand.data.toJSON()],
     };
 
     let successCount = 0;
@@ -75,34 +98,42 @@ export async function execute(
     // Deploy to admin guild (always)
     try {
       const adminCommands = [
-        financeCommand.data.toJSON(),
-        financeSettingsCommand.data,
         forceRunCommand.data.toJSON(),
         deployCommandsCommand.data.toJSON(),
         setupGuildCommand.data.toJSON(),
+        teardownGuildCommand.data.toJSON(),
+        addBotCommand.data.toJSON(),
+        enableModuleCommand.data.toJSON(),
+        guildStatusCommand.data.toJSON(),
+        configCommand.data.toJSON(),
+        verifyCommand.data.toJSON(),
+        verifyallCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
         body: adminCommands,
       });
 
+      const adminGuildName = await getGuildLabel(adminGuildId);
+
       successCount++;
       deploymentResults.push({
-        guild: `Admin Guild (${adminGuildId})`,
+        guild: `Admin Guild (${adminGuildName})`,
         status: "✅",
       });
     } catch (err) {
       console.error(`Failed to deploy to admin guild ${adminGuildId}:`, err);
+      const adminGuildName = await getGuildLabel(adminGuildId);
       failureCount++;
       deploymentResults.push({
-        guild: `Admin Guild (${adminGuildId})`,
+        guild: `Admin Guild (${adminGuildName})`,
         status: "❌",
       });
     }
 
     // Deploy to configured guilds based on enabled modules
     const { data: guildConfigs } = await supabase
-      .from(TABLE_NAMES.GUILD_MODULES)
+      .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*");
 
     if (guildConfigs && guildConfigs.length > 0) {
@@ -111,6 +142,7 @@ export async function execute(
           const guildId = guildConfig.guild_id;
           const enabledModules: string[] = guildConfig.enabled_modules || [];
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let guildCommands: any[] = [];
 
           for (const module of enabledModules) {
@@ -127,12 +159,18 @@ export async function execute(
             body: guildCommands,
           });
 
+          const guildName = await getGuildLabel(guildId);
+
           successCount++;
-          deploymentResults.push({ guild: guildId, status: "✅" });
+          deploymentResults.push({ guild: guildName, status: "✅" });
         } catch (err) {
-          console.error(`Failed to deploy to guild ${guildConfig.guild_id}:`, err);
+          console.error(
+            `Failed to deploy to guild ${guildConfig.guild_id}:`,
+            err,
+          );
+          const guildName = await getGuildLabel(guildConfig.guild_id);
           failureCount++;
-          deploymentResults.push({ guild: guildConfig.guild_id, status: "❌" });
+          deploymentResults.push({ guild: guildName, status: "❌" });
         }
       }
     }
@@ -155,7 +193,9 @@ export async function execute(
           name: "🌍 Deployments",
           value:
             deploymentResults.length > 0
-              ? deploymentResults.map((r) => `${r.status} ${r.guild}`).join("\n")
+              ? deploymentResults
+                  .map((r) => `${r.status} ${r.guild}`)
+                  .join("\n")
               : "None",
         },
       )

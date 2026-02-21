@@ -9,11 +9,11 @@ import {
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getPersonalUserId } from "../../lib/auth.js";
+import { getPersonalUserId } from "../../../lib/auth.js";
 import {
   runWithInteractionError,
   safeReply,
-} from "../../lib/interaction-utils.js";
+} from "../../../lib/interaction-utils.js";
 
 function parseNumber(value: string): number | null {
   if (!value) {

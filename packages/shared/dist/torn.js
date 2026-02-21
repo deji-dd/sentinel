@@ -34,7 +34,14 @@ export const TORN_ERROR_CODES = {
     29: "Category selection unavailable for interaction logs",
 };
 /**
- * Type-safe Torn API client with auto-complete for paths and query parameters
+ * Type-safe Torn API v2 client with full type inference
+ *
+ * Features:
+ * - Full type inference for paths from OpenAPI spec
+ * - Automatic query parameter typing per endpoint
+ * - Automatic path parameter typing per endpoint
+ * - Proper response type discrimination
+ * - Error handling with typed error codes
  */
 export class TornApiClient {
     rateLimitTracker;
@@ -44,7 +51,7 @@ export class TornApiClient {
         this.timeout = config.timeout ?? REQUEST_TIMEOUT;
     }
     /**
-     * Make a GET request to the Torn API v2 (supports both typed and dynamic paths)
+     * Implementation handles all overloads
      */
     async get(path, options) {
         const { apiKey, pathParams, queryParams } = options;
@@ -52,75 +59,23 @@ export class TornApiClient {
         if (this.rateLimitTracker) {
             await this.rateLimitTracker.waitIfNeeded(apiKey);
         }
-        // Build URL with path parameters
-        let url = `${TORN_API_BASE}${this.buildPath(path, pathParams)}`;
-        // Add query parameters
+        // Build URL with path parameters - replace {param} placeholders
+        let url = `${TORN_API_BASE}${this.replacePath(String(path), pathParams)}`;
+        // Build query string
         const params = new URLSearchParams();
         params.append("key", apiKey);
-        // Add epoch timestamp to bypass global cache
+        // Add timestamp to bypass cache
         params.append("timestamp", String(Math.floor(Date.now() / 1000)));
+        // Add custom query parameters with proper handling for various types
         if (queryParams) {
             for (const [key, value] of Object.entries(queryParams)) {
-                if (value !== undefined && value !== null) {
-                    // Handle arrays by joining with commas (standard for API query params)
+                if (value !== undefined && value !== null && value !== "") {
                     if (Array.isArray(value)) {
                         params.append(key, value.join(","));
                     }
                     else {
                         params.append(key, String(value));
                     }
-                }
-            }
-        }
-        url += `?${params.toString()}`;
-        // Make request with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-            controller.abort();
-        }, this.timeout);
-        try {
-            const response = await fetch(url, {
-                signal: controller.signal,
-                headers: { Accept: "application/json" },
-            });
-            const data = (await response.json());
-            // Check for API errors
-            if (data && typeof data === "object" && "error" in data) {
-                const error = data.error;
-                const errorMessage = TORN_ERROR_CODES[error.code] ||
-                    error.error ||
-                    `Error code ${error.code}`;
-                throw new Error(errorMessage);
-            }
-            if (!response.ok) {
-                throw new Error(`Torn API returned status ${response.status}`);
-            }
-            // Record request for rate limiting
-            if (this.rateLimitTracker) {
-                await this.rateLimitTracker.recordRequest(apiKey);
-            }
-            return data;
-        }
-        finally {
-            clearTimeout(timeoutId);
-        }
-    }
-    /**
-     * Make a raw GET request to the Torn API (for v1 endpoints not in OpenAPI spec)
-     */
-    async getRaw(path, apiKey, queryParams) {
-        // Apply rate limiting if configured
-        if (this.rateLimitTracker) {
-            await this.rateLimitTracker.waitIfNeeded(apiKey);
-        }
-        // Build URL
-        let url = `${TORN_API_V1_BASE}${path}`;
-        const params = new URLSearchParams();
-        params.append("key", apiKey);
-        if (queryParams) {
-            for (const [key, value] of Object.entries(queryParams)) {
-                if (value !== undefined && value !== null) {
-                    params.append(key, value);
                 }
             }
         }
@@ -134,7 +89,7 @@ export class TornApiClient {
                 headers: { Accept: "application/json" },
             });
             const data = (await response.json());
-            // Check for API errors
+            // Check for Torn API error response
             if (data && typeof data === "object" && "error" in data) {
                 const error = data.error;
                 const errorMessage = TORN_ERROR_CODES[error.code] ||
@@ -142,6 +97,7 @@ export class TornApiClient {
                     `Error code ${error.code}`;
                 throw new Error(errorMessage);
             }
+            // Check for HTTP errors
             if (!response.ok) {
                 throw new Error(`Torn API returned status ${response.status}`);
             }
@@ -156,13 +112,72 @@ export class TornApiClient {
         }
     }
     /**
-     * Build path with path parameters (e.g., /user/{id}/basic -> /user/123/basic)
+     * Make a raw GET request to Torn API v1 endpoints not in OpenAPI spec
+     *
+     * @example
+     * const data = await client.getRaw<any>(
+     *   "/user",
+     *   apiKey,
+     *   { selections: "crimes,perks" }
+     * );
      */
-    buildPath(path, pathParams) {
-        if (!pathParams)
+    async getRaw(path, apiKey, queryParams) {
+        // Apply rate limiting if configured
+        if (this.rateLimitTracker) {
+            await this.rateLimitTracker.waitIfNeeded(apiKey);
+        }
+        // Build URL
+        let url = `${TORN_API_V1_BASE}${path}`;
+        const params = new URLSearchParams();
+        params.append("key", apiKey);
+        if (queryParams) {
+            for (const [key, value] of Object.entries(queryParams)) {
+                if (value !== undefined && value !== null && value !== "") {
+                    params.append(key, String(value));
+                }
+            }
+        }
+        url += `?${params.toString()}`;
+        // Make request with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        try {
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: { Accept: "application/json" },
+            });
+            const data = (await response.json());
+            // Check for Torn API error response
+            if (data && typeof data === "object" && "error" in data) {
+                const error = data.error;
+                const errorMessage = TORN_ERROR_CODES[error.code] ||
+                    error.error ||
+                    `Error code ${error.code}`;
+                throw new Error(errorMessage);
+            }
+            // Check for HTTP errors
+            if (!response.ok) {
+                throw new Error(`Torn API returned status ${response.status}`);
+            }
+            // Record request for rate limiting
+            if (this.rateLimitTracker) {
+                await this.rateLimitTracker.recordRequest(apiKey);
+            }
+            return data;
+        }
+        finally {
+            clearTimeout(timeoutId);
+        }
+    }
+    /**
+     * Replace path parameters in URL template
+     * Handles {paramName} placeholders
+     */
+    replacePath(path, params) {
+        if (!params)
             return path;
         let result = path;
-        for (const [key, value] of Object.entries(pathParams)) {
+        for (const [key, value] of Object.entries(params)) {
             result = result.replace(`{${key}}`, String(value));
         }
         return result;
@@ -171,6 +186,26 @@ export class TornApiClient {
 /**
  * API Key Rotation Manager for distributing requests across multiple keys.
  * Supports sequential or concurrent batch processing.
+ *
+ * @example
+ * const rotator = new ApiKeyRotator([key1, key2, key3]);
+ *
+ * // Sequential with delay
+ * const results = await rotator.processSequential(
+ *   items,
+ *   async (item, key) => {
+ *     return client.get("/user/basic", { apiKey: key });
+ *   },
+ *   700 // 700ms delay between requests
+ * );
+ *
+ * // Concurrent - one per key in parallel
+ * const results = await rotator.processConcurrent(
+ *   items,
+ *   async (item, key) => {
+ *     return client.get("/user/basic", { apiKey: key });
+ *   }
+ * );
  */
 export class ApiKeyRotator {
     keys;
@@ -192,6 +227,13 @@ export class ApiKeyRotator {
     /**
      * Process items concurrently, one per API key in parallel.
      * Useful when you have N keys and want N concurrent requests.
+     *
+     * @example
+     * const results = await rotator.processConcurrent(
+     *   userIds,
+     *   async (userId, key) => client.get("/user/{id}/basic", { apiKey: key, pathParams: { id: userId } }),
+     *   100 // 100ms delay between batches
+     * );
      */
     async processConcurrent(items, handler, delayMs = 0) {
         const results = [];
@@ -209,6 +251,14 @@ export class ApiKeyRotator {
     }
     /**
      * Process items sequentially with per-request delay and key rotation.
+     * Each request uses the next key in order.
+     *
+     * @example
+     * const results = await rotator.processSequential(
+     *   userIds,
+     *   async (userId, key) => client.get("/user/{id}/basic", { apiKey: key, pathParams: { id: userId } }),
+     *   700 // 700ms between each request
+     * );
      */
     async processSequential(items, handler, delayMs = 700) {
         const results = [];
