@@ -6,8 +6,11 @@ import {
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { decrypt } from "../../../lib/encryption.js";
 import { botTornApi } from "../../../lib/torn-api.js";
+import {
+  getNextApiKey,
+  resolveApiKeysForGuild,
+} from "../../../lib/api-keys.js";
 
 export const data = new SlashCommandBuilder()
   .setName("verifyall")
@@ -21,6 +24,8 @@ interface VerificationResult {
   tornId?: number;
   tornName?: string;
   factionName?: string;
+  rolesAdded?: string[];
+  rolesFailed?: string[];
   errorMessage?: string;
 }
 
@@ -40,14 +45,15 @@ export async function execute(
 
       await interaction.editReply({
         embeds: [errorEmbed],
+        components: [],
       });
       return;
     }
 
-    // Get guild config with API key
+    // Get guild config with API key(s)
     const { data: guildConfig, error: configError } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_key, nickname_template")
+      .select("api_keys, api_key, nickname_template, verified_role_id")
       .eq("guild_id", guildId)
       .single();
 
@@ -59,36 +65,25 @@ export async function execute(
 
       await interaction.editReply({
         embeds: [errorEmbed],
+        components: [],
       });
       return;
     }
 
-    if (!guildConfig.api_key) {
+    const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
+      guildId,
+      guildConfig,
+    );
+
+    if (apiKeyError) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ API Key Required")
-        .setDescription(
-          "An API key must be set before verifying users. Use `/config` to set one.",
-        );
+        .setDescription(apiKeyError);
 
       await interaction.editReply({
         embeds: [errorEmbed],
-      });
-      return;
-    }
-
-    // Decrypt the API key
-    let apiKey: string;
-    try {
-      apiKey = decrypt(guildConfig.api_key);
-    } catch {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("❌ Decryption Error")
-        .setDescription("Failed to decrypt API key.");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
+        components: [],
       });
       return;
     }
@@ -103,6 +98,7 @@ export async function execute(
 
       await interaction.editReply({
         embeds: [errorEmbed],
+        components: [],
       });
       return;
     }
@@ -131,10 +127,14 @@ export async function execute(
       }
 
       try {
+        const apiKey = getNextApiKey(guildId, apiKeys);
         // Call Torn API to verify
-        const response = await botTornApi.get(`/user/${member.id}`, {
+        const response = await botTornApi.get("/user", {
           apiKey,
-          queryParams: { selections: "discord,faction" },
+          queryParams: {
+            selections: ["discord", "faction", "profile"],
+            id: member.id,
+          },
         });
 
         if (response.error) {
@@ -159,27 +159,29 @@ export async function execute(
             userId: member.id,
             username: member.user.username,
             status: "success",
-            tornId: response.player_id,
-            tornName: response.name,
-            factionName: response.faction?.faction_name || "None",
+            tornId: response.profile?.id,
+            tornName: response.profile?.name,
+            factionName: response.faction?.name || "None",
+            rolesAdded: [],
+            rolesFailed: [],
           });
 
           // Store in database
           await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
             discord_id: member.id,
-            torn_player_id: response.player_id,
-            torn_player_name: response.name,
-            faction_id: response.faction?.faction_id || null,
-            faction_name: response.faction?.faction_name || null,
+            torn_player_id: response.profile?.id,
+            torn_player_name: response.profile?.name,
+            faction_id: response.faction?.id || null,
+            faction_name: response.faction?.name || null,
             verified_at: new Date().toISOString(),
           });
 
           // Apply nickname template
           try {
             const nickname = guildConfig.nickname_template
-              .replace("{name}", response.name)
-              .replace("{id}", response.player_id.toString())
-              .replace("{tag}", response.faction?.faction_tag || "");
+              .replace("{name}", response.profile?.name || "")
+              .replace("{id}", (response.profile?.id || "").toString())
+              .replace("{tag}", response.faction?.tag || "");
 
             await member.setNickname(nickname);
           } catch (nicknameError) {
@@ -189,23 +191,51 @@ export async function execute(
             );
           }
 
+          // Assign verification role if configured
+          if (guildConfig.verified_role_id) {
+            try {
+              if (!member.roles.cache.has(guildConfig.verified_role_id)) {
+                await member.roles.add(guildConfig.verified_role_id);
+                const result = results[results.length - 1];
+                result.rolesAdded!.push(guildConfig.verified_role_id);
+              }
+            } catch (roleError) {
+              console.error(
+                `Failed to assign verification role to ${member.user.username}:`,
+                roleError,
+              );
+              const result = results[results.length - 1];
+              result.rolesFailed!.push(guildConfig.verified_role_id);
+            }
+          }
+
           // Assign faction role if mapping exists
-          if (response.faction?.faction_id) {
+          if (response.faction?.id) {
             const { data: factionRole } = await supabase
               .from(TABLE_NAMES.FACTION_ROLES)
               .select("role_ids")
               .eq("guild_id", guildId)
-              .eq("faction_id", response.faction.faction_id)
+              .eq("faction_id", response.faction.id)
               .single();
 
             if (factionRole && factionRole.role_ids.length > 0) {
               try {
-                await member.roles.add(factionRole.role_ids);
+                const result = results[results.length - 1];
+                for (const roleId of factionRole.role_ids) {
+                  if (!member.roles.cache.has(roleId)) {
+                    await member.roles.add(roleId);
+                    result.rolesAdded!.push(roleId);
+                  }
+                }
               } catch (roleError) {
                 console.error(
-                  `Failed to assign roles to ${member.user.username}:`,
+                  `Failed to assign faction roles to ${member.user.username}:`,
                   roleError,
                 );
+                const result = results[results.length - 1];
+                for (const roleId of factionRole.role_ids) {
+                  result.rolesFailed!.push(roleId);
+                }
               }
             }
           }
@@ -286,7 +316,30 @@ export async function execute(
       });
     }
 
-    await interaction.editReply({ embeds: [resultEmbed] });
+    // Add role assignment summary
+    const totalRolesAdded = results.reduce(
+      (sum, r) => sum + (r.rolesAdded?.length || 0),
+      0,
+    );
+    const totalRolesFailed = results.reduce(
+      (sum, r) => sum + (r.rolesFailed?.length || 0),
+      0,
+    );
+
+    if (totalRolesAdded > 0 || totalRolesFailed > 0) {
+      let rolesSummary = "";
+      if (totalRolesAdded > 0)
+        rolesSummary += `✅ **${totalRolesAdded}** roles added\n`;
+      if (totalRolesFailed > 0)
+        rolesSummary += `❌ **${totalRolesFailed}** roles failed to assign`;
+      resultEmbed.addFields({
+        name: "Role Assignment",
+        value: rolesSummary,
+        inline: false,
+      });
+    }
+
+    await interaction.editReply({ embeds: [resultEmbed], components: [] });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in verifyall command:", errorMsg);
@@ -297,9 +350,13 @@ export async function execute(
       .setDescription(errorMsg);
 
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ embeds: [errorEmbed] });
+      await interaction.editReply({ embeds: [errorEmbed], components: [] });
     } else {
-      await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+      await interaction.reply({
+        embeds: [errorEmbed],
+        components: [],
+        ephemeral: true,
+      });
     }
   }
 }

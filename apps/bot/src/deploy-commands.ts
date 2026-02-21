@@ -9,8 +9,8 @@ import * as addBotCommand from "./commands/personal/admin/add-bot.js";
 import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
 import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as configCommand from "./commands/general/admin/config.js";
-import * as verifyCommand from "./commands/general/verify/verify.js";
-import * as verifyallCommand from "./commands/general/verify/verifyall.js";
+import * as verifyCommand from "./commands/general/verification/verify.js";
+import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];

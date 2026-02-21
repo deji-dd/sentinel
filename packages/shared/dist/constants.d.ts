@@ -27,6 +27,7 @@ export declare const TABLE_NAMES: {
     readonly VERIFIED_USERS: "sentinel_verified_users";
     readonly GUILD_CONFIG: "sentinel_guild_config";
     readonly GUILD_SYNC_JOBS: "sentinel_guild_sync_jobs";
+    readonly GUILD_AUDIT: "sentinel_guild_audit";
     readonly FACTION_ROLES: "sentinel_faction_roles";
 };
 /** Alert module types */

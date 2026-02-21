@@ -5,7 +5,7 @@ import {
   DatabaseRateLimiter,
   TornApiClient,
 } from "@sentinel/shared";
-import { decrypt } from "./encryption.js";
+import { getNextApiKey, resolveApiKeysForGuild } from "./api-keys.js";
 
 interface VerifiedUser {
   discord_id: string;
@@ -30,7 +30,8 @@ interface GuildSyncJob {
 
 interface GuildConfigRecord {
   guild_id: string;
-  api_key: string;
+  api_key?: string | null;
+  api_keys?: { key?: string; isActive?: boolean }[] | null;
   nickname_template: string;
   sync_interval_seconds: number;
   enabled_modules: string[];
@@ -162,14 +163,13 @@ export class GuildSyncScheduler {
         return;
       }
 
-      // Decrypt API key
-      let apiKey: string;
-      try {
-        apiKey = decrypt((guildConfig as GuildConfigRecord).api_key);
-      } catch {
-        console.error(
-          `[Guild Sync] Failed to decrypt API key for guild ${job.guild_id}`,
-        );
+      const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
+        job.guild_id,
+        guildConfig as GuildConfigRecord,
+      );
+
+      if (apiKeyError) {
+        console.error(`[Guild Sync] ${apiKeyError} (guild ${job.guild_id})`);
         return;
       }
 
@@ -212,7 +212,7 @@ export class GuildSyncScheduler {
         try {
           // Use generic any type since response shape is dynamic based on selections parameter
           const response = await tornApi.get(`/user/${user.discord_id}`, {
-            apiKey,
+            apiKey: getNextApiKey(job.guild_id, apiKeys),
             queryParams: { selections: "discord,faction,profile" },
           });
 
@@ -291,6 +291,13 @@ export class GuildSyncScheduler {
                 factionData?.faction_tag,
               );
               await member.setNickname(nickname).catch(() => {});
+
+              // Ensure verification role is assigned if configured
+              const config = guildConfig as any;
+              const verifiedRoleId = config.verified_role_id;
+              if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
+                await member.roles.add(verifiedRoleId).catch(() => {});
+              }
 
               // Update faction roles if faction changed
               if (

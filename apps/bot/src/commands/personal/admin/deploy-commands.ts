@@ -10,7 +10,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(
   interaction: ChatInputCommandInteraction,
   supabase: SupabaseClient,
-  _client: Client,
+  client: Client,
 ): Promise<void> {
   try {
     await interaction.deferReply();
@@ -47,9 +47,25 @@ export async function execute(
 
     const rest = new REST({ version: "10" }).setToken(token);
 
+    const getGuildLabel = async (guildId: string): Promise<string> => {
+      const cachedGuild = client.guilds.cache.get(guildId);
+      if (cachedGuild) {
+        return cachedGuild.name;
+      }
+
+      try {
+        const fetchedGuild = await client.guilds.fetch(guildId);
+        return fetchedGuild.name;
+      } catch (error) {
+        console.warn("Failed to fetch guild name:", error);
+        return guildId;
+      }
+    };
+
     // Load all available commands with updated paths
-    const verifyCommand = await import("../../general/verify/verify.js");
-    const verifyallCommand = await import("../../general/verify/verifyall.js");
+    const verifyCommand = await import("../../general/verification/verify.js");
+    const verifyallCommand =
+      await import("../../general/verification/verifyall.js");
     const configCommand = await import("../../general/admin/config.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
@@ -98,16 +114,19 @@ export async function execute(
         body: adminCommands,
       });
 
+      const adminGuildName = await getGuildLabel(adminGuildId);
+
       successCount++;
       deploymentResults.push({
-        guild: `Admin Guild (${adminGuildId})`,
+        guild: `Admin Guild (${adminGuildName})`,
         status: "✅",
       });
     } catch (err) {
       console.error(`Failed to deploy to admin guild ${adminGuildId}:`, err);
+      const adminGuildName = await getGuildLabel(adminGuildId);
       failureCount++;
       deploymentResults.push({
-        guild: `Admin Guild (${adminGuildId})`,
+        guild: `Admin Guild (${adminGuildName})`,
         status: "❌",
       });
     }
@@ -140,15 +159,18 @@ export async function execute(
             body: guildCommands,
           });
 
+          const guildName = await getGuildLabel(guildId);
+
           successCount++;
-          deploymentResults.push({ guild: guildId, status: "✅" });
+          deploymentResults.push({ guild: guildName, status: "✅" });
         } catch (err) {
           console.error(
             `Failed to deploy to guild ${guildConfig.guild_id}:`,
             err,
           );
+          const guildName = await getGuildLabel(guildConfig.guild_id);
           failureCount++;
-          deploymentResults.push({ guild: guildConfig.guild_id, status: "❌" });
+          deploymentResults.push({ guild: guildName, status: "❌" });
         }
       }
     }

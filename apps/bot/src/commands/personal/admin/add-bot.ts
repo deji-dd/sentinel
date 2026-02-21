@@ -31,14 +31,11 @@ export async function execute(
       return;
     }
 
-    // Permissions: Read Messages, Send Messages, Embed Links, Read Message History
+    // Permissions: Administrator (includes all permissions)
     const permissions = [
-      "ViewChannel", // 1 << 10 = 1024
-      "SendMessages", // 1 << 11 = 2048
-      "EmbedLinks", // 1 << 14 = 16384
-      "ReadMessageHistory", // 1 << 16 = 65536
+      "Administrator", // Includes all permissions
     ];
-    const permissionBits = BigInt(1024 + 2048 + 16384 + 65536);
+    const permissionBits = BigInt(8); // ADMINISTRATOR = 1 << 3 = 8
 
     const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissionBits}&scope=bot+applications.commands`;
 

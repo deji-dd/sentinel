@@ -335,9 +335,10 @@ export async function handleModulesSelect(
 
     // Conditionally load modules
     if (modulesToEnable.includes("verify")) {
-      const verifyCommand = await import("../../general/verify/verify.js");
+      const verifyCommand =
+        await import("../../general/verification/verify.js");
       const verifyallCommand =
-        await import("../../general/verify/verifyall.js");
+        await import("../../general/verification/verifyall.js");
       commands.push(verifyCommand.data.toJSON());
       commands.push(verifyallCommand.data.toJSON());
     }
