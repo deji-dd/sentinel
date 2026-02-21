@@ -7,7 +7,7 @@
 
 import { createHash } from "crypto";
 import { supabase } from "./supabase.js";
-import { TABLE_NAMES } from "./constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
 const WINDOW_MS = 60000; // 1 minute window

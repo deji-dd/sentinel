@@ -3,7 +3,7 @@ const TORN_API_V1_BASE = "https://api.torn.com";
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 
 import { waitIfNeededPerUser } from "../lib/rate-limit-tracker-per-user.js";
-import { TORN_ERROR_CODES } from "../lib/constants.js";
+import { TORN_ERROR_CODES } from "@sentinel/shared";
 
 export interface TornUserBasic {
   profile?: {
