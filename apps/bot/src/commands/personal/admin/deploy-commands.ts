@@ -74,8 +74,6 @@ export async function execute(
     const addBotCommand = await import("./add-bot.js");
     const enableModuleCommand = await import("./enable-module.js");
     const guildStatusCommand = await import("./guild-status.js");
-    const testVerificationDmsCommand =
-      await import("./test-verification-dms.js");
 
     // Map of module names to commands
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,7 +105,6 @@ export async function execute(
         addBotCommand.data.toJSON(),
         enableModuleCommand.data.toJSON(),
         guildStatusCommand.data.toJSON(),
-        testVerificationDmsCommand.data.toJSON(),
         configCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
