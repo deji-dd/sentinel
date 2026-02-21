@@ -1,14 +1,29 @@
 import "dotenv/config";
-import { Client, Events, GatewayIntentBits, EmbedBuilder } from "discord.js";
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  EmbedBuilder,
+  type ChatInputCommandInteraction,
+} from "discord.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import * as financeCommand from "./commands/personal/finance.js";
-import * as financeSettingsCommand from "./commands/personal/finance-settings.js";
-import * as forceRunCommand from "./commands/personal/force-run.js";
-import * as deployCommandsCommand from "./commands/personal/deploy-commands.js";
-import * as setupGuildCommand from "./commands/personal/setup-guild.js";
+import * as financeCommand from "./commands/personal/finance/finance.js";
+import * as financeSettingsCommand from "./commands/personal/finance/finance-settings.js";
+import * as forceRunCommand from "./commands/personal/admin/force-run.js";
+import * as deployCommandsCommand from "./commands/personal/admin/deploy-commands.js";
+import * as setupGuildCommand from "./commands/personal/admin/setup-guild.js";
+import * as teardownGuildCommand from "./commands/personal/admin/teardown-guild.js";
+import * as addBotCommand from "./commands/personal/admin/add-bot.js";
+import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
+import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
+import * as verifyCommand from "./commands/general/verification/verify.js";
+import * as verifyallCommand from "./commands/general/verification/verifyall.js";
+import * as configCommand from "./commands/general/admin/config.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { GuildSyncScheduler } from "./lib/verification-sync.js";
+import { getNextApiKey, resolveApiKeysForGuild } from "./lib/api-keys.js";
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -51,8 +66,39 @@ const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
 const authorizedDiscordUserId = getAuthorizedDiscordUserId();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
+
+async function logCommandAudit(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  try {
+    const options = interaction.options.data.map((option) => {
+      const value = option.value;
+      const safeValue =
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+          ? value
+          : value
+            ? String(value)
+            : null;
+      return { name: option.name, value: safeValue };
+    });
+
+    await supabase.from(TABLE_NAMES.GUILD_AUDIT).insert({
+      guild_id: interaction.guildId ?? "dm",
+      actor_discord_id: interaction.user.id,
+      action: "command_invoked",
+      details: {
+        command: interaction.commandName,
+        options,
+      },
+    });
+  } catch (error) {
+    console.warn("Failed to write command audit entry:", error);
+  }
+}
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Bot is online as ${readyClient.user.tag}`);
@@ -60,12 +106,17 @@ client.once(Events.ClientReady, (readyClient) => {
   // Start HTTP server for worker communication
   const httpPort = isDev ? 3001 : parseInt(process.env.HTTP_PORT || "3001");
   initHttpServer(client, supabase, httpPort);
+
+  // Start periodic guild sync scheduler
+  const guildSyncScheduler = new GuildSyncScheduler(client, supabase);
+  guildSyncScheduler.start();
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     // Handle chat input commands
     if (interaction.isChatInputCommand()) {
+      await logCommandAudit(interaction);
       // Admin-only commands bypass guild initialization check
       if (interaction.commandName === "force-run") {
         if (interaction.user.id !== authorizedDiscordUserId) {
@@ -109,13 +160,137 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
         await setupGuildCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "add-bot") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await addBotCommand.execute(interaction, supabase);
+      } else if (interaction.commandName === "teardown-guild") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await teardownGuildCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "enable-module") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await enableModuleCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "guild-status") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
+        await guildStatusCommand.execute(interaction, supabase, client);
       } else {
         // Regular commands (personal commands only exist in admin guild)
         if (interaction.commandName === "finance") {
           await financeCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "finance-settings") {
           await financeSettingsCommand.execute(interaction);
+        } else if (interaction.commandName === "verify") {
+          await verifyCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "verifyall") {
+          await verifyallCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "config") {
+          await configCommand.execute(interaction, supabase);
         }
+      }
+      return;
+    }
+
+    // Handle buttons
+    if (interaction.isButton()) {
+      if (interaction.customId === "config_back_to_menu") {
+        await configCommand.handleBackToMenu(interaction, supabase);
+      } else if (interaction.customId === "config_back_verify_settings") {
+        await configCommand.handleBackToVerifySettings(interaction, supabase);
+      } else if (interaction.customId === "config_back_admin_settings") {
+        await configCommand.handleBackToAdminSettings(interaction, supabase);
+      } else if (interaction.customId === "config_edit_api_keys") {
+        await configCommand.handleEditApiKeysButton(interaction, supabase);
+      } else if (interaction.customId === "config_add_api_key") {
+        await configCommand.handleAddApiKeyButton(interaction);
+      } else if (interaction.customId === "config_rotate_api_key") {
+        await configCommand.handleRotateApiKeyButton(interaction, supabase);
+      } else if (interaction.customId === "config_remove_api_key_menu") {
+        await configCommand.handleRemoveApiKeyMenuButton(interaction, supabase);
+      } else if (interaction.customId === "config_add_faction_role") {
+        await configCommand.handleAddFactionRoleButton(interaction);
+      } else if (interaction.customId === "config_remove_faction_role") {
+        await configCommand.handleRemoveFactionRoleButton(interaction);
+      } else if (interaction.customId === "confirm_auto_verify_toggle") {
+        await configCommand.handleConfirmAutoVerifyToggle(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "verify_settings_edit_cancel") {
+        await configCommand.handleVerifySettingsEditCancel(
+          interaction,
+          supabase,
+        );
+      }
+      return;
+    }
+
+    // Handle modals
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith("config_add_api_key_modal")) {
+        await configCommand.handleAddApiKeyModalSubmit(interaction, supabase);
+      } else if (interaction.customId === "config_nickname_template_modal") {
+        await configCommand.handleNicknameTemplateModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "config_sync_interval_modal") {
+        await configCommand.handleSyncIntervalModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "config_add_faction_role_modal") {
+        await configCommand.handleAddFactionRoleModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "config_remove_faction_role_modal") {
+        await configCommand.handleRemoveFactionRoleModalSubmit(
+          interaction,
+          supabase,
+        );
       }
       return;
     }
@@ -126,6 +301,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await setupGuildCommand.handleGuildSelect(interaction, supabase);
       } else if (interaction.customId.startsWith("setup_modules_select")) {
         await setupGuildCommand.handleModulesSelect(interaction, supabase);
+      } else if (interaction.customId === "teardown_guild_select") {
+        await teardownGuildCommand.handleTeardownGuildSelect(
+          interaction,
+          supabase,
+          client,
+        );
+      } else if (interaction.customId === "enable_module_guild_select") {
+        await enableModuleCommand.handleGuildSelect(interaction, supabase);
+      } else if (interaction.customId.startsWith("enable_module_toggle")) {
+        await enableModuleCommand.handleModuleToggle(
+          interaction,
+          supabase,
+          client,
+        );
+      } else if (interaction.customId === "config_view_select") {
+        await configCommand.handleViewSelect(interaction, supabase);
+      } else if (interaction.customId === "verify_settings_edit") {
+        await configCommand.handleVerifySettingsEdit(interaction, supabase);
+      } else if (interaction.customId === "config_remove_api_key_select") {
+        await configCommand.handleRemoveApiKeySelect(interaction, supabase);
+      }
+      return;
+    }
+
+    // Handle role select menus
+    if (interaction.isRoleSelectMenu()) {
+      if (interaction.customId.startsWith("config_faction_role_select_")) {
+        await configCommand.handleFactionRoleSelect(interaction, supabase);
+      } else if (interaction.customId === "config_verified_role_select") {
+        await configCommand.handleVerifiedRoleSelect(interaction, supabase);
       }
       return;
     }
@@ -149,6 +354,182 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } else {
       await interaction.reply({ embeds: [errorEmbed] });
     }
+  }
+});
+
+// Auto-verify new members when they join
+client.on(Events.GuildMemberAdd, async (member) => {
+  try {
+    // Skip bots
+    if (member.user.bot) {
+      return;
+    }
+
+    const guildId = member.guild.id;
+
+    // Get guild config to check if auto-verify is enabled
+    const { data: guildConfig, error: configError } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select(
+        "auto_verify, api_keys, api_key, nickname_template, verified_role_id",
+      )
+      .eq("guild_id", guildId)
+      .single();
+
+    if (configError || !guildConfig) {
+      // Guild not configured, skip
+      return;
+    }
+
+    if (!guildConfig.auto_verify) {
+      // Auto-verify not enabled for this guild
+      return;
+    }
+
+    const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
+      guildId,
+      guildConfig,
+    );
+
+    if (apiKeyError) {
+      // No usable API keys configured
+      return;
+    }
+
+    // Try to verify the user
+    try {
+      const { botTornApi } = await import("./lib/torn-api.js");
+      const apiKey = getNextApiKey(guildId, apiKeys);
+      const response = await botTornApi.get(`/user/${member.id}`, {
+        apiKey,
+        queryParams: { selections: "discord,faction" },
+      });
+
+      if (response.error) {
+        if (response.error.code === 6) {
+          // User not linked to Torn, that's okay
+          console.log(
+            `[Auto-Verify] User ${member.user.username} (${member.id}) not linked to Torn`,
+          );
+        } else {
+          console.error(
+            `[Auto-Verify] Torn API error for ${member.id}:`,
+            response.error.error,
+          );
+        }
+        return;
+      }
+
+      if (response.discord) {
+        // Successfully verified - store in database
+        await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
+          discord_id: member.id,
+          torn_player_id: response.player_id,
+          torn_player_name: response.name,
+          faction_id: response.faction?.faction_id || null,
+          faction_name: response.faction?.faction_name || null,
+          verified_at: new Date().toISOString(),
+        });
+
+        console.log(
+          `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.name} [${response.player_id}]`,
+        );
+
+        // Apply nickname template
+        try {
+          const nickname = guildConfig.nickname_template
+            .replace("{name}", response.name)
+            .replace("{id}", response.player_id.toString())
+            .replace("{tag}", response.faction?.faction_tag || "");
+
+          await member.setNickname(nickname);
+          console.log(
+            `[Auto-Verify] Set nickname for ${member.user.username}: ${nickname}`,
+          );
+        } catch (nicknameError) {
+          console.error(
+            `[Auto-Verify] Failed to set nickname for ${member.user.username}:`,
+            nicknameError,
+          );
+        }
+
+        // Assign verification role if configured
+        if (guildConfig.verified_role_id) {
+          try {
+            await member.roles.add(guildConfig.verified_role_id);
+            console.log(
+              `[Auto-Verify] Assigned verification role to ${member.user.username}`,
+            );
+          } catch (roleError) {
+            console.error(
+              `[Auto-Verify] Failed to assign verification role to ${member.user.username}:`,
+              roleError,
+            );
+          }
+        }
+
+        // Assign faction role if mapping exists
+        if (response.faction?.faction_id) {
+          const { data: factionRole } = await supabase
+            .from(TABLE_NAMES.FACTION_ROLES)
+            .select("role_ids")
+            .eq("guild_id", guildId)
+            .eq("faction_id", response.faction.faction_id)
+            .single();
+
+          if (factionRole && factionRole.role_ids.length > 0) {
+            try {
+              await member.roles.add(factionRole.role_ids);
+              console.log(
+                `[Auto-Verify] Assigned ${factionRole.role_ids.length} role(s) to ${member.user.username}`,
+              );
+            } catch (roleError) {
+              console.error(
+                `[Auto-Verify] Failed to assign roles to ${member.user.username}:`,
+                roleError,
+              );
+            }
+          }
+        }
+
+        // Optionally send a welcome DM to the user
+        try {
+          const welcomeEmbed = new EmbedBuilder()
+            .setColor(0x22c55e)
+            .setTitle("✅ Automatically Verified")
+            .setDescription(
+              `Welcome to **${member.guild.name}**! You've been automatically verified.`,
+            )
+            .addFields(
+              { name: "Torn Name", value: response.name, inline: true },
+              {
+                name: "Torn ID",
+                value: response.player_id.toString(),
+                inline: true,
+              },
+              {
+                name: "Faction",
+                value: response.faction?.faction_name || "None",
+                inline: true,
+              },
+            );
+
+          await member.send({ embeds: [welcomeEmbed] });
+        } catch (dmError) {
+          // User has DMs disabled or blocked the bot, that's okay
+          console.log(
+            `[Auto-Verify] Could not send DM to ${member.user.username}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.error(
+        `[Auto-Verify] Error verifying ${member.user.username} (${member.id}):`,
+        error,
+      );
+    }
+  } catch (error) {
+    console.error("[Auto-Verify] Unexpected error:", error);
   }
 });
 
