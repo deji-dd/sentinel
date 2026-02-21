@@ -216,6 +216,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
         await guildStatusCommand.execute(interaction, supabase, client);
+      } else if (interaction.commandName === "test-verification-dms") {
+        if (interaction.user.id !== authorizedDiscordUserId) {
+          if (interaction.isRepliable()) {
+            const errorEmbed = new EmbedBuilder()
+              .setColor(0xef4444)
+              .setTitle("❌ Not Authorized")
+              .setDescription("You are not authorized to use this command.");
+            await interaction.reply({
+              embeds: [errorEmbed],
+            });
+          }
+          return;
+        }
       } else {
         // Regular commands (personal commands only exist in admin guild)
         if (interaction.commandName === "finance") {
@@ -357,7 +370,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// Auto-verify new members when they join
+// Auto-verify new members when they join and send DM with results
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
     // Skip bots
@@ -392,11 +405,24 @@ client.on(Events.GuildMemberAdd, async (member) => {
     );
 
     if (apiKeyError) {
-      // No usable API keys configured
+      // No usable API keys configured, skip
       return;
     }
 
     // Try to verify the user
+    let verificationResult: {
+      status: "success" | "not_linked" | "error";
+      title: string;
+      description: string;
+      color: number;
+      data?: {
+        name: string;
+        id: number;
+        faction?: { name: string; tag: string };
+      };
+      errorMessage?: string;
+    } | null = null;
+
     try {
       const { botTornApi } = await import("./lib/torn-api.js");
       const apiKey = getNextApiKey(guildId, apiKeys);
@@ -407,21 +433,34 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
       if (response.error) {
         if (response.error.code === 6) {
-          // User not linked to Torn, that's okay
+          // User not linked to Torn
+          verificationResult = {
+            status: "not_linked",
+            title: "❌ Not Linked to Torn",
+            description: `Your Discord account is not linked to a Torn account.`,
+            color: 0xef4444,
+            errorMessage:
+              "This Discord account is not linked to any Torn account",
+          };
           console.log(
             `[Auto-Verify] User ${member.user.username} (${member.id}) not linked to Torn`,
           );
         } else {
+          // API error
+          verificationResult = {
+            status: "error",
+            title: "❌ Verification Failed",
+            description: `An error occurred while verifying your account: **${response.error.error || "Unknown error"}**. Please try the /verify command manually.`,
+            color: 0xef4444,
+            errorMessage: `Torn API error: ${response.error.error}`,
+          };
           console.error(
             `[Auto-Verify] Torn API error for ${member.id}:`,
             response.error.error,
           );
         }
-        return;
-      }
-
-      if (response.discord) {
-        // Successfully verified - store in database
+      } else if (response.discord) {
+        // Successfully verified
         await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
           discord_id: member.id,
           torn_player_id: response.player_id,
@@ -430,6 +469,23 @@ client.on(Events.GuildMemberAdd, async (member) => {
           faction_name: response.faction?.faction_name || null,
           verified_at: new Date().toISOString(),
         });
+
+        verificationResult = {
+          status: "success",
+          title: "✅ Automatically Verified",
+          description: `Welcome to **${member.guild.name}**! You've been automatically verified.`,
+          color: 0x22c55e,
+          data: {
+            name: response.name,
+            id: response.player_id,
+            faction: response.faction
+              ? {
+                  name: response.faction.faction_name,
+                  tag: response.faction.faction_tag,
+                }
+              : undefined,
+          },
+        };
 
         console.log(
           `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.name} [${response.player_id}]`,
@@ -491,42 +547,72 @@ client.on(Events.GuildMemberAdd, async (member) => {
             }
           }
         }
-
-        // Optionally send a welcome DM to the user
-        try {
-          const welcomeEmbed = new EmbedBuilder()
-            .setColor(0x22c55e)
-            .setTitle("✅ Automatically Verified")
-            .setDescription(
-              `Welcome to **${member.guild.name}**! You've been automatically verified.`,
-            )
-            .addFields(
-              { name: "Torn Name", value: response.name, inline: true },
-              {
-                name: "Torn ID",
-                value: response.player_id.toString(),
-                inline: true,
-              },
-              {
-                name: "Faction",
-                value: response.faction?.faction_name || "None",
-                inline: true,
-              },
-            );
-
-          await member.send({ embeds: [welcomeEmbed] });
-        } catch (dmError) {
-          // User has DMs disabled or blocked the bot, that's okay
-          console.log(
-            `[Auto-Verify] Could not send DM to ${member.user.username}`,
-          );
-        }
+      } else {
+        // Discord not linked but other data present (shouldn't happen)
+        verificationResult = {
+          status: "error",
+          title: "❌ Verification Failed",
+          description:
+            "Your account exists but verification failed. Please try the /verify command manually.",
+          color: 0xef4444,
+          errorMessage: "Discord not linked to account",
+        };
       }
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      verificationResult = {
+        status: "error",
+        title: "❌ Verification Failed",
+        description: `An unexpected error occurred. Please try the /verify command manually. (${errorMessage})`,
+        color: 0xef4444,
+        errorMessage,
+      };
       console.error(
         `[Auto-Verify] Error verifying ${member.user.username} (${member.id}):`,
         error,
       );
+    }
+
+    // Send DM with verification results
+    if (verificationResult) {
+      try {
+        const resultEmbed = new EmbedBuilder()
+          .setColor(verificationResult.color)
+          .setTitle(verificationResult.title)
+          .setDescription(verificationResult.description);
+
+        if (verificationResult.data) {
+          resultEmbed.addFields(
+            {
+              name: "Torn Name",
+              value: verificationResult.data.name,
+              inline: true,
+            },
+            {
+              name: "Torn ID",
+              value: verificationResult.data.id.toString(),
+              inline: true,
+            },
+            {
+              name: "Faction",
+              value: verificationResult.data.faction?.name || "None",
+              inline: true,
+            },
+          );
+        }
+
+        await member.send({ embeds: [resultEmbed] });
+        console.log(
+          `[Auto-Verify] Sent ${verificationResult.status} DM to ${member.user.username}`,
+        );
+      } catch (dmError) {
+        // User has DMs disabled or blocked the bot
+        console.log(
+          `[Auto-Verify] Could not send DM to ${member.user.username}:`,
+          dmError instanceof Error ? dmError.message : String(dmError),
+        );
+      }
     }
   } catch (error) {
     console.error("[Auto-Verify] Unexpected error:", error);
