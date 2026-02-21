@@ -6,6 +6,7 @@ import {
   TornApiClient,
 } from "@sentinel/shared";
 import { getNextApiKey, resolveApiKeysForGuild } from "./api-keys.js";
+import { logGuildError, logGuildSuccess } from "./guild-logger.js";
 
 interface VerifiedUser {
   discord_id: string;
@@ -148,8 +149,24 @@ export class GuildSyncScheduler {
       console.error(
         `[Guild Sync] Failed to lock job for guild ${job.guild_id}: ${lockError.message}`,
       );
+      await logGuildError(
+        job.guild_id,
+        this.client,
+        this.supabase,
+        "Guild Sync Lock Failed",
+        lockError.message,
+        `Unable to lock sync job for guild ${job.guild_id}.`,
+      );
       return;
     }
+
+    await logGuildSuccess(
+      job.guild_id,
+      this.client,
+      this.supabase,
+      "Guild Sync Started",
+      "Scheduled verification sync started.",
+    );
 
     try {
       const { data: guildConfig, error: configError } = await this.supabase
@@ -160,6 +177,14 @@ export class GuildSyncScheduler {
 
       if (configError || !guildConfig) {
         console.error(`[Guild Sync] Guild ${job.guild_id} config not found`);
+        await logGuildError(
+          job.guild_id,
+          this.client,
+          this.supabase,
+          "Guild Sync Failed",
+          configError?.message || "Missing guild config",
+          `Guild config not found for ${job.guild_id}.`,
+        );
         return;
       }
 
@@ -170,6 +195,14 @@ export class GuildSyncScheduler {
 
       if (apiKeyError) {
         console.error(`[Guild Sync] ${apiKeyError} (guild ${job.guild_id})`);
+        await logGuildError(
+          job.guild_id,
+          this.client,
+          this.supabase,
+          "Guild Sync Failed",
+          apiKeyError,
+          `Missing API key for guild ${job.guild_id}.`,
+        );
         return;
       }
 
@@ -181,6 +214,14 @@ export class GuildSyncScheduler {
       if (usersError || !verifiedUsers) {
         console.error(
           `[Guild Sync] Failed to fetch verified users: ${usersError?.message}`,
+        );
+        await logGuildError(
+          job.guild_id,
+          this.client,
+          this.supabase,
+          "Guild Sync Failed",
+          usersError?.message || "Failed to fetch verified users",
+          `Unable to fetch verified users for guild ${job.guild_id}.`,
         );
         return;
       }
@@ -194,6 +235,14 @@ export class GuildSyncScheduler {
       const discord = this.client.guilds.cache.get(job.guild_id);
       if (!discord) {
         console.log(`[Guild Sync] Guild ${job.guild_id} not in cache`);
+        await logGuildError(
+          job.guild_id,
+          this.client,
+          this.supabase,
+          "Guild Sync Failed",
+          "Guild not available in cache",
+          `Bot is not in guild ${job.guild_id} or cache missing.`,
+        );
         return;
       }
 
@@ -347,6 +396,25 @@ export class GuildSyncScheduler {
       console.log(
         `[Guild Sync] Guild ${job.guild_id} sync complete: ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed, ${errorCount} errors`,
       );
+
+      if (errorCount > 0) {
+        await logGuildError(
+          job.guild_id,
+          this.client,
+          this.supabase,
+          "Guild Sync Completed with Errors",
+          `${errorCount} error(s) occurred during sync.`,
+          `Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
+        );
+      } else {
+        await logGuildSuccess(
+          job.guild_id,
+          this.client,
+          this.supabase,
+          "Guild Sync Completed",
+          `Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
+        );
+      }
     } finally {
       // Unlock job and update next sync time
       const config = (await this.supabase

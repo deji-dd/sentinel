@@ -10,6 +10,11 @@ import {
   getNextApiKey,
   resolveApiKeysForGuild,
 } from "../../../lib/api-keys.js";
+import {
+  logGuildError,
+  logGuildSuccess,
+  logGuildWarning,
+} from "../../../lib/guild-logger.js";
 
 export const data = new SlashCommandBuilder()
   .setName("verify")
@@ -52,6 +57,14 @@ export async function execute(
       .single();
 
     if (configError || !guildConfig) {
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify Failed: Not Configured",
+        configError?.message || "Missing guild config",
+        `${interaction.user} attempted /verify but guild is not configured.`,
+      );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Not Configured")
@@ -72,6 +85,14 @@ export async function execute(
     );
 
     if (apiKeyError) {
+      await logGuildWarning(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify Warning: API Key Required",
+        apiKeyError,
+        [{ name: "User", value: interaction.user.toString(), inline: true }],
+      );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ API Key Required")
@@ -102,6 +123,14 @@ export async function execute(
 
       // Map error codes to user-friendly messages
       if (errorMessage.includes("Incorrect ID")) {
+        await logGuildWarning(
+          guildId,
+          interaction.client,
+          supabase,
+          "Verify: Not Linked",
+          `${targetUser} is not linked to Torn.`,
+          [{ name: "Target", value: targetUser.toString(), inline: true }],
+        );
         const errorEmbed = new EmbedBuilder()
           .setColor(0xef4444)
           .setTitle("❌ Not Linked")
@@ -121,6 +150,15 @@ export async function execute(
         .setColor(0xef4444)
         .setTitle("❌ Error")
         .setDescription(errorMessage || "Failed to verify user.");
+
+      await logGuildError(
+        guildId,
+        interaction.client,
+        supabase,
+        "Verify Failed",
+        errorMessage || "Failed to verify user.",
+        `Verification failed for ${targetUser}.`,
+      );
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -142,6 +180,21 @@ export async function execute(
         value: String(response.profile?.id || "Unknown"),
         inline: true,
       });
+
+    await logGuildSuccess(
+      guildId,
+      interaction.client,
+      supabase,
+      "Verify Success",
+      `${targetUser} verified as **${response.profile?.name}**.`,
+      [
+        {
+          name: "Torn ID",
+          value: String(response.profile?.id || "Unknown"),
+          inline: true,
+        },
+      ],
+    );
 
     if (response.faction) {
       successEmbed.addFields({
