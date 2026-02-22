@@ -1,4 +1,4 @@
-import type { components, paths } from "./generated/torn-api.js";
+import type { paths } from "./generated/torn-api.js";
 /**
  * Torn API Error Response - properly typed from OpenAPI spec
  */
@@ -24,44 +24,39 @@ export interface TornApiConfig {
     timeout?: number;
 }
 /**
- * Make query parameters more flexible - allows string or array for selections
- * This handles both "a,b,c" syntax and ["a", "b", "c"] syntax
+ * Extract operation from path - handles both get operations
  */
-type FlexibleQueryParams<Q> = Q extends Record<string, any> ? {
-    [K in keyof Q]: Q[K] extends Array<infer T> ? Q[K] | (T extends string ? string : Q[K]) : Q[K];
-} : Q;
+type PathOperation<P extends keyof paths> = paths[P] extends {
+    get: infer Op;
+} ? Op : never;
 /**
- * Extract GET operation response from a path
- * Gets the operation object first, then extracts the 200 response
+ * Extract successful response from operation
  */
-type GetPathResponse<P extends keyof paths> = paths[P] extends {
-    get: {
-        responses: {
-            200: {
-                content: {
-                    "application/json": infer R;
-                };
+type OperationResponse<Op> = Op extends {
+    responses: {
+        200: {
+            content: {
+                "application/json": infer R;
             };
         };
     };
-} ? R : any;
-type GetPathQueryParams<P extends keyof paths> = paths[P] extends {
-    get: {
-        parameters: {
-            query?: infer Q;
-        };
-    };
-} ? Q extends Record<string, any> ? Q : never : never;
+} ? R : never;
 /**
- * Extract path parameters required by a path
+ * Extract query parameters from operation
  */
-type GetPathPathParams<P extends keyof paths> = paths[P] extends {
-    get: {
-        parameters: {
-            path?: infer P;
-        };
+type OperationQueryParams<Op> = Op extends {
+    parameters: {
+        query?: infer Q;
     };
-} ? P extends Record<string, any> ? P : never : never;
+} ? Q extends Record<string, any> ? Q : {} : {};
+/**
+ * Extract path parameters from operation
+ */
+type OperationPathParams<Op> = Op extends {
+    parameters: {
+        path?: infer P;
+    };
+} ? P extends Record<string, any> ? P : {} : {};
 /**
  * Type-safe Torn API v2 client with full type inference
  *
@@ -77,35 +72,23 @@ export declare class TornApiClient {
     private timeout;
     constructor(config?: TornApiConfig);
     /**
-     * GET /user - returns union of all possible response types for /user endpoint
+     * Type-safe GET request with full inference
+     *
+     * @example
+     * // Full type inference and autocomplete
+     * const result = await client.get("/user/basic", {
+     *   apiKey: myKey,
+     *   queryParams: { striptags: "true" } // Type-checked!
+     * });
+     * // result is typed as UserBasicResponse
      */
-    get(path: "/user", options: {
+    get<P extends keyof paths>(path: P, options: {
         apiKey: string;
-        queryParams?: {
-            selections?: string | readonly string[];
-            id?: number;
-            striptags?: string;
-        };
-    }): Promise<components["schemas"]["UserDiscordResponse"] | components["schemas"]["UserFactionResponse"] | components["schemas"]["UserProfileResponse"] | components["schemas"]["UserCrimesResponse"] | components["schemas"]["UserBasicResponse"] | components["schemas"]["AttacksResponse"]>;
+        pathParams?: OperationPathParams<PathOperation<P>>;
+        queryParams?: OperationQueryParams<PathOperation<P>>;
+    }): Promise<OperationResponse<PathOperation<P>>>;
     /**
-     * GET /user/basic - returns the basic user info response
-     */
-    get(path: "/user/basic", options: {
-        apiKey: string;
-        queryParams?: {
-            striptags?: string;
-        };
-    }): Promise<components["schemas"]["UserBasicResponse"]>;
-    /**
-     * Generic GET for any other path
-     */
-    get<P extends Exclude<keyof paths, "/user" | "/user/basic">>(path: P, options: {
-        apiKey: string;
-        pathParams?: GetPathPathParams<P> extends never ? undefined : GetPathPathParams<P>;
-        queryParams?: GetPathQueryParams<P> extends never ? undefined : FlexibleQueryParams<GetPathQueryParams<P>>;
-    }): Promise<GetPathResponse<P>>;
-    /**
-     * Runtime string paths - returns generic type
+     * Dynamic path variant for runtime-constructed paths
      */
     get<T extends Record<string, any> = any>(path: string, options: {
         apiKey: string;

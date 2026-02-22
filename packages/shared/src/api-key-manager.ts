@@ -4,7 +4,12 @@
  * Uses the same AES-256-GCM encryption as the main encryption module
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  createHash,
+} from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // 256 bits
@@ -45,7 +50,10 @@ export function decryptApiKey(encrypted: string, masterKey: string): string {
 
   // Extract components
   const ivHex = encrypted.slice(0, IV_LENGTH * 2);
-  const tagHex = encrypted.slice(IV_LENGTH * 2, IV_LENGTH * 2 + AUTH_TAG_LENGTH * 2);
+  const tagHex = encrypted.slice(
+    IV_LENGTH * 2,
+    IV_LENGTH * 2 + AUTH_TAG_LENGTH * 2,
+  );
   const ciphertextHex = encrypted.slice(IV_LENGTH * 2 + AUTH_TAG_LENGTH * 2);
 
   const iv = Buffer.from(ivHex, "hex");

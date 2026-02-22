@@ -4,5 +4,9 @@
  * All functionality has been moved to torn-client.ts
  */
 
-export { validateTornApiKey, ValidatedKeyInfo, TORN_ERROR_CODES, createTornApiClient } from "./torn-client.js";
-
+export {
+  validateTornApiKey,
+  ValidatedKeyInfo,
+  TORN_ERROR_CODES,
+  createTornApiClient,
+} from "./torn-client.js";

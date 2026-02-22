@@ -51,7 +51,7 @@ export class TornApiClient {
         this.timeout = config.timeout ?? REQUEST_TIMEOUT;
     }
     /**
-     * Implementation handles all overloads
+     * Implementation handles both overloads
      */
     async get(path, options) {
         const { apiKey, pathParams, queryParams } = options;

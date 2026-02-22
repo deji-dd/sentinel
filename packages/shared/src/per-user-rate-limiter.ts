@@ -42,7 +42,8 @@ export class PerUserRateLimiter implements RateLimitTracker {
     this.tableName = config.tableName;
     this.apiKeyMappingTableName = config.apiKeyMappingTableName;
     this.hashPepper = config.hashPepper;
-    this.maxRequests = config.maxRequestsPerWindow ?? DEFAULT_MAX_REQUESTS_PER_WINDOW;
+    this.maxRequests =
+      config.maxRequestsPerWindow ?? DEFAULT_MAX_REQUESTS_PER_WINDOW;
     this.windowMs = config.windowMs ?? DEFAULT_WINDOW_MS;
 
     if (!this.hashPepper) {
@@ -96,7 +97,9 @@ export class PerUserRateLimiter implements RateLimitTracker {
   async recordRequest(apiKey: string): Promise<void> {
     const userId = await this.getUserIdFromApiKey(apiKey);
     if (!userId) {
-      console.warn("[RateLimiter] Could not record request - user_id not found");
+      console.warn(
+        "[RateLimiter] Could not record request - user_id not found",
+      );
       return;
     }
 
@@ -120,7 +123,9 @@ export class PerUserRateLimiter implements RateLimitTracker {
   async getRequestCount(apiKey: string): Promise<number> {
     const userId = await this.getUserIdFromApiKey(apiKey);
     if (!userId) {
-      console.warn("[RateLimiter] Could not get request count - user_id not found");
+      console.warn(
+        "[RateLimiter] Could not get request count - user_id not found",
+      );
       return 0;
     }
 

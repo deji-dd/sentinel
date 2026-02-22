@@ -121,11 +121,7 @@ export class BatchOperationHandler {
       retryAttempts?: number;
     } = {},
   ): Promise<BatchResult<R>[]> {
-    const {
-      concurrent = false,
-      delayMs = 100,
-      retryAttempts = 2,
-    } = options;
+    const { concurrent = false, delayMs = 100, retryAttempts = 2 } = options;
 
     if (!apiKeys.length) {
       throw new Error("At least one API key is required");
@@ -250,10 +246,7 @@ export class BatchOperationHandler {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         // If it's a rate limit error and we have retries left, wait and retry
-        if (
-          attempt < maxRetries &&
-          lastError.message?.includes("rate limit")
-        ) {
+        if (attempt < maxRetries && lastError.message?.includes("rate limit")) {
           const waitTime = 1000 * Math.pow(2, attempt); // Exponential backoff
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         }

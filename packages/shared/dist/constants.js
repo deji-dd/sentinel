@@ -17,6 +17,8 @@ export const TABLE_NAMES = {
     TORN_DESTINATIONS: "sentinel_torn_destinations",
     DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
     RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
+    USER_KEYS: "sentinel_user_keys",
+    API_KEY_USER_MAPPING: "sentinel_api_key_user_mapping",
     USER_ALERTS: "sentinel_user_alerts",
     USER_SNAPSHOTS: "sentinel_user_snapshots",
     FINANCE_SETTINGS: "sentinel_finance_settings",
