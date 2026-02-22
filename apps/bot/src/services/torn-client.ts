@@ -1,11 +1,15 @@
 /**
- * Bot-specific Torn API service with rate limiting.
- * Uses the global @sentinel/shared TornApiClient with database rate limiter.
+ * Bot-specific Torn API service with per-user rate limiting.
+ * Uses the global @sentinel/shared TornApiClient with per-user rate limiter.
+ *
+ * Key difference from old system:
+ * - Tracks rate limits per USER (not per API key)
+ * - Respects Torn's actual limit: 100 req/min per user across all their keys
  */
 
 import {
   TornApiClient,
-  DatabaseRateLimiter,
+  PerUserRateLimiter,
   TABLE_NAMES,
   TORN_ERROR_CODES,
 } from "@sentinel/shared";
@@ -19,7 +23,7 @@ export interface ValidatedKeyInfo {
 }
 
 /**
- * Create a Torn API client with rate limiting for the bot
+ * Create a Torn API client with per-user rate limiting for the bot
  */
 export function createTornApiClient(supabase: SupabaseClient): TornApiClient {
   const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
@@ -28,10 +32,12 @@ export function createTornApiClient(supabase: SupabaseClient): TornApiClient {
     throw new Error("API_KEY_HASH_PEPPER environment variable is required");
   }
 
-  const rateLimiter = new DatabaseRateLimiter({
+  const rateLimiter = new PerUserRateLimiter({
     supabase,
     tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+    apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
     hashPepper: API_KEY_HASH_PEPPER,
+    maxRequestsPerWindow: 100, // Torn's actual limit
   });
 
   return new TornApiClient({
@@ -41,6 +47,7 @@ export function createTornApiClient(supabase: SupabaseClient): TornApiClient {
 
 /**
  * Validates a Torn API key and returns key info.
+ * Uses the TornApiClient for consistency.
  * @throws Error if validation fails
  */
 export async function validateTornApiKey(
@@ -84,3 +91,4 @@ export async function validateTornApiKey(
 
 // Re-export error codes for convenience
 export { TORN_ERROR_CODES };
+
