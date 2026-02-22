@@ -90,5 +90,5 @@ export function isValidApiKey(key: string): boolean {
  * Validate encryption key is properly formatted
  */
 export function isValidMasterKey(key: string): boolean {
-  return key && key.length >= 32; // Should be a strong key
+  return Boolean(key && key.length >= 32); // Should be a strong key
 }

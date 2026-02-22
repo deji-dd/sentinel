@@ -163,7 +163,7 @@ export class BatchOperationHandler {
    */
   private async executeConcurrent<T, R>(
     distribution: BatchDistribution,
-    requests: Map<string, BatchRequest<T>>,
+    requests: BatchRequest<T>[],
     handler: (item: T, key: string) => Promise<R>,
     resultMap: Map<string, BatchResult<R>>,
     retryAttempts: number,

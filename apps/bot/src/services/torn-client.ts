@@ -5,6 +5,7 @@
  * Key difference from old system:
  * - Tracks rate limits per USER (not per API key)
  * - Respects Torn's actual limit: 100 req/min per user across all their keys
+ * - Auto-marks invalid keys after multiple failures to prevent IP blocking
  */
 
 import {
@@ -14,6 +15,7 @@ import {
   TORN_ERROR_CODES,
 } from "@sentinel/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { markGuildApiKeyInvalid } from "../lib/guild-api-keys.js";
 
 export interface ValidatedKeyInfo {
   playerId: number;
@@ -42,6 +44,12 @@ export function createTornApiClient(supabase: SupabaseClient): TornApiClient {
 
   return new TornApiClient({
     rateLimitTracker: rateLimiter,
+    onInvalidKey: async (apiKey, errorCode) => {
+      console.warn(
+        `Invalid guild API key detected (error code ${errorCode}), marking for deletion`,
+      );
+      await markGuildApiKeyInvalid(supabase, apiKey, 3); // Soft-delete after 3 failures
+    },
   });
 }
 

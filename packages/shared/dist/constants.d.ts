@@ -17,7 +17,8 @@ export declare const TABLE_NAMES: {
     readonly TORN_DESTINATIONS: "sentinel_torn_destinations";
     readonly DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times";
     readonly RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user";
-    readonly USER_KEYS: "sentinel_user_keys";
+    readonly SYSTEM_API_KEYS: "sentinel_system_api_keys";
+    readonly GUILD_API_KEYS: "sentinel_guild_api_keys";
     readonly API_KEY_USER_MAPPING: "sentinel_api_key_user_mapping";
     readonly USER_ALERTS: "sentinel_user_alerts";
     readonly USER_SNAPSHOTS: "sentinel_user_snapshots";

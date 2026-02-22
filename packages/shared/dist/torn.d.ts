@@ -22,6 +22,7 @@ export interface RateLimitTracker {
 export interface TornApiConfig {
     rateLimitTracker?: RateLimitTracker;
     timeout?: number;
+    onInvalidKey?: (apiKey: string, errorCode: number) => Promise<void>;
 }
 /**
  * Extract operation from path - handles both get operations
@@ -69,6 +70,7 @@ type OperationPathParams<Op> = Op extends {
  */
 export declare class TornApiClient {
     private rateLimitTracker?;
+    private onInvalidKey?;
     private timeout;
     constructor(config?: TornApiConfig);
     /**

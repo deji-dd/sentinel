@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS sentinel_system_api_keys (
   api_key_encrypted TEXT NOT NULL,
   is_primary BOOLEAN DEFAULT false,
   key_type TEXT DEFAULT 'personal' CHECK (key_type IN ('personal', 'system')),
+  invalid_count INTEGER DEFAULT 0,  -- Track invalid API key errors
+  last_invalid_at TIMESTAMP WITH TIME ZONE,  -- Last time key failed
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   last_used_at TIMESTAMP WITH TIME ZONE,
   deleted_at TIMESTAMP WITH TIME ZONE,
@@ -34,7 +36,9 @@ CREATE TABLE IF NOT EXISTS sentinel_guild_api_keys (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   api_key_encrypted TEXT NOT NULL,
   is_primary BOOLEAN DEFAULT false,
-  provided_by UUID NOT NULL REFERENCES auth.users(id),
+  provided_by TEXT NOT NULL,  -- Discord user ID (text, not UUID)
+  invalid_count INTEGER DEFAULT 0,  -- Track invalid API key errors
+  last_invalid_at TIMESTAMP WITH TIME ZONE,  -- Last time key failed
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   last_used_at TIMESTAMP WITH TIME ZONE,
   deleted_at TIMESTAMP WITH TIME ZONE,
@@ -49,28 +53,14 @@ CREATE INDEX sentinel_guild_api_keys_primary_idx ON sentinel_guild_api_keys(guil
 -- Enable RLS
 ALTER TABLE sentinel_guild_api_keys ENABLE ROW LEVEL SECURITY;
 
--- Service role can do anything
+-- Service role can do anything (bot and worker use service_role)
 CREATE POLICY "sentinel_guild_api_keys_service_role" ON sentinel_guild_api_keys
   USING (auth.role() = 'service_role'::text)
   WITH CHECK (auth.role() = 'service_role'::text);
 
--- Guild members can manage their guild's keys (read/write)
--- In practice, this should be further restricted to guild admins/leaders via app logic
-CREATE POLICY "sentinel_guild_api_keys_guild_view" ON sentinel_guild_api_keys
-  FOR SELECT USING (
-    auth.role() = 'service_role'::text
-    OR EXISTS (
-      SELECT 1 FROM sentinel_faction_roles sfr
-      WHERE sfr.guild_id = sentinel_guild_api_keys.guild_id
-      AND sfr.discord_id = auth.uid()::text
-    )
-  );
-
-CREATE POLICY "sentinel_guild_api_keys_guild_manage" ON sentinel_guild_api_keys
-  FOR UPDATE USING (auth.role() = 'service_role'::text);
-
-CREATE POLICY "sentinel_guild_api_keys_guild_delete" ON sentinel_guild_api_keys
-  FOR DELETE USING (auth.role() = 'service_role'::text);
+-- TODO: Add guild member policies for web app access
+-- Guild members would need to be able to view/manage their guild's keys
+-- This requires proper auth.users <-> discord_id mapping
 
 ---
 

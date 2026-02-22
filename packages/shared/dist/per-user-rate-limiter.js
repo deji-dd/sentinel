@@ -26,7 +26,8 @@ export class PerUserRateLimiter {
         this.tableName = config.tableName;
         this.apiKeyMappingTableName = config.apiKeyMappingTableName;
         this.hashPepper = config.hashPepper;
-        this.maxRequests = config.maxRequestsPerWindow ?? DEFAULT_MAX_REQUESTS_PER_WINDOW;
+        this.maxRequests =
+            config.maxRequestsPerWindow ?? DEFAULT_MAX_REQUESTS_PER_WINDOW;
         this.windowMs = config.windowMs ?? DEFAULT_WINDOW_MS;
         if (!this.hashPepper) {
             throw new Error("API_KEY_HASH_PEPPER is required for secure rate limiting");

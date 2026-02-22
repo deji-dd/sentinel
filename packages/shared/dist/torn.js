@@ -45,9 +45,11 @@ export const TORN_ERROR_CODES = {
  */
 export class TornApiClient {
     rateLimitTracker;
+    onInvalidKey;
     timeout;
     constructor(config = {}) {
         this.rateLimitTracker = config.rateLimitTracker;
+        this.onInvalidKey = config.onInvalidKey;
         this.timeout = config.timeout ?? REQUEST_TIMEOUT;
     }
     /**
@@ -95,6 +97,11 @@ export class TornApiClient {
                 const errorMessage = TORN_ERROR_CODES[error.code] ||
                     error.error ||
                     `Error code ${error.code}`;
+                // Call invalid key handler for error code 2 (Incorrect Key)
+                // This allows apps to soft-delete keys after multiple failures
+                if (error.code === 2 && this.onInvalidKey) {
+                    await this.onInvalidKey(apiKey, error.code);
+                }
                 throw new Error(errorMessage);
             }
             // Check for HTTP errors
@@ -153,6 +160,11 @@ export class TornApiClient {
                 const errorMessage = TORN_ERROR_CODES[error.code] ||
                     error.error ||
                     `Error code ${error.code}`;
+                // Call invalid key handler for error code 2 (Incorrect Key)
+                // This allows apps to soft-delete keys after multiple failures
+                if (error.code === 2 && this.onInvalidKey) {
+                    await this.onInvalidKey(apiKey, error.code);
+                }
                 throw new Error(errorMessage);
             }
             // Check for HTTP errors

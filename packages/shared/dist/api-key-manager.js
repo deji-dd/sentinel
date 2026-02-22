@@ -3,7 +3,7 @@
  * Handles encryption/decryption of Torn API keys for secure storage
  * Uses the same AES-256-GCM encryption as the main encryption module
  */
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash, } from "crypto";
 const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 16; // 128 bits
@@ -66,6 +66,6 @@ export function isValidApiKey(key) {
  * Validate encryption key is properly formatted
  */
 export function isValidMasterKey(key) {
-    return key && key.length >= 32; // Should be a strong key
+    return Boolean(key && key.length >= 32); // Should be a strong key
 }
 //# sourceMappingURL=api-key-manager.js.map
