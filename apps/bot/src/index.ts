@@ -265,6 +265,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleEditLogChannelButton(interaction, supabase);
       } else if (interaction.customId === "config_clear_log_channel") {
         await configCommand.handleClearLogChannel(interaction, supabase);
+      } else if (interaction.customId === "config_edit_admin_roles") {
+        await configCommand.handleEditAdminRolesButton(interaction);
       } else if (interaction.customId === "config_add_api_key") {
         await configCommand.handleAddApiKeyButton(interaction);
       } else if (interaction.customId === "config_rotate_api_key") {
@@ -353,6 +355,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleFactionRoleSelect(interaction, supabase);
       } else if (interaction.customId === "config_verified_role_select") {
         await configCommand.handleVerifiedRoleSelect(interaction, supabase);
+      } else if (interaction.customId === "config_admin_roles_select") {
+        await configCommand.handleAdminRolesSelect(interaction, supabase);
       }
       return;
     }

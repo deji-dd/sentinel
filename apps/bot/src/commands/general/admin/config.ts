@@ -23,6 +23,7 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { encrypt, decrypt } from "../../../lib/encryption.js";
+import { getAuthorizedDiscordUserId } from "../../../lib/auth.js";
 import {
   fetchAndStoreFactionNames,
   validateAndFetchFactionDetails,
@@ -85,12 +86,40 @@ export async function execute(
       return;
     }
 
+    // Check if user has permission to use config command
+    const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
+    const botOwnerId = getAuthorizedDiscordUserId();
+    const userIsBotOwner = interaction.user.id === botOwnerId;
+
+    if (!userIsBotOwner && adminRoleIds.length > 0) {
+      // Admin roles are set, check if user has one of them
+      const userRoles = interaction.member?.roles;
+      const hasAdminRole =
+        userRoles &&
+        "cache" in userRoles &&
+        userRoles.cache.some((role) => adminRoleIds.includes(role.id));
+
+      if (!hasAdminRole) {
+        const errorEmbed = new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle("❌ Not Authorized")
+          .setDescription(
+            "You do not have permission to use this command. Only users with configured admin roles can access config.",
+          );
+
+        await interaction.editReply({
+          embeds: [errorEmbed],
+        });
+        return;
+      }
+    }
+
     // Show view selection menu
     const options = [
       new StringSelectMenuOptionBuilder()
         .setLabel("Admin Settings")
         .setValue("admin")
-        .setDescription("API key management"),
+        .setDescription("Manage administrative settings"),
       new StringSelectMenuOptionBuilder()
         .setLabel("Verification Settings")
         .setValue("verify")
@@ -240,6 +269,15 @@ async function showAdminSettings(
     ? `<#${guildConfig.log_channel_id}>`
     : "Not configured";
 
+  // Format admin roles display
+  const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
+  let adminRolesDisplay = "Not configured (anyone can use config)";
+  if (adminRoleIds.length > 0) {
+    adminRolesDisplay = adminRoleIds
+      .map((roleId) => `<@&${roleId}>`)
+      .join(", ");
+  }
+
   const adminEmbed = new EmbedBuilder()
     .setColor(0x8b5cf6)
     .setTitle("Admin Settings")
@@ -252,6 +290,11 @@ async function showAdminSettings(
       {
         name: "Log Channel",
         value: logChannelDisplay,
+        inline: false,
+      },
+      {
+        name: "Admin Roles",
+        value: adminRolesDisplay,
         inline: false,
       },
     )
@@ -269,6 +312,11 @@ async function showAdminSettings(
     .setLabel("Edit Log Channel")
     .setStyle(ButtonStyle.Primary);
 
+  const editAdminRolesBtn = new ButtonBuilder()
+    .setCustomId("config_edit_admin_roles")
+    .setLabel("Manage Admin Roles")
+    .setStyle(ButtonStyle.Primary);
+
   const backBtn = new ButtonBuilder()
     .setCustomId("config_back_to_menu")
     .setLabel("Back")
@@ -277,6 +325,7 @@ async function showAdminSettings(
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     editKeysBtn,
     editLogChannelBtn,
+    editAdminRolesBtn,
     backBtn,
   );
 
@@ -421,7 +470,7 @@ export async function handleBackToMenu(
       new StringSelectMenuOptionBuilder()
         .setLabel("Admin Settings")
         .setValue("admin")
-        .setDescription("API key management"),
+        .setDescription("Manage administrative settings"),
       new StringSelectMenuOptionBuilder()
         .setLabel("Verification Settings")
         .setValue("verify")
@@ -652,6 +701,15 @@ export async function handleBackToAdminSettings(
       ? `<#${guildConfig.log_channel_id}>`
       : "Not configured";
 
+    // Format admin roles display
+    const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
+    let adminRolesDisplay = "Not configured (anyone can use config)";
+    if (adminRoleIds.length > 0) {
+      adminRolesDisplay = adminRoleIds
+        .map((roleId) => `<@&${roleId}>`)
+        .join(", ");
+    }
+
     const adminEmbed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Admin Settings")
@@ -664,6 +722,11 @@ export async function handleBackToAdminSettings(
         {
           name: "Log Channel",
           value: logChannelDisplay,
+          inline: false,
+        },
+        {
+          name: "Admin Roles",
+          value: adminRolesDisplay,
           inline: false,
         },
       )
@@ -681,6 +744,11 @@ export async function handleBackToAdminSettings(
       .setLabel("Edit Log Channel")
       .setStyle(ButtonStyle.Primary);
 
+    const editAdminRolesBtn = new ButtonBuilder()
+      .setCustomId("config_edit_admin_roles")
+      .setLabel("Manage Admin Roles")
+      .setStyle(ButtonStyle.Primary);
+
     const backBtn = new ButtonBuilder()
       .setCustomId("config_back_to_menu")
       .setLabel("Back")
@@ -689,6 +757,7 @@ export async function handleBackToAdminSettings(
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       editKeysBtn,
       editLogChannelBtn,
+      editAdminRolesBtn,
       backBtn,
     );
 
@@ -2534,6 +2603,134 @@ export async function handleClearLogChannel(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in clear log channel handler:", errorMsg);
+  }
+}
+
+// Handler for edit admin roles button
+export async function handleEditAdminRolesButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const roleSelectMenu = new RoleSelectMenuBuilder()
+      .setCustomId("config_admin_roles_select")
+      .setPlaceholder("Select admin roles...")
+      .setMinValues(0)
+      .setMaxValues(25);
+
+    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      roleSelectMenu,
+    );
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8b5cf6)
+      .setTitle("Manage Admin Roles")
+      .setDescription(
+        "Select roles that are allowed to use the /config command. If no roles are selected, anyone can use /config.",
+      );
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit admin roles handler:", errorMsg);
+  }
+}
+
+// Handler for admin roles select
+export async function handleAdminRolesSelect(
+  interaction: RoleSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    const selectedRoleIds = interaction.values;
+
+    if (!guildId) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Error")
+        .setDescription("Unable to determine guild.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    // Update guild config with selected admin roles
+    const { error } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .update({
+        admin_role_ids: selectedRoleIds,
+      })
+      .eq("guild_id", guildId);
+
+    if (error) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Failed to Update Admin Roles")
+        .setDescription(error.message);
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    // Log this action
+    await logGuildAudit(supabase, {
+      guildId,
+      actorId: interaction.user.id,
+      action: "admin_roles_updated",
+      details: {
+        role_ids: selectedRoleIds,
+        role_count: selectedRoleIds.length,
+      },
+    });
+
+    // Show success message
+    let rolesDisplay = "Anyone can use /config";
+    if (selectedRoleIds.length > 0) {
+      rolesDisplay = selectedRoleIds
+        .map((roleId) => `<@&${roleId}>`)
+        .join(", ");
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Admin Roles Updated")
+      .setDescription(`Allowed roles:\n${rolesDisplay}`);
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("config_back_admin_settings")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+
+    await logGuildSuccess(
+      guildId,
+      interaction.client,
+      supabase,
+      "Admin Roles Updated",
+      `${interaction.user} updated admin roles. Count: ${selectedRoleIds.length}`,
+    );
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in admin roles select handler:", errorMsg);
   }
 }
 
