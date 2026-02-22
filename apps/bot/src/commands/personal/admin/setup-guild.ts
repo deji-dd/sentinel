@@ -209,7 +209,7 @@ export async function handleGuildSelect(
 
     // Show module selection - only general modules, admin is auto-included
     const availableModules = [
-      { name: "Verify", value: "verify" },
+      { name: "Verification", value: "verify" },
       // Add more general modules as they're created
     ];
 
