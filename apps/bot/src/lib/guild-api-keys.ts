@@ -14,16 +14,16 @@ import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
-const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
-
-if (!ENCRYPTION_KEY) {
+if (!process.env.ENCRYPTION_KEY) {
   throw new Error("ENCRYPTION_KEY environment variable is required");
 }
 
-if (!API_KEY_HASH_PEPPER) {
+if (!process.env.API_KEY_HASH_PEPPER) {
   throw new Error("API_KEY_HASH_PEPPER environment variable is required");
 }
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
 
 /**
  * Get guild's API keys (guild-isolated via RLS)
@@ -49,6 +49,7 @@ export async function getGuildApiKeys(
   for (const row of data || []) {
     try {
       const decrypted = decryptApiKey(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (row as any).api_key_encrypted,
         ENCRYPTION_KEY,
       );
@@ -83,6 +84,7 @@ export async function getPrimaryGuildApiKey(
   }
 
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return decryptApiKey((data as any).api_key_encrypted, ENCRYPTION_KEY);
   } catch (err) {
     console.error("Failed to decrypt primary guild API key:", err);
@@ -175,6 +177,7 @@ export async function deleteGuildApiKey(
   for (const row of data || []) {
     try {
       const decrypted = decryptApiKey(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (row as any).api_key_encrypted,
         ENCRYPTION_KEY,
       );
@@ -183,6 +186,7 @@ export async function deleteGuildApiKey(
         const { error: deleteError } = await supabase
           .from(TABLE_NAMES.GUILD_API_KEYS)
           .update({ deleted_at: new Date().toISOString() })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .eq("id", (row as any).id);
 
         if (deleteError) {
@@ -198,6 +202,7 @@ export async function deleteGuildApiKey(
 
         return;
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       // Continue searching for the key
     }
@@ -234,6 +239,7 @@ export async function markGuildApiKeyInvalid(
     return;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (mapping as any).user_id;
 
   // Find the key record
@@ -252,15 +258,19 @@ export async function markGuildApiKeyInvalid(
   for (const row of keys) {
     try {
       const decrypted = decryptApiKey(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (row as any).api_key_encrypted,
         ENCRYPTION_KEY,
       );
       if (decrypted === apiKey) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const currentCount = (row as any).invalid_count || 0;
         const newCount = currentCount + 1;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const guildId = (row as any).guild_id;
 
         // Update invalid count and timestamp
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updates: any = {
           invalid_count: newCount,
           last_invalid_at: new Date().toISOString(),
@@ -283,6 +293,7 @@ export async function markGuildApiKeyInvalid(
         const { error: updateError } = await supabase
           .from(TABLE_NAMES.GUILD_API_KEYS)
           .update(updates)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .eq("id", (row as any).id);
 
         if (updateError) {
@@ -294,6 +305,7 @@ export async function markGuildApiKeyInvalid(
 
         return;
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       // Continue searching for the key
     }
@@ -324,6 +336,7 @@ export async function getGuildsWithApiKeys(
   // Count keys per guild
   const guildCounts = new Map<string, number>();
   for (const row of data || []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const guildId = (row as any).guild_id;
     guildCounts.set(guildId, (guildCounts.get(guildId) || 0) + 1);
   }

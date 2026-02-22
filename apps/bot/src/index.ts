@@ -458,12 +458,9 @@ client.on(Events.GuildMemberAdd, async (member) => {
     try {
       const { botTornApi } = await import("./lib/torn-api.js");
       const apiKey = getNextApiKey(guildId, apiKeys);
-      const response = await botTornApi.get(`/user`, {
-        apiKey,
-        queryParams: {
-          selections: ["discord", "faction", "profile"],
-          id: member.id,
-        },
+      const response: any = await botTornApi.getRaw(`/user`, apiKey, {
+        selections: "discord,faction,profile",
+        id: member.id,
       });
 
       if (response.error) {
@@ -643,7 +640,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
           }
 
           // Build guild log fields
-          const logFields: Array<{ name: string; value: string; inline: boolean }> = [
+          const logFields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
             { name: "Discord ID", value: member.id, inline: true },
             {
               name: "Torn ID",
@@ -722,12 +723,23 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
         if (verificationResult.data) {
           dmEmbed.addFields([
-            { name: "Player Name", value: verificationResult.data.name, inline: true },
-            { name: "Player ID", value: String(verificationResult.data.id), inline: true },
+            {
+              name: "Player Name",
+              value: verificationResult.data.name,
+              inline: true,
+            },
+            {
+              name: "Player ID",
+              value: String(verificationResult.data.id),
+              inline: true,
+            },
           ]);
           if (verificationResult.data.faction) {
             dmEmbed.addFields([
-              { name: "Faction", value: `${verificationResult.data.faction.name} [${verificationResult.data.faction.tag}]` },
+              {
+                name: "Faction",
+                value: `${verificationResult.data.faction.name} [${verificationResult.data.faction.tag}]`,
+              },
             ]);
           }
         }

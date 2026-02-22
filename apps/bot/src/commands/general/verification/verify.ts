@@ -108,14 +108,11 @@ export async function execute(
     const apiKey = getNextApiKey(guildId, apiKeys);
 
     // Call Torn API to check user's Discord linkage and faction
-    let response;
+    let response: any;
     try {
-      response = await botTornApi.get("/user", {
-        apiKey,
-        queryParams: {
-          selections: ["discord", "faction", "profile"],
-          id: targetUser.id,
-        },
+      response = await botTornApi.getRaw("/user", apiKey, {
+        selections: "discord,faction,profile",
+        id: targetUser.id,
       });
     } catch (apiError) {
       const errorMessage =

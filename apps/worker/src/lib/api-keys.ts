@@ -19,7 +19,6 @@ export {
   getPrimarySystemApiKey,
   storeSystemApiKey,
   deleteSystemApiKey,
+  markSystemApiKeyInvalid,
+  getPersonalApiKey, // Synchronous version for backward compatibility
 } from "./system-api-keys.js";
-
-// Backward compatibility: getPersonalApiKey now calls getSystemApiKey("personal")
-export { getSystemApiKey as getPersonalApiKey };

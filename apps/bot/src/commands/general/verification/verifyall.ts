@@ -166,12 +166,9 @@ export async function execute(
       try {
         const apiKey = getNextApiKey(guildId, apiKeys);
         // Call Torn API to verify
-        const response = await botTornApi.get("/user", {
-          apiKey,
-          queryParams: {
-            selections: ["discord", "faction", "profile"],
-            id: member.id,
-          },
+        const response: any = await botTornApi.getRaw("/user", apiKey, {
+          selections: "discord,faction,profile",
+          id: member.id,
         });
 
         if (response.error) {
