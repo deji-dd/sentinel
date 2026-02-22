@@ -7,15 +7,27 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { botTornApi } from "../../../lib/torn-api.js";
-import {
-  getNextApiKey,
-  resolveApiKeysForGuild,
-} from "../../../lib/api-keys.js";
+import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   logGuildError,
   logGuildSuccess,
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
+
+// Round-robin index for distributing API calls across multiple keys
+const roundRobinIndex = new Map<string, number>();
+
+function getNextApiKey(guildId: string, keys: string[]): string {
+  if (keys.length === 1) {
+    return keys[0];
+  }
+
+  const currentIndex = roundRobinIndex.get(guildId) ?? 0;
+  const nextIndex = currentIndex % keys.length;
+  roundRobinIndex.set(guildId, nextIndex + 1);
+
+  return keys[nextIndex];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("verifyall")
@@ -55,10 +67,10 @@ export async function execute(
       return;
     }
 
-    // Get guild config with API key(s)
+    // Get guild config with settings
     const { data: guildConfig, error: configError } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys, api_key, nickname_template, verified_role_id")
+      .select("nickname_template, verified_role_id")
       .eq("guild_id", guildId)
       .single();
 
@@ -83,24 +95,24 @@ export async function execute(
       return;
     }
 
-    const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
-      guildId,
-      guildConfig,
-    );
+    // Get guild API keys from new table
+    const apiKeys = await getGuildApiKeys(supabase, guildId);
 
-    if (apiKeyError) {
+    if (apiKeys.length === 0) {
       await logGuildWarning(
         guildId,
         interaction.client,
         supabase,
         "Verify All Warning: API Key Required",
-        apiKeyError,
+        "No API keys configured for guild",
         [{ name: "User", value: interaction.user.toString(), inline: true }],
       );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ API Key Required")
-        .setDescription(apiKeyError);
+        .setDescription(
+          "This guild has no API keys configured. Guild members need to add their API keys for verification to work.",
+        );
 
       await interaction.editReply({
         embeds: [errorEmbed],
