@@ -1,8 +1,8 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { logWarn } from "../lib/logger.js";
+import { getPersonalApiKey } from "../lib/api-keys.js";
 import {
-  getPersonalApiKey,
   upsertTornItems,
   syncTornCategories,
   supabase,

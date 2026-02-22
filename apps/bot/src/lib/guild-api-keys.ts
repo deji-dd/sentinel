@@ -144,7 +144,9 @@ export async function storeGuildApiKey(
     });
 
   if (mapError && !mapError.message.includes("duplicate")) {
-    throw new Error(`Failed to map API key for rate limiting: ${mapError.message}`);
+    throw new Error(
+      `Failed to map API key for rate limiting: ${mapError.message}`,
+    );
   }
 }
 

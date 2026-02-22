@@ -1,7 +1,8 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { logError } from "../lib/logger.js";
-import { getPersonalApiKey, supabase } from "../lib/supabase.js";
+import { getPersonalApiKey } from "../lib/api-keys.js";
+import { supabase } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_gyms_worker";

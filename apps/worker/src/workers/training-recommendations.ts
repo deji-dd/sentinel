@@ -1,5 +1,5 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey } from "../lib/supabase.js";
+import { getPersonalApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
