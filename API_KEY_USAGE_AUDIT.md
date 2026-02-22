@@ -1,5 +1,41 @@
 # API Key Usage Audit
 
+## ✅ FINAL STATUS (Updated 2026-02-22)
+
+**All Issues Resolved:**
+
+- ✅ Build errors fixed (TypeScript compilation successful)
+- ✅ Migration applied (both local and remote Supabase)
+- ✅ Invalid key auto-deletion implemented (soft-delete after 3 failures)
+- ✅ Rate limiting confirmed dynamic (100 req/min, configurable)
+- ✅ All foreign key references correct (provided_by now TEXT for Discord ID)
+- ✅ RLS policies simplified (service_role only)
+- ✅ Guilds do NOT need reinitialization (new tables are separate)
+
+**Key Features Added:**
+
+1. **Invalid Key Tracking**: Both system and guild keys track `invalid_count` and `last_invalid_at`
+2. **Auto-Deletion**: After 3 "Incorrect Key" errors (code 2), keys are soft-deleted to prevent IP blocking
+3. **Callback System**: `TornApiClient.onInvalidKey()` callback automatically marks invalid keys
+4. **Worker Integration**: `markSystemApiKeyInvalid()` in `apps/worker/src/lib/system-api-keys.ts`
+5. **Bot Integration**: `markGuildApiKeyInvalid()` in `apps/bot/src/lib/guild-api-keys.ts`
+
+**Rate Limiting (NOT Hardcoded):**
+
+- `PerUserRateLimiter` accepts `maxRequestsPerWindow` config parameter
+- Worker: Set to 100 req/min per user
+- Bot: Set to 100 req/min per user
+- Fully configurable per instance
+
+**Migration Applied:**
+
+- `sentinel_system_api_keys` ✅ Created
+- `sentinel_guild_api_keys` ✅ Created
+- `sentinel_api_key_user_mapping` ✅ Created
+- `sentinel_rate_limit_requests_per_user` ✅ Updated with user_id column
+
+---
+
 ## Summary
 
 This document audits all API key usage across Worker and Bot applications to ensure conformance with the dual-hierarchy system (system keys vs guild keys).
