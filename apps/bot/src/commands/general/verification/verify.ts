@@ -181,20 +181,14 @@ export async function execute(
         inline: true,
       });
 
-    await logGuildSuccess(
-      guildId,
-      interaction.client,
-      supabase,
-      "Verify Success",
-      `${targetUser} verified as **${response.profile?.name}**.`,
-      [
-        {
-          name: "Torn ID",
-          value: String(response.profile?.id || "Unknown"),
-          inline: true,
-        },
-      ],
-    );
+    // We'll update this after we track roles below
+    let logFields: Array<{ name: string; value: string; inline: boolean }> = [
+      {
+        name: "Torn ID",
+        value: String(response.profile?.id || "Unknown"),
+        inline: true,
+      },
+    ];
 
     if (response.faction) {
       successEmbed.addFields({
@@ -289,6 +283,11 @@ export async function execute(
         value: rolesMention,
         inline: true,
       });
+      logFields.push({
+        name: "✅ Roles Added",
+        value: rolesMention,
+        inline: false,
+      });
     }
 
     // Show failed roles if any
@@ -301,7 +300,22 @@ export async function execute(
         value: rolesMention,
         inline: true,
       });
+      logFields.push({
+        name: "❌ Roles Failed",
+        value: rolesMention,
+        inline: false,
+      });
     }
+
+    // Now log to guild with role information
+    await logGuildSuccess(
+      guildId,
+      interaction.client,
+      supabase,
+      "Verify Success",
+      `${targetUser} verified as **${response.profile?.name}**.`,
+      logFields,
+    );
 
     if (!successEmbed.data.footer) {
       successEmbed.setFooter({

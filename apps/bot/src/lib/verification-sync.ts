@@ -262,8 +262,10 @@ export class GuildSyncScheduler {
           // Use generic any type since response shape is dynamic based on selections parameter
           const response = await tornApi.get(`/user`, {
             apiKey: getNextApiKey(job.guild_id, apiKeys),
-            pathParams: { id: user.discord_id },
-            queryParams: { selections: ["discord", "faction", "profile"] },
+            queryParams: {
+              selections: ["discord", "faction", "profile"],
+              id: user.discord_id,
+            },
           });
 
           // Handle API error - check if response has error property
@@ -292,13 +294,15 @@ export class GuildSyncScheduler {
 
           // Response shape is dynamic based on selections, so use property access without type assertion
           const data = response as Record<string, unknown>;
-          const name = data.name as string | undefined;
-          const playerId = data.player_id as number | undefined;
+          const profile =
+            (data.profile as Record<string, unknown> | undefined) || {};
+          const name = profile.name as string | undefined;
+          const playerId = profile.id as number | undefined;
           const factionData = data.faction as
             | {
-                faction_id?: number;
-                faction_name?: string;
-                faction_tag?: string;
+                id?: number;
+                name?: string;
+                tag?: string;
               }
             | undefined;
 
@@ -313,72 +317,74 @@ export class GuildSyncScheduler {
           // Check if anything changed
           const nameChanged = name !== user.torn_player_name;
           const factionChanged =
-            factionData?.faction_id !== user.faction_id ||
-            factionData?.faction_name !== user.faction_name;
+            factionData?.id !== user.faction_id ||
+            factionData?.name !== user.faction_name;
 
+          // Always update database and Discord if name or faction changed
           if (nameChanged || factionChanged) {
-            // Update database
             await this.supabase
               .from(TABLE_NAMES.VERIFIED_USERS)
               .update({
                 torn_player_name: name,
-                faction_id: factionData?.faction_id || null,
-                faction_name: factionData?.faction_name || null,
+                faction_id: factionData?.id || null,
+                faction_name: factionData?.name || null,
                 verified_at: new Date().toISOString(),
               })
               .eq("discord_id", user.discord_id);
+          }
 
-            // Update Discord member if in guild
-            const member = await discord.members
-              .fetch(user.discord_id)
-              .catch(() => null);
-            if (member) {
-              // Update nickname
-              const nickname = this.applyNicknameTemplate(
-                (guildConfig as GuildConfigRecord).nickname_template,
-                name,
-                playerId,
-                factionData?.faction_tag,
-              );
-              await member.setNickname(nickname).catch(() => {});
+          // ALWAYS update Discord member (nickname template might have changed)
+          const member = await discord.members
+            .fetch(user.discord_id)
+            .catch(() => null);
+          if (member) {
+            // Always update nickname to apply current template
+            const nickname = this.applyNicknameTemplate(
+              (guildConfig as GuildConfigRecord).nickname_template,
+              name,
+              playerId,
+              factionData?.tag,
+            );
+            await member.setNickname(nickname).catch(() => {});
 
-              // Ensure verification role is assigned if configured
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const config = guildConfig as any;
-              const verifiedRoleId = config.verified_role_id;
-              if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
-                await member.roles.add(verifiedRoleId).catch(() => {});
-              }
-
-              // Update faction roles if faction changed
-              if (
-                factionChanged &&
-                factionMappings &&
-                factionMappings.length > 0
-              ) {
-                const oldFactionMapping = (
-                  factionMappings as FactionRoleMapping[]
-                ).find((m) => m.faction_id === user.faction_id);
-                const newFactionMapping = (
-                  factionMappings as FactionRoleMapping[]
-                ).find((m) => m.faction_id === factionData?.faction_id);
-
-                // Remove old faction roles
-                if (oldFactionMapping) {
-                  await member.roles
-                    .remove(oldFactionMapping.role_ids)
-                    .catch(() => {});
-                }
-
-                // Add new faction roles
-                if (newFactionMapping) {
-                  await member.roles
-                    .add(newFactionMapping.role_ids)
-                    .catch(() => {});
-                }
-              }
+            // Ensure verification role is assigned if configured
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const config = guildConfig as any;
+            const verifiedRoleId = config.verified_role_id;
+            if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
+              await member.roles.add(verifiedRoleId).catch(() => {});
             }
 
+            // Update faction roles if faction changed
+            if (
+              factionChanged &&
+              factionMappings &&
+              factionMappings.length > 0
+            ) {
+              const oldFactionMapping = (
+                factionMappings as FactionRoleMapping[]
+              ).find((m) => m.faction_id === user.faction_id);
+              const newFactionMapping = (
+                factionMappings as FactionRoleMapping[]
+              ).find((m) => m.faction_id === factionData?.id);
+
+              // Remove old faction roles
+              if (oldFactionMapping) {
+                await member.roles
+                  .remove(oldFactionMapping.role_ids)
+                  .catch(() => {});
+              }
+
+              // Add new faction roles
+              if (newFactionMapping) {
+                await member.roles
+                  .add(newFactionMapping.role_ids)
+                  .catch(() => {});
+              }
+            }
+          }
+
+          if (nameChanged || factionChanged) {
             updatedCount++;
           } else {
             unchangedCount++;
