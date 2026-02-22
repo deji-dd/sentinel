@@ -28,7 +28,16 @@ import {
 } from "./lib/guild-logger.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { GuildSyncScheduler } from "./lib/verification-sync.js";
-import { getNextApiKey, resolveApiKeysForGuild } from "./lib/api-keys.js";
+import { getGuildApiKeys } from "./lib/guild-api-keys.js";
+
+// Local round-robin tracker per guild for auto-verify
+const guildKeyIndices = new Map<string, number>();
+function getNextApiKey(guildId: string, keys: string[]): string {
+  const currentIndex = guildKeyIndices.get(guildId) || 0;
+  const apiKey = keys[currentIndex];
+  guildKeyIndices.set(guildId, (currentIndex + 1) % keys.length);
+  return apiKey;
+}
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -415,9 +424,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     // Get guild config to check if auto-verify is enabled
     const { data: guildConfig, error: configError } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select(
-        "auto_verify, api_keys, api_key, nickname_template, verified_role_id",
-      )
+      .select("auto_verify, nickname_template, verified_role_id")
       .eq("guild_id", guildId)
       .single();
 
@@ -431,13 +438,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
       return;
     }
 
-    const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
-      guildId,
-      guildConfig,
-    );
+    // Get API keys from new guild-api-keys table
+    const apiKeys = await getGuildApiKeys(supabase, guildId);
 
-    if (apiKeyError) {
-      // No usable API keys configured, skip
+    if (apiKeys.length === 0) {
+      // No API keys configured for this guild, skip
       return;
     }
 

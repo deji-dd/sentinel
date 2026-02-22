@@ -5,8 +5,17 @@ import {
   DatabaseRateLimiter,
   TornApiClient,
 } from "@sentinel/shared";
-import { getNextApiKey, resolveApiKeysForGuild } from "./api-keys.js";
+import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
+
+// Local round-robin tracker per guild
+const guildKeyIndices = new Map<string, number>();
+function getNextApiKey(guildId: string, keys: string[]): string {
+  const currentIndex = guildKeyIndices.get(guildId) || 0;
+  const apiKey = keys[currentIndex];
+  guildKeyIndices.set(guildId, (currentIndex + 1) % keys.length);
+  return apiKey;
+}
 
 interface VerifiedUser {
   discord_id: string;
@@ -188,19 +197,19 @@ export class GuildSyncScheduler {
         return;
       }
 
-      const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
-        job.guild_id,
-        guildConfig as GuildConfigRecord,
-      );
+      // Get API keys from new guild-api-keys table
+      const apiKeys = await getGuildApiKeys(this.supabase, job.guild_id);
 
-      if (apiKeyError) {
-        console.error(`[Guild Sync] ${apiKeyError} (guild ${job.guild_id})`);
+      if (apiKeys.length === 0) {
+        console.error(
+          `[Guild Sync] No API keys configured (guild ${job.guild_id})`,
+        );
         await logGuildError(
           job.guild_id,
           this.client,
           this.supabase,
           "Guild Sync Failed",
-          apiKeyError,
+          "No API keys configured",
           `Missing API key for guild ${job.guild_id}.`,
         );
         return;
