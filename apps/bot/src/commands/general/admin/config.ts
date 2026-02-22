@@ -123,7 +123,7 @@ export async function execute(
       new StringSelectMenuOptionBuilder()
         .setLabel("Verification Settings")
         .setValue("verify")
-        .setDescription("Auto-verify, nicknames, syncing, faction roles"),
+        .setDescription("Manage verification settings"),
     ];
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -474,7 +474,7 @@ export async function handleBackToMenu(
       new StringSelectMenuOptionBuilder()
         .setLabel("Verification Settings")
         .setValue("verify")
-        .setDescription("Auto-verify, nicknames, syncing, faction roles"),
+        .setDescription("Manage verification settings"),
     ];
 
     const selectMenu = new StringSelectMenuBuilder()

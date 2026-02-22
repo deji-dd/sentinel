@@ -458,9 +458,10 @@ client.on(Events.GuildMemberAdd, async (member) => {
     try {
       const { botTornApi } = await import("./lib/torn-api.js");
       const apiKey = getNextApiKey(guildId, apiKeys);
-      const response = await botTornApi.get(`/user/${member.id}`, {
+      const response = await botTornApi.get(`/user`, {
         apiKey,
-        queryParams: { selections: "discord,faction" },
+        pathParams: { id: member.id },
+        queryParams: { selections: ["discord", "faction", "profile"] },
       });
 
       if (response.error) {
@@ -508,131 +509,153 @@ client.on(Events.GuildMemberAdd, async (member) => {
           );
         }
       } else if (response.discord) {
-        // Successfully verified
-        await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
-          discord_id: member.id,
-          torn_player_id: response.player_id,
-          torn_player_name: response.name,
-          faction_id: response.faction?.faction_id || null,
-          faction_name: response.faction?.faction_name || null,
-          verified_at: new Date().toISOString(),
-        });
-
-        verificationResult = {
-          status: "success",
-          title: "✅ Automatically Verified",
-          description: `Welcome to **${member.guild.name}**! You've been automatically verified.`,
-          color: 0x22c55e,
-          data: {
-            name: response.name,
-            id: response.player_id,
-            faction: response.faction
-              ? {
-                  name: response.faction.faction_name,
-                  tag: response.faction.faction_tag,
-                }
-              : undefined,
-          },
-        };
-
-        console.log(
-          `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.name} [${response.player_id}]`,
-        );
-        await logGuildSuccess(
-          guildId,
-          client,
-          supabase,
-          "Auto-Verify: Success",
-          `${member.user} verified as **${response.name}** (${response.player_id}).`,
-          [
-            { name: "Discord ID", value: member.id, inline: true },
-            {
-              name: "Torn ID",
-              value: String(response.player_id),
-              inline: true,
-            },
-          ],
-        );
-
-        // Apply nickname template
-        try {
-          const nickname = guildConfig.nickname_template
-            .replace("{name}", response.name)
-            .replace("{id}", response.player_id.toString())
-            .replace("{tag}", response.faction?.faction_tag || "");
-
-          await member.setNickname(nickname);
-          console.log(
-            `[Auto-Verify] Set nickname for ${member.user.username}: ${nickname}`,
-          );
-        } catch (nicknameError) {
+        // Validate that required fields exist in response
+        if (!response.player_id || !response.name) {
+          verificationResult = {
+            status: "error",
+            title: "❌ Verification Failed",
+            description: `An error occurred while verifying your account: incomplete response from Torn API. Please try the /verify command manually.`,
+            color: 0xef4444,
+            errorMessage: `Torn API returned incomplete data: player_id=${response.player_id}, name=${response.name}`,
+          };
           console.error(
-            `[Auto-Verify] Failed to set nickname for ${member.user.username}:`,
-            nicknameError,
+            `[Auto-Verify] Incomplete response for ${member.id}: player_id=${response.player_id}, name=${response.name}`,
           );
           await logGuildError(
             guildId,
             client,
             supabase,
-            "Auto-Verify: Nickname Failed",
-            nicknameError instanceof Error
-              ? nicknameError
-              : String(nicknameError),
-            `Failed to set nickname for ${member.user}.`,
+            "Auto-Verify: Incomplete Response",
+            "Torn API returned incomplete data",
+            `Discord ID: ${member.id}`,
           );
-        }
+        } else {
+          // Successfully verified with complete data
+          await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
+            discord_id: member.id,
+            torn_player_id: response.player_id,
+            torn_player_name: response.name,
+            faction_id: response.faction?.faction_id || null,
+            faction_name: response.faction?.faction_name || null,
+            verified_at: new Date().toISOString(),
+          });
 
-        // Assign verification role if configured
-        if (guildConfig.verified_role_id) {
+          verificationResult = {
+            status: "success",
+            title: "✅ Automatically Verified",
+            description: `Welcome to **${member.guild.name}**! You've been automatically verified.`,
+            color: 0x22c55e,
+            data: {
+              name: response.name,
+              id: response.player_id,
+              faction: response.faction
+                ? {
+                    name: response.faction.faction_name,
+                    tag: response.faction.faction_tag,
+                  }
+                : undefined,
+            },
+          };
+
+          console.log(
+            `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.name} [${response.player_id}]`,
+          );
+          await logGuildSuccess(
+            guildId,
+            client,
+            supabase,
+            "Auto-Verify: Success",
+            `${member.user} verified as **${response.name}** (${response.player_id}).`,
+            [
+              { name: "Discord ID", value: member.id, inline: true },
+              {
+                name: "Torn ID",
+                value: String(response.player_id),
+                inline: true,
+              },
+            ],
+          );
+
+          // Apply nickname template
           try {
-            await member.roles.add(guildConfig.verified_role_id);
+            const nickname = guildConfig.nickname_template
+              .replace("{name}", response.name)
+              .replace("{id}", response.player_id.toString())
+              .replace("{tag}", response.faction?.faction_tag || "");
+
+            await member.setNickname(nickname);
             console.log(
-              `[Auto-Verify] Assigned verification role to ${member.user.username}`,
+              `[Auto-Verify] Set nickname for ${member.user.username}: ${nickname}`,
             );
-          } catch (roleError) {
+          } catch (nicknameError) {
             console.error(
-              `[Auto-Verify] Failed to assign verification role to ${member.user.username}:`,
-              roleError,
+              `[Auto-Verify] Failed to set nickname for ${member.user.username}:`,
+              nicknameError,
             );
             await logGuildError(
               guildId,
               client,
               supabase,
-              "Auto-Verify: Verification Role Failed",
-              roleError instanceof Error ? roleError : String(roleError),
-              `Failed to assign verification role to ${member.user}.`,
+              "Auto-Verify: Nickname Failed",
+              nicknameError instanceof Error
+                ? nicknameError
+                : String(nicknameError),
+              `Failed to set nickname for ${member.user}.`,
             );
           }
-        }
 
-        // Assign faction role if mapping exists
-        if (response.faction?.faction_id) {
-          const { data: factionRole } = await supabase
-            .from(TABLE_NAMES.FACTION_ROLES)
-            .select("role_ids")
-            .eq("guild_id", guildId)
-            .eq("faction_id", response.faction.faction_id)
-            .single();
-
-          if (factionRole && factionRole.role_ids.length > 0) {
+          // Assign verification role if configured
+          if (guildConfig.verified_role_id) {
             try {
-              await member.roles.add(factionRole.role_ids);
+              await member.roles.add(guildConfig.verified_role_id);
               console.log(
-                `[Auto-Verify] Assigned ${factionRole.role_ids.length} role(s) to ${member.user.username}`,
+                `[Auto-Verify] Assigned verification role to ${member.user.username}`,
               );
             } catch (roleError) {
               console.error(
-                `[Auto-Verify] Failed to assign roles to ${member.user.username}:`,
+                `[Auto-Verify] Failed to assign verification role to ${member.user.username}:`,
                 roleError,
               );
               await logGuildError(
                 guildId,
                 client,
                 supabase,
-                "Auto-Verify: Faction Roles Failed",
+                "Auto-Verify: Verification Role Failed",
                 roleError instanceof Error ? roleError : String(roleError),
-                `Failed to assign faction roles to ${member.user}.`,
+                `Failed to assign verification role to ${member.user}.`,
               );
+            }
+          }
+
+          // Assign faction role if mapping exists
+          if (response.faction?.faction_id) {
+            const { data: factionRole } = await supabase
+              .from(TABLE_NAMES.FACTION_ROLES)
+              .select("role_ids")
+              .eq("guild_id", guildId)
+              .eq("faction_id", response.faction.faction_id)
+              .single();
+
+            if (factionRole && factionRole.role_ids.length > 0) {
+              try {
+                await member.roles.add(factionRole.role_ids);
+                console.log(
+                  `[Auto-Verify] Assigned ${factionRole.role_ids.length} role(s) to ${member.user.username}`,
+                );
+              } catch (roleError) {
+                console.error(
+                  `[Auto-Verify] Failed to assign roles to ${member.user.username}:`,
+                  roleError,
+                );
+                await logGuildError(
+                  guildId,
+                  client,
+                  supabase,
+                  "Auto-Verify: Faction Roles Failed",
+                  roleError instanceof Error ? roleError : String(roleError),
+                  `Failed to assign faction roles to ${member.user}.`,
+                );
+              }
             }
           }
         }

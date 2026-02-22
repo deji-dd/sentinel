@@ -260,9 +260,10 @@ export class GuildSyncScheduler {
       for (const user of verifiedUsers as VerifiedUser[]) {
         try {
           // Use generic any type since response shape is dynamic based on selections parameter
-          const response = await tornApi.get(`/user/${user.discord_id}`, {
+          const response = await tornApi.get(`/user`, {
             apiKey: getNextApiKey(job.guild_id, apiKeys),
-            queryParams: { selections: "discord,faction,profile" },
+            pathParams: { id: user.discord_id },
+            queryParams: { selections: ["discord", "faction", "profile"] },
           });
 
           // Handle API error - check if response has error property
@@ -342,6 +343,7 @@ export class GuildSyncScheduler {
               await member.setNickname(nickname).catch(() => {});
 
               // Ensure verification role is assigned if configured
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const config = guildConfig as any;
               const verifiedRoleId = config.verified_role_id;
               if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
