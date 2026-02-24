@@ -74,10 +74,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
         .single();
 
       if (error || !data) {
-        console.warn(
-          "[RateLimiter] Could not resolve user_id for api_key_hash:",
-          keyHash,
-        );
+        // Silent return for system keys or keys not in mapping (expected)
         return null;
       }
 
@@ -97,9 +94,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
   async recordRequest(apiKey: string): Promise<void> {
     const userId = await this.getUserIdFromApiKey(apiKey);
     if (!userId) {
-      console.warn(
-        "[RateLimiter] Could not record request - user_id not found",
-      );
+      // Silent return for system keys or keys not in mapping (expected)
       return;
     }
 
@@ -123,9 +118,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
   async getRequestCount(apiKey: string): Promise<number> {
     const userId = await this.getUserIdFromApiKey(apiKey);
     if (!userId) {
-      console.warn(
-        "[RateLimiter] Could not get request count - user_id not found",
-      );
+      // System keys or unmapped keys return 0 (not rate limited)
       return 0;
     }
 

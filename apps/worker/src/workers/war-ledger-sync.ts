@@ -76,27 +76,61 @@ export function startWarLedgerSyncWorker() {
             territory_id: territoryCode,
           }));
 
+        // Check which territories exist in blueprint (handle new territories)
+        const { data: existingBlueprints } = await supabase
+          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
+          .select("territory_id")
+          .in(
+            "territory_id",
+            wars.map((w) => w.territory_id),
+          );
+
+        const existingTerritoryIds = new Set(
+          (existingBlueprints || []).map((b) => b.territory_id),
+        );
+        const validWars = wars.filter((w) =>
+          existingTerritoryIds.has(w.territory_id),
+        );
+        const orphanedWars = wars.filter(
+          (w) => !existingTerritoryIds.has(w.territory_id),
+        );
+
+        if (orphanedWars.length > 0) {
+          console.warn(
+            `[War Ledger Sync] Skipping ${orphanedWars.length} wars for non-existent territories: ${orphanedWars.map((w) => w.territory_id).join(", ")}`,
+          );
+        }
+
+        if (validWars.length === 0) {
+          logDuration(
+            "war_ledger_sync",
+            "No valid wars (blueprints not synced)",
+            Date.now() - startTime,
+          );
+          return true;
+        }
+
         // Separate into new wars and existing wars
         const { data: existingWars } = await supabase
           .from(TABLE_NAMES.WAR_LEDGER)
           .select("war_id")
           .in(
             "war_id",
-            wars.map((w) => w.territory_war_id),
+            validWars.map((w) => w.territory_war_id),
           );
 
         const existingWarIds = new Set(
           (existingWars || []).map((w) => w.war_id),
         );
-        const newWars = wars.filter(
+        const newWars = validWars.filter(
           (w) => !existingWarIds.has(w.territory_war_id),
         );
-        const updatedWars = wars.filter((w) =>
+        const updatedWars = validWars.filter((w) =>
           existingWarIds.has(w.territory_war_id),
         );
 
         // Upsert war data
-        const warData = wars.map((w) => ({
+        const warData = validWars.map((w) => ({
           war_id: w.territory_war_id,
           territory_id: w.territory_id,
           assaulting_faction: w.assaulting_faction,
@@ -118,7 +152,7 @@ export function startWarLedgerSyncWorker() {
         }
 
         // Update territory states to mark as warring
-        const warringTerritories = wars.map((w) => w.territory_id);
+        const warringTerritories = validWars.map((w) => w.territory_id);
 
         const { error: stateError } = await supabase
           .from(TABLE_NAMES.TERRITORY_STATE)
@@ -141,7 +175,7 @@ export function startWarLedgerSyncWorker() {
         const duration = Date.now() - startTime;
         logDuration(
           "war_ledger_sync",
-          `Processed ${wars.length} wars`,
+          `Processed ${validWars.length} wars`,
           duration,
         );
 

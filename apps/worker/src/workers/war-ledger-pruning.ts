@@ -1,5 +1,4 @@
 import { executeSync } from "../lib/sync.js";
-import { logError, logDuration } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -13,36 +12,21 @@ const RETENTION_DAYS = 95; // Keep 95 days (assault-check needs 90 days + buffer
  * Keeps wars from last 95 days for assault-check constraints
  */
 async function pruneWarLedger(): Promise<void> {
-  const startTime = Date.now();
+  const cutoffTime = new Date(
+    Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  );
 
-  try {
-    const cutoffTime = new Date(
-      Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
-    );
+  const { count, error } = await supabase
+    .from(TABLE_NAMES.WAR_LEDGER)
+    .delete()
+    .lt("start_time", cutoffTime.toISOString());
 
-    const { count, error } = await supabase
-      .from(TABLE_NAMES.WAR_LEDGER)
-      .delete()
-      .lt("started", cutoffTime.toISOString());
-
-    if (error) {
-      throw error;
-    }
-
-    const elapsed = Date.now() - startTime;
-    logDuration(
-      WORKER_NAME,
-      `Pruned ${count || 0} old war ledger entries (older than ${RETENTION_DAYS} days)`,
-      elapsed,
-    );
-  } catch (error) {
-    const elapsed = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(WORKER_NAME, `Pruning failed: ${errorMessage}`);
-    throw error;
+  if (error) {
+    const errorMsg =
+      error instanceof Error ? error.message : JSON.stringify(error);
+    throw new Error(`Failed to prune wars: ${errorMsg}`);
   }
 }
-
 export function startWarLedgerPruningWorker(): void {
   startDbScheduledRunner({
     worker: "war_ledger_pruning_worker",
