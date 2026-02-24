@@ -329,6 +329,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction,
           supabase,
         );
+      } else if (interaction.customId === "tt_edit_territories_modal") {
+        await configCommand.handleTTEditTerritoriesModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "tt_edit_factions_modal") {
+        await configCommand.handleTTEditFactionsModalSubmit(
+          interaction,
+          supabase,
+        );
       }
       return;
     }

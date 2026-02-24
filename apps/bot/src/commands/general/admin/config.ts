@@ -2823,3 +2823,23 @@ export async function handleTTNotificationTypeSelect(
     supabase,
   );
 }
+
+export async function handleTTEditTerritoriesModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTEditTerritoriesModalSubmit(
+    interaction,
+    supabase,
+  );
+}
+
+export async function handleTTEditFactionsModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTEditFactionsModalSubmit(
+    interaction,
+    supabase,
+  );
+}

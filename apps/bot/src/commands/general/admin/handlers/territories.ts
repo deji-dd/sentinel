@@ -15,6 +15,7 @@ import {
   TextInputStyle,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
+  type ModalSubmitInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -275,5 +276,127 @@ export async function handleTTNotificationTypeSelect(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error updating notification type:", errorMsg);
+  }
+}
+
+export async function handleTTEditTerritoriesModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const input = interaction.fields.getTextInputValue("territory_ids_input");
+    const territoryIds = input
+      .split(",")
+      .map((id) => id.trim().toUpperCase())
+      .filter((id) => id.length > 0);
+
+    // Ensure TT config exists
+    const { data: existing } = await supabase
+      .from(TABLE_NAMES.TT_CONFIG)
+      .select("*")
+      .eq("guild_id", guildId)
+      .single();
+
+    if (!existing) {
+      await supabase.from(TABLE_NAMES.TT_CONFIG).insert({
+        guild_id: guildId,
+        territory_ids: territoryIds,
+      });
+    } else {
+      await supabase
+        .from(TABLE_NAMES.TT_CONFIG)
+        .update({ territory_ids: territoryIds })
+        .eq("guild_id", guildId);
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Territory Filters Updated")
+      .setDescription(
+        territoryIds.length > 0
+          ? `Monitoring: **${territoryIds.join(", ")}**`
+          : "Territory filter cleared (all territories will be monitored)",
+      );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("tt_settings_show")
+      .setLabel("Back to TT Settings")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error updating territory filters:", errorMsg);
+  }
+}
+
+export async function handleTTEditFactionsModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const input = interaction.fields.getTextInputValue("faction_ids_input");
+    const factionIds = input
+      .split(",")
+      .map((id) => parseInt(id.trim()))
+      .filter((id) => !isNaN(id));
+
+    // Ensure TT config exists
+    const { data: existing } = await supabase
+      .from(TABLE_NAMES.TT_CONFIG)
+      .select("*")
+      .eq("guild_id", guildId)
+      .single();
+
+    if (!existing) {
+      await supabase.from(TABLE_NAMES.TT_CONFIG).insert({
+        guild_id: guildId,
+        faction_ids: factionIds,
+      });
+    } else {
+      await supabase
+        .from(TABLE_NAMES.TT_CONFIG)
+        .update({ faction_ids: factionIds })
+        .eq("guild_id", guildId);
+    }
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Faction Filters Updated")
+      .setDescription(
+        factionIds.length > 0
+          ? `Monitoring: **${factionIds.join(", ")}**`
+          : "Faction filter cleared (all factions will be monitored)",
+      );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("tt_settings_show")
+      .setLabel("Back to TT Settings")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error updating faction filters:", errorMsg);
   }
 }

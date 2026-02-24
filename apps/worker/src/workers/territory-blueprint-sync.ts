@@ -22,6 +22,13 @@ interface TornTerritory {
   neighbors: string[];
 }
 
+interface ApiMetadata {
+  links: {
+    prev: string | null;
+    next: string | null;
+  };
+}
+
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
     worker: "territory_blueprint_sync",
@@ -42,23 +49,53 @@ export function startTerritoryBlueprintSyncWorker() {
         // Create API client
         const tornApi = new TornApiClient({});
 
-        // Fetch all territories from /torn/territory
-        const response = await tornApi.get("/torn/territory", {
-          apiKey,
-          queryParams: { offset: 0 },
-        });
+        // Fetch all territories with pagination support
+        const allTerritories: TornTerritory[] = [];
+        let nextUrl: string | null = null;
+        let offset = 0;
+        let pageCount = 0;
 
-        if ("error" in response) {
-          logError(
-            "territory_blueprint_sync",
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            `API error: ${(response as any).error.error}`,
+        do {
+          pageCount++;
+          const response = await tornApi.get("/torn/territory", {
+            apiKey,
+            queryParams: { offset },
+          });
+
+          if ("error" in response) {
+            logError(
+              "territory_blueprint_sync",
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              `API error on page ${pageCount}: ${(response as any).error.error}`,
+            );
+            return false;
+          }
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const pageData = response as any;
+          const territories = pageData.territory as TornTerritory[];
+          const metadata = pageData._metadata as ApiMetadata;
+
+          if (!territories || territories.length === 0) {
+            break;
+          }
+
+          allTerritories.push(...territories);
+          console.log(
+            `[Territory Blueprint Sync] Fetched ${territories.length} territories (page ${pageCount}, total so far: ${allTerritories.length})`,
           );
-          return false;
-        }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const territories = (response as any).territory as TornTerritory[];
+          // Check for next page
+          nextUrl = metadata?.links?.next || null;
+          if (nextUrl) {
+            // Extract offset from next URL
+            const nextUrlObj = new URL(nextUrl);
+            const nextOffset = nextUrlObj.searchParams.get("offset");
+            offset = nextOffset ? parseInt(nextOffset) : offset + 250;
+          }
+        } while (nextUrl);
+
+        const territories = allTerritories;
 
         if (!territories || territories.length === 0) {
           console.warn("[Territory Blueprint Sync] No territories returned");
@@ -66,7 +103,7 @@ export function startTerritoryBlueprintSyncWorker() {
         }
 
         console.log(
-          `[Territory Blueprint Sync] Fetched ${territories.length} territories`,
+          `[Territory Blueprint Sync] Fetched ${territories.length} total territories across ${pageCount} pages`,
         );
 
         // Check if this is first run (no blueprints exist yet)
