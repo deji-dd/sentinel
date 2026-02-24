@@ -2,59 +2,81 @@
 // import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
 // import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
 // import { startTravelAlerts } from "./workers/travel-alerts.js";
-import { startUserDataWorker } from "./workers/user-data.js";
-import { startTornItemsWorker } from "./workers/torn-items.js";
-import { startTornGymsWorker } from "./workers/torn-gyms.js";
 import {
+  startUserDataWorker,
+  startTornGymsWorker,
   startUserSnapshotWorker,
   startUserSnapshotPruningWorker,
-} from "./workers/user-snapshot.js";
-import { startTrainingRecommendationsWorker } from "./workers/training-recommendations.js";
-import { startFactionSyncWorker } from "./workers/faction-sync.js";
-import { startTerritoryBlueprintSyncWorker } from "./workers/territory-blueprint-sync.js";
-import { startWarLedgerSyncWorker } from "./workers/war-ledger-sync.js";
-import { startTerritoryStateSyncWorker } from "./workers/territory-state-sync.js";
-import { startRateLimitPruningWorker } from "./workers/rate-limit-pruning.js";
-import { startWarLedgerPruningWorker } from "./workers/war-ledger-pruning.js";
+  startTrainingRecommendationsWorker,
+} from "./workers/private/index.js";
+import {
+  startTornItemsWorker,
+  startFactionSyncWorker,
+  startTerritoryBlueprintSyncWorker,
+  startWarLedgerSyncWorker,
+  startTerritoryStateSyncWorker,
+  startRateLimitPruningWorker,
+  startWarLedgerPruningWorker,
+} from "./workers/public/index.js";
 import { logSection } from "./lib/logger.js";
-import { initializeApiKeyMapping } from "./services/torn-client.js";
+import { initializeApiKeyMappings } from "./services/torn-client.js";
+
+type WorkerScope = "private" | "public" | "all";
+
+function resolveWorkerScope(): WorkerScope {
+  const raw = (process.env.WORKER_SCOPE || "all").toLowerCase();
+  if (raw === "private" || raw === "public" || raw === "all") {
+    return raw;
+  }
+
+  console.warn(`[Workers] Unknown WORKER_SCOPE '${raw}'. Defaulting to 'all'.`);
+  return "all";
+}
 
 async function startAllWorkers(): Promise<void> {
   logSection("🚀 Starting Sentinel workers");
 
   try {
+    const scope = resolveWorkerScope();
+    logSection(`🧭 Worker scope: ${scope}`);
+
     // Initialize API key mapping for rate limiting - CRITICAL, must succeed
     logSection("🔐 Initializing rate limiting...");
-    await initializeApiKeyMapping();
-    // Torn items worker (daily at ~03:00 UTC)
-    startTornItemsWorker();
+    await initializeApiKeyMappings(scope);
 
-    // Torn gyms worker (daily at ~03:00 UTC)
-    startTornGymsWorker();
+    if (scope !== "public") {
+      // Torn gyms worker (daily at ~03:00 UTC)
+      startTornGymsWorker();
 
-    // User data worker (every hour)
-    startUserDataWorker();
+      // User data worker (every hour)
+      startUserDataWorker();
 
-    // User snapshot worker (every 30s - includes bars and cooldowns)
-    startUserSnapshotWorker();
+      // User snapshot worker (every 30s - includes bars and cooldowns)
+      startUserSnapshotWorker();
 
-    // User snapshot pruning worker (every hour)
-    startUserSnapshotPruningWorker();
+      // User snapshot pruning worker (every hour)
+      startUserSnapshotPruningWorker();
 
-    // Training recommendations worker (every 10 minutes)
-    startTrainingRecommendationsWorker();
+      // Training recommendations worker (every 10 minutes)
+      startTrainingRecommendationsWorker();
+    }
 
-    // Faction sync worker (once daily)
-    startFactionSyncWorker();
+    if (scope !== "private") {
+      // Torn items worker (daily at ~03:00 UTC)
+      startTornItemsWorker();
 
-    // TT module workers
-    startTerritoryBlueprintSyncWorker(); // once daily
-    startWarLedgerSyncWorker(); // every 15 seconds
-    startTerritoryStateSyncWorker(); // dynamic cadence based on API keys
+      // Faction sync worker (once daily)
+      startFactionSyncWorker();
 
-    // Auto-pruning workers
-    startRateLimitPruningWorker(); // prune old rate limit entries hourly
-    startWarLedgerPruningWorker(); // prune wars older than 95 days daily
+      // TT module workers
+      startTerritoryBlueprintSyncWorker(); // once daily
+      startWarLedgerSyncWorker(); // every 15 seconds
+      startTerritoryStateSyncWorker(); // dynamic cadence based on API keys
+
+      // Auto-pruning workers
+      startRateLimitPruningWorker(); // prune old rate limit entries hourly
+      startWarLedgerPruningWorker(); // prune wars older than 95 days daily
+    }
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes

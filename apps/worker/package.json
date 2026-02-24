@@ -10,6 +10,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "task": "tsx --env-file=.env",
+    "add-key": "tsx --env-file=.env src/scripts/add-system-api-key.ts",
+    "dedupe-keys": "tsx --env-file=.env src/scripts/dedupe-system-api-keys.ts",
     "trigger": "tsx --env-file=.env trigger.ts",
     "lint": "eslint src/"
   },

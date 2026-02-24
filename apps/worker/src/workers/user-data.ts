@@ -1,5 +1,5 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey } from "../lib/api-keys.js";
+import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -14,7 +14,7 @@ function formatDuration(ms: number): string {
 }
 
 async function syncUserDataHandler(): Promise<void> {
-  const apiKey = getPersonalApiKey();
+  const apiKey = await getSystemApiKey("personal");
   const startTime = Date.now();
   let profileId: number | undefined;
 

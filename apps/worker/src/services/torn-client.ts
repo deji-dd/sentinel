@@ -19,7 +19,7 @@ import {
 } from "@sentinel/shared";
 import { supabase } from "../lib/supabase.js";
 import { markSystemApiKeyInvalid } from "../lib/system-api-keys.js";
-import { getPersonalApiKey } from "../lib/supabase.js";
+import { getAllSystemApiKeys, getSystemApiKey } from "../lib/api-keys.js";
 
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
 
@@ -63,35 +63,72 @@ export const batchHandler = new BatchOperationHandler(rateLimiter);
  * CRITICAL: This must succeed before any API calls are made
  * Throws error if mapping cannot be created - rate limiting is non-negotiable
  */
-export async function initializeApiKeyMapping(): Promise<number> {
-  const apiKey = getPersonalApiKey();
-  if (!apiKey) {
+export async function initializeApiKeyMappings(
+  scope: "private" | "public" | "all" = "all",
+): Promise<number[]> {
+  const keysToMap: string[] = [];
+
+  if (scope === "private") {
+    const personalKey = await getSystemApiKey("personal");
+    keysToMap.push(personalKey);
+  }
+
+  if (scope === "public") {
+    const pooledKeys = await getAllSystemApiKeys("all");
+    if (!pooledKeys.length) {
+      throw new Error(
+        "[CRITICAL] No system API keys available. Add system keys to sentinel_system_api_keys to start public workers.",
+      );
+    }
+    keysToMap.push(...pooledKeys);
+  }
+
+  if (scope === "all") {
+    const personalKey = await getSystemApiKey("personal");
+    const pooledKeys = await getAllSystemApiKeys("all");
+    keysToMap.push(personalKey, ...pooledKeys);
+  }
+
+  const uniqueKeys = Array.from(new Set(keysToMap));
+
+  if (!uniqueKeys.length) {
     throw new Error(
-      "[CRITICAL] No system API key available. Cannot initialize rate limiting. " +
-        "Set TORN_API_KEY or similar environment variable.",
+      "[CRITICAL] No API keys available for rate limiting initialization.",
     );
   }
 
-  console.log("[TornClient] Attempting to initialize API key mapping...");
-  const result = await ensureApiKeyMapped(apiKey, supabase, {
-    tableName: TABLE_NAMES.API_KEY_USER_MAPPING,
-    hashPepper: API_KEY_HASH_PEPPER,
-  });
+  console.log("[TornClient] Attempting to initialize API key mappings...");
+  const mappedUserIds: number[] = [];
 
-  if (!result.userId) {
-    const detailedError = result.error || "Unknown error";
-    throw new Error(
-      "[CRITICAL] Failed to map API key to user. Rate limiting cannot be initialized.\n" +
-        `Error Details: ${detailedError}\n` +
-        "Verify the API key is valid and your Supabase connection works. " +
-        "Without working rate limiting, your API keys will be blocked.",
-    );
+  for (const apiKey of uniqueKeys) {
+    const result = await ensureApiKeyMapped(apiKey, supabase, {
+      tableName: TABLE_NAMES.API_KEY_USER_MAPPING,
+      hashPepper: API_KEY_HASH_PEPPER,
+    });
+
+    if (!result.userId) {
+      const detailedError = result.error || "Unknown error";
+      throw new Error(
+        "[CRITICAL] Failed to map API key to user. Rate limiting cannot be initialized.\n" +
+          `Error Details: ${detailedError}\n` +
+          "Verify the API key is valid and your Supabase connection works. " +
+          "Without working rate limiting, your API keys will be blocked.",
+      );
+    }
+
+    mappedUserIds.push(result.userId);
   }
 
   console.log(
-    `[TornClient] ✓ API key mapped to player ${result.userId} - rate limiting initialized`,
+    `[TornClient] ✓ Mapped ${mappedUserIds.length} API key(s) for rate limiting initialization`,
   );
-  return result.userId;
+
+  return mappedUserIds;
+}
+
+export async function initializeApiKeyMapping(): Promise<number> {
+  const [userId] = await initializeApiKeyMappings("all");
+  return userId ?? 0;
 }
 
 /**

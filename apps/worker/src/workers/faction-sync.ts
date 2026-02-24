@@ -6,7 +6,8 @@
 
 import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase, getPersonalApiKey } from "../lib/supabase.js";
+import { supabase } from "../lib/supabase.js";
+import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logWarn, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 
@@ -53,12 +54,13 @@ export function startFactionSyncWorker() {
         );
 
         // Get available API key (system key)
-        const apiKey = getPersonalApiKey();
-
-        if (!apiKey) {
+        const apiKeys = await getAllSystemApiKeys("all");
+        if (!apiKeys.length) {
           logError("faction_sync", "No system API key available");
           return false;
         }
+
+        const apiKey = apiKeys[0];
 
         // Sync faction data in batches using shared client with rate limiting
         let successCount = 0;

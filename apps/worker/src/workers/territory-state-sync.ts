@@ -9,10 +9,12 @@
 
 import { TABLE_NAMES } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase, getPersonalApiKey } from "../lib/supabase.js";
+import { supabase } from "../lib/supabase.js";
+import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
 import { batchHandler } from "../services/torn-client.js";
+import { executeSync } from "../lib/sync.js";
 
 interface TTOwnershipChange {
   territory_id: string;
@@ -40,17 +42,16 @@ interface TTEventNotification {
  * - 2 keys: 80×60 / (2×50) = 48 seconds
  * - 4 keys: 80×60 / (4×50) = 24 seconds
  *
- * Note: Currently uses system key only. If/when guild keys are pooled,
- * this can be updated to read from database.
- *
+ * Dynamically counts actual system keys from database.
  * Min: 24s (4+ keys), Max: 96s (with just system key)
  */
-function calculateCadence(): number {
-  // Currently system key only: 80 requests × 60 / (1 × 50) = 96 seconds
-  // This can be made dynamic later if we pool guild keys
+async function calculateCadence(): Promise<number> {
   const requestsNeeded = 80; // ~4000 territories / 50 per batch
   const limitPerKeyPerMin = 50; // Torn limit is 100, using 50 for safety
-  const numKeys = 1; // System key only for TT sync
+
+  // Count actual system keys available
+  const apiKeys = await getAllSystemApiKeys("all");
+  const numKeys = Math.max(1, apiKeys.length);
 
   // cadence = (requests needed × 60s) / (keys available × limit per key)
   const dynamicCadence = Math.ceil(
@@ -144,198 +145,209 @@ async function queueGuildNotifications(
 export function startTerritoryStateSyncWorker() {
   return startDbScheduledRunner({
     worker: "territory_state_sync",
-    defaultCadenceSeconds: calculateCadence(), // Dynamic based on available keys
+    defaultCadenceSeconds: 96, // Will be updated based on key count
+    getDynamicCadence: calculateCadence,
     handler: async () => {
-      const startTime = Date.now();
+      await executeSync({
+        name: "territory_state_sync",
+        timeout: 180_000, // 3 minutes max (allows for rate limiting delays)
+        handler: async () => {
+          const startTime = Date.now();
 
-      try {
-        // Get system API key
-        const apiKey = getPersonalApiKey();
-        if (!apiKey) {
-          // Silently skip if no system key
-          return true;
-        }
-
-        // Get all territory IDs (with explicit limit to bypass default 1000-row limit)
-        const { data: allTTs } = await supabase
-          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-          .select("id")
-          .order("id")
-          .limit(5000); // Explicit limit - must be <= config.toml max_rows setting
-
-        if (!allTTs || allTTs.length === 0) {
-          logDuration(
-            "territory_state_sync",
-            "No territories in blueprint",
-            Date.now() - startTime,
-          );
-          return true;
-        }
-
-        const ttIds = allTTs.map((tt) => tt.id);
-
-        // Check if this is initial seeding (avoid flooding channel with notifications)
-        const { count: existingStates } = await supabase
-          .from(TABLE_NAMES.TERRITORY_STATE)
-          .select("*", { count: "exact", head: true });
-
-        const isInitialSeeding =
-          !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
-
-        // Batch territories for fetching (max 50 per request)
-        const batchSize = 50;
-        const changes: TTOwnershipChange[] = [];
-        const notifications: TTEventNotification[] = [];
-
-        // Create batch requests for the handler
-        const batchRequests = [];
-        for (let i = 0; i < ttIds.length; i += batchSize) {
-          const batch = ttIds.slice(i, i + batchSize);
-          batchRequests.push({
-            id: `batch-${Math.floor(i / batchSize)}`,
-            item: { ids: batch },
-          });
-        }
-
-        // Execute batches using the batch handler (handles rate limiting)
-        const results = await batchHandler.executeBatch(
-          batchRequests,
-          [apiKey],
-          async (item: { ids: number[] }, key: string) => {
-            const response = await import("../services/torn-client.js").then(
-              (m) =>
-                m.tornApi.get("/torn/territory", {
-                  apiKey: key,
-                  queryParams: { ids: item.ids },
-                }),
-            );
-            return response;
-          },
-          {
-            concurrent: false,
-            delayMs: 0, // Rate limiter handles delays
-            retryAttempts: 2,
-          },
-        );
-
-        // Process results
-        for (const batchResult of results) {
-          if (!batchResult.success || !batchResult.result) {
-            if (batchResult.error) {
-              logError(
-                "territory_state_sync",
-                `Failed batch ${batchResult.requestId}: ${batchResult.error.message}`,
-              );
+          try {
+            // Get system API key
+            const apiKeys = await getAllSystemApiKeys("all");
+            if (!apiKeys.length) {
+              // Silently skip if no system key
+              return;
             }
-            continue;
-          }
 
-          const data = batchResult.result;
-          if ("error" in data) {
-            // API error response
-            continue;
-          }
+            // Get all territory IDs (with explicit limit to bypass default 1000-row limit)
+            const { data: allTTs } = await supabase
+              .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
+              .select("id")
+              .order("id")
+              .limit(5000); // Explicit limit - must be <= config.toml max_rows setting
 
-          const territories = data.territory || [];
+            if (!allTTs || allTTs.length === 0) {
+              logDuration(
+                "territory_state_sync",
+                "No territories in blueprint",
+                Date.now() - startTime,
+              );
+              return;
+            }
 
-          // Compare with DB and detect changes
-          for (const tt of territories) {
-            const { data: currentState, error } = await supabase
+            const ttIds = allTTs.map((tt) => tt.id);
+
+            // Check if this is initial seeding (avoid flooding channel with notifications)
+            const { count: existingStates } = await supabase
               .from(TABLE_NAMES.TERRITORY_STATE)
-              .select("faction_id")
-              .eq("territory_id", tt.id)
-              .single();
+              .select("*", { count: "exact", head: true });
 
-            // If row doesn't exist, treat as new territory (null -> occupied_by)
-            const oldFaction = currentState?.faction_id ?? null;
-            const newFaction = tt.occupied_by;
+            const isInitialSeeding =
+              !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
 
-            // Skip if no change
-            if (oldFaction === newFaction) {
-              continue;
+            // Batch territories for fetching (max 50 per request)
+            const batchSize = 50;
+            const changes: TTOwnershipChange[] = [];
+            const notifications: TTEventNotification[] = [];
+
+            // Create batch requests for the handler
+            const batchRequests = [];
+            for (let i = 0; i < ttIds.length; i += batchSize) {
+              const batch = ttIds.slice(i, i + batchSize);
+              batchRequests.push({
+                id: `batch-${Math.floor(i / batchSize)}`,
+                item: { ids: batch },
+              });
             }
 
-            // Skip if there was an error other than "not found"
-            if (error && error.code !== "PGRST116") {
-              logError(
-                "territory_state_sync",
-                `Failed to fetch state for territory ${tt.id}: ${error.message}`,
-              );
-              continue;
-            }
-
-            changes.push({
-              territory_id: tt.id,
-              old_faction_id: oldFaction,
-              new_faction_id: newFaction,
-            });
-
-            // Check for active war to determine event type
-            const { data: activeWar } = await supabase
-              .from(TABLE_NAMES.WAR_LEDGER)
-              .select("assaulting_faction,defending_faction")
-              .eq("territory_id", tt.id)
-              .is("end_time", null)
-              .single();
-
-            const eventType = determineEventType(
-              oldFaction,
-              newFaction,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              activeWar as any,
+            // Execute batches using the batch handler (handles rate limiting)
+            const results = await batchHandler.executeBatch(
+              batchRequests,
+              apiKeys,
+              async (item: { ids: number[] }, key: string) => {
+                const response =
+                  await import("../services/torn-client.js").then((m) =>
+                    m.tornApi.get("/torn/territory", {
+                      apiKey: key,
+                      queryParams: { ids: item.ids },
+                    }),
+                  );
+                return response;
+              },
+              {
+                concurrent: apiKeys.length > 1,
+                delayMs: 0, // Rate limiter handles delays
+                retryAttempts: 2,
+              },
             );
 
-            notifications.push({
-              guild_id: "", // Will be filled in queueGuildNotifications
-              territory_id: tt.id,
-              event_type: eventType,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              assaulting_faction: (activeWar as any)?.assaulting_faction,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              defending_faction: (activeWar as any)?.defending_faction,
-              occupying_faction: newFaction,
-            });
-          }
-        }
+            // Process results
+            for (const batchResult of results) {
+              if (!batchResult || !batchResult.success || !batchResult.result) {
+                if (batchResult?.error) {
+                  logError(
+                    "territory_state_sync",
+                    `Failed batch ${batchResult.requestId}: ${batchResult.error.message}`,
+                  );
+                } else if (!batchResult) {
+                  logError(
+                    "territory_state_sync",
+                    "Received undefined batch result from handler",
+                  );
+                }
+                continue;
+              }
 
-        if (changes.length > 0) {
-          // Bulk update territory states
-          const stateUpdates = changes.map((change) => ({
-            territory_id: change.territory_id,
-            faction_id: change.new_faction_id,
-          }));
+              const data = batchResult.result;
+              if ("error" in data) {
+                // API error response
+                continue;
+              }
 
-          const { error: updateError } = await supabase
-            .from(TABLE_NAMES.TERRITORY_STATE)
-            .upsert(stateUpdates, { onConflict: "territory_id" });
+              const territories = data.territory || [];
 
-          if (updateError) {
-            logError(
+              // Compare with DB and detect changes
+              for (const tt of territories) {
+                const { data: currentState, error } = await supabase
+                  .from(TABLE_NAMES.TERRITORY_STATE)
+                  .select("faction_id")
+                  .eq("territory_id", tt.id)
+                  .single();
+
+                // If row doesn't exist, treat as new territory (null -> occupied_by)
+                const oldFaction = currentState?.faction_id ?? null;
+                const newFaction = tt.occupied_by;
+
+                // Skip if no change
+                if (oldFaction === newFaction) {
+                  continue;
+                }
+
+                // Skip if there was an error other than "not found"
+                if (error && error.code !== "PGRST116") {
+                  logError(
+                    "territory_state_sync",
+                    `Failed to fetch state for territory ${tt.id}: ${error.message}`,
+                  );
+                  continue;
+                }
+
+                changes.push({
+                  territory_id: tt.id,
+                  old_faction_id: oldFaction,
+                  new_faction_id: newFaction,
+                });
+
+                // Check for active war to determine event type
+                const { data: activeWar } = await supabase
+                  .from(TABLE_NAMES.WAR_LEDGER)
+                  .select("assaulting_faction,defending_faction")
+                  .eq("territory_id", tt.id)
+                  .is("end_time", null)
+                  .single();
+
+                const eventType = determineEventType(
+                  oldFaction,
+                  newFaction,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  activeWar as any,
+                );
+
+                notifications.push({
+                  guild_id: "", // Will be filled in queueGuildNotifications
+                  territory_id: tt.id,
+                  event_type: eventType,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  assaulting_faction: (activeWar as any)?.assaulting_faction,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  defending_faction: (activeWar as any)?.defending_faction,
+                  occupying_faction: newFaction,
+                });
+              }
+            }
+
+            if (changes.length > 0) {
+              // Bulk update territory states
+              const stateUpdates = changes.map((change) => ({
+                territory_id: change.territory_id,
+                faction_id: change.new_faction_id,
+              }));
+
+              const { error: updateError } = await supabase
+                .from(TABLE_NAMES.TERRITORY_STATE)
+                .upsert(stateUpdates, { onConflict: "territory_id" });
+
+              if (updateError) {
+                logError(
+                  "territory_state_sync",
+                  `Failed to update territory states: ${updateError.message}`,
+                );
+                throw updateError;
+              }
+
+              // Queue guild notifications (skip during initial seeding to avoid channel flood)
+              if (!isInitialSeeding) {
+                await queueGuildNotifications(changes, notifications);
+              }
+            }
+
+            const duration = Date.now() - startTime;
+            logDuration(
               "territory_state_sync",
-              `Failed to update territory states: ${updateError.message}`,
+              `Sync completed for ${ttIds.length} territories (${changes.length} changes)`,
+              duration,
             );
-            return false;
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            logError("territory_state_sync", `Failed: ${message}`);
+            throw error; // Re-throw so executeSync knows this failed
           }
-
-          // Queue guild notifications (skip during initial seeding to avoid channel flood)
-          if (!isInitialSeeding) {
-            await queueGuildNotifications(changes, notifications);
-          }
-        }
-
-        const duration = Date.now() - startTime;
-        logDuration(
-          "territory_state_sync",
-          `Sync completed for ${ttIds.length} territories (${changes.length} changes)`,
-          duration,
-        );
-
-        return true;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logError("territory_state_sync", `Failed: ${message}`);
-        return false;
-      }
+        },
+      });
     },
   });
 }

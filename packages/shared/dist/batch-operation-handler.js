@@ -23,12 +23,15 @@ export class BatchOperationHandler {
      */
     async analyzeKeyCapacity(apiKeys) {
         const capacities = new Map();
+        const maxRequests = 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.rateLimiter.getMaxRequests?.() ??
+            100;
         // Query actual usage for each key
         for (const key of apiKeys) {
             try {
                 if (this.rateLimiter.getRequestCount) {
                     const requestCount = await this.rateLimiter.getRequestCount(key);
-                    const maxRequests = 100; // Torn API per-user limit
                     const remaining = Math.max(0, maxRequests - requestCount);
                     capacities.set(key, remaining);
                 }
@@ -68,12 +71,13 @@ export class BatchOperationHandler {
             console.warn(`[BatchHandler] Low capacity warning: ${totalCapacity} requests available but ${requests.length} requested`);
         }
         // Distribute requests based on available capacity (weighted distribution)
+        // Even if capacity is 0, still distribute - rate limiter will handle waits
         let requestIndex = 0;
-        for (let i = 0; i < requests.length && requestIndex < requests.length; i++) {
-            for (const [key, capacity] of capacities) {
-                if (capacity > 0 && requestIndex < requests.length) {
+        // Round-robin distribution across all keys
+        while (requestIndex < requests.length) {
+            for (const key of apiKeys) {
+                if (requestIndex < requests.length) {
                     distribution[key].push(requests[requestIndex].id);
-                    capacities.set(key, capacity - 1); // Reduce capacity after assignment
                     requestIndex++;
                 }
             }
@@ -103,18 +107,35 @@ export class BatchOperationHandler {
         }
         // Plan the distribution
         const distribution = await this.planDistribution(requests, apiKeys);
+        console.log(`[BatchHandler] Distribution plan: ${Object.keys(distribution).length} keys, ${requests.length} requests`);
         // Create result map to preserve order
         const resultMap = new Map();
         if (concurrent) {
+            console.log(`[BatchHandler] Executing concurrently`);
             // Execute all in parallel
             await this.executeConcurrent(distribution, requests, handler, resultMap, retryAttempts);
         }
         else {
+            console.log(`[BatchHandler] Executing sequentially`);
             // Execute sequentially with delay
             await this.executeSequential(distribution, requests, handler, resultMap, delayMs, retryAttempts);
         }
-        // Return results in original order
-        return requests.map((req) => resultMap.get(req.id));
+        console.log(`[BatchHandler] Execution complete. ResultMap size: ${resultMap.size}/${requests.length}`);
+        // Return results in original order, with fallback for missing entries
+        return requests.map((req) => {
+            const result = resultMap.get(req.id);
+            if (!result) {
+                // Fallback for requests that somehow weren't processed
+                console.error(`[BatchHandler] Missing result for request ${req.id}, using fallback`);
+                return {
+                    requestId: req.id,
+                    success: false,
+                    error: new Error("Request was not processed"),
+                    keyUsed: apiKeys[0] || "unknown",
+                };
+            }
+            return result;
+        });
     }
     /**
      * Execute requests concurrently per key (but sequentially within each key)
@@ -125,7 +146,21 @@ export class BatchOperationHandler {
         // Execute all keys in parallel, but requests within each key are sequential
         const promises = Object.entries(distribution).map(async ([key, requestIds]) => {
             for (const id of requestIds) {
-                await this.executeWithRetry(requestMap.get(id), key, handler, resultMap, retryAttempts);
+                try {
+                    await this.executeWithRetry(requestMap.get(id), key, handler, resultMap, retryAttempts);
+                }
+                catch (error) {
+                    // ExecuteWithRetry should handle all errors, but catch just in case
+                    console.error(`[BatchHandler] Unexpected error in executeWithRetry for ${id}:`, error);
+                    if (!resultMap.has(id)) {
+                        resultMap.set(id, {
+                            requestId: id,
+                            success: false,
+                            error: error instanceof Error ? error : new Error(String(error)),
+                            keyUsed: key,
+                        });
+                    }
+                }
             }
         });
         await Promise.all(promises);
@@ -136,16 +171,38 @@ export class BatchOperationHandler {
     async executeSequential(distribution, requests, handler, resultMap, delayMs, retryAttempts) {
         const requestMap = new Map(requests.map((r) => [r.id, r]));
         let isFirst = true;
+        let processed = 0;
         for (const [key, requestIds] of Object.entries(distribution)) {
+            console.log(`[BatchHandler] Processing ${requestIds.length} requests for key`);
             for (const id of requestIds) {
                 if (!isFirst && delayMs > 0) {
                     await new Promise((resolve) => setTimeout(resolve, delayMs));
                 }
                 isFirst = false;
                 const request = requestMap.get(id);
-                await this.executeWithRetry(request, key, handler, resultMap, retryAttempts);
+                try {
+                    await this.executeWithRetry(request, key, handler, resultMap, retryAttempts);
+                    processed++;
+                    if (processed % 10 === 0) {
+                        console.log(`[BatchHandler] Processed ${processed}/${requestIds.length} requests`);
+                    }
+                }
+                catch (error) {
+                    // ExecuteWithRetry should handle all errors, but catch just in case
+                    console.error(`[BatchHandler] Unexpected error in executeWithRetry for ${id}:`, error);
+                    if (!resultMap.has(id)) {
+                        resultMap.set(id, {
+                            requestId: id,
+                            success: false,
+                            error: error instanceof Error ? error : new Error(String(error)),
+                            keyUsed: key,
+                        });
+                    }
+                    processed++;
+                }
             }
         }
+        console.log(`[BatchHandler] Sequential execution complete. Processed ${processed} requests`);
     }
     /**
      * Execute a single request with rate limit awareness and retry logic

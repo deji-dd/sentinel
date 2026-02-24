@@ -33,8 +33,10 @@ export class PerUserRateLimiter implements RateLimitTracker {
   private hashPepper: string;
   private maxRequests: number;
   private windowMs: number;
-  private userIdCache: Map<string, string> = new Map();
+  private logEnabled: boolean;
+  private userIdCache: Map<string, number> = new Map();
   private unmappedKeysWarned: Set<string> = new Set(); // Track warned keys to avoid spam
+  private requestCounter: number = 0; // Counter for logging every Nth request
 
   constructor(config: PerUserRateLimiterConfig) {
     this.supabase = config.supabase;
@@ -44,6 +46,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     this.maxRequests =
       config.maxRequestsPerWindow ?? RATE_LIMITING.MAX_REQUESTS_PER_MINUTE;
     this.windowMs = config.windowMs ?? RATE_LIMITING.WINDOW_MS;
+    this.logEnabled = process.env.RATE_LIMIT_LOG === "1";
 
     if (!this.hashPepper) {
       throw new Error(
@@ -52,79 +55,21 @@ export class PerUserRateLimiter implements RateLimitTracker {
     }
   }
 
-  /**
-   * Resolve user ID from API key by looking up in mapping table
-   * Caches result for performance within a batch operation
-   * Throws error if mapping not found - rate limiting is non-negotiable
-   */
-  private async getUserIdFromApiKey(apiKey: string): Promise<string | null> {
-    const keyHash = hashApiKey(apiKey, this.hashPepper);
-
-    // Check cache first
-    if (this.userIdCache.has(keyHash)) {
-      return this.userIdCache.get(keyHash) || null;
-    }
-
-    try {
-      const { data, error } = await this.supabase
-        .from(this.apiKeyMappingTableName)
-        .select("user_id")
-        .eq("api_key_hash", keyHash)
-        .is("deleted_at", null)
-        .single();
-
-      if (error || !data) {
-        // Throw error instead of silently failing - rate limiting is non-negotiable
-        throw new Error(
-          `API key not mapped to a user. Call ensureApiKeyMapped() during initialization. ` +
-            `This is a critical safety feature to prevent API key blocking.`,
-        );
-      }
-
-      const userId = (data as any).user_id;
-      this.userIdCache.set(keyHash, userId);
-      return userId;
-    } catch (error) {
-      // Re-throw to ensure we don't silently fail
-      throw error;
-    }
+  private formatTimestamp(): string {
+    return new Date().toISOString().split("T")[1].split(".")[0];
   }
 
-  /**
-   * Record a new request for a user
-   * User ID is resolved from the API key
-   */
-  async recordRequest(apiKey: string): Promise<void> {
-    const userId = await this.getUserIdFromApiKey(apiKey);
-    if (!userId) {
-      // Silent return for system keys or keys not in mapping (expected)
-      return;
+  private formatWindowTimeLeft(oldestRequest: Date | null): string {
+    if (!oldestRequest) {
+      return `${(this.windowMs / 1000).toFixed(1)}s`;
     }
 
-    const now = new Date();
-
-    try {
-      await this.supabase.from(this.tableName).insert({
-        user_id: userId,
-        requested_at: now.toISOString(),
-      });
-    } catch (error) {
-      console.error("[RateLimiter] Failed to record request:", error);
-      throw error;
-    }
+    const elapsedMs = Date.now() - oldestRequest.getTime();
+    const remainingMs = Math.max(0, this.windowMs - elapsedMs);
+    return `${(remainingMs / 1000).toFixed(1)}s`;
   }
 
-  /**
-   * Get request count for a user in the current window
-   * User ID is resolved from the API key
-   */
-  async getRequestCount(apiKey: string): Promise<number> {
-    const userId = await this.getUserIdFromApiKey(apiKey);
-    if (!userId) {
-      // System keys or unmapped keys return 0 (not rate limited)
-      return 0;
-    }
-
+  private async getRequestCountForUser(userId: number): Promise<number> {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
@@ -158,23 +103,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     }
   }
 
-  /**
-   * Check if a user is rate limited
-   */
-  async isRateLimited(apiKey: string): Promise<boolean> {
-    const count = await this.getRequestCount(apiKey);
-    return count >= this.maxRequests;
-  }
-
-  /**
-   * Get oldest request timestamp for a user in current window
-   */
-  async getOldestRequest(apiKey: string): Promise<Date | null> {
-    const userId = await this.getUserIdFromApiKey(apiKey);
-    if (!userId) {
-      return null;
-    }
-
+  private async getOldestRequestForUser(userId: number): Promise<Date | null> {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
@@ -195,6 +124,117 @@ export class PerUserRateLimiter implements RateLimitTracker {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Resolve user ID from API key by looking up in mapping table
+   * Caches result for performance within a batch operation
+   * Throws error if mapping not found - rate limiting is non-negotiable
+   */
+  private async getUserIdFromApiKey(apiKey: string): Promise<number | null> {
+    const keyHash = hashApiKey(apiKey, this.hashPepper);
+
+    // Check cache first
+    if (this.userIdCache.has(keyHash)) {
+      return this.userIdCache.get(keyHash) || null;
+    }
+
+    try {
+      const { data, error } = await this.supabase
+        .from(this.apiKeyMappingTableName)
+        .select("user_id")
+        .eq("api_key_hash", keyHash)
+        .is("deleted_at", null)
+        .single();
+
+      if (error || !data) {
+        // Throw error instead of silently failing - rate limiting is non-negotiable
+        throw new Error(
+          `API key not mapped to a user. Call ensureApiKeyMapped() during initialization. ` +
+            `This is a critical safety feature to prevent API key blocking.`,
+        );
+      }
+
+      const userId = Number((data as any).user_id);
+      this.userIdCache.set(keyHash, userId);
+      return userId;
+    } catch (error) {
+      // Re-throw to ensure we don't silently fail
+      throw error;
+    }
+  }
+
+  /**
+   * Record a new request for a user
+   * User ID is resolved from the API key
+   */
+  async recordRequest(apiKey: string): Promise<void> {
+    const userId = await this.getUserIdFromApiKey(apiKey);
+    if (!userId) {
+      // Silent return for system keys or keys not in mapping (expected)
+      return;
+    }
+
+    const now = new Date();
+    const keyHash = hashApiKey(apiKey, this.hashPepper);
+
+    try {
+      await this.supabase.from(this.tableName).insert({
+        user_id: userId,
+        api_key_hash: keyHash,
+        requested_at: now.toISOString(),
+      });
+
+      if (this.logEnabled) {
+        this.requestCounter++;
+        // Only log every 10th request to reduce verbosity
+        if (this.requestCounter % 10 === 0) {
+          const count = await this.getRequestCountForUser(userId);
+          const oldestRequest = await this.getOldestRequestForUser(userId);
+          const timestamp = this.formatTimestamp();
+          console.log(
+            `[rate_limiter] ${timestamp} Recorded request ${count}/${this.maxRequests} for user ${userId} (${this.formatWindowTimeLeft(oldestRequest)} left in window)`,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("[rate_limiter] Failed to record request:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get request count for a user in the current window
+   * User ID is resolved from the API key
+   */
+  async getRequestCount(apiKey: string): Promise<number> {
+    const userId = await this.getUserIdFromApiKey(apiKey);
+    if (!userId) {
+      // System keys or unmapped keys return 0 (not rate limited)
+      return 0;
+    }
+
+    return this.getRequestCountForUser(userId);
+  }
+
+  /**
+   * Check if a user is rate limited
+   */
+  async isRateLimited(apiKey: string): Promise<boolean> {
+    const count = await this.getRequestCount(apiKey);
+    return count >= this.maxRequests;
+  }
+
+  /**
+   * Get oldest request timestamp for a user in current window
+   */
+  async getOldestRequest(apiKey: string): Promise<Date | null> {
+    const userId = await this.getUserIdFromApiKey(apiKey);
+    if (!userId) {
+      return null;
+    }
+
+    return this.getOldestRequestForUser(userId);
   }
 
   /**
@@ -220,17 +260,23 @@ export class PerUserRateLimiter implements RateLimitTracker {
     // Periodic cleanup
     this.cleanupOldRequests().catch(() => {});
 
-    const count = await this.getRequestCount(apiKey);
+    const userId = await this.getUserIdFromApiKey(apiKey);
+    if (!userId) {
+      return;
+    }
+
+    const count = await this.getRequestCountForUser(userId);
 
     if (count >= this.maxRequests) {
-      const oldestRequest = await this.getOldestRequest(apiKey);
+      const oldestRequest = await this.getOldestRequestForUser(userId);
       if (oldestRequest) {
         const now = Date.now();
         const age = now - oldestRequest.getTime();
         const waitTime = this.windowMs - age + 100; // +100ms buffer
         if (waitTime > 0) {
+          const timestamp = this.formatTimestamp();
           console.log(
-            `[RateLimiter] User rate limited. Waiting ${waitTime}ms before retry.`,
+            `[rate_limiter] ${timestamp} User ${userId} rate limited. Waiting ${waitTime}ms before retry.`,
           );
           await new Promise((resolve) => setTimeout(resolve, waitTime));
           // Recursively check again

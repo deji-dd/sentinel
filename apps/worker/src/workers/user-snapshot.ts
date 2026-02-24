@@ -1,5 +1,5 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey } from "../lib/api-keys.js";
+import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -168,7 +168,7 @@ function calculateLiquidCash(
  * Take a snapshot of the user's current state (financial, stats, training, bars, and cooldowns)
  */
 async function takeSnapshot(): Promise<void> {
-  const apiKey = getPersonalApiKey();
+  const apiKey = await getSystemApiKey("personal");
   const startTime = Date.now();
 
   try {

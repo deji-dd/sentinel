@@ -1,5 +1,5 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey } from "../lib/api-keys.js";
+import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
@@ -510,7 +510,7 @@ async function computeTrainingRecommendations(): Promise<void> {
   const snapshot = await getLatestSnapshot();
 
   // Get the user's API key
-  const apiKey = await getPersonalApiKey();
+  const apiKey = await getSystemApiKey("personal");
 
   // Get booster cooldown
   const boosterCooldown = await getBoosterCooldown();

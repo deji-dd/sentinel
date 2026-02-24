@@ -27,9 +27,15 @@ export declare class PerUserRateLimiter implements RateLimitTracker {
     private hashPepper;
     private maxRequests;
     private windowMs;
+    private logEnabled;
     private userIdCache;
     private unmappedKeysWarned;
+    private requestCounter;
     constructor(config: PerUserRateLimiterConfig);
+    private formatTimestamp;
+    private formatWindowTimeLeft;
+    private getRequestCountForUser;
+    private getOldestRequestForUser;
     /**
      * Resolve user ID from API key by looking up in mapping table
      * Caches result for performance within a batch operation

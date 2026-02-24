@@ -19,8 +19,10 @@ export class PerUserRateLimiter {
     hashPepper;
     maxRequests;
     windowMs;
+    logEnabled;
     userIdCache = new Map();
     unmappedKeysWarned = new Set(); // Track warned keys to avoid spam
+    requestCounter = 0; // Counter for logging every Nth request
     constructor(config) {
         this.supabase = config.supabase;
         this.tableName = config.tableName;
@@ -29,8 +31,65 @@ export class PerUserRateLimiter {
         this.maxRequests =
             config.maxRequestsPerWindow ?? RATE_LIMITING.MAX_REQUESTS_PER_MINUTE;
         this.windowMs = config.windowMs ?? RATE_LIMITING.WINDOW_MS;
+        this.logEnabled = process.env.RATE_LIMIT_LOG === "1";
         if (!this.hashPepper) {
             throw new Error("API_KEY_HASH_PEPPER is required for secure rate limiting");
+        }
+    }
+    formatTimestamp() {
+        return new Date().toISOString().split("T")[1].split(".")[0];
+    }
+    formatWindowTimeLeft(oldestRequest) {
+        if (!oldestRequest) {
+            return `${(this.windowMs / 1000).toFixed(1)}s`;
+        }
+        const elapsedMs = Date.now() - oldestRequest.getTime();
+        const remainingMs = Math.max(0, this.windowMs - elapsedMs);
+        return `${(remainingMs / 1000).toFixed(1)}s`;
+    }
+    async getRequestCountForUser(userId) {
+        const windowStart = new Date(Date.now() - this.windowMs);
+        try {
+            const { count, error } = await this.supabase
+                .from(this.tableName)
+                .select("*", { count: "exact", head: true })
+                .eq("user_id", userId)
+                .gte("requested_at", windowStart.toISOString());
+            if (error) {
+                console.error(`[RateLimiter] Failed to count requests for user ${userId} from table ${this.tableName}:`, {
+                    code: error.code,
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    fullError: error,
+                });
+                return 0;
+            }
+            return count || 0;
+        }
+        catch (error) {
+            console.error(`[RateLimiter] Exception while counting requests for user ${userId}:`, error);
+            return 0;
+        }
+    }
+    async getOldestRequestForUser(userId) {
+        const windowStart = new Date(Date.now() - this.windowMs);
+        try {
+            const { data, error } = await this.supabase
+                .from(this.tableName)
+                .select("requested_at")
+                .eq("user_id", userId)
+                .gte("requested_at", windowStart.toISOString())
+                .order("requested_at", { ascending: true })
+                .limit(1)
+                .single();
+            if (error || !data) {
+                return null;
+            }
+            return new Date(data.requested_at);
+        }
+        catch {
+            return null;
         }
     }
     /**
@@ -56,7 +115,7 @@ export class PerUserRateLimiter {
                 throw new Error(`API key not mapped to a user. Call ensureApiKeyMapped() during initialization. ` +
                     `This is a critical safety feature to prevent API key blocking.`);
             }
-            const userId = data.user_id;
+            const userId = Number(data.user_id);
             this.userIdCache.set(keyHash, userId);
             return userId;
         }
@@ -76,14 +135,26 @@ export class PerUserRateLimiter {
             return;
         }
         const now = new Date();
+        const keyHash = hashApiKey(apiKey, this.hashPepper);
         try {
             await this.supabase.from(this.tableName).insert({
                 user_id: userId,
+                api_key_hash: keyHash,
                 requested_at: now.toISOString(),
             });
+            if (this.logEnabled) {
+                this.requestCounter++;
+                // Only log every 10th request to reduce verbosity
+                if (this.requestCounter % 10 === 0) {
+                    const count = await this.getRequestCountForUser(userId);
+                    const oldestRequest = await this.getOldestRequestForUser(userId);
+                    const timestamp = this.formatTimestamp();
+                    console.log(`[rate_limiter] ${timestamp} Recorded request ${count}/${this.maxRequests} for user ${userId} (${this.formatWindowTimeLeft(oldestRequest)} left in window)`);
+                }
+            }
         }
         catch (error) {
-            console.error("[RateLimiter] Failed to record request:", error);
+            console.error("[rate_limiter] Failed to record request:", error);
             throw error;
         }
     }
@@ -97,29 +168,7 @@ export class PerUserRateLimiter {
             // System keys or unmapped keys return 0 (not rate limited)
             return 0;
         }
-        const windowStart = new Date(Date.now() - this.windowMs);
-        try {
-            const { count, error } = await this.supabase
-                .from(this.tableName)
-                .select("*", { count: "exact", head: true })
-                .eq("user_id", userId)
-                .gte("requested_at", windowStart.toISOString());
-            if (error) {
-                console.error(`[RateLimiter] Failed to count requests for user ${userId} from table ${this.tableName}:`, {
-                    code: error.code,
-                    message: error.message,
-                    details: error.details,
-                    hint: error.hint,
-                    fullError: error,
-                });
-                return 0;
-            }
-            return count || 0;
-        }
-        catch (error) {
-            console.error(`[RateLimiter] Exception while counting requests for user ${userId}:`, error);
-            return 0;
-        }
+        return this.getRequestCountForUser(userId);
     }
     /**
      * Check if a user is rate limited
@@ -136,24 +185,7 @@ export class PerUserRateLimiter {
         if (!userId) {
             return null;
         }
-        const windowStart = new Date(Date.now() - this.windowMs);
-        try {
-            const { data, error } = await this.supabase
-                .from(this.tableName)
-                .select("requested_at")
-                .eq("user_id", userId)
-                .gte("requested_at", windowStart.toISOString())
-                .order("requested_at", { ascending: true })
-                .limit(1)
-                .single();
-            if (error || !data) {
-                return null;
-            }
-            return new Date(data.requested_at);
-        }
-        catch {
-            return null;
-        }
+        return this.getOldestRequestForUser(userId);
     }
     /**
      * Clean up old request records
@@ -176,15 +208,20 @@ export class PerUserRateLimiter {
     async waitIfNeeded(apiKey) {
         // Periodic cleanup
         this.cleanupOldRequests().catch(() => { });
-        const count = await this.getRequestCount(apiKey);
+        const userId = await this.getUserIdFromApiKey(apiKey);
+        if (!userId) {
+            return;
+        }
+        const count = await this.getRequestCountForUser(userId);
         if (count >= this.maxRequests) {
-            const oldestRequest = await this.getOldestRequest(apiKey);
+            const oldestRequest = await this.getOldestRequestForUser(userId);
             if (oldestRequest) {
                 const now = Date.now();
                 const age = now - oldestRequest.getTime();
                 const waitTime = this.windowMs - age + 100; // +100ms buffer
                 if (waitTime > 0) {
-                    console.log(`[RateLimiter] User rate limited. Waiting ${waitTime}ms before retry.`);
+                    const timestamp = this.formatTimestamp();
+                    console.log(`[rate_limiter] ${timestamp} User ${userId} rate limited. Waiting ${waitTime}ms before retry.`);
                     await new Promise((resolve) => setTimeout(resolve, waitTime));
                     // Recursively check again
                     return this.waitIfNeeded(apiKey);

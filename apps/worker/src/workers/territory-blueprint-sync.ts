@@ -8,7 +8,8 @@
 
 import { TABLE_NAMES } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase, getPersonalApiKey } from "../lib/supabase.js";
+import { supabase } from "../lib/supabase.js";
+import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 
@@ -21,7 +22,8 @@ export function startTerritoryBlueprintSyncWorker() {
 
       try {
         // Get system API key
-        const apiKey = getPersonalApiKey();
+        const apiKeys = await getAllSystemApiKeys("all");
+        const apiKey = apiKeys[0];
         if (!apiKey) {
           logError("territory_blueprint_sync", "No system API key available");
           return false;

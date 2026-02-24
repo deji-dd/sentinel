@@ -5,8 +5,9 @@ import {
   failWorker,
   ensureWorkerRegistered,
   insertWorkerLog,
+  updateWorkerCadence,
 } from "./supabase-helpers.js";
-import { logError, logWarn, logDuration } from "./logger.js";
+import { logError, logWarn } from "./logger.js";
 
 export interface RunConfig {
   worker: string; // worker name, registered in sentinel_workers
@@ -14,6 +15,7 @@ export interface RunConfig {
   pollIntervalMs?: number;
   handler: () => Promise<void | boolean>;
   initialNextRunAt?: string;
+  getDynamicCadence?: () => Promise<number>; // Optional: returns updated cadence based on current state
 }
 
 export function startDbScheduledRunner(
@@ -22,9 +24,10 @@ export function startDbScheduledRunner(
   const {
     worker,
     defaultCadenceSeconds,
-    pollIntervalMs = 5000,
+    pollIntervalMs = 2000, // Check every 2s for faster capacity response
     handler,
     initialNextRunAt,
+    getDynamicCadence,
   } = config;
 
   let workerId: string | null = null;
@@ -70,6 +73,19 @@ export function startDbScheduledRunner(
         }
 
         await completeWorker(workerId, dueRow.cadence_seconds);
+
+        // If dynamic cadence callback provided, check if cadence should update
+        if (getDynamicCadence) {
+          try {
+            const newCadence = await getDynamicCadence();
+            if (newCadence !== dueRow.cadence_seconds) {
+              await updateWorkerCadence(workerId, newCadence);
+            }
+          } catch (_err) {
+            // Silently ignore cadence update errors - don't block success logging
+          }
+        }
+
         await insertWorkerLog({
           worker_id: workerId,
           duration_ms: duration,

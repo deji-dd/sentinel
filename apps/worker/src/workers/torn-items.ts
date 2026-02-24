@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { logDuration, logWarn } from "../lib/logger.js";
-import { getPersonalApiKey } from "../lib/api-keys.js";
+import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import {
   upsertTornItems,
   syncTornCategories,
@@ -110,7 +110,12 @@ function normalizeItems(
 
 async function syncTornItems(): Promise<void> {
   const startTime = Date.now();
-  const apiKey = getPersonalApiKey();
+  const apiKeys = await getAllSystemApiKeys("all");
+  const apiKey = apiKeys[0];
+  if (!apiKey) {
+    logWarn(WORKER_NAME, "No system API keys available");
+    return;
+  }
 
   // Torn API returns full item list in one call
   const response = await tornApi.get("/torn/items", { apiKey });

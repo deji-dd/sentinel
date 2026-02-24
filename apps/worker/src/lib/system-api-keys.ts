@@ -6,7 +6,7 @@
  * System keys are separate from guild keys because:
  * - Workers are not accessible by regular users
  * - System keys can be configured for infrastructure syncing
- * - Can fallback to env var (TORN_API_KEY) for backward compatibility
+ * - Uses DB-backed keys only (no env fallback)
  */
 
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
@@ -26,21 +26,13 @@ const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
 
 /**
  * Get system API key for worker operations
- * Try env var first (backward compatible), then database
+ * Reads from database (personal or system key types)
  *
  * @param keyType - 'personal' (env var) or 'system' (stored in DB)
  */
 export async function getSystemApiKey(
   keyType: "personal" | "system" = "personal",
 ): Promise<string> {
-  // First, try environment variable (personal/fallback key)
-  if (keyType === "personal") {
-    const envKey = process.env.TORN_API_KEY;
-    if (envKey) {
-      return envKey;
-    }
-  }
-
   // Try to get from database (system key or primary from DB)
   const { data, error } = await supabase
     .from(TABLE_NAMES.SYSTEM_API_KEYS)
@@ -52,9 +44,7 @@ export async function getSystemApiKey(
     .single();
 
   if (error || !data) {
-    throw new Error(
-      `No ${keyType} API key found. Set TORN_API_KEY env var or configure in database.`,
-    );
+    throw new Error(`No ${keyType} API key found in database.`);
   }
 
   try {
@@ -66,21 +56,6 @@ export async function getSystemApiKey(
 }
 
 /**
- * Synchronous version: Get personal API key from env var only
- * For backward compatibility with existing workers
- * @throws Error if TORN_API_KEY env var is not set
- */
-export function getPersonalApiKey(): string {
-  const apiKey = process.env.TORN_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "TORN_API_KEY environment variable is required for personalized bot mode",
-    );
-  }
-  return apiKey;
-}
-
-/**
  * Store a system API key in database
  * @param apiKey The raw API key
  * @param userId The user who owns this key
@@ -89,7 +64,7 @@ export function getPersonalApiKey(): string {
  */
 export async function storeSystemApiKey(
   apiKey: string,
-  userId: string,
+  userId: number,
   keyType: "personal" | "system" = "system",
   isPrimary: boolean = false,
 ): Promise<void> {
@@ -97,17 +72,55 @@ export async function storeSystemApiKey(
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // Store the encrypted key
-  const { error: insertError } = await supabase
+  // Check if this key already exists (deduplication)
+  const { data: existing, error: checkError } = await supabase
     .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .insert({
-      user_id: userId,
-      api_key_encrypted: encrypted,
-      is_primary: isPrimary,
-      key_type: keyType,
-    });
+    .select("id, user_id, key_type, is_primary")
+    .eq("api_key_hash", hash)
+    .is("deleted_at", null)
+    .single();
 
-  if (insertError) {
-    throw new Error(`Failed to store system API key: ${insertError.message}`);
+  if (checkError && checkError.code !== "PGRST116") {
+    // PGRST116 = no rows returned, which is fine
+    throw new Error(`Failed to check for existing key: ${checkError.message}`);
+  }
+
+  if (existing) {
+    // Key already exists - update it
+    const { error: updateError } = await supabase
+      .from(TABLE_NAMES.SYSTEM_API_KEYS)
+      .update({
+        user_id: userId,
+        api_key_encrypted: encrypted,
+        is_primary: isPrimary,
+        key_type: keyType,
+      })
+      .eq("id", existing.id);
+
+    if (updateError) {
+      throw new Error(`Failed to update existing key: ${updateError.message}`);
+    }
+
+    console.log(
+      `[SystemKeys] Updated existing ${keyType} key for user ${userId}`,
+    );
+  } else {
+    // New key - insert it
+    const { error: insertError } = await supabase
+      .from(TABLE_NAMES.SYSTEM_API_KEYS)
+      .insert({
+        user_id: userId,
+        api_key_encrypted: encrypted,
+        api_key_hash: hash,
+        is_primary: isPrimary,
+        key_type: keyType,
+      });
+
+    if (insertError) {
+      throw new Error(`Failed to insert new key: ${insertError.message}`);
+    }
+
+    console.log(`[SystemKeys] Added new ${keyType} key for user ${userId}`);
   }
 
   // Register in mapping table for rate limiting
@@ -131,7 +144,7 @@ export async function storeSystemApiKey(
  * Useful for TT syncing or infrastructure tasks that can use multiple keys
  */
 export async function getSystemApiKeys(
-  userId: string,
+  userId: number,
   keyType?: "personal" | "system",
 ): Promise<string[]> {
   let query = supabase
@@ -169,10 +182,50 @@ export async function getSystemApiKeys(
 }
 
 /**
+ * Get all system API keys across all users (for public worker pool).
+ */
+export async function getAllSystemApiKeys(
+  keyType: "personal" | "system" | "all" = "system",
+): Promise<string[]> {
+  let query = supabase
+    .from(TABLE_NAMES.SYSTEM_API_KEYS)
+    .select("api_key_encrypted")
+    .is("deleted_at", null)
+    .order("is_primary", { ascending: false });
+
+  if (keyType !== "all") {
+    query = query.eq("key_type", keyType);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error(`Failed to retrieve system API keys: ${error.message}`);
+    return [];
+  }
+
+  const keys: string[] = [];
+  for (const row of data || []) {
+    try {
+      const decrypted = decryptApiKey(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (row as any).api_key_encrypted,
+        ENCRYPTION_KEY,
+      );
+      keys.push(decrypted);
+    } catch (err) {
+      console.error("Failed to decrypt system API key:", err);
+    }
+  }
+
+  return keys;
+}
+
+/**
  * Get primary system API key
  */
 export async function getPrimarySystemApiKey(
-  userId: string,
+  userId: number,
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.SYSTEM_API_KEYS)
@@ -200,7 +253,7 @@ export async function getPrimarySystemApiKey(
  * Mark a system API key as deleted (soft delete)
  */
 export async function deleteSystemApiKey(
-  userId: string,
+  userId: number,
   apiKey: string,
 ): Promise<void> {
   // Find the key by decrypting and comparing

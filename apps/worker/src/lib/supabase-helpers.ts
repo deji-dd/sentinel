@@ -178,6 +178,20 @@ export async function triggerWorkerNow(workerId: string): Promise<void> {
   }
 }
 
+export async function updateWorkerCadence(
+  workerId: string,
+  cadenceSeconds: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABLE_NAMES.WORKER_SCHEDULES)
+    .update({ cadence_seconds: cadenceSeconds })
+    .eq("worker_id", workerId);
+
+  if (error) {
+    throw new Error(`Failed to update worker cadence: ${error.message}`);
+  }
+}
+
 export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
   const { error } = await supabase.from(TABLE_NAMES.WORKER_LOGS).insert(row);
   if (error) {
