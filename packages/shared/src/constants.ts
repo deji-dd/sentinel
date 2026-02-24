@@ -36,6 +36,7 @@ export const TABLE_NAMES = {
   TERRITORY_STATE: "sentinel_territory_state",
   WAR_LEDGER: "sentinel_war_ledger",
   TORN_FACTIONS: "sentinel_torn_factions",
+  TT_CONFIG: "sentinel_tt_config",
 } as const;
 
 /** Alert module types */

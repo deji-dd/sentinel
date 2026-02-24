@@ -36,6 +36,7 @@ export declare const TABLE_NAMES: {
     readonly TERRITORY_STATE: "sentinel_territory_state";
     readonly WAR_LEDGER: "sentinel_war_ledger";
     readonly TORN_FACTIONS: "sentinel_torn_factions";
+    readonly TT_CONFIG: "sentinel_tt_config";
 };
 /** Alert module types */
 export declare const ALERT_MODULES: {

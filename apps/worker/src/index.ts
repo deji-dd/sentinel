@@ -11,6 +11,9 @@ import {
 } from "./workers/user-snapshot.js";
 import { startTrainingRecommendationsWorker } from "./workers/training-recommendations.js";
 import { startFactionSyncWorker } from "./workers/faction-sync.js";
+import { startTerritoryBlueprintSyncWorker } from "./workers/territory-blueprint-sync.js";
+import { startWarLedgerSyncWorker } from "./workers/war-ledger-sync.js";
+import { startTerritoryStateSyncWorker } from "./workers/territory-state-sync.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -37,6 +40,11 @@ function startAllWorkers(): void {
 
     // Faction sync worker (once daily)
     startFactionSyncWorker();
+
+    // TT module workers
+    startTerritoryBlueprintSyncWorker(); // once daily
+    startWarLedgerSyncWorker(); // every 15 seconds
+    startTerritoryStateSyncWorker(); // dynamic cadence based on API keys
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes
