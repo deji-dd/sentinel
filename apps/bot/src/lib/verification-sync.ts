@@ -2,7 +2,7 @@ import { type Client } from "discord.js";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import {
   TABLE_NAMES,
-  DatabaseRateLimiter,
+  PerUserRateLimiter,
   TornApiClient,
 } from "@sentinel/shared";
 import { getGuildApiKeys } from "./guild-api-keys.js";
@@ -55,23 +55,25 @@ interface GuildConfigRecord {
  * Database-driven guild sync scheduler
  * - Polls database every 60s for guilds needing sync
  * - Syncs each guild independently with its own API key
- * - Respects per-guild rate limits via DatabaseRateLimiter
+ * - Respects per-user rate limits via PerUserRateLimiter
  * - Allows guilds to customize sync interval
  */
 export class GuildSyncScheduler {
   private client: Client;
   private supabase: SupabaseClient;
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private rateLimiter: DatabaseRateLimiter;
+  private rateLimiter: PerUserRateLimiter;
   private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
 
   constructor(client: Client, supabase: SupabaseClient) {
     this.client = client;
     this.supabase = supabase;
-    this.rateLimiter = new DatabaseRateLimiter({
+    this.rateLimiter = new PerUserRateLimiter({
       supabase,
       tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+      apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
       hashPepper: process.env.API_KEY_HASH_PEPPER!,
+      // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
     });
   }
 

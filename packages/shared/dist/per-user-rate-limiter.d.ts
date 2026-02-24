@@ -28,10 +28,12 @@ export declare class PerUserRateLimiter implements RateLimitTracker {
     private maxRequests;
     private windowMs;
     private userIdCache;
+    private unmappedKeysWarned;
     constructor(config: PerUserRateLimiterConfig);
     /**
      * Resolve user ID from API key by looking up in mapping table
      * Caches result for performance within a batch operation
+     * Throws error if mapping not found - rate limiting is non-negotiable
      */
     private getUserIdFromApiKey;
     /**

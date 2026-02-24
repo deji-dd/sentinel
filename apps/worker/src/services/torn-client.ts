@@ -15,9 +15,11 @@ import {
   BatchOperationHandler,
   ApiKeyRotator,
   TABLE_NAMES,
+  ensureApiKeyMapped,
 } from "@sentinel/shared";
 import { supabase } from "../lib/supabase.js";
 import { markSystemApiKeyInvalid } from "../lib/system-api-keys.js";
+import { getPersonalApiKey } from "../lib/supabase.js";
 
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
 
@@ -34,7 +36,7 @@ const rateLimiter = new PerUserRateLimiter({
   tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
   apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
   hashPepper: API_KEY_HASH_PEPPER,
-  maxRequestsPerWindow: 50, // Safety buffer: 50 req/min (Torn allows 100 but we don't use full bandwidth)
+  // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
 });
 
 /**
@@ -55,6 +57,42 @@ export const tornApi = new TornApiClient({
  * Global batch operation handler for distributing requests optimally
  */
 export const batchHandler = new BatchOperationHandler(rateLimiter);
+
+/**
+ * Ensure system API key is mapped to user for rate limiting
+ * CRITICAL: This must succeed before any API calls are made
+ * Throws error if mapping cannot be created - rate limiting is non-negotiable
+ */
+export async function initializeApiKeyMapping(): Promise<number> {
+  const apiKey = getPersonalApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "[CRITICAL] No system API key available. Cannot initialize rate limiting. " +
+        "Set TORN_API_KEY or similar environment variable.",
+    );
+  }
+
+  console.log("[TornClient] Attempting to initialize API key mapping...");
+  const result = await ensureApiKeyMapped(apiKey, supabase, {
+    tableName: TABLE_NAMES.API_KEY_USER_MAPPING,
+    hashPepper: API_KEY_HASH_PEPPER,
+  });
+
+  if (!result.userId) {
+    const detailedError = result.error || "Unknown error";
+    throw new Error(
+      "[CRITICAL] Failed to map API key to user. Rate limiting cannot be initialized.\n" +
+        `Error Details: ${detailedError}\n` +
+        "Verify the API key is valid and your Supabase connection works. " +
+        "Without working rate limiting, your API keys will be blocked.",
+    );
+  }
+
+  console.log(
+    `[TornClient] ✓ API key mapped to player ${result.userId} - rate limiting initialized`,
+  );
+  return result.userId;
+}
 
 /**
  * Export utilities for use in workers

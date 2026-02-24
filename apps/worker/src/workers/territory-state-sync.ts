@@ -156,11 +156,12 @@ export function startTerritoryStateSyncWorker() {
           return true;
         }
 
-        // Get all territory IDs
+        // Get all territory IDs (with explicit limit to bypass default 1000-row limit)
         const { data: allTTs } = await supabase
           .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
           .select("id")
-          .order("id");
+          .order("id")
+          .limit(5000); // Explicit limit - must be <= config.toml max_rows setting
 
         if (!allTTs || allTTs.length === 0) {
           logDuration(
@@ -172,6 +173,14 @@ export function startTerritoryStateSyncWorker() {
         }
 
         const ttIds = allTTs.map((tt) => tt.id);
+
+        // Check if this is initial seeding (avoid flooding channel with notifications)
+        const { count: existingStates } = await supabase
+          .from(TABLE_NAMES.TERRITORY_STATE)
+          .select("*", { count: "exact", head: true });
+
+        const isInitialSeeding =
+          !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
 
         // Batch territories for fetching (max 50 per request)
         const batchSize = 50;
@@ -192,7 +201,7 @@ export function startTerritoryStateSyncWorker() {
         const results = await batchHandler.executeBatch(
           batchRequests,
           [apiKey],
-          async (item, key) => {
+          async (item: { ids: number[] }, key: string) => {
             const response = await import("../services/torn-client.js").then(
               (m) =>
                 m.tornApi.get("/torn/territory", {
@@ -231,17 +240,27 @@ export function startTerritoryStateSyncWorker() {
 
           // Compare with DB and detect changes
           for (const tt of territories) {
-            const { data: currentState } = await supabase
+            const { data: currentState, error } = await supabase
               .from(TABLE_NAMES.TERRITORY_STATE)
               .select("faction_id")
               .eq("territory_id", tt.id)
               .single();
 
-            const oldFaction = currentState?.faction_id;
+            // If row doesn't exist, treat as new territory (null -> occupied_by)
+            const oldFaction = currentState?.faction_id ?? null;
             const newFaction = tt.occupied_by;
 
             // Skip if no change
             if (oldFaction === newFaction) {
+              continue;
+            }
+
+            // Skip if there was an error other than "not found"
+            if (error && error.code !== "PGRST116") {
+              logError(
+                "territory_state_sync",
+                `Failed to fetch state for territory ${tt.id}: ${error.message}`,
+              );
               continue;
             }
 
@@ -298,8 +317,10 @@ export function startTerritoryStateSyncWorker() {
             return false;
           }
 
-          // Queue guild notifications
-          await queueGuildNotifications(changes, notifications);
+          // Queue guild notifications (skip during initial seeding to avoid channel flood)
+          if (!isInitialSeeding) {
+            await queueGuildNotifications(changes, notifications);
+          }
         }
 
         const duration = Date.now() - startTime;

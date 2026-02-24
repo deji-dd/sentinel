@@ -6,10 +6,11 @@
  * Uses system API key (single request gets all territories)
  */
 
-import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
+import { TABLE_NAMES } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
+import { tornApi } from "../services/torn-client.js";
 
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
@@ -26,10 +27,7 @@ export function startTerritoryBlueprintSyncWorker() {
           return false;
         }
 
-        // Create API client
-        const tornApi = new TornApiClient({});
-
-        // Fetch all territories with pagination support
+        // Fetch all territories with pagination support using shared client with rate limiting
         const allTerritories = [];
         let nextUrl: string | null = null;
         let offset = 0;

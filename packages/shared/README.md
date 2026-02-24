@@ -30,24 +30,28 @@ const bars = await tornApi.get("/user/bars", { apiKey });
 console.log(bars.bars?.energy?.current);
 ```
 
-#### With Database Rate Limiting
+#### With Per-User Rate Limiting
+
+Rate limiting is enforced per Torn USER across all API keys and guilds (50 req/min per user).
 
 ```typescript
 import {
   TornApiClient,
-  DatabaseRateLimiter,
+  PerUserRateLimiter,
   TABLE_NAMES,
+  RATE_LIMITING,
 } from "@sentinel/shared";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(url, key);
 
-const rateLimiter = new DatabaseRateLimiter({
+const rateLimiter = new PerUserRateLimiter({
   supabase,
   tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+  apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
   hashPepper: process.env.API_KEY_HASH_PEPPER!,
-  maxRequestsPerWindow: 50, // Optional: default 50 req/min
-  windowMs: 60000, // Optional: default 60s
+  // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE (50 req/min) by default
+  // Override only if needed: maxRequestsPerWindow: 80,
 });
 
 const tornApi = new TornApiClient({
@@ -59,12 +63,13 @@ const travel = await tornApi.get("/user/travel", { apiKey });
 
 ### Constants
 
-Shared table names and error codes used across all apps.
+Shared constants used across all apps.
 
 ```typescript
-import { TABLE_NAMES, TORN_ERROR_CODES } from "@sentinel/shared";
+import { TABLE_NAMES, RATE_LIMITING, TORN_ERROR_CODES } from "@sentinel/shared";
 
 console.log(TABLE_NAMES.USERS); // "sentinel_users"
+console.log(RATE_LIMITING.MAX_REQUESTS_PER_MINUTE); // 50
 console.log(TORN_ERROR_CODES[2]); // "Incorrect Key: API key is wrong/incorrect format"
 ```
 
@@ -85,15 +90,24 @@ const decrypted = decrypt(encrypted, encryptionKey);
 
 ### Rate Limiting
 
-Database-backed rate limiter that coordinates across bot and worker instances.
+Per-user rate limiting that tracks requests across all API keys and guilds.
+
+Torn API limit: **100 requests/minute per user**  
+Sentinel safety buffer: **50 requests/minute** (`RATE_LIMITING.MAX_REQUESTS_PER_MINUTE`)
 
 ```typescript
-import { DatabaseRateLimiter, TABLE_NAMES } from "@sentinel/shared";
+import {
+  PerUserRateLimiter,
+  TABLE_NAMES,
+  RATE_LIMITING,
+} from "@sentinel/shared";
 
-const rateLimiter = new DatabaseRateLimiter({
+const rateLimiter = new PerUserRateLimiter({
   supabase,
   tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+  apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
   hashPepper: process.env.API_KEY_HASH_PEPPER!,
+  // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE (50) by default
 });
 
 // Check if rate limited
@@ -105,9 +119,10 @@ await rateLimiter.waitIfNeeded(apiKey);
 
 **Features:**
 
-- Tracks requests per API key (hashed for security)
-- Prevents exceeding Torn's 100 req/min limit (default: 50 req/min safety buffer)
+- Tracks requests per Torn USER (maps API keys to player IDs via API_KEY_USER_MAPPING)
+- Enforces Torn's 100 req/min limit per user across all keys and guilds
 - Coordinates across multiple instances via shared database
+- Requires API key mapping initialization via `ensureApiKeyMapped()`
 - Automatic cleanup of old request records
 
 ## API Key Rotation

@@ -43,4 +43,11 @@ export const ALERT_MODULES = {
     TRAVEL: "travel",
     // Future: CRIMES: "crimes", FACTION: "faction", etc.
 };
+/** Rate limiting constants */
+export const RATE_LIMITING = {
+    /** Max requests per minute per Torn user across all API keys and guilds */
+    MAX_REQUESTS_PER_MINUTE: 50,
+    /** Window size for rate limiting (1 minute) */
+    WINDOW_MS: 60000,
+};
 //# sourceMappingURL=constants.js.map

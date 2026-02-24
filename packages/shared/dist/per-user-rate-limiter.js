@@ -4,8 +4,7 @@
  * Each user gets 100 requests/minute across ALL their API keys
  */
 import { hashApiKey } from "./api-key-manager.js";
-const DEFAULT_WINDOW_MS = 60000; // 1 minute window
-const DEFAULT_MAX_REQUESTS_PER_WINDOW = 100; // Torn API limit per user
+import { RATE_LIMITING } from "./constants.js";
 /**
  * Per-user rate limiter that enforces Torn's actual limit:
  * 100 requests per minute per USER across all their keys
@@ -21,14 +20,15 @@ export class PerUserRateLimiter {
     maxRequests;
     windowMs;
     userIdCache = new Map();
+    unmappedKeysWarned = new Set(); // Track warned keys to avoid spam
     constructor(config) {
         this.supabase = config.supabase;
         this.tableName = config.tableName;
         this.apiKeyMappingTableName = config.apiKeyMappingTableName;
         this.hashPepper = config.hashPepper;
         this.maxRequests =
-            config.maxRequestsPerWindow ?? DEFAULT_MAX_REQUESTS_PER_WINDOW;
-        this.windowMs = config.windowMs ?? DEFAULT_WINDOW_MS;
+            config.maxRequestsPerWindow ?? RATE_LIMITING.MAX_REQUESTS_PER_MINUTE;
+        this.windowMs = config.windowMs ?? RATE_LIMITING.WINDOW_MS;
         if (!this.hashPepper) {
             throw new Error("API_KEY_HASH_PEPPER is required for secure rate limiting");
         }
@@ -36,6 +36,7 @@ export class PerUserRateLimiter {
     /**
      * Resolve user ID from API key by looking up in mapping table
      * Caches result for performance within a batch operation
+     * Throws error if mapping not found - rate limiting is non-negotiable
      */
     async getUserIdFromApiKey(apiKey) {
         const keyHash = hashApiKey(apiKey, this.hashPepper);
@@ -51,16 +52,17 @@ export class PerUserRateLimiter {
                 .is("deleted_at", null)
                 .single();
             if (error || !data) {
-                // Silent return for system keys or keys not in mapping (expected)
-                return null;
+                // Throw error instead of silently failing - rate limiting is non-negotiable
+                throw new Error(`API key not mapped to a user. Call ensureApiKeyMapped() during initialization. ` +
+                    `This is a critical safety feature to prevent API key blocking.`);
             }
             const userId = data.user_id;
             this.userIdCache.set(keyHash, userId);
             return userId;
         }
         catch (error) {
-            console.error("[RateLimiter] Error resolving user_id:", error);
-            return null;
+            // Re-throw to ensure we don't silently fail
+            throw error;
         }
     }
     /**
@@ -103,12 +105,19 @@ export class PerUserRateLimiter {
                 .eq("user_id", userId)
                 .gte("requested_at", windowStart.toISOString());
             if (error) {
-                console.error("[RateLimiter] Failed to count requests:", error);
+                console.error(`[RateLimiter] Failed to count requests for user ${userId} from table ${this.tableName}:`, {
+                    code: error.code,
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    fullError: error,
+                });
                 return 0;
             }
             return count || 0;
         }
-        catch {
+        catch (error) {
+            console.error(`[RateLimiter] Exception while counting requests for user ${userId}:`, error);
             return 0;
         }
     }

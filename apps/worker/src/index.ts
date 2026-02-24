@@ -17,11 +17,15 @@ import { startTerritoryStateSyncWorker } from "./workers/territory-state-sync.js
 import { startRateLimitPruningWorker } from "./workers/rate-limit-pruning.js";
 import { startWarLedgerPruningWorker } from "./workers/war-ledger-pruning.js";
 import { logSection } from "./lib/logger.js";
+import { initializeApiKeyMapping } from "./services/torn-client.js";
 
-function startAllWorkers(): void {
+async function startAllWorkers(): Promise<void> {
   logSection("🚀 Starting Sentinel workers");
 
   try {
+    // Initialize API key mapping for rate limiting - CRITICAL, must succeed
+    logSection("🔐 Initializing rate limiting...");
+    await initializeApiKeyMapping();
     // Torn items worker (daily at ~03:00 UTC)
     startTornItemsWorker();
 
@@ -76,5 +80,11 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
-// Start workers
-startAllWorkers();
+// Start workers - exits process if rate limiting initialization fails
+startAllWorkers().catch((error) => {
+  console.error(
+    "[CRITICAL] Failed to start workers:",
+    error instanceof Error ? error.message : error,
+  );
+  process.exit(1);
+});

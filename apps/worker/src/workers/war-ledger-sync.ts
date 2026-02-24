@@ -6,10 +6,11 @@
  * Uses system API key via v1 API /torn endpoint
  */
 
-import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
+import { TABLE_NAMES } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
+import { tornApi } from "../services/torn-client.js";
 
 interface TerritoryWar {
   territory_war_id: number;
@@ -42,17 +43,25 @@ export function startWarLedgerSyncWorker() {
           return false;
         }
 
-        // Create API client
-        const tornApi = new TornApiClient({});
-
-        // Fetch territory wars from v1 API
+        // Fetch territory wars from v1 API using shared client with rate limiting
         const response = await tornApi.getRaw("/torn", apiKey, {
           selections: "territorywars",
         });
 
         if ("error" in response) {
-          // Silently skip on error for high-frequency worker
-          return false;
+          // Log API error with timestamp before skipping
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const errorObj = (response as any).error;
+          const errorMsg =
+            typeof errorObj === "object" && errorObj?.error
+              ? errorObj.error
+              : String(errorObj);
+          logError(
+            "war_ledger_sync",
+            `API error (${new Date().toISOString()}): ${errorMsg}`,
+          );
+          // Return true to not pollute logs with "Skipped" message
+          return true;
         }
 
         const data = response as unknown as TornV1TerritorywarsResponse;

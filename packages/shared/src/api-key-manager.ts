@@ -10,6 +10,8 @@ import {
   randomBytes,
   createHash,
 } from "crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { TornApiClient } from "./torn.js";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // 256 bits
@@ -91,4 +93,78 @@ export function isValidApiKey(key: string): boolean {
  */
 export function isValidMasterKey(key: string): boolean {
   return Boolean(key && key.length >= 32); // Should be a strong key
+}
+/**
+ * Ensure API key is mapped to user in database
+ * Fetches user ID from /user/basic endpoint and creates mapping if missing
+ * Call this once during worker initialization to ensure rate limiting works
+ */
+export async function ensureApiKeyMapped(
+  apiKey: string,
+  supabase: SupabaseClient,
+  config: {
+    tableName: string;
+    hashPepper: string;
+  },
+): Promise<{ userId: number | null; error: string | null }> {
+  const keyHash = hashApiKey(apiKey, config.hashPepper);
+
+  try {
+    // Check if mapping already exists
+    const { data: existing, error: queryError } = await supabase
+      .from(config.tableName)
+      .select("user_id")
+      .eq("api_key_hash", keyHash)
+      .is("deleted_at", null)
+      .single();
+
+    if (!queryError && existing) {
+      // Mapping already exists
+      console.log(
+        `[ApiKeyManager] Using existing mapping for player ${(existing as any).user_id}`,
+      );
+      return { userId: (existing as any).user_id, error: null };
+    }
+
+    // Mapping missing - fetch user ID from Torn API
+    // Create a temporary client without rate limiting for this initialization call
+    const client = new TornApiClient();
+    const data = await client.get("/user/basic", {
+      apiKey,
+    });
+
+    const userId = data.profile.id;
+
+    if (!userId) {
+      const errorMsg = "No player_id in Torn API response";
+      console.error(`[ApiKeyManager] ${errorMsg}`);
+      return { userId: null, error: errorMsg };
+    }
+
+    // Create mapping
+    const { error: insertError } = await supabase
+      .from(config.tableName)
+      .insert([
+        {
+          api_key_hash: keyHash,
+          user_id: userId,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (insertError) {
+      const errorMsg = `Failed to create API key mapping in database: ${insertError.message}`;
+      console.error(`[ApiKeyManager] ${errorMsg}`);
+      return { userId: null, error: errorMsg };
+    }
+
+    console.log(
+      `[ApiKeyManager] ✓ Created API key mapping for player ${userId}`,
+    );
+    return { userId, error: null };
+  } catch (error) {
+    const errorMsg = `Unexpected error during API key mapping: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(`[ApiKeyManager] ${errorMsg}`);
+    return { userId: null, error: errorMsg };
+  }
 }

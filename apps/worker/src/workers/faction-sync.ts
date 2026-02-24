@@ -8,6 +8,7 @@ import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logWarn, logError } from "../lib/logger.js";
+import { tornApi } from "../services/torn-client.js";
 
 export function startFactionSyncWorker() {
   return startDbScheduledRunner({
@@ -59,10 +60,7 @@ export function startFactionSyncWorker() {
           return false;
         }
 
-        // Create Torn API client
-        const tornApi = new TornApiClient({});
-
-        // Sync faction data in batches
+        // Sync faction data in batches using shared client with rate limiting
         let successCount = 0;
         let errorCount = 0;
         const batchSize = 10;

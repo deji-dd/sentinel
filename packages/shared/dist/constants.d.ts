@@ -42,4 +42,11 @@ export declare const TABLE_NAMES: {
 export declare const ALERT_MODULES: {
     readonly TRAVEL: "travel";
 };
+/** Rate limiting constants */
+export declare const RATE_LIMITING: {
+    /** Max requests per minute per Torn user across all API keys and guilds */
+    readonly MAX_REQUESTS_PER_MINUTE: 50;
+    /** Window size for rate limiting (1 minute) */
+    readonly WINDOW_MS: 60000;
+};
 //# sourceMappingURL=constants.d.ts.map

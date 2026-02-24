@@ -340,7 +340,7 @@ async function takeSnapshot(): Promise<void> {
       elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
     logError(
       SNAPSHOT_WORKER_NAME,
-      `Sync failed: ${errorMessage} (${duration})`,
+      `Sync failed: ${errorMessage} (${new Date().toISOString()}) (${duration})`,
     );
     throw error;
   }
