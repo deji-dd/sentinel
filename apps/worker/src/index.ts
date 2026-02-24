@@ -10,6 +10,7 @@ import {
   startUserSnapshotPruningWorker,
 } from "./workers/user-snapshot.js";
 import { startTrainingRecommendationsWorker } from "./workers/training-recommendations.js";
+import { startFactionSyncWorker } from "./workers/faction-sync.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -33,6 +34,9 @@ function startAllWorkers(): void {
 
     // Training recommendations worker (every 10 minutes)
     startTrainingRecommendationsWorker();
+
+    // Faction sync worker (once daily)
+    startFactionSyncWorker();
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes

@@ -32,6 +32,10 @@ export declare const TABLE_NAMES: {
     readonly GUILD_SYNC_JOBS: "sentinel_guild_sync_jobs";
     readonly GUILD_AUDIT: "sentinel_guild_audit";
     readonly FACTION_ROLES: "sentinel_faction_roles";
+    readonly TERRITORY_BLUEPRINT: "sentinel_territory_blueprint";
+    readonly TERRITORY_STATE: "sentinel_territory_state";
+    readonly WAR_LEDGER: "sentinel_war_ledger";
+    readonly TORN_FACTIONS: "sentinel_torn_factions";
 };
 /** Alert module types */
 export declare const ALERT_MODULES: {

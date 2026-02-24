@@ -1762,10 +1762,11 @@ export async function handleAddFactionRoleModalSubmit(
       return;
     }
 
-    // Fetch and validate faction details from Torn API
+    // Fetch and validate faction details from Torn API (with caching)
     const factionDetails = await validateAndFetchFactionDetails(
       factionId,
       apiKey,
+      supabase,
     );
     if (!factionDetails) {
       const errorEmbed = new EmbedBuilder()
@@ -1980,6 +1981,7 @@ export async function handleFactionRoleSelect(
       const factionDetails = await validateAndFetchFactionDetails(
         factionId,
         apiKey,
+        supabase,
       );
       if (factionDetails) {
         factionName = factionDetails.name;

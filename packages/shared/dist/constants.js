@@ -32,6 +32,10 @@ export const TABLE_NAMES = {
     GUILD_SYNC_JOBS: "sentinel_guild_sync_jobs",
     GUILD_AUDIT: "sentinel_guild_audit",
     FACTION_ROLES: "sentinel_faction_roles",
+    TERRITORY_BLUEPRINT: "sentinel_territory_blueprint",
+    TERRITORY_STATE: "sentinel_territory_state",
+    WAR_LEDGER: "sentinel_war_ledger",
+    TORN_FACTIONS: "sentinel_torn_factions",
 };
 /** Alert module types */
 export const ALERT_MODULES = {
