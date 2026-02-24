@@ -23,19 +23,30 @@ export class BatchOperationHandler {
      */
     async analyzeKeyCapacity(apiKeys) {
         const capacities = new Map();
-        // For now, we assume max of 100 req/min per user
-        // In production, this should query the rate limiter for exact remaining capacity
-        const defaultCapacity = 100;
+        // Query actual usage for each key
         for (const key of apiKeys) {
-            // Simple approach: assume each key has 100 capacity
-            // More sophisticated: track actual usage per key
-            capacities.set(key, defaultCapacity);
+            try {
+                if (this.rateLimiter.getRequestCount) {
+                    const requestCount = await this.rateLimiter.getRequestCount(key);
+                    const maxRequests = 100; // Torn API per-user limit
+                    const remaining = Math.max(0, maxRequests - requestCount);
+                    capacities.set(key, remaining);
+                }
+                else {
+                    // If getRequestCount is not implemented, assume full capacity
+                    capacities.set(key, 100);
+                }
+            }
+            catch (error) {
+                // If we can't query, assume key is unavailable
+                capacities.set(key, 0);
+            }
         }
         return capacities;
     }
     /**
      * Create an optimal distribution plan for batch requests
-     * Distributes requests across keys to maximize parallelism while respecting rate limits
+     * Distributes requests across keys to maximize throughput while respecting rate limits
      */
     async planDistribution(requests, apiKeys) {
         if (!apiKeys.length) {
@@ -49,16 +60,23 @@ export class BatchOperationHandler {
         for (const key of apiKeys) {
             distribution[key] = [];
         }
-        // Simple round-robin distribution
-        // In production, this could be more sophisticated based on:
-        // - Current rate limit usage per key
-        // - Request complexity/weight
-        // - Historical success rates per key
-        // - Geographic routing (if needed)
-        for (let i = 0; i < requests.length; i++) {
-            const keyIndex = i % apiKeys.length;
-            const key = apiKeys[keyIndex];
-            distribution[key].push(requests[i].id);
+        // Get actual capacity for each key
+        const capacities = await this.analyzeKeyCapacity(apiKeys);
+        const totalCapacity = Array.from(capacities.values()).reduce((a, b) => a + b, 0);
+        // If less than half capacity, we'd hit limits mid-batch
+        if (totalCapacity < requests.length / 2) {
+            console.warn(`[BatchHandler] Low capacity warning: ${totalCapacity} requests available but ${requests.length} requested`);
+        }
+        // Distribute requests based on available capacity (weighted distribution)
+        let requestIndex = 0;
+        for (let i = 0; i < requests.length && requestIndex < requests.length; i++) {
+            for (const [key, capacity] of capacities) {
+                if (capacity > 0 && requestIndex < requests.length) {
+                    distribution[key].push(requests[requestIndex].id);
+                    capacities.set(key, capacity - 1); // Reduce capacity after assignment
+                    requestIndex++;
+                }
+            }
         }
         return distribution;
     }
@@ -99,11 +117,17 @@ export class BatchOperationHandler {
         return requests.map((req) => resultMap.get(req.id));
     }
     /**
-     * Execute requests in parallel, one batch per key
+     * Execute requests concurrently per key (but sequentially within each key)
+     * This respects rate limits while still parallelizing across multiple keys
      */
     async executeConcurrent(distribution, requests, handler, resultMap, retryAttempts) {
         const requestMap = new Map(requests.map((r) => [r.id, r]));
-        const promises = Object.entries(distribution).map(([key, requestIds]) => Promise.all(requestIds.map((id) => this.executeWithRetry(requestMap.get(id), key, handler, resultMap, retryAttempts))));
+        // Execute all keys in parallel, but requests within each key are sequential
+        const promises = Object.entries(distribution).map(async ([key, requestIds]) => {
+            for (const id of requestIds) {
+                await this.executeWithRetry(requestMap.get(id), key, handler, resultMap, retryAttempts);
+            }
+        });
         await Promise.all(promises);
     }
     /**
@@ -124,12 +148,14 @@ export class BatchOperationHandler {
         }
     }
     /**
-     * Execute a single request with retry logic
+     * Execute a single request with rate limit awareness and retry logic
      */
     async executeWithRetry(request, key, handler, resultMap, maxRetries) {
         let lastError = null;
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
+                // Always check and wait for rate limit before making request
+                await this.rateLimiter.waitIfNeeded(key);
                 const result = await handler(request.item, key);
                 resultMap.set(request.id, {
                     requestId: request.id,
@@ -141,8 +167,8 @@ export class BatchOperationHandler {
             }
             catch (error) {
                 lastError = error instanceof Error ? error : new Error(String(error));
-                // If it's a rate limit error and we have retries left, wait and retry
-                if (attempt < maxRetries && lastError.message?.includes("rate limit")) {
+                // On any error, use exponential backoff for retry
+                if (attempt < maxRetries) {
                     const waitTime = 1000 * Math.pow(2, attempt); // Exponential backoff
                     await new Promise((resolve) => setTimeout(resolve, waitTime));
                 }

@@ -34,7 +34,7 @@ const rateLimiter = new PerUserRateLimiter({
   tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
   apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
   hashPepper: API_KEY_HASH_PEPPER,
-  maxRequestsPerWindow: 100, // Torn's actual limit
+  maxRequestsPerWindow: 50, // Safety buffer: 50 req/min (Torn allows 100 but we don't use full bandwidth)
 });
 
 /**

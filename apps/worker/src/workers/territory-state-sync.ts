@@ -7,17 +7,12 @@
  * Uses system API key only (distributed across multiple /torn/territory calls)
  */
 
-import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
+import { TABLE_NAMES } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
-
-interface TornTerritory {
-  id: string;
-  occupied_by: number | null;
-  acquired_at: number | null;
-}
+import { batchHandler } from "../services/torn-client.js";
 
 interface TTOwnershipChange {
   territory_id: string;
@@ -168,106 +163,123 @@ export function startTerritoryStateSyncWorker() {
           .order("id");
 
         if (!allTTs || allTTs.length === 0) {
-          console.warn("[Territory State Sync] No territories in blueprint");
+          logDuration(
+            "territory_state_sync",
+            "No territories in blueprint",
+            Date.now() - startTime,
+          );
           return true;
         }
 
         const ttIds = allTTs.map((tt) => tt.id);
-        console.log(
-          `[Territory State Sync] Syncing ${ttIds.length} territories in batches of 50`,
-        );
 
-        // Create API client
-        const tornApi = new TornApiClient({});
-
-        // Fetch territories in batches of max 50 per request
+        // Batch territories for fetching (max 50 per request)
         const batchSize = 50;
         const changes: TTOwnershipChange[] = [];
         const notifications: TTEventNotification[] = [];
 
+        // Create batch requests for the handler
+        const batchRequests = [];
         for (let i = 0; i < ttIds.length; i += batchSize) {
           const batch = ttIds.slice(i, i + batchSize);
+          batchRequests.push({
+            id: `batch-${Math.floor(i / batchSize)}`,
+            item: { ids: batch },
+          });
+        }
 
-          try {
-            const response = await tornApi.get("/torn/territory", {
-              apiKey,
-              queryParams: {
-                ids: batch,
-              },
-            });
+        // Execute batches using the batch handler (handles rate limiting)
+        const results = await batchHandler.executeBatch(
+          batchRequests,
+          [apiKey],
+          async (item, key) => {
+            const response = await import("../services/torn-client.js").then(
+              (m) =>
+                m.tornApi.get("/torn/territory", {
+                  apiKey: key,
+                  queryParams: { ids: item.ids },
+                }),
+            );
+            return response;
+          },
+          {
+            concurrent: false,
+            delayMs: 0, // Rate limiter handles delays
+            retryAttempts: 2,
+          },
+        );
 
-            if ("error" in response) {
-              console.warn(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                `[Territory State Sync] API error fetching batch at index ${i}: ${(response as any).error.error}`,
+        // Process results
+        for (const batchResult of results) {
+          if (!batchResult.success || !batchResult.result) {
+            if (batchResult.error) {
+              logError(
+                "territory_state_sync",
+                `Failed batch ${batchResult.requestId}: ${batchResult.error.message}`,
               );
+            }
+            continue;
+          }
+
+          const data = batchResult.result;
+          if ("error" in data) {
+            // API error response
+            continue;
+          }
+
+          const territories = data.territory || [];
+
+          // Compare with DB and detect changes
+          for (const tt of territories) {
+            const { data: currentState } = await supabase
+              .from(TABLE_NAMES.TERRITORY_STATE)
+              .select("faction_id")
+              .eq("territory_id", tt.id)
+              .single();
+
+            const oldFaction = currentState?.faction_id;
+            const newFaction = tt.occupied_by;
+
+            // Skip if no change
+            if (oldFaction === newFaction) {
               continue;
             }
 
-            const data = response as unknown as { territory: TornTerritory[] };
-            const territories = data.territory || [];
+            changes.push({
+              territory_id: tt.id,
+              old_faction_id: oldFaction,
+              new_faction_id: newFaction,
+            });
 
-            // Compare with DB and detect changes
-            for (const tt of territories) {
-              const { data: currentState } = await supabase
-                .from(TABLE_NAMES.TERRITORY_STATE)
-                .select("faction_id")
-                .eq("territory_id", tt.id)
-                .single();
+            // Check for active war to determine event type
+            const { data: activeWar } = await supabase
+              .from(TABLE_NAMES.WAR_LEDGER)
+              .select("assaulting_faction,defending_faction")
+              .eq("territory_id", tt.id)
+              .is("end_time", null)
+              .single();
 
-              const oldFaction = currentState?.faction_id;
-              const newFaction = tt.occupied_by;
-
-              // Skip if no change
-              if (oldFaction === newFaction) {
-                continue;
-              }
-
-              changes.push({
-                territory_id: tt.id,
-                old_faction_id: oldFaction,
-                new_faction_id: newFaction,
-              });
-
-              // Check for active war to determine event type
-              const { data: activeWar } = await supabase
-                .from(TABLE_NAMES.WAR_LEDGER)
-                .select("assaulting_faction,defending_faction")
-                .eq("territory_id", tt.id)
-                .is("end_time", null)
-                .single();
-
-              const eventType = determineEventType(
-                oldFaction,
-                newFaction,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                activeWar as any,
-              );
-
-              notifications.push({
-                guild_id: "", // Will be filled in queueGuildNotifications
-                territory_id: tt.id,
-                event_type: eventType,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                assaulting_faction: (activeWar as any)?.assaulting_faction,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                defending_faction: (activeWar as any)?.defending_faction,
-                occupying_faction: newFaction,
-              });
-            }
-          } catch (error) {
-            console.error(
-              `[Territory State Sync] Error processing batch at index ${i}:`,
-              error,
+            const eventType = determineEventType(
+              oldFaction,
+              newFaction,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              activeWar as any,
             );
+
+            notifications.push({
+              guild_id: "", // Will be filled in queueGuildNotifications
+              territory_id: tt.id,
+              event_type: eventType,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              assaulting_faction: (activeWar as any)?.assaulting_faction,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              defending_faction: (activeWar as any)?.defending_faction,
+              occupying_faction: newFaction,
+            });
           }
         }
 
         if (changes.length > 0) {
-          console.log(
-            `[Territory State Sync] Detected ${changes.length} ownership changes`,
-          );
-
           // Bulk update territory states
           const stateUpdates = changes.map((change) => ({
             territory_id: change.territory_id,
@@ -291,22 +303,16 @@ export function startTerritoryStateSyncWorker() {
         }
 
         const duration = Date.now() - startTime;
-        console.log(
-          `[Territory State Sync] Completed: ${changes.length}/${ttIds.length} changes in ${duration}ms`,
-        );
         logDuration(
           "territory_state_sync",
-          `Synced ${ttIds.length} territories, ${changes.length} changes`,
+          `Sync completed for ${ttIds.length} territories (${changes.length} changes)`,
           duration,
         );
 
         return true;
       } catch (error) {
-        const duration = Date.now() - startTime;
         const message = error instanceof Error ? error.message : String(error);
-        console.error("[Territory State Sync] Worker error:", error);
         logError("territory_state_sync", `Failed: ${message}`);
-        logDuration("territory_state_sync", `Error: ${message}`, duration);
         return false;
       }
     },

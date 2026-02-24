@@ -5,6 +5,7 @@
 
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "./supabase.js";
+import { log, logError } from "./logger.js";
 
 const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || "http://localhost:3001";
 
@@ -201,20 +202,22 @@ export async function dispatchTTBatch(batch: TTEventBatch): Promise<boolean> {
 
     if (!response.ok) {
       const error = await response.text();
-      console.error(
-        `[TT Dispatcher] Failed to send batch notification: ${response.status} ${error}`,
+      logError(
+        "TT Dispatcher",
+        `Failed to send batch notification: ${response.status} ${error}`,
       );
       return false;
     }
 
-    console.log(
-      `[TT Dispatcher] Sent batch (${batch.notifications.length} events) to guild ${batch.guild_id}`,
+    log(
+      "TT Dispatcher",
+      `Sent batch (${batch.notifications.length} events) to guild ${batch.guild_id}`,
     );
     return true;
   } catch (error) {
-    console.error(
-      "[TT Dispatcher] Error dispatching batch notification:",
-      error,
+    logError(
+      "TT Dispatcher",
+      `Error dispatching batch notification: ${error instanceof Error ? error.message : String(error)}`,
     );
     return false;
   }
@@ -288,7 +291,7 @@ export async function processAndDispatchNotifications(
       .select("guild_id, log_channel_id, enabled_modules");
 
     if (!guilds || guilds.length === 0) {
-      console.log("[TT Dispatcher] No guilds with TT module enabled");
+      log("TT Dispatcher", "No guilds with TT module enabled");
       return;
     }
 
@@ -297,7 +300,7 @@ export async function processAndDispatchNotifications(
     );
 
     if (ttEnabledGuilds.length === 0) {
-      console.log("[TT Dispatcher] No guilds have territories module enabled");
+      log("TT Dispatcher", "No guilds have territories module enabled");
       return;
     }
 

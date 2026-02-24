@@ -11,24 +11,6 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
 
-interface TornTerritory {
-  id: string;
-  sector: number;
-  size: number;
-  density: number;
-  slots: number;
-  respect: number;
-  coordinates: { x: number; y: number };
-  neighbors: string[];
-}
-
-interface ApiMetadata {
-  links: {
-    prev: string | null;
-    next: string | null;
-  };
-}
-
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
     worker: "territory_blueprint_sync",
@@ -44,13 +26,11 @@ export function startTerritoryBlueprintSyncWorker() {
           return false;
         }
 
-        console.log("[Territory Blueprint Sync] Fetching all territories...");
-
         // Create API client
         const tornApi = new TornApiClient({});
 
         // Fetch all territories with pagination support
-        const allTerritories: TornTerritory[] = [];
+        const allTerritories = [];
         let nextUrl: string | null = null;
         let offset = 0;
         let pageCount = 0;
@@ -63,35 +43,27 @@ export function startTerritoryBlueprintSyncWorker() {
           });
 
           if ("error" in response) {
+            const errorMsg =
+              typeof response.error === "object" &&
+              response.error &&
+              "error" in response.error
+                ? String(response.error.error)
+                : String(response.error);
             logError(
               "territory_blueprint_sync",
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              `API error on page ${pageCount}: ${(response as any).error.error}`,
+              `API error on page ${pageCount}: ${errorMsg}`,
             );
             return false;
           }
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const pageData = response as any;
-          const territories = pageData.territory as TornTerritory[];
-          const metadata = pageData._metadata as ApiMetadata;
+          const territories = response.territory;
+          const metadata = response._metadata;
 
           if (!territories || territories.length === 0) {
             break;
           }
 
           allTerritories.push(...territories);
-          console.log(
-            `[Territory Blueprint Sync] Fetched ${territories.length} territories (page ${pageCount}, total so far: ${allTerritories.length})`,
-          );
-
-          // Log sample of territory IDs for debugging
-          if (pageCount === 1 && territories.length > 0) {
-            const sampleIds = territories.slice(0, 5).map((t) => t.id);
-            console.log(
-              `[Territory Blueprint Sync] Sample territory IDs from API: ${sampleIds.join(", ")}`,
-            );
-          }
 
           // Check for next page
           nextUrl = metadata?.links?.next || null;
@@ -106,13 +78,13 @@ export function startTerritoryBlueprintSyncWorker() {
         const territories = allTerritories;
 
         if (!territories || territories.length === 0) {
-          console.warn("[Territory Blueprint Sync] No territories returned");
+          logDuration(
+            "territory_blueprint_sync",
+            "No territories returned",
+            Date.now() - startTime,
+          );
           return true;
         }
-
-        console.log(
-          `[Territory Blueprint Sync] Fetched ${territories.length} total territories across ${pageCount} pages`,
-        );
 
         // Check if this is first run (no blueprints exist yet)
         const { count: existingCount } = await supabase
@@ -149,16 +121,8 @@ export function startTerritoryBlueprintSyncWorker() {
           return false;
         }
 
-        console.log(
-          `[Territory Blueprint Sync] Upserted ${blueprintData.length} blueprints`,
-        );
-
         // On first run, initialize territory states with faction_id = null
         if (isFirstRun) {
-          console.log(
-            "[Territory Blueprint Sync] First run detected - initializing territory states",
-          );
-
           const stateData = territories.map((tt) => ({
             territory_id: tt.id,
             faction_id: null,
@@ -176,29 +140,19 @@ export function startTerritoryBlueprintSyncWorker() {
             );
             return false;
           }
-
-          console.log(
-            `[Territory Blueprint Sync] Initialized ${stateData.length} territory states`,
-          );
         }
 
         const duration = Date.now() - startTime;
-        console.log(
-          `[Territory Blueprint Sync] Completed successfully in ${duration}ms`,
-        );
         logDuration(
           "territory_blueprint_sync",
-          `Synced ${territories.length} blueprints`,
+          `Sync completed for ${territories.length} territories`,
           duration,
         );
 
         return true;
       } catch (error) {
-        const duration = Date.now() - startTime;
         const message = error instanceof Error ? error.message : String(error);
-        console.error("[Territory Blueprint Sync] Worker error:", error);
         logError("territory_blueprint_sync", `Failed: ${message}`);
-        logDuration("territory_blueprint_sync", `Error: ${message}`, duration);
         return false;
       }
     },

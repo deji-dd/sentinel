@@ -1,6 +1,6 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logError } from "../lib/logger.js";
+import { logDuration, logError } from "../lib/logger.js";
 import { getPersonalApiKey } from "../lib/api-keys.js";
 import { supabase } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
@@ -97,6 +97,7 @@ interface UserStats {
 }
 
 async function syncTornGyms(): Promise<void> {
+  const startTime = Date.now();
   const apiKey = getPersonalApiKey();
 
   // Fetch gyms from Torn API
@@ -182,6 +183,9 @@ async function syncTornGyms(): Promise<void> {
   if (error) {
     throw error;
   }
+
+  const duration = Date.now() - startTime;
+  logDuration(WORKER_NAME, `Sync completed for ${gyms.length} gyms`, duration);
 }
 
 export function startTornGymsWorker(): void {

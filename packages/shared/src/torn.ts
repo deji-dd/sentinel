@@ -53,6 +53,7 @@ export const TORN_ERROR_CODES: Record<number, string> = {
 export interface RateLimitTracker {
   waitIfNeeded(apiKey: string): Promise<void>;
   recordRequest(apiKey: string): Promise<void>;
+  getRequestCount?(apiKey: string): Promise<number>;
 }
 
 /**

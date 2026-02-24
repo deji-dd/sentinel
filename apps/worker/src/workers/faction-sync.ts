@@ -145,11 +145,8 @@ export function startFactionSyncWorker() {
 
         return true;
       } catch (error) {
-        const duration = Date.now() - startTime;
         const message = error instanceof Error ? error.message : String(error);
-        console.error("[Faction Sync] Worker error:", error);
         logError("faction_sync", `Sync failed: ${message}`);
-        logDuration("faction_sync", `Error: ${message}`, duration);
         return false;
       }
     },

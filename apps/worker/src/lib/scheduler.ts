@@ -77,7 +77,7 @@ export function startDbScheduledRunner(
           run_started_at: new Date(start).toISOString(),
           run_finished_at: new Date().toISOString(),
         });
-        logDuration(worker, "Sync completed", duration);
+        // Note: Workers log their own success messages, don't duplicate here
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const duration = Date.now() - start;

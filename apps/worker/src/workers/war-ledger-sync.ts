@@ -67,8 +67,6 @@ export function startWarLedgerSyncWorker() {
           return true;
         }
 
-        console.log(`[War Ledger Sync] Processing ${warEntries.length} wars`);
-
         // Transform to array with territory code included
         const wars: Array<TerritoryWar & { territory_id: string }> =
           warEntries.map(([territoryCode, war]) => ({
@@ -76,54 +74,14 @@ export function startWarLedgerSyncWorker() {
             territory_id: territoryCode,
           }));
 
-        // Debug: log what territory IDs we're looking for
-        const lookingForIds = wars.map((w) => w.territory_id).slice(0, 3);
-        console.log(
-          `[War Ledger Sync] Looking for territory IDs: ${lookingForIds.join(", ")}...`,
-        );
-
-        // Check which territories exist in blueprint (handle new territories)
-        const { data: existingBlueprints } = await supabase
-          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-          .select("id")
-          .limit(3);
-
-        if (existingBlueprints && existingBlueprints.length > 0) {
-          const sampleIds = existingBlueprints.map((b: any) => b.id).join(", ");
-          console.log(
-            `[War Ledger Sync] Sample IDs in blueprint table: ${sampleIds}`,
-          );
-        }
-
-        // Now check which wars match existing territories
-        const { data: matchedBlueprints } = await supabase
-          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-          .select("id")
-          .in(
-            "id",
-            wars.map((w) => w.territory_id),
-          );
-
-        const existingTerritoryIds = new Set(
-          (matchedBlueprints || []).map((b: any) => b.id),
-        );
-        const validWars = wars.filter((w) =>
-          existingTerritoryIds.has(w.territory_id),
-        );
-        const orphanedWars = wars.filter(
-          (w) => !existingTerritoryIds.has(w.territory_id),
-        );
-
-        if (orphanedWars.length > 0) {
-          console.warn(
-            `[War Ledger Sync] Skipping ${orphanedWars.length} wars for non-existent territories: ${orphanedWars.map((w) => w.territory_id).join(", ")}`,
-          );
-        }
+        // All wars are valid - blueprint sync will populate territories
+        // We don't depend on blueprint existing first
+        const validWars = wars;
 
         if (validWars.length === 0) {
           logDuration(
             "war_ledger_sync",
-            "No valid wars (blueprints not synced)",
+            "No active wars",
             Date.now() - startTime,
           );
           return true;
@@ -141,10 +99,10 @@ export function startWarLedgerSyncWorker() {
         const existingWarIds = new Set(
           (existingWars || []).map((w) => w.war_id),
         );
-        const newWars = validWars.filter(
+        const _newWars = validWars.filter(
           (w) => !existingWarIds.has(w.territory_war_id),
         );
-        const updatedWars = validWars.filter((w) =>
+        const _updatedWars = validWars.filter((w) =>
           existingWarIds.has(w.territory_war_id),
         );
 
@@ -164,49 +122,61 @@ export function startWarLedgerSyncWorker() {
           .upsert(warData, { onConflict: "war_id" });
 
         if (upsertError) {
-          console.warn(
-            `[War Ledger Sync] Failed to upsert wars: ${upsertError.message}`,
+          logError(
+            "war_ledger_sync",
+            `Failed to upsert wars: ${upsertError.message}`,
           );
           return false;
         }
 
         // Update territory states to mark as warring
+        // First, ensure all territory states exist (create if missing)
         const warringTerritories = validWars.map((w) => w.territory_id);
 
-        const { error: stateError } = await supabase
+        const { error: insertError } = await supabase
           .from(TABLE_NAMES.TERRITORY_STATE)
-          .update({ is_warring: true })
-          .in("territory_id", warringTerritories);
-
-        if (stateError) {
-          console.warn(
-            `[War Ledger Sync] Failed to update territory state: ${stateError.message}`,
+          .upsert(
+            warringTerritories.map((tid) => ({
+              territory_id: tid,
+              faction_id: null,
+              is_warring: true,
+            })),
+            { onConflict: "territory_id" },
           );
-          // Don't return false - DB update failure shouldn't prevent ledger update
-        }
 
-        if (newWars.length > 0) {
-          console.log(
-            `[War Ledger Sync] Found ${newWars.length} new wars, ${updatedWars.length} updated`,
+        if (insertError) {
+          logError(
+            "war_ledger_sync",
+            `Failed to upsert territory states: ${insertError.message}`,
           );
+          // Don't return false - this shouldn't block war ledger updates
+        } else {
+          // Now update remaining territories to is_warring = true
+          const { error: stateError } = await supabase
+            .from(TABLE_NAMES.TERRITORY_STATE)
+            .update({ is_warring: true })
+            .in("territory_id", warringTerritories);
+
+          if (stateError) {
+            logError(
+              "war_ledger_sync",
+              `Failed to update territory state: ${stateError.message}`,
+            );
+            // Don't return false - DB update failure shouldn't prevent ledger update
+          }
         }
 
         const duration = Date.now() - startTime;
         logDuration(
           "war_ledger_sync",
-          `Processed ${validWars.length} wars`,
+          `Sync completed for ${validWars.length} wars`,
           duration,
         );
 
         return true;
       } catch (error) {
-        const duration = Date.now() - startTime;
-        console.error("[War Ledger Sync] Worker error:", error);
-        logDuration(
-          "war_ledger_sync",
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-          duration,
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        logError("war_ledger_sync", `Failed: ${message}`);
         return false;
       }
     },

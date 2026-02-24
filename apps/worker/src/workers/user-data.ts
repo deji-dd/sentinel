@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
 import { getPersonalApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { logError } from "../lib/logger.js";
+import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -16,6 +16,7 @@ function formatDuration(ms: number): string {
 async function syncUserDataHandler(): Promise<void> {
   const apiKey = getPersonalApiKey();
   const startTime = Date.now();
+  let profileId: number | undefined;
 
   try {
     const profileResponse = await tornApi.get("/user/profile", { apiKey });
@@ -24,6 +25,8 @@ async function syncUserDataHandler(): Promise<void> {
     if (!profile?.id || !profile?.name) {
       throw new Error("Missing profile id or name in Torn response");
     }
+
+    profileId = profile.id;
 
     const isDonator =
       (profile.donator_status || "").toLowerCase() === "donator";
@@ -42,6 +45,10 @@ async function syncUserDataHandler(): Promise<void> {
     if (error) {
       throw error;
     }
+
+    // Success - log completion
+    const duration = Date.now() - startTime;
+    logDuration(WORKER_NAME, `Sync completed`, duration);
   } catch (error) {
     const elapsed = Date.now() - startTime;
     if (error instanceof Object && "message" in error && "code" in error) {

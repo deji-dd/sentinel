@@ -38,7 +38,7 @@ export declare class BatchOperationHandler {
     analyzeKeyCapacity(apiKeys: string[]): Promise<Map<string, number>>;
     /**
      * Create an optimal distribution plan for batch requests
-     * Distributes requests across keys to maximize parallelism while respecting rate limits
+     * Distributes requests across keys to maximize throughput while respecting rate limits
      */
     planDistribution<T>(requests: BatchRequest<T>[], apiKeys: string[]): Promise<BatchDistribution>;
     /**
@@ -63,7 +63,8 @@ export declare class BatchOperationHandler {
         retryAttempts?: number;
     }): Promise<BatchResult<R>[]>;
     /**
-     * Execute requests in parallel, one batch per key
+     * Execute requests concurrently per key (but sequentially within each key)
+     * This respects rate limits while still parallelizing across multiple keys
      */
     private executeConcurrent;
     /**
@@ -71,7 +72,7 @@ export declare class BatchOperationHandler {
      */
     private executeSequential;
     /**
-     * Execute a single request with retry logic
+     * Execute a single request with rate limit awareness and retry logic
      */
     private executeWithRetry;
     /**
