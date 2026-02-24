@@ -1,6 +1,6 @@
 /**
  * Territory Territories notification dispatcher
- * Sends TT notifications to Discord guilds via bot webhook
+ * Sends TT notifications to Discord guilds via bot webhook with batching support
  */
 
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -17,8 +17,14 @@ interface TTEventNotification {
   occupying_faction: number | null;
 }
 
+interface TTEventBatch {
+  guild_id: string;
+  log_channel_id: string;
+  notifications: TTEventNotification[];
+}
+
 /**
- * Build embed JSON for TT event notification
+ * Build embed JSON for single TT event notification
  */
 function buildTTEventEmbed(
   notification: TTEventNotification,
@@ -67,7 +73,81 @@ function buildTTEventEmbed(
 }
 
 /**
- * Send TT event notification to guild channel
+ * Build batch summary embed for multiple TT events
+ * Groups events by type for better readability
+ */
+function buildBatchSummaryEmbed(batch: TTEventBatch): Record<string, unknown> {
+  const eventsByType = batch.notifications.reduce(
+    (acc, notif) => {
+      if (!acc[notif.event_type]) {
+        acc[notif.event_type] = [];
+      }
+      acc[notif.event_type].push(notif);
+      return acc;
+    },
+    {} as Record<string, TTEventNotification[]>,
+  );
+
+  const fields: Array<{ name: string; value: string; inline: boolean }> = [];
+
+  // Add summaries for each event type
+  if (eventsByType.assault_succeeded) {
+    fields.push({
+      name: "🎯 Assaults Succeeded",
+      value: eventsByType.assault_succeeded
+        .map(
+          (n) =>
+            `${n.territory_id} (${n.assaulting_faction} → ${n.occupying_faction})`,
+        )
+        .join("\n"),
+      inline: true,
+    });
+  }
+
+  if (eventsByType.assault_failed) {
+    fields.push({
+      name: "❌ Assaults Failed",
+      value: eventsByType.assault_failed
+        .map((n) => `${n.territory_id} (${n.defending_faction} defended)`)
+        .join("\n"),
+      inline: true,
+    });
+  }
+
+  if (eventsByType.dropped) {
+    fields.push({
+      name: "📦 Dropped",
+      value: eventsByType.dropped.map((n) => n.territory_id).join(", "),
+      inline: false,
+    });
+  }
+
+  if (eventsByType.claimed) {
+    fields.push({
+      name: "🚩 Claimed",
+      value: eventsByType.claimed
+        .map((n) => `${n.territory_id} (Faction ${n.occupying_faction})`)
+        .join("\n"),
+      inline: false,
+    });
+  }
+
+  const embed: Record<string, unknown> = {
+    title: `🌍 Territory Update Batch`,
+    description: `${batch.notifications.length} territory change(s)`,
+    color: 0x3b82f6,
+    fields: fields,
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: "Batch notification",
+    },
+  };
+
+  return embed;
+}
+
+/**
+ * Send TT event notification to guild channel (individual)
  */
 export async function dispatchTTNotification(
   notification: TTEventNotification,
@@ -94,12 +174,48 @@ export async function dispatchTTNotification(
       return false;
     }
 
-    console.log(
-      `[TT Dispatcher] Sent notification for ${notification.territory_id} to guild ${notification.guild_id}`,
-    );
     return true;
   } catch (error) {
     console.error("[TT Dispatcher] Error dispatching notification:", error);
+    return false;
+  }
+}
+
+/**
+ * Send batch TT event notifications to guild channel
+ * Combines multiple territory changes into a single summary embed
+ */
+export async function dispatchTTBatch(batch: TTEventBatch): Promise<boolean> {
+  try {
+    const embed = buildBatchSummaryEmbed(batch);
+
+    const response = await fetch(`${BOT_WEBHOOK_URL}/send-guild-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guildId: batch.guild_id,
+        channelId: batch.log_channel_id,
+        embed: embed,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(
+        `[TT Dispatcher] Failed to send batch notification: ${response.status} ${error}`,
+      );
+      return false;
+    }
+
+    console.log(
+      `[TT Dispatcher] Sent batch (${batch.notifications.length} events) to guild ${batch.guild_id}`,
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      "[TT Dispatcher] Error dispatching batch notification:",
+      error,
+    );
     return false;
   }
 }
@@ -155,7 +271,8 @@ function shouldNotifyGuild(
 }
 
 /**
- * Process and dispatch notifications based on guild config
+ * Process and dispatch notifications as batches per guild
+ * All territory changes for a guild are sent as a single summary embed
  */
 export async function processAndDispatchNotifications(
   notifications: TTEventNotification[],
@@ -176,16 +293,16 @@ export async function processAndDispatchNotifications(
     }
 
     const ttEnabledGuilds = guilds.filter((g) =>
-      g.enabled_modules?.includes("tt"),
+      g.enabled_modules?.includes("territories"),
     );
 
     if (ttEnabledGuilds.length === 0) {
-      console.log("[TT Dispatcher] No guilds have TT module enabled");
+      console.log("[TT Dispatcher] No guilds have territories module enabled");
       return;
     }
 
     console.log(
-      `[TT Dispatcher] Processing notifications for ${ttEnabledGuilds.length} guilds`,
+      `[TT Dispatcher] Processing batch notifications for ${ttEnabledGuilds.length} guilds`,
     );
 
     // For each guild, fetch TT config and filter notifications
@@ -197,9 +314,6 @@ export async function processAndDispatchNotifications(
         .single();
 
       if (!ttConfig) {
-        console.log(
-          `[TT Dispatcher] Guild ${guild.guild_id} has no TT config, skipping`,
-        );
         continue;
       }
 
@@ -221,12 +335,19 @@ export async function processAndDispatchNotifications(
         continue;
       }
 
-      for (const notification of guildNotifications) {
-        notification.guild_id = guild.guild_id; // Set guild_id for webhook
-        await dispatchTTNotification(notification, channelId);
-      }
+      // Send all notifications for this guild as a single batch
+      const batch: TTEventBatch = {
+        guild_id: guild.guild_id,
+        log_channel_id: channelId,
+        notifications: guildNotifications,
+      };
+
+      await dispatchTTBatch(batch);
     }
   } catch (error) {
-    console.error("[TT Dispatcher] Error processing notifications:", error);
+    console.error(
+      "[TT Dispatcher] Error processing batch notifications:",
+      error,
+    );
   }
 }

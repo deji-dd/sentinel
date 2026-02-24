@@ -19,8 +19,7 @@ import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
-import * as territoriesSetupCommand from "./commands/general/admin/territories-setup.js";
-import * as territoriesConfigCommand from "./commands/general/admin/territories-config.js";
+import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import {
@@ -257,10 +256,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await verifyallCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "config") {
           await configCommand.execute(interaction, supabase);
-        } else if (interaction.commandName === "territories-setup") {
-          await territoriesSetupCommand.execute(interaction, supabase);
-        } else if (interaction.commandName === "territories-config") {
-          await territoriesConfigCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "assault-check") {
+          await assaultCheckCommand.execute(interaction, supabase);
         }
       }
       return;
@@ -360,11 +357,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleVerifySettingsEdit(interaction, supabase);
       } else if (interaction.customId === "config_remove_api_key_select") {
         await configCommand.handleRemoveApiKeySelect(interaction, supabase);
-      } else if (interaction.customId === "territories_notification_type") {
-        await territoriesSetupCommand.handleNotificationTypeSelect(
-          interaction,
-          supabase,
-        );
       }
       return;
     }

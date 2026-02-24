@@ -14,6 +14,8 @@ import { startFactionSyncWorker } from "./workers/faction-sync.js";
 import { startTerritoryBlueprintSyncWorker } from "./workers/territory-blueprint-sync.js";
 import { startWarLedgerSyncWorker } from "./workers/war-ledger-sync.js";
 import { startTerritoryStateSyncWorker } from "./workers/territory-state-sync.js";
+import { startRateLimitPruningWorker } from "./workers/rate-limit-pruning.js";
+import { startWarLedgerPruningWorker } from "./workers/war-ledger-pruning.js";
 import { logSection } from "./lib/logger.js";
 
 function startAllWorkers(): void {
@@ -45,6 +47,10 @@ function startAllWorkers(): void {
     startTerritoryBlueprintSyncWorker(); // once daily
     startWarLedgerSyncWorker(); // every 15 seconds
     startTerritoryStateSyncWorker(); // dynamic cadence based on API keys
+
+    // Auto-pruning workers
+    startRateLimitPruningWorker(); // prune old rate limit entries hourly
+    startWarLedgerPruningWorker(); // prune wars older than 95 days daily
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
     // - startTravelStockCacheWorker(); // every 5 minutes
