@@ -85,6 +85,14 @@ export function startTerritoryBlueprintSyncWorker() {
             `[Territory Blueprint Sync] Fetched ${territories.length} territories (page ${pageCount}, total so far: ${allTerritories.length})`,
           );
 
+          // Log sample of territory IDs for debugging
+          if (pageCount === 1 && territories.length > 0) {
+            const sampleIds = territories.slice(0, 5).map((t) => t.id);
+            console.log(
+              `[Territory Blueprint Sync] Sample territory IDs from API: ${sampleIds.join(", ")}`,
+            );
+          }
+
           // Check for next page
           nextUrl = metadata?.links?.next || null;
           if (nextUrl) {

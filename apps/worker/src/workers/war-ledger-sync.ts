@@ -76,17 +76,36 @@ export function startWarLedgerSyncWorker() {
             territory_id: territoryCode,
           }));
 
+        // Debug: log what territory IDs we're looking for
+        const lookingForIds = wars.map((w) => w.territory_id).slice(0, 3);
+        console.log(
+          `[War Ledger Sync] Looking for territory IDs: ${lookingForIds.join(", ")}...`,
+        );
+
         // Check which territories exist in blueprint (handle new territories)
         const { data: existingBlueprints } = await supabase
           .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-          .select("territory_id")
+          .select("id")
+          .limit(3);
+
+        if (existingBlueprints && existingBlueprints.length > 0) {
+          const sampleIds = existingBlueprints.map((b: any) => b.id).join(", ");
+          console.log(
+            `[War Ledger Sync] Sample IDs in blueprint table: ${sampleIds}`,
+          );
+        }
+
+        // Now check which wars match existing territories
+        const { data: matchedBlueprints } = await supabase
+          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
+          .select("id")
           .in(
-            "territory_id",
+            "id",
             wars.map((w) => w.territory_id),
           );
 
         const existingTerritoryIds = new Set(
-          (existingBlueprints || []).map((b) => b.territory_id),
+          (matchedBlueprints || []).map((b: any) => b.id),
         );
         const validWars = wars.filter((w) =>
           existingTerritoryIds.has(w.territory_id),
