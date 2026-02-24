@@ -11,9 +11,7 @@ import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
-import {
-  processAndDispatchNotifications,
-} from "../lib/tt-notification-dispatcher.js";
+import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
 
 interface TornTerritory {
   id: string;
@@ -41,15 +39,15 @@ interface TTEventNotification {
  * ~4000 territories, max 50 per request = 80 requests
  * Torn API rate limit: 50 req/min per key (safety buffer from 100/min)
  * Formula: (80 requests × 60 seconds) / (numKeys × 50 req/min)
- * 
+ *
  * Examples:
  * - 1 key: 80×60 / (1×50) = 96 seconds
- * - 2 keys: 80×60 / (2×50) = 48 seconds  
+ * - 2 keys: 80×60 / (2×50) = 48 seconds
  * - 4 keys: 80×60 / (4×50) = 24 seconds
- * 
+ *
  * Note: Currently uses system key only. If/when guild keys are pooled,
  * this can be updated to read from database.
- * 
+ *
  * Min: 24s (4+ keys), Max: 96s (with just system key)
  */
 function calculateCadence(): number {
@@ -58,12 +56,12 @@ function calculateCadence(): number {
   const requestsNeeded = 80; // ~4000 territories / 50 per batch
   const limitPerKeyPerMin = 50; // Torn limit is 100, using 50 for safety
   const numKeys = 1; // System key only for TT sync
-  
+
   // cadence = (requests needed × 60s) / (keys available × limit per key)
   const dynamicCadence = Math.ceil(
     (requestsNeeded * 60) / (numKeys * limitPerKeyPerMin),
   );
-  
+
   // Clamp between 24s (minimum practical) and 120s (reasonable max)
   return Math.max(24, Math.min(120, dynamicCadence));
 }
@@ -102,7 +100,7 @@ function determineEventType(
 /**
  * Check if guild should be notified about this TT change
  */
-function shouldNotifyGuild(
+function _shouldNotifyGuild(
   config: {
     notification_type: string;
     territory_ids?: string[];
@@ -200,6 +198,7 @@ export function startTerritoryStateSyncWorker() {
 
             if ("error" in response) {
               console.warn(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 `[Territory State Sync] API error fetching batch at index ${i}: ${(response as any).error.error}`,
               );
               continue;
@@ -241,6 +240,7 @@ export function startTerritoryStateSyncWorker() {
               const eventType = determineEventType(
                 oldFaction,
                 newFaction,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 activeWar as any,
               );
 
@@ -248,7 +248,9 @@ export function startTerritoryStateSyncWorker() {
                 guild_id: "", // Will be filled in queueGuildNotifications
                 territory_id: tt.id,
                 event_type: eventType,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 assaulting_faction: (activeWar as any)?.assaulting_faction,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 defending_faction: (activeWar as any)?.defending_faction,
                 occupying_faction: newFaction,
               });

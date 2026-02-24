@@ -138,7 +138,7 @@ export async function handleGuildSelect(
     // Available modules for toggling
     const allModules = [
       { name: "Verify", value: "verify" },
-      // Add more modules as they're created
+      { name: "Territories", value: "territories" },
     ];
 
     const moduleOptions = allModules.map((module) => {

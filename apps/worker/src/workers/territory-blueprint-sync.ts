@@ -91,7 +91,7 @@ export function startTerritoryBlueprintSyncWorker() {
         }));
 
         // Upsert blueprints
-        const { error: blueprintError, count: blueprintCount } = await supabase
+        const { error: blueprintError, count: _blueprintCount } = await supabase
           .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
           .upsert(blueprintData, { onConflict: "id" });
 

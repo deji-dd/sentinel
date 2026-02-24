@@ -11,6 +11,8 @@ import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
+import * as territoriesSetupCommand from "./commands/general/admin/territories-setup.js";
+import * as territoriesConfigCommand from "./commands/general/admin/territories-config.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -46,6 +48,8 @@ const commands = [
   configCommand.data.toJSON(),
   verifyCommand.data.toJSON(),
   verifyallCommand.data.toJSON(),
+  territoriesSetupCommand.data.toJSON(),
+  territoriesConfigCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

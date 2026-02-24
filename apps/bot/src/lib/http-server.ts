@@ -75,9 +75,7 @@ export function initHttpServer(
 
       if (discordError.code === 50001) {
         // Missing access permission
-        console.warn(
-          `[HTTP] Missing access to channel ${req.body.channelId}`,
-        );
+        console.warn(`[HTTP] Missing access to channel ${req.body.channelId}`);
         return res.status(403).json({
           error: "Bot missing permissions in channel",
           code: "MISSING_PERMS",

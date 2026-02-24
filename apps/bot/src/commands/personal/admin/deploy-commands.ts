@@ -67,7 +67,10 @@ export async function execute(
     const verifyallCommand =
       await import("../../general/verification/verifyall.js");
     const configCommand = await import("../../general/admin/config.js");
-    const territoryCommand = await import("../../general/territories/info.js");
+    const territoriesSetupCommand =
+      await import("../../general/admin/territories-setup.js");
+    const territoriesConfigCommand =
+      await import("../../general/admin/territories-config.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
@@ -81,7 +84,10 @@ export async function execute(
     const commandsByModule: Record<string, any[]> = {
       verify: [verifyCommand.data.toJSON(), verifyallCommand.data.toJSON()],
       admin: [configCommand.data.toJSON()],
-      territories: [territoryCommand.data.toJSON()],
+      territories: [
+        territoriesSetupCommand.data.toJSON(),
+        territoriesConfigCommand.data.toJSON(),
+      ],
     };
 
     let successCount = 0;
@@ -108,7 +114,8 @@ export async function execute(
         enableModuleCommand.data.toJSON(),
         guildStatusCommand.data.toJSON(),
         configCommand.data.toJSON(),
-        territoryCommand.data.toJSON(),
+        territoriesSetupCommand.data.toJSON(),
+        territoriesConfigCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
       ];

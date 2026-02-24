@@ -88,8 +88,12 @@ export function startWarLedgerSyncWorker() {
         const existingWarIds = new Set(
           (existingWars || []).map((w) => w.war_id),
         );
-        const newWars = wars.filter((w) => !existingWarIds.has(w.territory_war_id));
-        const updatedWars = wars.filter((w) => existingWarIds.has(w.territory_war_id));
+        const newWars = wars.filter(
+          (w) => !existingWarIds.has(w.territory_war_id),
+        );
+        const updatedWars = wars.filter((w) =>
+          existingWarIds.has(w.territory_war_id),
+        );
 
         // Upsert war data
         const warData = wars.map((w) => ({

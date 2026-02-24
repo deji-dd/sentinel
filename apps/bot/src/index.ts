@@ -19,7 +19,8 @@ import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
-import * as territoryCommand from "./commands/general/territories/info.js";
+import * as territoriesSetupCommand from "./commands/general/admin/territories-setup.js";
+import * as territoriesConfigCommand from "./commands/general/admin/territories-config.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import {
@@ -256,8 +257,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await verifyallCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "config") {
           await configCommand.execute(interaction, supabase);
-        } else if (interaction.commandName === "territory") {
-          await territoryCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "territories-setup") {
+          await territoriesSetupCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "territories-config") {
+          await territoriesConfigCommand.execute(interaction, supabase);
         }
       }
       return;
@@ -357,6 +360,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleVerifySettingsEdit(interaction, supabase);
       } else if (interaction.customId === "config_remove_api_key_select") {
         await configCommand.handleRemoveApiKeySelect(interaction, supabase);
+      } else if (interaction.customId === "territories_notification_type") {
+        await territoriesSetupCommand.handleNotificationTypeSelect(
+          interaction,
+          supabase,
+        );
       }
       return;
     }
@@ -482,17 +490,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
             errorMessage:
               "This Discord account is not linked to any Torn account",
           };
-          console.log(
-            `[Auto-Verify] User ${member.user.username} (${member.id}) not linked to Torn`,
-          );
-          await logGuildWarning(
-            guildId,
-            client,
-            supabase,
-            "Auto-Verify: Not Linked",
-            `${member.user} is not linked to a Torn account.`,
-            [{ name: "Discord ID", value: member.id, inline: true }],
-          );
         } else {
           // API error
           verificationResult = {
@@ -502,25 +499,9 @@ client.on(Events.GuildMemberAdd, async (member) => {
             color: 0xef4444,
             errorMessage: `Torn API error: ${response.error.error}`,
           };
-          console.error(
-            `[Auto-Verify] Torn API error for ${member.id}:`,
-            response.error.error,
-          );
-          await logGuildError(
-            guildId,
-            client,
-            supabase,
-            "Auto-Verify: Torn API Error",
-            response.error.error,
-            `${member.user} verification failed due to Torn API error.`,
-          );
         }
       } else if (response.discord) {
         // Validate that required fields exist in response
-        console.log(
-          `[Auto-Verify] Full response for ${member.id}:`,
-          JSON.stringify(response, null, 2),
-        );
         if (!response.profile?.id || !response.profile?.name) {
           verificationResult = {
             status: "error",
@@ -529,17 +510,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
             color: 0xef4444,
             errorMessage: `Torn API returned incomplete data: player_id=${response.profile?.id}, name=${response.profile?.name}`,
           };
-          console.error(
-            `[Auto-Verify] Incomplete response for ${member.id}: player_id=${response.profile?.id}, name=${response.profile?.name}`,
-          );
-          await logGuildError(
-            guildId,
-            client,
-            supabase,
-            "Auto-Verify: Incomplete Response",
-            "Torn API returned incomplete data",
-            `Discord ID: ${member.id}`,
-          );
         } else {
           // Successfully verified with complete data
           await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
@@ -572,10 +542,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
           const rolesAdded: string[] = [];
           const rolesFailed: string[] = [];
 
-          console.log(
-            `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.profile.name} [${response.profile.id}]`,
-          );
-
           // Apply nickname template
           try {
             const nickname = guildConfig.nickname_template
@@ -584,9 +550,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
               .replace("{tag}", response.faction?.tag || "");
 
             await member.setNickname(nickname);
-            console.log(
-              `[Auto-Verify] Set nickname for ${member.user.username}: ${nickname}`,
-            );
           } catch (nicknameError) {
             console.error(
               `[Auto-Verify] Failed to set nickname for ${member.user.username}:`,
@@ -609,15 +572,8 @@ client.on(Events.GuildMemberAdd, async (member) => {
             try {
               await member.roles.add(guildConfig.verified_role_id);
               rolesAdded.push(guildConfig.verified_role_id);
-              console.log(
-                `[Auto-Verify] Assigned verification role to ${member.user.username}`,
-              );
             } catch (roleError) {
               rolesFailed.push(guildConfig.verified_role_id);
-              console.error(
-                `[Auto-Verify] Failed to assign verification role to ${member.user.username}:`,
-                roleError,
-              );
             }
           }
 
@@ -634,15 +590,8 @@ client.on(Events.GuildMemberAdd, async (member) => {
               try {
                 await member.roles.add(factionRole.role_ids);
                 rolesAdded.push(...factionRole.role_ids);
-                console.log(
-                  `[Auto-Verify] Assigned ${factionRole.role_ids.length} role(s) to ${member.user.username}`,
-                );
               } catch (roleError) {
                 rolesFailed.push(...factionRole.role_ids);
-                console.error(
-                  `[Auto-Verify] Failed to assign roles to ${member.user.username}:`,
-                  roleError,
-                );
               }
             }
           }
@@ -753,9 +702,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
         }
 
         await member.send({ embeds: [dmEmbed] });
-        console.log(
-          `[Auto-Verify] Sent verification result DM to ${member.user.username}`,
-        );
       } catch (dmError) {
         console.warn(
           `[Auto-Verify] Failed to send verification DM to ${member.user.username}:`,
