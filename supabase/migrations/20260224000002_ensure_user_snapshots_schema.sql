@@ -2,7 +2,14 @@
 -- This handles cases where the table was created via remote schema before migrations
 
 ALTER TABLE sentinel_user_snapshots
+  ADD COLUMN IF NOT EXISTS liquid_cash BIGINT,
   ADD COLUMN IF NOT EXISTS bookie_value BIGINT,
+  ADD COLUMN IF NOT EXISTS net_worth BIGINT,
+  ADD COLUMN IF NOT EXISTS stats_total BIGINT,
+  ADD COLUMN IF NOT EXISTS strength BIGINT,
+  ADD COLUMN IF NOT EXISTS speed BIGINT,
+  ADD COLUMN IF NOT EXISTS defense BIGINT,
+  ADD COLUMN IF NOT EXISTS dexterity BIGINT,
   ADD COLUMN IF NOT EXISTS bookie_updated_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS active_gym INTEGER,
   ADD COLUMN IF NOT EXISTS energy_current INTEGER,
