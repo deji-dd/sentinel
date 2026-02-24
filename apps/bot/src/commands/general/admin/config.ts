@@ -370,7 +370,7 @@ async function showVerifySettings(
     .setTitle("Verification Settings")
     .addFields(
       {
-        name: "Auto Verify on Join",
+        name: "Auto Verification",
         value: `${autoVerifyStatus} ${guildConfig.auto_verify ? "Enabled" : "Disabled"}`,
         inline: false,
       },
@@ -379,22 +379,29 @@ async function showVerifySettings(
         value: `\`${guildConfig.nickname_template || "{name}#{id}"}\``,
         inline: false,
       },
-      {
-        name: "Sync Interval",
-        value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
-        inline: false,
-      },
-      {
-        name: "Verification Role",
-        value: verifiedRoleDisplay,
-        inline: false,
-      },
-      {
-        name: "Faction Role Assignments",
-        value: factionRolesDisplay,
-        inline: false,
-      },
     );
+
+  // Only show sync interval if auto verification is enabled
+  if (guildConfig.auto_verify) {
+    verifyEmbed.addFields({
+      name: "Sync Interval",
+      value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
+      inline: false,
+    });
+  }
+
+  verifyEmbed.addFields(
+    {
+      name: "Verification Role",
+      value: verifiedRoleDisplay,
+      inline: false,
+    },
+    {
+      name: "Faction Role Assignments",
+      value: factionRolesDisplay,
+      inline: false,
+    },
+  );
 
   if (!hasApiKey) {
     verifyEmbed.addFields({
@@ -407,7 +414,7 @@ async function showVerifySettings(
   // Edit settings menu
   const settingOptions = [
     new StringSelectMenuOptionBuilder()
-      .setLabel("Auto Verify")
+      .setLabel("Auto Verification")
       .setValue("edit_auto_verify")
       .setDescription(
         guildConfig.auto_verify ? "Currently enabled" : "Currently disabled",
@@ -416,10 +423,19 @@ async function showVerifySettings(
       .setLabel("Nickname Template")
       .setValue("edit_nickname")
       .setDescription("e.g., {name}#{id}"),
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Sync Interval")
-      .setValue("edit_sync")
-      .setDescription("How often to resync data"),
+  ];
+
+  // Only show sync interval option if auto verification is enabled
+  if (guildConfig.auto_verify) {
+    settingOptions.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Sync Interval")
+        .setValue("edit_sync")
+        .setDescription("How often to resync data"),
+    );
+  }
+
+  settingOptions.push(
     new StringSelectMenuOptionBuilder()
       .setLabel("Verification Role")
       .setValue("edit_verified_role")
@@ -428,7 +444,7 @@ async function showVerifySettings(
       .setLabel("Faction Roles")
       .setValue("edit_faction")
       .setDescription("Manage role assignments"),
-  ];
+  );
 
   const settingsMenu = new StringSelectMenuBuilder()
     .setCustomId("verify_settings_edit")
@@ -577,7 +593,7 @@ export async function handleBackToVerifySettings(
       .setTitle("Verification Settings")
       .addFields(
         {
-          name: "Auto Verify on Join",
+          name: "Auto Verification",
           value: `${autoVerifyStatus} ${guildConfig.auto_verify ? "Enabled" : "Disabled"}`,
           inline: false,
         },
@@ -586,22 +602,29 @@ export async function handleBackToVerifySettings(
           value: `\`${guildConfig.nickname_template || "{name}#{id}"}\``,
           inline: false,
         },
-        {
-          name: "Sync Interval",
-          value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
-          inline: false,
-        },
-        {
-          name: "Verification Role",
-          value: verifiedRoleDisplay,
-          inline: false,
-        },
-        {
-          name: "Faction Role Assignments",
-          value: factionRolesDisplay,
-          inline: false,
-        },
       );
+
+    // Only show sync interval if auto verification is enabled
+    if (guildConfig.auto_verify) {
+      verifyEmbed.addFields({
+        name: "Sync Interval",
+        value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
+        inline: false,
+      });
+    }
+
+    verifyEmbed.addFields(
+      {
+        name: "Verification Role",
+        value: verifiedRoleDisplay,
+        inline: false,
+      },
+      {
+        name: "Faction Role Assignments",
+        value: factionRolesDisplay,
+        inline: false,
+      },
+    );
 
     if (!hasApiKey) {
       verifyEmbed.addFields({
@@ -613,7 +636,7 @@ export async function handleBackToVerifySettings(
 
     const settingOptions = [
       new StringSelectMenuOptionBuilder()
-        .setLabel("Auto Verify")
+        .setLabel("Auto Verification")
         .setValue("edit_auto_verify")
         .setDescription(
           guildConfig.auto_verify ? "Currently enabled" : "Currently disabled",
@@ -622,10 +645,19 @@ export async function handleBackToVerifySettings(
         .setLabel("Nickname Template")
         .setValue("edit_nickname")
         .setDescription("e.g., {name}#{id}"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Sync Interval")
-        .setValue("edit_sync")
-        .setDescription("How often to resync data"),
+    ];
+
+    // Only show sync interval option if auto verification is enabled
+    if (guildConfig.auto_verify) {
+      settingOptions.push(
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Sync Interval")
+          .setValue("edit_sync")
+          .setDescription("How often to resync data"),
+      );
+    }
+
+    settingOptions.push(
       new StringSelectMenuOptionBuilder()
         .setLabel("Verification Role")
         .setValue("edit_verified_role")
@@ -634,7 +666,7 @@ export async function handleBackToVerifySettings(
         .setLabel("Faction Roles")
         .setValue("edit_faction")
         .setDescription("Manage role assignments"),
-    ];
+    );
 
     const settingsMenu = new StringSelectMenuBuilder()
       .setCustomId("verify_settings_edit")
@@ -837,7 +869,7 @@ export async function handleVerifySettingsEdit(
         .setColor(0xf59e0b)
         .setTitle("Confirm Change")
         .setDescription(
-          `Turn auto-verify **${newStatus ? "on" : "off"}**?\n\n${newStatus ? "New members will be automatically verified on join" : "Members will need to manually run /verify"}`,
+          `Turn auto-verification **${newStatus ? "on" : "off"}**?\n\n${newStatus ? "New members will be automatically verified on join and during sync intervals" : "Members will need to manually run /verify"}`,
         );
 
       const confirmBtn = new ButtonBuilder()
@@ -2358,13 +2390,13 @@ export async function handleConfirmAutoVerifyToggle(
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
-      .setTitle("Auto Verify Updated")
+      .setTitle("Auto Verification Updated")
       .setDescription(
         `Auto verification is now **${newValue ? "enabled" : "disabled"}**`,
       )
       .setFooter({
         text: newValue
-          ? "New members will be automatically verified on join"
+          ? "New members will be automatically verified on join and during sync intervals"
           : "New members will not be automatically verified",
       });
 

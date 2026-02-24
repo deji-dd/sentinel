@@ -45,6 +45,7 @@ export function startTerritoryBlueprintSyncWorker() {
         // Fetch all territories from /torn/territory
         const response = await tornApi.get("/torn/territory", {
           apiKey,
+          queryParams: { offset: 0 },
         });
 
         if ("error" in response) {
