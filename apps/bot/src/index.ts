@@ -299,6 +299,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction,
           supabase,
         );
+      } else if (interaction.customId === "tt_settings_show") {
+        await configCommand.handleShowTTSettings(interaction, supabase);
       }
       return;
     }
@@ -357,6 +359,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleVerifySettingsEdit(interaction, supabase);
       } else if (interaction.customId === "config_remove_api_key_select") {
         await configCommand.handleRemoveApiKeySelect(interaction, supabase);
+      } else if (interaction.customId === "tt_settings_edit") {
+        await configCommand.handleTTSettingsEdit(interaction, supabase);
+      } else if (interaction.customId === "tt_notification_type_select") {
+        await configCommand.handleTTNotificationTypeSelect(
+          interaction,
+          supabase,
+        );
       }
       return;
     }

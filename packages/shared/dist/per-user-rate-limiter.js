@@ -51,7 +51,7 @@ export class PerUserRateLimiter {
                 .is("deleted_at", null)
                 .single();
             if (error || !data) {
-                console.warn("[RateLimiter] Could not resolve user_id for api_key_hash:", keyHash);
+                // Silent return for system keys or keys not in mapping (expected)
                 return null;
             }
             const userId = data.user_id;
@@ -70,7 +70,7 @@ export class PerUserRateLimiter {
     async recordRequest(apiKey) {
         const userId = await this.getUserIdFromApiKey(apiKey);
         if (!userId) {
-            console.warn("[RateLimiter] Could not record request - user_id not found");
+            // Silent return for system keys or keys not in mapping (expected)
             return;
         }
         const now = new Date();
@@ -92,7 +92,7 @@ export class PerUserRateLimiter {
     async getRequestCount(apiKey) {
         const userId = await this.getUserIdFromApiKey(apiKey);
         if (!userId) {
-            console.warn("[RateLimiter] Could not get request count - user_id not found");
+            // System keys or unmapped keys return 0 (not rate limited)
             return 0;
         }
         const windowStart = new Date(Date.now() - this.windowMs);

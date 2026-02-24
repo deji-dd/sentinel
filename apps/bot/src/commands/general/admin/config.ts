@@ -30,6 +30,7 @@ import {
   storeFactionDetails,
 } from "../../../lib/faction-utils.js";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
+import * as territoryHandlers from "./handlers/territories.js";
 
 interface ApiKeyEntry {
   key: string; // encrypted
@@ -124,6 +125,10 @@ export async function execute(
         .setLabel("Verification Settings")
         .setValue("verify")
         .setDescription("Manage verification settings"),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Territories Settings")
+        .setValue("territories")
+        .setDescription("Manage TT notifications and filters"),
     ];
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -228,6 +233,8 @@ export async function handleViewSelect(
       await showAdminSettings(interaction, guildConfig);
     } else if (selectedView === "verify") {
       await showVerifySettings(interaction, supabase, guildConfig);
+    } else if (selectedView === "territories") {
+      await territoryHandlers.handleShowTTSettings(interaction, supabase);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -2787,4 +2794,32 @@ async function logGuildAudit(
   } catch (error) {
     console.warn("Failed to write guild audit entry:", error);
   }
+}
+
+/**
+ * Territory (TT) module handlers - re-exported from territoryHandlers module
+ * Enables clean dispatch from index.ts
+ */
+export async function handleShowTTSettings(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleShowTTSettings(interaction, supabase);
+}
+
+export async function handleTTSettingsEdit(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTSettingsEdit(interaction, supabase);
+}
+
+export async function handleTTNotificationTypeSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTNotificationTypeSelect(
+    interaction,
+    supabase,
+  );
 }
