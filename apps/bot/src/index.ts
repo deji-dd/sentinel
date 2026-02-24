@@ -19,6 +19,7 @@ import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
+import * as territoryCommand from "./commands/general/territories/info.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import {
@@ -255,6 +256,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await verifyallCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "config") {
           await configCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "territory") {
+          await territoryCommand.execute(interaction, supabase);
         }
       }
       return;

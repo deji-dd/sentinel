@@ -50,11 +50,13 @@ export function startTerritoryBlueprintSyncWorker() {
         if ("error" in response) {
           logError(
             "territory_blueprint_sync",
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             `API error: ${(response as any).error.error}`,
           );
           return false;
         }
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const territories = (response as any).territory as TornTerritory[];
 
         if (!territories || territories.length === 0) {

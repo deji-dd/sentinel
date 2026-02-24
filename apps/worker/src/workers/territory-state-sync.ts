@@ -11,6 +11,9 @@ import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
+import {
+  processAndDispatchNotifications,
+} from "../lib/tt-notification-dispatcher.js";
 
 interface TornTerritory {
   id: string;
@@ -34,15 +37,35 @@ interface TTEventNotification {
 }
 
 /**
- * Calculate dynamic cadence based on territory count
+ * Calculate dynamic cadence based on number of available API keys
  * ~4000 territories, max 50 per request = 80 requests
- * System key max 100/min, so 80 requests = ~48 seconds minimum
- * Add buffer and cap at reasonable limits
+ * Torn API rate limit: 50 req/min per key (safety buffer from 100/min)
+ * Formula: (80 requests × 60 seconds) / (numKeys × 50 req/min)
+ * 
+ * Examples:
+ * - 1 key: 80×60 / (1×50) = 96 seconds
+ * - 2 keys: 80×60 / (2×50) = 48 seconds  
+ * - 4 keys: 80×60 / (4×50) = 24 seconds
+ * 
+ * Note: Currently uses system key only. If/when guild keys are pooled,
+ * this can be updated to read from database.
+ * 
+ * Min: 24s (4+ keys), Max: 96s (with just system key)
  */
 function calculateCadence(): number {
-  // Fixed cadence: every 60 seconds for balanced throughput
-  // This allows ~1.5 min for sync across 80 requests with single key
-  return 60;
+  // Currently system key only: 80 requests × 60 / (1 × 50) = 96 seconds
+  // This can be made dynamic later if we pool guild keys
+  const requestsNeeded = 80; // ~4000 territories / 50 per batch
+  const limitPerKeyPerMin = 50; // Torn limit is 100, using 50 for safety
+  const numKeys = 1; // System key only for TT sync
+  
+  // cadence = (requests needed × 60s) / (keys available × limit per key)
+  const dynamicCadence = Math.ceil(
+    (requestsNeeded * 60) / (numKeys * limitPerKeyPerMin),
+  );
+  
+  // Clamp between 24s (minimum practical) and 120s (reasonable max)
+  return Math.max(24, Math.min(120, dynamicCadence));
 }
 
 /**
@@ -111,42 +134,24 @@ function shouldNotifyGuild(
 
 /**
  * Queue event notification for guild processing
- * TODO: Implement webhook/bot command integration to send actual notifications
- * For now, we just log what would be sent
+ * Dispatches to bot webhook via HTTP for delivery to Discord
  */
 async function queueGuildNotifications(
-  changes: TTOwnershipChange[],
+  _changes: TTOwnershipChange[],
   notifications: TTEventNotification[],
 ): Promise<void> {
   if (notifications.length === 0) {
     return;
   }
 
-  // Get all guilds with TT module enabled
-  const { data: guilds } = await supabase
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("guild_id, enabled_modules");
-
-  if (!guilds) {
-    return;
-  }
-
-  console.log(
-    `[Territory State Sync] Would send notifications for ${notifications.length} changes to ${guilds.filter((g) => g.enabled_modules?.includes("tt")).length} guilds`,
-  );
-
-  // TODO: For each guild with TT enabled, check TTconfig and filter notifications
-  // Then queue for webhook/bot command delivery
-  // Example flow:
-  // 1. Get guild TT_CONFIG with notification filters
-  // 2. Filter notifications based on territory_ids and faction_ids (OR logic)
-  // 3. Call webhook or schedule bot command with notification data
+  // Use notification dispatcher to send via bot webhook
+  await processAndDispatchNotifications(notifications);
 }
 
 export function startTerritoryStateSyncWorker() {
   return startDbScheduledRunner({
     worker: "territory_state_sync",
-    defaultCadenceSeconds: 60, // Every 60 seconds
+    defaultCadenceSeconds: calculateCadence(), // Dynamic based on available keys
     handler: async () => {
       const startTime = Date.now();
 

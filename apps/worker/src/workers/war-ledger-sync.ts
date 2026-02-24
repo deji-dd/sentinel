@@ -12,17 +12,19 @@ import { supabase, getPersonalApiKey } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
 
 interface TerritoryWar {
-  war_id: number;
-  territory_id: string;
+  territory_war_id: number;
   assaulting_faction: number;
   defending_faction: number;
-  start: number;
-  end: number | null;
-  winner: number | null;
+  score: number;
+  required_score: number;
+  started: number;
+  ends: number;
+  assaulters: number[];
+  defenders: number[];
 }
 
 interface TornV1TerritorywarsResponse {
-  territorywars: TerritoryWar[];
+  territorywars: Record<string, TerritoryWar>;
 }
 
 export function startWarLedgerSyncWorker() {
@@ -54,9 +56,9 @@ export function startWarLedgerSyncWorker() {
         }
 
         const data = response as unknown as TornV1TerritorywarsResponse;
-        const wars = data.territorywars || [];
+        const warEntries = Object.entries(data.territorywars || {});
 
-        if (wars.length === 0) {
+        if (warEntries.length === 0) {
           logDuration(
             "war_ledger_sync",
             "No active wars",
@@ -65,32 +67,39 @@ export function startWarLedgerSyncWorker() {
           return true;
         }
 
-        console.log(`[War Ledger Sync] Processing ${wars.length} wars`);
+        console.log(`[War Ledger Sync] Processing ${warEntries.length} wars`);
 
-        // Separate into new wars and ended wars
+        // Transform to array with territory code included
+        const wars: Array<TerritoryWar & { territory_id: string }> =
+          warEntries.map(([territoryCode, war]) => ({
+            ...war,
+            territory_id: territoryCode,
+          }));
+
+        // Separate into new wars and existing wars
         const { data: existingWars } = await supabase
           .from(TABLE_NAMES.WAR_LEDGER)
           .select("war_id")
           .in(
             "war_id",
-            wars.map((w) => w.war_id),
+            wars.map((w) => w.territory_war_id),
           );
 
         const existingWarIds = new Set(
           (existingWars || []).map((w) => w.war_id),
         );
-        const newWars = wars.filter((w) => !existingWarIds.has(w.war_id));
-        const updatedWars = wars.filter((w) => existingWarIds.has(w.war_id));
+        const newWars = wars.filter((w) => !existingWarIds.has(w.territory_war_id));
+        const updatedWars = wars.filter((w) => existingWarIds.has(w.territory_war_id));
 
-        // Upsert war data (new wars will have end_time and victor_faction as null)
+        // Upsert war data
         const warData = wars.map((w) => ({
-          war_id: w.war_id,
+          war_id: w.territory_war_id,
           territory_id: w.territory_id,
           assaulting_faction: w.assaulting_faction,
           defending_faction: w.defending_faction,
-          victor_faction: w.winner,
-          start_time: new Date(w.start * 1000).toISOString(),
-          end_time: w.end ? new Date(w.end * 1000).toISOString() : null,
+          victor_faction: null, // v1 API doesn't provide victor info, set via state change detection
+          start_time: new Date(w.started * 1000).toISOString(),
+          end_time: new Date(w.ends * 1000).toISOString(), // v1 API provides end time immediately
         }));
 
         const { error: upsertError } = await supabase

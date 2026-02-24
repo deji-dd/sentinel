@@ -26,6 +26,83 @@ export function initHttpServer(
     });
   });
 
+  // Send guild channel message endpoint for webhooks (e.g., TT notifications)
+  app.post("/send-guild-message", async (req: Request, res: Response) => {
+    try {
+      const { guildId, channelId, embed, content } = req.body;
+
+      if (!guildId || !channelId) {
+        return res.status(400).json({
+          error: "Missing required fields: guildId, channelId",
+        });
+      }
+
+      if (!embed && !content) {
+        return res.status(400).json({
+          error: "Must provide either embed or content",
+        });
+      }
+
+      // Fetch guild
+      const guild = await discordClient.guilds.fetch(guildId);
+      if (!guild) {
+        return res.status(404).json({ error: "Guild not found" });
+      }
+
+      // Fetch channel
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) {
+        return res.status(404).json({ error: "Text channel not found" });
+      }
+
+      // Send message
+      await channel.send({
+        content: content || undefined,
+        embeds: embed ? [embed] : undefined,
+      });
+
+      console.log(
+        `[HTTP] Sent message to ${guild.name}#${channel.name} (guild: ${guildId})`,
+      );
+
+      return res.json({
+        success: true,
+        guild: guild.name,
+        channel: channel.name,
+      });
+    } catch (error: unknown) {
+      const discordError = error as { code?: number; message?: string };
+
+      if (discordError.code === 50001) {
+        // Missing access permission
+        console.warn(
+          `[HTTP] Missing access to channel ${req.body.channelId}`,
+        );
+        return res.status(403).json({
+          error: "Bot missing permissions in channel",
+          code: "MISSING_PERMS",
+        });
+      }
+
+      if (discordError.code === 50013) {
+        // Missing send messages permission
+        console.warn(
+          `[HTTP] Cannot send messages to channel ${req.body.channelId}`,
+        );
+        return res.status(403).json({
+          error: "Cannot send messages in channel",
+          code: "NO_SEND_PERMS",
+        });
+      }
+
+      console.error("[HTTP] Error sending guild message:", error);
+      return res.status(500).json({
+        error: "Failed to send message",
+        details: discordError.message || "Unknown error",
+      });
+    }
+  });
+
   // Send DM endpoint for workers
   app.post("/send-dm", async (req: Request, res: Response) => {
     try {
