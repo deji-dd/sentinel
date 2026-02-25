@@ -20,7 +20,7 @@ interface TTEventNotification {
 
 interface TTEventBatch {
   guild_id: string;
-  log_channel_id: string;
+  channel_id: string;
   notifications: TTEventNotification[];
 }
 
@@ -195,7 +195,7 @@ export async function dispatchTTBatch(batch: TTEventBatch): Promise<boolean> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         guildId: batch.guild_id,
-        channelId: batch.log_channel_id,
+        channelId: batch.channel_id,
         embed: embed,
       }),
     });
@@ -228,49 +228,47 @@ export async function dispatchTTBatch(batch: TTEventBatch): Promise<boolean> {
  */
 function shouldNotifyGuild(
   config: {
-    notification_type: string;
-    territory_ids?: string[];
-    faction_ids?: number[];
+    tt_territory_ids?: string[];
+    tt_faction_ids?: number[];
   },
   event: TTEventNotification,
 ): boolean {
-  if (config.notification_type === "all") {
+  const territoryIds = config.tt_territory_ids || [];
+  const factionIds = config.tt_faction_ids || [];
+
+  if (territoryIds.length === 0 && factionIds.length === 0) {
+    return false;
+  }
+
+  const territoryMatches = territoryIds.includes(event.territory_id);
+  if (territoryMatches) {
     return true;
   }
 
-  if (config.notification_type === "territories" && config.territory_ids) {
-    return config.territory_ids.includes(event.territory_id);
+  if (factionIds.length === 0) {
+    return false;
   }
 
-  if (config.notification_type === "factions" && config.faction_ids) {
-    // Notify if any relevant faction involved
-    const relevantFactions = [
-      event.occupying_faction,
-      event.assaulting_faction,
-      event.defending_faction,
-    ].filter((f) => f !== undefined && f !== null);
-    return relevantFactions.some((f) => config.faction_ids?.includes(f));
-  }
+  const relevantFactions = [
+    event.occupying_faction,
+    event.assaulting_faction,
+    event.defending_faction,
+  ].filter((f) => f !== undefined && f !== null);
 
-  if (
-    config.notification_type === "combined" &&
-    config.territory_ids &&
-    config.faction_ids
-  ) {
-    // OR logic: notify if territory matches OR any faction matches
-    const territoryMatches = config.territory_ids.includes(event.territory_id);
-    const relevantFactions = [
-      event.occupying_faction,
-      event.assaulting_faction,
-      event.defending_faction,
-    ].filter((f) => f !== undefined && f !== null);
-    const factionMatches = relevantFactions.some((f) =>
-      config.faction_ids?.includes(f),
-    );
-    return territoryMatches || factionMatches;
-  }
+  return relevantFactions.some((f) => factionIds.includes(f));
+}
 
-  return false;
+/**
+ * Check if guild has any filtered notification configuration
+ */
+function hasFilteredConfig(config: {
+  tt_territory_ids?: string[];
+  tt_faction_ids?: number[];
+}): boolean {
+  return (
+    (config.tt_territory_ids?.length || 0) > 0 ||
+    (config.tt_faction_ids?.length || 0) > 0
+  );
 }
 
 /**
@@ -288,7 +286,9 @@ export async function processAndDispatchNotifications(
     // Get all guilds with TT module enabled
     const { data: guilds } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id, log_channel_id, enabled_modules");
+      .select(
+        "guild_id, enabled_modules, tt_full_channel_id, tt_filtered_channel_id, tt_territory_ids, tt_faction_ids",
+      );
 
     if (!guilds || guilds.length === 0) {
       log("TT Dispatcher", "No guilds with TT module enabled");
@@ -310,42 +310,40 @@ export async function processAndDispatchNotifications(
 
     // For each guild, fetch TT config and filter notifications
     for (const guild of ttEnabledGuilds) {
-      const { data: ttConfig } = await supabase
-        .from(TABLE_NAMES.TT_CONFIG)
-        .select("notification_type, territory_ids, faction_ids")
-        .eq("guild_id", guild.guild_id)
-        .single();
-
-      if (!ttConfig) {
-        continue;
-      }
-
-      // Filter notifications based on guild config
-      const guildNotifications = notifications.filter((n) =>
-        shouldNotifyGuild(ttConfig, n),
-      );
-
-      if (guildNotifications.length === 0) {
-        continue;
-      }
-
-      // Use log_channel_id for TT notifications
-      const channelId = guild.log_channel_id;
-      if (!channelId) {
-        console.warn(
-          `[TT Dispatcher] Guild ${guild.guild_id} has no log_channel_id configured`,
-        );
-        continue;
-      }
-
-      // Send all notifications for this guild as a single batch
-      const batch: TTEventBatch = {
-        guild_id: guild.guild_id,
-        log_channel_id: channelId,
-        notifications: guildNotifications,
+      const ttConfig = {
+        tt_full_channel_id: guild.tt_full_channel_id as string | null,
+        tt_filtered_channel_id: guild.tt_filtered_channel_id as string | null,
+        tt_territory_ids: (guild.tt_territory_ids as string[]) || [],
+        tt_faction_ids: (guild.tt_faction_ids as number[]) || [],
       };
 
-      await dispatchTTBatch(batch);
+      if (ttConfig.tt_full_channel_id) {
+        const batch: TTEventBatch = {
+          guild_id: guild.guild_id,
+          channel_id: ttConfig.tt_full_channel_id,
+          notifications: notifications,
+        };
+
+        await dispatchTTBatch(batch);
+      }
+
+      if (ttConfig.tt_filtered_channel_id && hasFilteredConfig(ttConfig)) {
+        const filteredNotifications = notifications.filter((n) =>
+          shouldNotifyGuild(ttConfig, n),
+        );
+
+        if (filteredNotifications.length === 0) {
+          continue;
+        }
+
+        const batch: TTEventBatch = {
+          guild_id: guild.guild_id,
+          channel_id: ttConfig.tt_filtered_channel_id,
+          notifications: filteredNotifications,
+        };
+
+        await dispatchTTBatch(batch);
+      }
     }
   } catch (error) {
     console.error(

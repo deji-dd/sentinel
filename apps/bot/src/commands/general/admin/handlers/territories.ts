@@ -8,23 +8,146 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   type ButtonInteraction,
+  type ChannelSelectMenuInteraction,
   type StringSelectMenuInteraction,
   type ModalSubmitInteraction,
 } from "discord.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, getFactionDataBatchCached } from "@sentinel/shared";
+import { decrypt } from "../../../../lib/encryption.js";
+import { botTornApi } from "../../../../lib/torn-api.js";
 
 interface TTConfig {
   guild_id: string;
-  notification_type: "all" | "territories" | "factions" | "combined";
-  territory_ids: string[];
-  faction_ids: number[];
+  tt_full_channel_id: string | null;
+  tt_filtered_channel_id: string | null;
+  tt_territory_ids: string[];
+  tt_faction_ids: number[];
+}
+
+interface ApiKeyEntry {
+  key: string; // encrypted
+  fingerprint: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+async function getTTConfig(
+  supabase: SupabaseClient,
+  guildId: string,
+): Promise<TTConfig> {
+  const { data: ttConfig } = await supabase
+    .from(TABLE_NAMES.GUILD_CONFIG)
+    .select(
+      "guild_id, tt_full_channel_id, tt_filtered_channel_id, tt_territory_ids, tt_faction_ids",
+    )
+    .eq("guild_id", guildId)
+    .single();
+
+  return (
+    ttConfig || {
+      guild_id: guildId,
+      tt_full_channel_id: null,
+      tt_filtered_channel_id: null,
+      tt_territory_ids: [],
+      tt_faction_ids: [],
+    }
+  );
+}
+
+async function upsertTTConfig(
+  supabase: SupabaseClient,
+  guildId: string,
+  updates: Partial<TTConfig>,
+): Promise<void> {
+  await supabase.from(TABLE_NAMES.GUILD_CONFIG).upsert(
+    {
+      guild_id: guildId,
+      ...updates,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "guild_id" },
+  );
+}
+
+async function getActiveApiKey(
+  supabase: SupabaseClient,
+  guildId: string,
+): Promise<string | null> {
+  const { data: guildConfig } = await supabase
+    .from(TABLE_NAMES.GUILD_CONFIG)
+    .select("api_keys")
+    .eq("guild_id", guildId)
+    .single();
+
+  const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+  const activeKey = apiKeys.find((key) => key.isActive);
+  if (!activeKey) {
+    return null;
+  }
+
+  try {
+    return decrypt(activeKey.key);
+  } catch (error) {
+    console.warn("Failed to decrypt API key for TT settings:", error);
+    return null;
+  }
+}
+
+async function getFactionNameMap(
+  supabase: SupabaseClient,
+  factionIds: number[],
+  apiKey: string | null,
+): Promise<Map<number, string>> {
+  const nameMap = new Map<number, string>();
+  if (factionIds.length === 0) {
+    return nameMap;
+  }
+
+  const { data: cached } = await supabase
+    .from(TABLE_NAMES.TORN_FACTIONS)
+    .select("id, name")
+    .in("id", factionIds);
+
+  if (cached) {
+    for (const faction of cached) {
+      nameMap.set(faction.id, faction.name);
+    }
+  }
+
+  if (!apiKey) {
+    return nameMap;
+  }
+
+  const missingIds = factionIds.filter((id) => !nameMap.has(id));
+  if (missingIds.length === 0) {
+    return nameMap;
+  }
+
+  const fetched = await getFactionDataBatchCached(
+    supabase,
+    missingIds,
+    botTornApi,
+    apiKey,
+  );
+
+  for (const [id, data] of fetched.entries()) {
+    nameMap.set(id, data.name);
+  }
+
+  return nameMap;
+}
+
+function formatChannel(channelId: string | null | undefined): string {
+  return channelId ? `<#${channelId}>` : "Disabled (no channel set)";
 }
 
 export async function handleShowTTSettings(
@@ -32,72 +155,74 @@ export async function handleShowTTSettings(
   supabase: SupabaseClient,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
 
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    // Get TT config
-    const { data: ttConfig } = await supabase
-      .from(TABLE_NAMES.TT_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const config = await getTTConfig(supabase, guildId);
+    const apiKey = await getActiveApiKey(supabase, guildId);
+    const factionNameMap = await getFactionNameMap(
+      supabase,
+      config.tt_faction_ids,
+      apiKey,
+    );
 
-    const config: TTConfig = ttConfig || {
-      guild_id: guildId,
-      notification_type: "all",
-      territory_ids: [],
-      faction_ids: [],
-    };
+    const factionDisplay =
+      config.tt_faction_ids.length > 0
+        ? config.tt_faction_ids
+            .map((id) => `${factionNameMap.get(id) || `Faction ${id}`} (${id})`)
+            .join(", ")
+        : "None";
 
-    const notificationTypeDisplay = {
-      all: "💬 Monitor all territory changes",
-      territories: "🗺️ Specific territories only",
-      factions: "💪 Specific factions only",
-      combined: "🔀 Territories AND factions",
-    };
+    const hasFilteredFilters =
+      config.tt_territory_ids.length > 0 || config.tt_faction_ids.length > 0;
+    const filteredStatus = !config.tt_filtered_channel_id
+      ? "Disabled (no channel set)"
+      : hasFilteredFilters
+        ? `<#${config.tt_filtered_channel_id}>`
+        : `Disabled (no filters set, channel <#${config.tt_filtered_channel_id}>)`;
 
     const ttEmbed = new EmbedBuilder()
       .setColor(0xf59e0b)
       .setTitle("Territories Settings")
       .addFields(
         {
-          name: "Notification Type",
-          value: notificationTypeDisplay[config.notification_type],
+          name: "Full Notifications",
+          value: formatChannel(config.tt_full_channel_id),
           inline: false,
         },
         {
-          name: "Territories Monitored",
-          value:
-            config.territory_ids.length > 0
-              ? config.territory_ids.join(", ")
-              : "None (all territories when type is 'all')",
+          name: "Filtered Notifications",
+          value: filteredStatus,
           inline: false,
         },
         {
-          name: "Factions Monitored",
+          name: "Filtered Territories",
           value:
-            config.faction_ids.length > 0
-              ? config.faction_ids.map(String).join(", ")
-              : "None (no faction filtering)",
+            config.tt_territory_ids.length > 0
+              ? config.tt_territory_ids.join(", ")
+              : "None",
+          inline: false,
+        },
+        {
+          name: "Filtered Factions",
+          value: factionDisplay,
           inline: false,
         },
       );
 
     const settingOptions = [
       new StringSelectMenuOptionBuilder()
-        .setLabel("Notification Type")
-        .setValue("tt_edit_type")
-        .setDescription("What changes trigger alerts"),
+        .setLabel("Full Notifications")
+        .setValue("tt_full")
+        .setDescription("All territory changes to one channel"),
       new StringSelectMenuOptionBuilder()
-        .setLabel("Edit Territory Filters")
-        .setValue("tt_edit_territories")
-        .setDescription("Specify which territories to monitor"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Edit Faction Filters")
-        .setValue("tt_edit_factions")
-        .setDescription("Specify which factions to monitor"),
+        .setLabel("Filtered Notifications")
+        .setValue("tt_filtered")
+        .setDescription("Only selected territories/factions"),
     ];
 
     const settingsMenu = new StringSelectMenuBuilder()
@@ -131,53 +256,196 @@ export async function handleShowTTSettings(
 
 export async function handleTTSettingsEdit(
   interaction: StringSelectMenuInteraction,
-  _supabase: SupabaseClient,
+  supabase: SupabaseClient,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-    if (!guildId) return;
-
     const selectedSetting = interaction.values[0];
 
-    if (selectedSetting === "tt_edit_type") {
-      // Show type selection
-      const typeOptions = [
-        new StringSelectMenuOptionBuilder()
-          .setLabel("All Changes")
-          .setValue("type_all")
-          .setDescription("Alert on all territory ownership changes"),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Specific Territories")
-          .setValue("type_territories")
-          .setDescription("Only alert for selected territories"),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Specific Factions")
-          .setValue("type_factions")
-          .setDescription("Only alert when selected factions gain/lose"),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Combined (Territories + Factions)")
-          .setValue("type_combined")
-          .setDescription(
-            "Alert if any territory in list OR any faction in list changes",
-          ),
-      ];
+    if (selectedSetting === "tt_full") {
+      await showFullTTSettings(interaction, supabase);
+    } else if (selectedSetting === "tt_filtered") {
+      await showFilteredTTSettings(interaction, supabase);
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in TT settings edit:", errorMsg);
+  }
+}
 
-      const typeMenu = new StringSelectMenuBuilder()
-        .setCustomId("tt_notification_type_select")
-        .setPlaceholder("Choose notification type...")
-        .addOptions(typeOptions);
+async function showFullTTSettings(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
+  }
 
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        typeMenu,
-      );
+  const guildId = interaction.guildId;
+  if (!guildId) return;
 
-      await interaction.editReply({
-        components: [row],
-      });
-    } else if (selectedSetting === "tt_edit_territories") {
-      // Show modal for territory IDs
+  const config = await getTTConfig(supabase, guildId);
+
+  const embed = new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle("Full Territory Notifications")
+    .setDescription(
+      "Send every territory change notification to a single channel.",
+    )
+    .addFields({
+      name: "Channel",
+      value: formatChannel(config.tt_full_channel_id),
+      inline: false,
+    });
+
+  const channelSelectMenu = new ChannelSelectMenuBuilder()
+    .setCustomId("tt_full_channel_select")
+    .setPlaceholder("Select a channel for full notifications")
+    .addChannelTypes(ChannelType.GuildText);
+
+  const disableBtn = new ButtonBuilder()
+    .setCustomId("tt_full_channel_clear")
+    .setLabel("Disable")
+    .setStyle(ButtonStyle.Danger)
+    .setDisabled(!config.tt_full_channel_id);
+
+  const backBtn = new ButtonBuilder()
+    .setCustomId("tt_settings_show")
+    .setLabel("Back")
+    .setStyle(ButtonStyle.Secondary);
+
+  const menuRow =
+    new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+      channelSelectMenu,
+    );
+  const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    disableBtn,
+    backBtn,
+  );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [menuRow, buttonRow],
+  });
+}
+
+async function showFilteredTTSettings(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferUpdate();
+  }
+
+  const guildId = interaction.guildId;
+  if (!guildId) return;
+
+  const config = await getTTConfig(supabase, guildId);
+  const apiKey = await getActiveApiKey(supabase, guildId);
+  const factionNameMap = await getFactionNameMap(
+    supabase,
+    config.tt_faction_ids,
+    apiKey,
+  );
+
+  const territoryDisplay =
+    config.tt_territory_ids.length > 0
+      ? config.tt_territory_ids.join(", ")
+      : "None";
+  const factionDisplay =
+    config.tt_faction_ids.length > 0
+      ? config.tt_faction_ids
+          .map((id) => `${factionNameMap.get(id) || `Faction ${id}`} (${id})`)
+          .join(", ")
+      : "None";
+
+  const embed = new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle("Filtered Territory Notifications")
+    .setDescription(
+      "Send territory change notifications that match selected territories or factions.",
+    )
+    .addFields(
+      {
+        name: "Channel",
+        value: formatChannel(config.tt_filtered_channel_id),
+        inline: false,
+      },
+      {
+        name: "Status",
+        value:
+          config.tt_filtered_channel_id &&
+          (config.tt_territory_ids.length > 0 ||
+            config.tt_faction_ids.length > 0)
+            ? "Enabled"
+            : "Disabled (requires channel + filters)",
+        inline: false,
+      },
+      {
+        name: "Territories",
+        value: territoryDisplay,
+        inline: false,
+      },
+      {
+        name: "Factions",
+        value: factionDisplay,
+        inline: false,
+      },
+    );
+
+  const channelSelectMenu = new ChannelSelectMenuBuilder()
+    .setCustomId("tt_filtered_channel_select")
+    .setPlaceholder("Select a channel for filtered notifications")
+    .addChannelTypes(ChannelType.GuildText);
+
+  const filterMenu = new StringSelectMenuBuilder()
+    .setCustomId("tt_filtered_settings_edit")
+    .setPlaceholder("Select filters to edit...")
+    .addOptions(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Edit Territory Filters")
+        .setValue("tt_edit_territories")
+        .setDescription("Specify which territories to monitor"),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Edit Faction Filters")
+        .setValue("tt_edit_factions")
+        .setDescription("Specify which factions to monitor"),
+    );
+
+  const disableBtn = new ButtonBuilder()
+    .setCustomId("tt_filtered_channel_clear")
+    .setLabel("Disable")
+    .setStyle(ButtonStyle.Danger)
+    .setDisabled(!config.tt_filtered_channel_id);
+
+  const backBtn = new ButtonBuilder()
+    .setCustomId("tt_settings_show")
+    .setLabel("Back")
+    .setStyle(ButtonStyle.Secondary);
+
+  const channelRow =
+    new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+      channelSelectMenu,
+    );
+  const filterRow =
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(filterMenu);
+  const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    disableBtn,
+    backBtn,
+  );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [channelRow, filterRow, buttonRow],
+  });
+}
+
+export async function handleTTFilteredSettingsEdit(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  try {
+    const selectedSetting = interaction.values[0];
+
+    if (selectedSetting === "tt_edit_territories") {
       const modal = new ModalBuilder()
         .setCustomId("tt_edit_territories_modal")
         .setTitle("Edit Territory Filters");
@@ -195,8 +463,10 @@ export async function handleTTSettingsEdit(
       modal.addComponents(row1);
 
       await interaction.showModal(modal);
-    } else if (selectedSetting === "tt_edit_factions") {
-      // Show modal for faction IDs
+      return;
+    }
+
+    if (selectedSetting === "tt_edit_factions") {
       const modal = new ModalBuilder()
         .setCustomId("tt_edit_factions_modal")
         .setTitle("Edit Faction Filters");
@@ -217,12 +487,12 @@ export async function handleTTSettingsEdit(
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in TT settings edit:", errorMsg);
+    console.error("Error in filtered TT settings edit:", errorMsg);
   }
 }
 
-export async function handleTTNotificationTypeSelect(
-  interaction: StringSelectMenuInteraction,
+export async function handleTTFullChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
   supabase: SupabaseClient,
 ): Promise<void> {
   try {
@@ -231,36 +501,186 @@ export async function handleTTNotificationTypeSelect(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const typeValue = interaction.values[0];
-    const newType = typeValue.replace("type_", "") as
-      | "all"
-      | "territories"
-      | "factions"
-      | "combined";
+    const selectedChannel = interaction.channels.first();
+    if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Invalid Channel")
+        .setDescription("Please select a text channel.");
 
-    // Ensure TT config exists
-    const { data: existing } = await supabase
-      .from(TABLE_NAMES.TT_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
-
-    if (!existing) {
-      await supabase.from(TABLE_NAMES.TT_CONFIG).insert({
-        guild_id: guildId,
-        notification_type: newType,
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
       });
-    } else {
-      await supabase
-        .from(TABLE_NAMES.TT_CONFIG)
-        .update({ notification_type: newType })
-        .eq("guild_id", guildId);
+      return;
     }
+
+    await upsertTTConfig(supabase, guildId, {
+      tt_full_channel_id: selectedChannel.id,
+    });
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
-      .setTitle("Notification Type Updated")
-      .setDescription(`Now using: **${newType}** notification filtering`);
+      .setTitle("Full Notifications Updated")
+      .setDescription(`Full notifications will post in ${selectedChannel}.`);
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("tt_settings_show")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error updating full TT channel:", errorMsg);
+  }
+}
+
+export async function handleTTFilteredChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const selectedChannel = interaction.channels.first();
+    if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Invalid Channel")
+        .setDescription("Please select a text channel.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
+
+    await upsertTTConfig(supabase, guildId, {
+      tt_filtered_channel_id: selectedChannel.id,
+    });
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Filtered Notifications Updated")
+      .setDescription(
+        `Filtered notifications will post in ${selectedChannel}.`,
+      );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("tt_settings_show")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error updating filtered TT channel:", errorMsg);
+  }
+}
+
+export async function handleTTFullChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    await upsertTTConfig(supabase, guildId, {
+      tt_full_channel_id: null,
+    });
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Full Notifications Disabled")
+      .setDescription("Full territory notifications have been disabled.");
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("tt_settings_show")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error clearing full TT channel:", errorMsg);
+  }
+}
+
+export async function handleTTFilteredChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    await upsertTTConfig(supabase, guildId, {
+      tt_filtered_channel_id: null,
+    });
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Filtered Notifications Disabled")
+      .setDescription("Filtered territory notifications have been disabled.");
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("tt_settings_show")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [successEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error clearing filtered TT channel:", errorMsg);
+  }
+}
+
+export async function handleTTNotificationTypeSelect(
+  interaction: StringSelectMenuInteraction,
+  _supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("Notification Type Deprecated")
+      .setDescription(
+        "Notification type selection has been replaced by Full and Filtered channels.",
+      );
 
     const backBtn = new ButtonBuilder()
       .setCustomId("tt_settings_show")
@@ -295,24 +715,9 @@ export async function handleTTEditTerritoriesModalSubmit(
       .map((id) => id.trim().toUpperCase())
       .filter((id) => id.length > 0);
 
-    // Ensure TT config exists
-    const { data: existing } = await supabase
-      .from(TABLE_NAMES.TT_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
-
-    if (!existing) {
-      await supabase.from(TABLE_NAMES.TT_CONFIG).insert({
-        guild_id: guildId,
-        territory_ids: territoryIds,
-      });
-    } else {
-      await supabase
-        .from(TABLE_NAMES.TT_CONFIG)
-        .update({ territory_ids: territoryIds })
-        .eq("guild_id", guildId);
-    }
+    await upsertTTConfig(supabase, guildId, {
+      tt_territory_ids: territoryIds,
+    });
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
@@ -356,24 +761,9 @@ export async function handleTTEditFactionsModalSubmit(
       .map((id) => parseInt(id.trim()))
       .filter((id) => !isNaN(id));
 
-    // Ensure TT config exists
-    const { data: existing } = await supabase
-      .from(TABLE_NAMES.TT_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
-
-    if (!existing) {
-      await supabase.from(TABLE_NAMES.TT_CONFIG).insert({
-        guild_id: guildId,
-        faction_ids: factionIds,
-      });
-    } else {
-      await supabase
-        .from(TABLE_NAMES.TT_CONFIG)
-        .update({ faction_ids: factionIds })
-        .eq("guild_id", guildId);
-    }
+    await upsertTTConfig(supabase, guildId, {
+      tt_faction_ids: factionIds,
+    });
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)

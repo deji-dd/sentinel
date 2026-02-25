@@ -32,25 +32,6 @@ export interface TornFactionData {
   updated_at: string;
 }
 
-interface FactionBasicResponse {
-  basic: {
-    id: number;
-    name: string;
-    tag: string;
-    tag_image: string;
-    leader_id: number;
-    co_leader_id: number;
-    respect: number;
-    days_old: number;
-    capacity: number;
-    members: number;
-    is_enlisted: boolean | null;
-    rank: { position: number; name: string } | null;
-    best_chain: number;
-    note?: string;
-  };
-}
-
 /**
  * Get faction data with caching
  *
@@ -87,12 +68,12 @@ export async function getFactionDataCached(
 
     if ("error" in response) {
       console.warn(
-        `[Faction Cache] API error fetching faction ${factionId}: ${(response as any).error.error}`,
+        `[Faction Cache] API error fetching faction ${factionId}: ${response.error.error}`,
       );
       return null;
     }
 
-    const basic = (response as FactionBasicResponse).basic;
+    const basic = response.basic;
 
     // Upsert to database
     const { data: upserted, error } = await supabase
@@ -153,6 +134,40 @@ export async function getFactionDataCached(
     );
     return null;
   }
+}
+
+/**
+ * Get faction name with caching (cache-first, API fallback if apiKey provided)
+ * Returns null when not found or when no apiKey is available for live fetch.
+ */
+export async function getFactionNameCached(
+  supabase: SupabaseClient,
+  factionId: number,
+  apiClient: TornApiClient,
+  apiKey: string | null,
+): Promise<string | null> {
+  const { data: cached } = await supabase
+    .from(TABLE_NAMES.TORN_FACTIONS)
+    .select("name")
+    .eq("id", factionId)
+    .maybeSingle();
+
+  if (cached?.name) {
+    return cached.name;
+  }
+
+  if (!apiKey) {
+    return null;
+  }
+
+  const factionData = await getFactionDataCached(
+    supabase,
+    factionId,
+    apiClient,
+    apiKey,
+  );
+
+  return factionData?.name ?? null;
 }
 
 /**

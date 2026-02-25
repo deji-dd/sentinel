@@ -197,13 +197,14 @@ export async function handleGuildSelect(
 export async function handleModuleToggle(
   interaction: StringSelectMenuInteraction,
   supabase: SupabaseClient,
-  _client: Client,
+  client: Client,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
 
     const customIdParts = interaction.customId.split("|");
     const guildId = customIdParts[1];
+    const guildName = client.guilds.cache.get(guildId)?.name ?? guildId;
     const selectedModules = interaction.values;
 
     // Always include admin module
@@ -244,7 +245,7 @@ export async function handleModuleToggle(
         .setColor(0xf59e0b)
         .setTitle("⚠️ Modules Updated (Deployment Failed)")
         .setDescription(
-          `Guild **${guildId}** modules have been updated, but command deployment failed due to missing credentials.`,
+          `Guild **${guildName}** modules have been updated, but command deployment failed due to missing credentials.`,
         )
         .addFields({
           name: "Enabled Modules",
@@ -281,6 +282,12 @@ export async function handleModuleToggle(
       commands.push(verifyallCommand.data.toJSON());
     }
 
+    if (modulesToEnable.includes("territories")) {
+      const assaultCheckCommand =
+        await import("../../general/territories/assault-check.js");
+      commands.push(assaultCheckCommand.data.toJSON());
+    }
+
     try {
       await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
         body: commands,
@@ -289,7 +296,7 @@ export async function handleModuleToggle(
       const successEmbed = new EmbedBuilder()
         .setColor(0x22c55e)
         .setTitle("✅ Modules Updated & Deployed")
-        .setDescription(`Guild **${guildId}** has been updated.`)
+        .setDescription(`Guild **${guildName}** has been updated.`)
         .addFields({
           name: "Enabled Modules",
           value:
@@ -316,7 +323,7 @@ export async function handleModuleToggle(
         .setColor(0xf59e0b)
         .setTitle("⚠️ Modules Updated (Deployment Partial)")
         .setDescription(
-          `Guild **${guildId}** modules have been updated, but command deployment had issues: ${deployErrorMsg}`,
+          `Guild **${guildName}** modules have been updated, but command deployment had issues: ${deployErrorMsg}`,
         );
 
       await interaction.editReply({

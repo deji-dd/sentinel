@@ -210,6 +210,7 @@ export async function handleGuildSelect(
     // Show module selection - only general modules, admin is auto-included
     const availableModules = [
       { name: "Verification", value: "verify" },
+      { name: "Territories", value: "territories" },
       // Add more general modules as they're created
     ];
 
@@ -341,6 +342,12 @@ export async function handleModulesSelect(
         await import("../../general/verification/verifyall.js");
       commands.push(verifyCommand.data.toJSON());
       commands.push(verifyallCommand.data.toJSON());
+    }
+
+    if (modulesToEnable.includes("territories")) {
+      const assaultCheckCommand =
+        await import("../../general/territories/assault-check.js");
+      commands.push(assaultCheckCommand.data.toJSON());
     }
 
     try {

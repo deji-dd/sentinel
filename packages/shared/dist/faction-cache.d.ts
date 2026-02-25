@@ -40,6 +40,11 @@ export interface TornFactionData {
  */
 export declare function getFactionDataCached(supabase: SupabaseClient, factionId: number, apiClient: TornApiClient, apiKey: string): Promise<TornFactionData | null>;
 /**
+ * Get faction name with caching (cache-first, API fallback if apiKey provided)
+ * Returns null when not found or when no apiKey is available for live fetch.
+ */
+export declare function getFactionNameCached(supabase: SupabaseClient, factionId: number, apiClient: TornApiClient, apiKey: string | null): Promise<string | null>;
+/**
  * Batch get faction data with caching
  * @param supabase Supabase client
  * @param factionIds Array of faction IDs

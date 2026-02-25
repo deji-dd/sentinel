@@ -39,6 +39,32 @@ interface ApiKeyEntry {
   createdAt: string;
 }
 
+function buildConfigViewMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
+  const options = [
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Admin Settings")
+      .setValue("admin")
+      .setDescription("Manage administrative settings"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Verification Settings")
+      .setValue("verify")
+      .setDescription("Manage verification settings"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Territories Settings")
+      .setValue("territories")
+      .setDescription("Manage TT notifications and filters"),
+  ];
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId("config_view_select")
+    .setPlaceholder("Select a settings section...")
+    .addOptions(options);
+
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    selectMenu,
+  );
+}
+
 export const data = new SlashCommandBuilder()
   .setName("config")
   .setDescription("Configure guild settings");
@@ -116,29 +142,7 @@ export async function execute(
     }
 
     // Show view selection menu
-    const options = [
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Admin Settings")
-        .setValue("admin")
-        .setDescription("Manage administrative settings"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Verification Settings")
-        .setValue("verify")
-        .setDescription("Manage verification settings"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Territories Settings")
-        .setValue("territories")
-        .setDescription("Manage TT notifications and filters"),
-    ];
-
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("config_view_select")
-      .setPlaceholder("Select a settings section...")
-      .addOptions(options);
-
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
+    const row = buildConfigViewMenuRow();
 
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -489,25 +493,7 @@ export async function handleBackToMenu(
     const adminGuildId = process.env.ADMIN_GUILD_ID;
     const isAdminGuild = guildId === adminGuildId;
 
-    const options = [
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Admin Settings")
-        .setValue("admin")
-        .setDescription("Manage administrative settings"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Verification Settings")
-        .setValue("verify")
-        .setDescription("Manage verification settings"),
-    ];
-
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("config_view_select")
-      .setPlaceholder("Select a settings section...")
-      .addOptions(options);
-
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
+    const row = buildConfigViewMenuRow();
 
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -1326,7 +1312,14 @@ export async function handleAddApiKeyModalSubmit(
           }
         }
       } catch (error) {
-        console.warn("Failed to refresh API key view:", error);
+        const errorCode =
+          typeof error === "object" && error !== null && "code" in error
+            ? (error as { code?: number }).code
+            : undefined;
+
+        if (errorCode !== 10008) {
+          console.warn("Failed to refresh API key view:", error);
+        }
       }
     }
   } catch (error) {
@@ -2814,6 +2807,12 @@ export async function handleTTSettingsEdit(
   return territoryHandlers.handleTTSettingsEdit(interaction, supabase);
 }
 
+export async function handleTTFilteredSettingsEdit(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return territoryHandlers.handleTTFilteredSettingsEdit(interaction);
+}
+
 export async function handleTTNotificationTypeSelect(
   interaction: StringSelectMenuInteraction,
   supabase: SupabaseClient,
@@ -2822,6 +2821,34 @@ export async function handleTTNotificationTypeSelect(
     interaction,
     supabase,
   );
+}
+
+export async function handleTTFullChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFullChannelSelect(interaction, supabase);
+}
+
+export async function handleTTFilteredChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFilteredChannelSelect(interaction, supabase);
+}
+
+export async function handleTTFullChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFullChannelClear(interaction, supabase);
+}
+
+export async function handleTTFilteredChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFilteredChannelClear(interaction, supabase);
 }
 
 export async function handleTTEditTerritoriesModalSubmit(

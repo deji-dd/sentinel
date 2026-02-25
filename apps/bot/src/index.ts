@@ -301,6 +301,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
       } else if (interaction.customId === "tt_settings_show") {
         await configCommand.handleShowTTSettings(interaction, supabase);
+      } else if (interaction.customId === "tt_full_channel_clear") {
+        await configCommand.handleTTFullChannelClear(interaction, supabase);
+      } else if (interaction.customId === "tt_filtered_channel_clear") {
+        await configCommand.handleTTFilteredChannelClear(interaction, supabase);
       }
       return;
     }
@@ -371,6 +375,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleRemoveApiKeySelect(interaction, supabase);
       } else if (interaction.customId === "tt_settings_edit") {
         await configCommand.handleTTSettingsEdit(interaction, supabase);
+      } else if (interaction.customId === "tt_filtered_settings_edit") {
+        await configCommand.handleTTFilteredSettingsEdit(interaction);
       } else if (interaction.customId === "tt_notification_type_select") {
         await configCommand.handleTTNotificationTypeSelect(
           interaction,
@@ -396,6 +402,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChannelSelectMenu()) {
       if (interaction.customId === "config_log_channel_select") {
         await configCommand.handleLogChannelSelect(interaction, supabase);
+      } else if (interaction.customId === "tt_full_channel_select") {
+        await configCommand.handleTTFullChannelSelect(interaction, supabase);
+      } else if (interaction.customId === "tt_filtered_channel_select") {
+        await configCommand.handleTTFilteredChannelSelect(
+          interaction,
+          supabase,
+        );
       }
       return;
     }

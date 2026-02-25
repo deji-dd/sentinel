@@ -91,6 +91,25 @@ export async function getFactionDataCached(supabase, factionId, apiClient, apiKe
     }
 }
 /**
+ * Get faction name with caching (cache-first, API fallback if apiKey provided)
+ * Returns null when not found or when no apiKey is available for live fetch.
+ */
+export async function getFactionNameCached(supabase, factionId, apiClient, apiKey) {
+    const { data: cached } = await supabase
+        .from(TABLE_NAMES.TORN_FACTIONS)
+        .select("name")
+        .eq("id", factionId)
+        .maybeSingle();
+    if (cached?.name) {
+        return cached.name;
+    }
+    if (!apiKey) {
+        return null;
+    }
+    const factionData = await getFactionDataCached(supabase, factionId, apiClient, apiKey);
+    return factionData?.name ?? null;
+}
+/**
  * Batch get faction data with caching
  * @param supabase Supabase client
  * @param factionIds Array of faction IDs
