@@ -119,10 +119,7 @@ export async function ensureApiKeyMapped(
       .single();
 
     if (!queryError && existing) {
-      // Mapping already exists
-      console.log(
-        `[ApiKeyManager] Using existing mapping for player ${(existing as any).user_id}`,
-      );
+      // Mapping already exists (silent)
       return { userId: (existing as any).user_id, error: null };
     }
 

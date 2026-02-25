@@ -259,7 +259,10 @@ export function startTerritoryStateSyncWorker() {
 
                 // If row doesn't exist, treat as new territory (null -> occupied_by)
                 const oldFaction = currentState?.faction_id ?? null;
-                const newFaction = tt.occupied_by;
+                const newFaction =
+                  tt.occupied_by === null || tt.occupied_by === undefined
+                    ? null
+                    : Number(tt.occupied_by);
 
                 // Skip if no change
                 if (oldFaction === newFaction) {

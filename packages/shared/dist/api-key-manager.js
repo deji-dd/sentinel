@@ -85,8 +85,7 @@ export async function ensureApiKeyMapped(apiKey, supabase, config) {
             .is("deleted_at", null)
             .single();
         if (!queryError && existing) {
-            // Mapping already exists
-            console.log(`[ApiKeyManager] Using existing mapping for player ${existing.user_id}`);
+            // Mapping already exists (silent)
             return { userId: existing.user_id, error: null };
         }
         // Mapping missing - fetch user ID from Torn API

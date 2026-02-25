@@ -82,11 +82,6 @@ export class BatchOperationHandler {
                 }
             }
         }
-        // Debug: Log distribution summary
-        console.log(`[BatchHandler] Distribution summary:`, Object.entries(distribution).map(([key, ids]) => ({
-            key: key.slice(0, 8) + "...",
-            count: ids.length,
-        })));
         return distribution;
     }
     /**
@@ -112,33 +107,16 @@ export class BatchOperationHandler {
         }
         // Plan the distribution
         const distribution = await this.planDistribution(requests, apiKeys);
-        console.log(`[BatchHandler] Distribution plan: ${Object.keys(distribution).length} keys, ${requests.length} requests`);
-        // Debug: Show which keys map to which users (helps diagnose distribution issues)
-        if (process.env.RATE_LIMIT_LOG === "1") {
-            try {
-                const userIds = await Promise.all(apiKeys.map(async (key) => {
-                    const userId = await this.rateLimiter.getUserIdFromApiKey?.(key);
-                    return userId || "?";
-                }));
-                console.log(`[BatchHandler] Key→User mapping:`, userIds.map((uid, i) => `K${i + 1}=>U${uid}`).join(", "));
-            }
-            catch {
-                // Silent fail - debug logging shouldn't break execution
-            }
-        }
         // Create result map to preserve order
         const resultMap = new Map();
         if (concurrent) {
-            console.log(`[BatchHandler] Executing concurrently`);
             // Execute all in parallel
             await this.executeConcurrent(distribution, requests, handler, resultMap, retryAttempts);
         }
         else {
-            console.log(`[BatchHandler] Executing sequentially`);
             // Execute sequentially with delay
             await this.executeSequential(distribution, requests, handler, resultMap, delayMs, retryAttempts);
         }
-        console.log(`[BatchHandler] Execution complete. ResultMap size: ${resultMap.size}/${requests.length}`);
         // Return results in original order, with fallback for missing entries
         return requests.map((req) => {
             const result = resultMap.get(req.id);
@@ -191,7 +169,6 @@ export class BatchOperationHandler {
         let isFirst = true;
         let processed = 0;
         for (const [key, requestIds] of Object.entries(distribution)) {
-            console.log(`[BatchHandler] Processing ${requestIds.length} requests for key`);
             for (const id of requestIds) {
                 if (!isFirst && delayMs > 0) {
                     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -201,9 +178,6 @@ export class BatchOperationHandler {
                 try {
                     await this.executeWithRetry(request, key, handler, resultMap, retryAttempts);
                     processed++;
-                    if (processed % 10 === 0) {
-                        console.log(`[BatchHandler] Processed ${processed}/${requestIds.length} requests`);
-                    }
                 }
                 catch (error) {
                     // ExecuteWithRetry should handle all errors, but catch just in case
@@ -220,7 +194,6 @@ export class BatchOperationHandler {
                 }
             }
         }
-        console.log(`[BatchHandler] Sequential execution complete. Processed ${processed} requests`);
     }
     /**
      * Execute a single request with rate limit awareness and retry logic

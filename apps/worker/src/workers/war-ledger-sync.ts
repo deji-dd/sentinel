@@ -30,10 +30,57 @@ interface TornV1TerritorywarsResponse {
   territorywars: Record<string, TerritoryWar>;
 }
 
+// Track recent war counts for adaptive cadence
+const recentWarCounts: number[] = [];
+const MAX_HISTORY = 10; // Track last 10 runs
+
+/**
+ * Calculate dynamic cadence based on war activity patterns
+ * - If wars are stable (no changes): ramp up to 60s
+ * - If wars are changing: ramp down to 5s
+ */
+function calculateWarCadence(currentWarCount: number): number {
+  recentWarCounts.push(currentWarCount);
+  if (recentWarCounts.length > MAX_HISTORY) {
+    recentWarCounts.shift();
+  }
+
+  // Need at least 3 data points to detect patterns
+  if (recentWarCounts.length < 3) {
+    return 5; // Start aggressive
+  }
+
+  // Calculate if war count is stable (no changes in last N runs)
+  const allSame = recentWarCounts.every(
+    (count) => count === recentWarCounts[0],
+  );
+  const recentChanges = recentWarCounts.slice(-5); // Last 5 runs
+  const recentlyStable = recentChanges.every(
+    (count) => count === recentChanges[0],
+  );
+
+  if (allSame && recentWarCounts.length >= 5) {
+    // Very stable - max cadence
+    return 60;
+  } else if (recentlyStable) {
+    // Recently stable - medium cadence
+    return 15;
+  } else {
+    // Active changes - aggressive cadence
+    return 5;
+  }
+}
+
 export function startWarLedgerSyncWorker() {
   return startDbScheduledRunner({
     worker: "war_ledger_sync",
     defaultCadenceSeconds: 5, // Every 5 seconds for real-time war precision
+    getDynamicCadence: async () => {
+      // Return current calculated cadence based on recent activity
+      return recentWarCounts.length > 0
+        ? calculateWarCadence(recentWarCounts[recentWarCounts.length - 1])
+        : 5;
+    },
     handler: async () => {
       return await executeSync({
         name: "war_ledger_sync",
@@ -188,6 +235,9 @@ export function startWarLedgerSyncWorker() {
               `Sync completed for ${validWars.length} wars`,
               duration,
             );
+
+            // Update cadence calculation with current war count
+            calculateWarCadence(validWars.length);
           } catch (error) {
             const message =
               error instanceof Error ? error.message : String(error);

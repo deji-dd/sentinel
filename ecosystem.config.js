@@ -47,6 +47,9 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
       merge_logs: true,
       time: true,
+      // Log rotation
+      max_size: "10M",
+      retain: 5,
       // Restart strategy for stability
       min_uptime: "10s",
       max_restarts: 10,
@@ -76,6 +79,9 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
       merge_logs: true,
       time: true,
+      // Log rotation
+      max_size: "10M",
+      retain: 5,
       // Restart strategy for stability
       min_uptime: "10s",
       max_restarts: 10,
