@@ -72,19 +72,18 @@ export function startDbScheduledRunner(
           return;
         }
 
-        await completeWorker(workerId, dueRow.cadence_seconds);
-
-        // If dynamic cadence callback provided, check if cadence should update
+        // Calculate cadence for next run (use dynamic if provided, otherwise use current)
+        let nextCadence = dueRow.cadence_seconds;
         if (getDynamicCadence) {
           try {
-            const newCadence = await getDynamicCadence();
-            if (newCadence !== dueRow.cadence_seconds) {
-              await updateWorkerCadence(workerId, newCadence);
-            }
+            nextCadence = await getDynamicCadence();
           } catch (_err) {
-            // Silently ignore cadence update errors - don't block success logging
+            // Silently ignore cadence calculation errors - use existing cadence
           }
         }
+
+        // Complete worker with calculated cadence (single DB write)
+        await completeWorker(workerId, nextCadence);
 
         await insertWorkerLog({
           worker_id: workerId,

@@ -82,6 +82,11 @@ export class BatchOperationHandler {
                 }
             }
         }
+        // Debug: Log distribution summary
+        console.log(`[BatchHandler] Distribution summary:`, Object.entries(distribution).map(([key, ids]) => ({
+            key: key.slice(0, 8) + "...",
+            count: ids.length,
+        })));
         return distribution;
     }
     /**
@@ -108,6 +113,19 @@ export class BatchOperationHandler {
         // Plan the distribution
         const distribution = await this.planDistribution(requests, apiKeys);
         console.log(`[BatchHandler] Distribution plan: ${Object.keys(distribution).length} keys, ${requests.length} requests`);
+        // Debug: Show which keys map to which users (helps diagnose distribution issues)
+        if (process.env.RATE_LIMIT_LOG === "1") {
+            try {
+                const userIds = await Promise.all(apiKeys.map(async (key) => {
+                    const userId = await this.rateLimiter.getUserIdFromApiKey?.(key);
+                    return userId || "?";
+                }));
+                console.log(`[BatchHandler] Key→User mapping:`, userIds.map((uid, i) => `K${i + 1}=>U${uid}`).join(", "));
+            }
+            catch {
+                // Silent fail - debug logging shouldn't break execution
+            }
+        }
         // Create result map to preserve order
         const resultMap = new Map();
         if (concurrent) {

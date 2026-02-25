@@ -155,15 +155,11 @@ export class BatchOperationHandler {
 
     // Plan the distribution
     const distribution = await this.planDistribution(requests, apiKeys);
-    console.log(
-      `[BatchHandler] Distribution plan: ${Object.keys(distribution).length} keys, ${requests.length} requests`,
-    );
 
     // Create result map to preserve order
     const resultMap = new Map<string, BatchResult<R>>();
 
     if (concurrent) {
-      console.log(`[BatchHandler] Executing concurrently`);
       // Execute all in parallel
       await this.executeConcurrent(
         distribution,
@@ -173,7 +169,6 @@ export class BatchOperationHandler {
         retryAttempts,
       );
     } else {
-      console.log(`[BatchHandler] Executing sequentially`);
       // Execute sequentially with delay
       await this.executeSequential(
         distribution,
@@ -184,10 +179,6 @@ export class BatchOperationHandler {
         retryAttempts,
       );
     }
-
-    console.log(
-      `[BatchHandler] Execution complete. ResultMap size: ${resultMap.size}/${requests.length}`,
-    );
 
     // Return results in original order, with fallback for missing entries
     return requests.map((req) => {
@@ -272,9 +263,6 @@ export class BatchOperationHandler {
     let processed = 0;
 
     for (const [key, requestIds] of Object.entries(distribution)) {
-      console.log(
-        `[BatchHandler] Processing ${requestIds.length} requests for key`,
-      );
       for (const id of requestIds) {
         if (!isFirst && delayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -291,11 +279,6 @@ export class BatchOperationHandler {
             retryAttempts,
           );
           processed++;
-          if (processed % 10 === 0) {
-            console.log(
-              `[BatchHandler] Processed ${processed}/${requestIds.length} requests`,
-            );
-          }
         } catch (error) {
           // ExecuteWithRetry should handle all errors, but catch just in case
           console.error(
@@ -314,9 +297,6 @@ export class BatchOperationHandler {
         }
       }
     }
-    console.log(
-      `[BatchHandler] Sequential execution complete. Processed ${processed} requests`,
-    );
   }
 
   /**

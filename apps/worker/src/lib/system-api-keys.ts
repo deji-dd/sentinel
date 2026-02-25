@@ -191,7 +191,8 @@ export async function getAllSystemApiKeys(
     .from(TABLE_NAMES.SYSTEM_API_KEYS)
     .select("api_key_encrypted")
     .is("deleted_at", null)
-    .order("is_primary", { ascending: false });
+    .order("is_primary", { ascending: false })
+    .order("created_at", { ascending: true }); // Ensure consistent ordering
 
   if (keyType !== "all") {
     query = query.eq("key_type", keyType);

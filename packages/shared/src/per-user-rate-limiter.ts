@@ -185,18 +185,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
         requested_at: now.toISOString(),
       });
 
-      if (this.logEnabled) {
-        this.requestCounter++;
-        // Only log every 10th request to reduce verbosity
-        if (this.requestCounter % 10 === 0) {
-          const count = await this.getRequestCountForUser(userId);
-          const oldestRequest = await this.getOldestRequestForUser(userId);
-          const timestamp = this.formatTimestamp();
-          console.log(
-            `[rate_limiter] ${timestamp} Recorded request ${count}/${this.maxRequests} for user ${userId} (${this.formatWindowTimeLeft(oldestRequest)} left in window)`,
-          );
-        }
-      }
+      // Silent - no logging for successful request recording
     } catch (error) {
       console.error("[rate_limiter] Failed to record request:", error);
       throw error;
