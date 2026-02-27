@@ -69,6 +69,8 @@ export async function execute(
     const configCommand = await import("../../general/admin/config.js");
     const assaultCheckCommand =
       await import("../../general/territories/assault-check.js");
+    const warTrackCommand =
+      await import("../../general/territories/war-track.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
@@ -82,7 +84,10 @@ export async function execute(
     const commandsByModule: Record<string, any[]> = {
       verify: [verifyCommand.data.toJSON(), verifyallCommand.data.toJSON()],
       admin: [configCommand.data.toJSON()],
-      territories: [assaultCheckCommand.data.toJSON()],
+      territories: [
+        assaultCheckCommand.data.toJSON(),
+        warTrackCommand.data.toJSON(),
+      ],
     };
 
     let successCount = 0;
@@ -110,6 +115,7 @@ export async function execute(
         guildStatusCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),
+        warTrackCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
       ];

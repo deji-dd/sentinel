@@ -35,6 +35,7 @@ export declare const TABLE_NAMES: {
     readonly TERRITORY_BLUEPRINT: "sentinel_territory_blueprint";
     readonly TERRITORY_STATE: "sentinel_territory_state";
     readonly WAR_LEDGER: "sentinel_war_ledger";
+    readonly WAR_TRACKERS: "sentinel_war_trackers";
     readonly TORN_FACTIONS: "sentinel_torn_factions";
     readonly TT_CONFIG: "sentinel_tt_config";
 };

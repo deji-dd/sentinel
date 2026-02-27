@@ -285,7 +285,10 @@ export async function handleModuleToggle(
     if (modulesToEnable.includes("territories")) {
       const assaultCheckCommand =
         await import("../../general/territories/assault-check.js");
+      const warTrackCommand =
+        await import("../../general/territories/war-track.js");
       commands.push(assaultCheckCommand.data.toJSON());
+      commands.push(warTrackCommand.data.toJSON());
     }
 
     try {

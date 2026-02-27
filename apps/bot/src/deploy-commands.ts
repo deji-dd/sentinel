@@ -12,6 +12,7 @@ import * as configCommand from "./commands/general/admin/config.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
+import * as warTrackCommand from "./commands/general/territories/war-track.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -48,6 +49,7 @@ const commands = [
   verifyCommand.data.toJSON(),
   verifyallCommand.data.toJSON(),
   assaultCheckCommand.data.toJSON(),
+  warTrackCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);
