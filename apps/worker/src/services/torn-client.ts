@@ -59,6 +59,60 @@ export const tornApi = new TornApiClient({
 export const batchHandler = new BatchOperationHandler(rateLimiter);
 
 /**
+ * Clear stale rate limit entries on startup
+ * Completely wipes the rate limit table to give a clean slate
+ * This prevents false rate limiting from entries recorded in previous runs
+ */
+async function clearStaleRateLimitData(_userIds: number[]): Promise<void> {
+  try {
+    // Get count before delete
+    const { count: beforeCount } = await supabase
+      .from(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
+      .select("*", { count: "exact", head: true });
+
+    // Delete ALL rate limit entries (not just for specific users)
+    // On startup, we want a completely clean slate to prevent false positives
+    // from requests recorded before the worker was stopped
+    const { error: deleteError } = await supabase
+      .from(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
+      .delete()
+      .gte("requested_at", "1970-01-01T00:00:00Z"); // Delete all entries (gte oldest possible date)
+
+    if (deleteError) {
+      console.warn(
+        `[TornClient] Warning: Failed to clear rate limit table: ${deleteError.message}`,
+      );
+      // Don't throw - this is not critical enough to block startup
+      return;
+    }
+
+    // Verify cleanup
+    const { count: afterCount, error: verifyError } = await supabase
+      .from(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
+      .select("*", { count: "exact", head: true });
+
+    if (verifyError) {
+      console.warn(
+        `[TornClient] Warning: Failed to verify rate limit cleanup: ${verifyError.message}`,
+      );
+    } else {
+      console.log(
+        `[TornClient] ✓ Rate limit table cleared (${(beforeCount || 0) - (afterCount || 0)} entries)`,
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[TornClient] Warning: Unexpected error during rate limit cleanup:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    // Don't throw - this is not critical enough to block startup
+  }
+
+  // Clear the rate limiter's cache after cleanup
+  rateLimiter.clearCache();
+}
+
+/**
  * Ensure system API key is mapped to user for rate limiting
  * CRITICAL: This must succeed before any API calls are made
  * Throws error if mapping cannot be created - rate limiting is non-negotiable
@@ -122,6 +176,10 @@ export async function initializeApiKeyMappings(
   console.log(
     `[TornClient] ✓ Mapped ${mappedUserIds.length} API key(s) for rate limiting initialization`,
   );
+
+  // Clear stale rate limit data from previous runs
+  // This prevents false rate limiting when the worker restarts
+  await clearStaleRateLimitData(mappedUserIds);
 
   return mappedUserIds;
 }
