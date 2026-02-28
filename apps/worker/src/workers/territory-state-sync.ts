@@ -66,6 +66,39 @@ async function calculateCadence(): Promise<number> {
 }
 
 /**
+ * Detect if worker is doing a catch-up sync (missed multiple sync cycles)
+ * Returns true if last execution was more than 2x expected cadence ago
+ */
+async function isCatchUpSync(expectedCadenceSeconds: number): Promise<boolean> {
+  // Get schedule info from sentinel_worker_schedules
+  const { data: schedules } = await supabase
+    .from("sentinel_worker_schedules")
+    .select("last_run_at")
+    .eq(
+      "worker_id",
+      (
+        await supabase
+          .from(TABLE_NAMES.WORKERS)
+          .select("id")
+          .eq("name", "territory_state_sync")
+          .maybeSingle()
+      ).data?.id,
+    )
+    .maybeSingle();
+
+  if (!schedules?.last_run_at) {
+    return false; // First run or no schedule state
+  }
+
+  const lastRunTime = new Date(schedules.last_run_at).getTime();
+  const timeSinceLastRun = Date.now() - lastRunTime;
+  const expectedInterval = expectedCadenceSeconds * 1000;
+  const catchUpThreshold = expectedInterval * 2.5; // Allow 2.5x cadence as normal variance
+
+  return timeSinceLastRun > catchUpThreshold;
+}
+
+/**
  * Determine ownership change event type
  */
 function determineEventType(
@@ -191,6 +224,18 @@ export function startTerritoryStateSyncWorker() {
 
             const isInitialSeeding =
               !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
+
+            // Check if worker is doing a catch-up sync (suppress notifications to avoid false positives)
+            const cadence = await calculateCadence();
+            const isCatchUp = await isCatchUpSync(cadence);
+
+            if (isCatchUp) {
+              logDuration(
+                "territory_state_sync",
+                `Catch-up sync detected (>2.5x cadence gap) - ownership notifications will be suppressed this run`,
+                0,
+              );
+            }
 
             // Fetch territory ownership data using optimal pagination
             const changes: TTOwnershipChange[] = [];
@@ -434,9 +479,29 @@ export function startTerritoryStateSyncWorker() {
                 throw updateError;
               }
 
-              // Queue guild notifications (skip during initial seeding to avoid channel flood)
-              if (!isInitialSeeding && notifications.length > 0) {
+              // Queue guild notifications
+              // Skip if: initial seeding OR catch-up sync detected (to avoid false positives)
+              if (!isInitialSeeding && !isCatchUp && notifications.length > 0) {
                 await queueGuildNotifications(changes, notifications);
+              }
+
+              // If catch-up sync, log suppressed notification count
+              if (isCatchUp && notifications.length > 0) {
+                const suppressed = notifications.filter((n) =>
+                  [
+                    "assault_succeeded",
+                    "assault_failed",
+                    "dropped",
+                    "claimed",
+                  ].includes(n.event_type),
+                ).length;
+                if (suppressed > 0) {
+                  logDuration(
+                    "territory_state_sync",
+                    `Suppressed ${suppressed} ownership change notification(s) during catch-up`,
+                    0,
+                  );
+                }
               }
             }
 

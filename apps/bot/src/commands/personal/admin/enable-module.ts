@@ -285,7 +285,13 @@ export async function handleModuleToggle(
     if (modulesToEnable.includes("territories")) {
       const assaultCheckCommand =
         await import("../../general/territories/assault-check.js");
+      const burnMapCommand =
+        await import("../../general/territories/burn-map.js");
+      const burnMapSimulatorCommand =
+        await import("../../general/territories/burn-map-simulator.js");
       commands.push(assaultCheckCommand.data.toJSON());
+      commands.push(burnMapCommand.data.toJSON());
+      commands.push(burnMapSimulatorCommand.data.toJSON());
     }
 
     try {

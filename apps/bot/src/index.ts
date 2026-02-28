@@ -20,6 +20,8 @@ import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
+import * as burnMapCommand from "./commands/general/territories/burn-map.js";
+import * as burnMapSimulatorCommand from "./commands/general/territories/burn-map-simulator.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
 import { logGuildSuccess, logGuildError } from "./lib/guild-logger.js";
@@ -258,6 +260,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await configCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "assault-check") {
           await assaultCheckCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "burn-map") {
+          await burnMapCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "burn-map-simulator") {
+          await burnMapSimulatorCommand.execute(interaction, supabase);
         }
       }
       return;

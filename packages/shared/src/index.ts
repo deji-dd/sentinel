@@ -6,6 +6,7 @@ export * from "./per-user-rate-limiter.js";
 export * from "./batch-operation-handler.js";
 
 export * from "./faction-cache.js";
+export * from "./territory-burn-logic.js";
 export type {
   paths as TornApiPaths,
   components as TornApiComponents,

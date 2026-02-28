@@ -13,5 +13,5 @@
     "types": ["node"],
     "noEmit": false
   },
-  "include": ["src", ".archive/war-track.ts"]
+  "include": ["src"]
 }
