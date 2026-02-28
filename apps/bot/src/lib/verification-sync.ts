@@ -28,7 +28,15 @@ interface VerifiedUser {
 interface FactionRoleMapping {
   guild_id: string;
   faction_id: number;
-  role_ids: string[];
+  member_role_ids: string[];
+  leader_role_ids: string[];
+  enabled: boolean;
+}
+
+interface FactionMember {
+  player_id: number;
+  name: string;
+  position: string;
 }
 
 interface GuildSyncJob {
@@ -281,6 +289,47 @@ export class GuildSyncScheduler {
         .select("*")
         .eq("guild_id", job.guild_id);
 
+      // Cache faction members for leader detection
+      // Map: factionId -> Set of leader player IDs
+      const factionLeadersCache = new Map<number, Set<number>>();
+      
+      // Fetch faction members for all mapped factions that are enabled
+      if (factionMappings && factionMappings.length > 0) {
+        const enabledMappings = (factionMappings as FactionRoleMapping[]).filter(
+          (m) => m.enabled !== false && m.leader_role_ids.length > 0
+        );
+        
+        for (const mapping of enabledMappings) {
+          try {
+            const membersResponse = await tornApi.get("/faction/{id}/members", {
+              apiKey: getNextApiKey(job.guild_id, apiKeys),
+              pathParams: { id: String(mapping.faction_id) },
+            });
+            
+            if ("members" in membersResponse && membersResponse.members) {
+              const leaders = new Set<number>();
+              const members = membersResponse.members as Record<string, FactionMember>;
+              
+              for (const member of Object.values(members)) {
+                if (member.position === "Leader" || member.position === "Co-leader") {
+                  leaders.add(member.player_id);
+                }
+              }
+              
+              factionLeadersCache.set(mapping.faction_id, leaders);
+            }
+            
+            // Rate limiting delay
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error(
+              `[Guild Sync] Error fetching faction ${mapping.faction_id} members: ${msg}`
+            );
+          }
+        }
+      }
+
       const discord = this.client.guilds.cache.get(job.guild_id);
       if (!discord) {
         console.log(`[Guild Sync] Guild ${job.guild_id} not in cache`);
@@ -417,18 +466,40 @@ export class GuildSyncScheduler {
                 factionMappings as FactionRoleMapping[]
               ).find((m) => m.faction_id === factionData?.id);
 
-              // Remove old faction roles
-              if (oldFactionMapping) {
-                await member.roles
-                  .remove(oldFactionMapping.role_ids)
-                  .catch(() => {});
+              // Remove old faction roles (both member and leader roles)
+              if (oldFactionMapping && oldFactionMapping.enabled !== false) {
+                const oldRolesToRemove = [
+                  ...oldFactionMapping.member_role_ids,
+                  ...oldFactionMapping.leader_role_ids,
+                ];
+                if (oldRolesToRemove.length > 0) {
+                  await member.roles
+                    .remove(oldRolesToRemove)
+                    .catch(() => {});
+                }
               }
 
               // Add new faction roles
-              if (newFactionMapping) {
-                await member.roles
-                  .add(newFactionMapping.role_ids)
-                  .catch(() => {});
+              if (newFactionMapping && newFactionMapping.enabled !== false) {
+                const rolesToAdd = [...newFactionMapping.member_role_ids];
+                
+                // Check if user is a leader and add leader roles
+                if (
+                  newFactionMapping.leader_role_ids.length > 0 &&
+                  playerId &&
+                  factionData?.id
+                ) {
+                  const leaders = factionLeadersCache.get(factionData.id);
+                  if (leaders && leaders.has(playerId)) {
+                    rolesToAdd.push(...newFactionMapping.leader_role_ids);
+                  }
+                }
+                
+                if (rolesToAdd.length > 0) {
+                  await member.roles
+                    .add(rolesToAdd)
+                    .catch(() => {});
+                }
               }
             }
           }

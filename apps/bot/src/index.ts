@@ -299,9 +299,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleFactionManageBack(interaction, supabase);
       } else if (interaction.customId.startsWith("config_faction_toggle_")) {
         await configCommand.handleFactionToggle(interaction, supabase);
-      } else if (interaction.customId.startsWith("config_faction_member_roles_")) {
+      } else if (
+        interaction.customId.startsWith("config_faction_member_roles_")
+      ) {
         await configCommand.handleFactionMemberRolesButton(interaction);
-      } else if (interaction.customId.startsWith("config_faction_leader_roles_")) {
+      } else if (
+        interaction.customId.startsWith("config_faction_leader_roles_")
+      ) {
         await configCommand.handleFactionLeaderRolesButton(interaction);
       } else if (interaction.customId === "confirm_auto_verify_toggle") {
         await configCommand.handleConfirmAutoVerifyToggle(
@@ -431,10 +435,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isRoleSelectMenu()) {
       if (interaction.customId.startsWith("config_faction_role_select_")) {
         await configCommand.handleFactionRoleSelect(interaction, supabase);
-      } else if (interaction.customId.startsWith("config_faction_member_roles_select_")) {
-        await configCommand.handleFactionMemberRolesSelect(interaction, supabase);
-      } else if (interaction.customId.startsWith("config_faction_leader_roles_select_")) {
-        await configCommand.handleFactionLeaderRolesSelect(interaction, supabase);
+      } else if (
+        interaction.customId.startsWith("config_faction_member_roles_select_")
+      ) {
+        await configCommand.handleFactionMemberRolesSelect(
+          interaction,
+          supabase,
+        );
+      } else if (
+        interaction.customId.startsWith("config_faction_leader_roles_select_")
+      ) {
+        await configCommand.handleFactionLeaderRolesSelect(
+          interaction,
+          supabase,
+        );
       } else if (interaction.customId === "config_verified_role_select") {
         await configCommand.handleVerifiedRoleSelect(interaction, supabase);
       } else if (interaction.customId === "config_admin_roles_select") {

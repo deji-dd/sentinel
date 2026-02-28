@@ -991,9 +991,10 @@ async function showFactionRoleMenu(
     .eq("guild_id", guildId)
     .order("faction_id", { ascending: true });
 
-  let factionRolesDisplay = "None configured\n\nUse the **Add Faction** button below to get started.";
+  let factionRolesDisplay =
+    "None configured\n\nUse the **Add Faction** button below to get started.";
   const factionSelectOptions: StringSelectMenuOptionBuilder[] = [];
-  
+
   if (factionRoles && factionRoles.length > 0) {
     // Use stored faction names, fetching missing ones if API key available
     const missingNames = factionRoles.filter((fr) => !fr.faction_name);
@@ -1006,17 +1007,21 @@ async function showFactionRoleMenu(
       .map((fr) => {
         const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
         const enabled = fr.enabled !== false; // Default to true if not set
-        const statusEmoji = enabled ? "<:Green:1474607376140079104>" : "<:Red:1474607810368114886>";
-        
+        const statusEmoji = enabled
+          ? "<:Green:1474607376140079104>"
+          : "<:Red:1474607810368114886>";
+
         // Add to select menu options
         factionSelectOptions.push(
           new StringSelectMenuOptionBuilder()
             .setLabel(`${factionName}`)
-            .setDescription(`ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`)
+            .setDescription(
+              `ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`,
+            )
             .setValue(`faction_manage_${fr.faction_id}`)
-            .setEmoji(enabled ? "1474607376140079104" : "1474607810368114886")
+            .setEmoji(enabled ? "1474607376140079104" : "1474607810368114886"),
         );
-        
+
         return `${statusEmoji} **${factionName}** (${fr.faction_id})`;
       })
       .join("\n");
@@ -1025,14 +1030,18 @@ async function showFactionRoleMenu(
   const factionEmbed = new EmbedBuilder()
     .setColor(0x10b981)
     .setTitle("Faction Role Management")
-    .setDescription("Select a faction below to manage its role assignments, or add a new faction.")
+    .setDescription(
+      "Select a faction below to manage its role assignments, or add a new faction.",
+    )
     .addFields({
       name: "Configured Factions",
       value: factionRolesDisplay,
       inline: false,
     });
 
-  const components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] = [];
+  const components: ActionRowBuilder<
+    StringSelectMenuBuilder | ButtonBuilder
+  >[] = [];
 
   // Add faction select menu if there are factions
   if (factionSelectOptions.length > 0) {
@@ -1042,7 +1051,9 @@ async function showFactionRoleMenu(
       .addOptions(factionSelectOptions.slice(0, 25)); // Discord limit
 
     components.push(
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(factionSelect)
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        factionSelect,
+      ),
     );
   }
 
@@ -1064,7 +1075,11 @@ async function showFactionRoleMenu(
     .setStyle(ButtonStyle.Secondary);
 
   components.push(
-    new ActionRowBuilder<ButtonBuilder>().addComponents(addBtn, removeBtn, backBtn)
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      addBtn,
+      removeBtn,
+      backBtn,
+    ),
   );
 
   await interaction.editReply({
@@ -1074,7 +1089,10 @@ async function showFactionRoleMenu(
 }
 
 async function showFactionManagePage(
-  interaction: StringSelectMenuInteraction | ButtonInteraction | RoleSelectMenuInteraction,
+  interaction:
+    | StringSelectMenuInteraction
+    | ButtonInteraction
+    | RoleSelectMenuInteraction,
   supabase: SupabaseClient,
   factionId: number,
   _apiKey?: string,
@@ -1094,7 +1112,9 @@ async function showFactionManagePage(
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
       .setTitle("Error")
-      .setDescription(`Faction ${factionId} not found in your server's configuration.`);
+      .setDescription(
+        `Faction ${factionId} not found in your server's configuration.`,
+      );
 
     await interaction.editReply({
       embeds: [errorEmbed],
@@ -1112,13 +1132,15 @@ async function showFactionManagePage(
   let description = `Configure role assignments for **${factionName}**.\n\n`;
   description += `**Status:** ${enabled ? "🟢 Enabled" : "🔴 Disabled"}\n\n`;
   description += `**Member Roles** (assigned to ALL faction members):\n`;
-  description += memberRoleIds.length > 0 
-    ? memberRoleIds.map((id: string) => `<@&${id}>`).join(", ")
-    : "_None configured_";
+  description +=
+    memberRoleIds.length > 0
+      ? memberRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+      : "_None configured_";
   description += `\n\n**Leader Roles** (assigned ONLY to Leaders & Co-leaders):\n`;
-  description += leaderRoleIds.length > 0 
-    ? leaderRoleIds.map((id: string) => `<@&${id}>`).join(", ")
-    : "_None configured_";
+  description +=
+    leaderRoleIds.length > 0
+      ? leaderRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+      : "_None configured_";
 
   const manageEmbed = new EmbedBuilder()
     .setColor(enabled ? 0x22c55e : 0xef4444)
@@ -1148,7 +1170,10 @@ async function showFactionManagePage(
     .setStyle(ButtonStyle.Secondary);
 
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
-  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(memberRolesBtn, leaderRolesBtn);
+  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    memberRolesBtn,
+    leaderRolesBtn,
+  );
   const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
   await interaction.editReply({

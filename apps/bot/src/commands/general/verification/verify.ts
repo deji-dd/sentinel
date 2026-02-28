@@ -255,29 +255,62 @@ export async function execute(
     if (response.faction?.id && interaction.guild) {
       const { data: factionRole } = await supabase
         .from(TABLE_NAMES.FACTION_ROLES)
-        .select("role_ids")
+        .select("member_role_ids, leader_role_ids, enabled")
         .eq("guild_id", interaction.guildId)
         .eq("faction_id", response.faction.id)
         .single();
 
-      if (factionRole && factionRole.role_ids.length > 0) {
-        try {
-          const member = await interaction.guild.members.fetch(targetUser.id);
-          for (const roleId of factionRole.role_ids) {
-            if (!member.roles.cache.has(roleId)) {
-              await member.roles.add(roleId);
-              rolesAdded.push(roleId);
+      if (factionRole && factionRole.enabled !== false) {
+        const rolesToAssign = [...(factionRole.member_role_ids || [])];
+        
+        // Check if user is a leader by fetching faction members
+        if (factionRole.leader_role_ids && factionRole.leader_role_ids.length > 0) {
+          try {
+            const membersResponse = await botTornApi.getRaw(
+              `/faction/${response.faction.id}`,
+              apiKey,
+              { selections: "members" }
+            );
+            
+            if (membersResponse.members) {
+              const members = membersResponse.members as Record<string, { 
+                player_id: number; 
+                position: string 
+              }>;
+              
+              const member = Object.values(members).find(
+                (m) => m.player_id === response.profile?.id
+              );
+              
+              if (member && (member.position === "Leader" || member.position === "Co-leader")) {
+                rolesToAssign.push(...factionRole.leader_role_ids);
+              }
             }
+          } catch (leaderCheckError) {
+            console.error("Failed to check leader status:", leaderCheckError);
+            // Continue with member roles only
           }
-        } catch (roleError) {
-          console.error("Failed to assign roles:", roleError);
-          // Track failed faction roles
-          for (const roleId of factionRole.role_ids) {
-            rolesFailed.push(roleId);
+        }
+        
+        if (rolesToAssign.length > 0) {
+          try {
+            const member = await interaction.guild.members.fetch(targetUser.id);
+            for (const roleId of rolesToAssign) {
+              if (!member.roles.cache.has(roleId)) {
+                await member.roles.add(roleId);
+                rolesAdded.push(roleId);
+              }
+            }
+          } catch (roleError) {
+            console.error("Failed to assign roles:", roleError);
+            // Track failed faction roles
+            for (const roleId of rolesToAssign) {
+              rolesFailed.push(roleId);
+            }
+            successEmbed.setFooter({
+              text: "Verified but failed to assign some roles (check bot permissions)",
+            });
           }
-          successEmbed.setFooter({
-            text: "Verified but failed to assign some roles (check bot permissions)",
-          });
         }
       }
     }
