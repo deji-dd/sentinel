@@ -22,7 +22,6 @@ import * as assaultCheckCommand from "./commands/general/territories/assault-che
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
 import * as burnMapSimulatorCommand from "./commands/general/territories/burn-map-simulator.js";
 import { initHttpServer } from "./lib/http-server.js";
-import { getAuthorizedDiscordUserId } from "../.archive/auth.js";
 import { logGuildSuccess, logGuildError } from "./lib/guild-logger.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { GuildSyncScheduler } from "./lib/verification-sync.js";
@@ -31,6 +30,11 @@ import { getGuildApiKeys } from "./lib/guild-api-keys.js";
 import { type TornApiComponents } from "@sentinel/shared";
 import { supabase } from "./lib/supabase.js";
 import { tornApi } from "./services/torn-client.js";
+
+const authorizedDiscordUserId = process.env.SENTINEL_DISCORD_USER_ID;
+if (!authorizedDiscordUserId) {
+  throw new Error("SENTINEL_DISCORD_USER_ID environment variable is required");
+}
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
@@ -66,8 +70,6 @@ console.log(
 console.log(
   `[Bot] Using ${isDev ? "local" : "production"} Discord bot instance`,
 );
-
-const authorizedDiscordUserId = getAuthorizedDiscordUserId();
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
