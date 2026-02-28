@@ -312,15 +312,32 @@ export function startTerritoryStateSyncWorker() {
 
             const racketsByTerritory = racketResponse.rackets || {};
 
+            // Batch-fetch all territory states at once (avoid N+1 queries)
+            const { data: allCurrentStates } = await supabase
+              .from(TABLE_NAMES.TERRITORY_STATE)
+              .select(
+                "territory_id, faction_id, racket_name, racket_level, racket_created_at, racket_changed_at",
+              );
+
+            const statesByTerritory = new Map(
+              (allCurrentStates || []).map((s) => [s.territory_id, s]),
+            );
+
+            // Batch-fetch all active wars at once (avoid N+1 queries)
+            const { data: allActiveWars } = await supabase
+              .from(TABLE_NAMES.WAR_LEDGER)
+              .select(
+                "territory_id, assaulting_faction, defending_faction, start_time",
+              )
+              .is("end_time", null);
+
+            const warsByTerritory = new Map(
+              (allActiveWars || []).map((w) => [w.territory_id, w]),
+            );
+
             // Process ownership and racket data, detect all changes
             for (const tt of allOwnershipData) {
-              const { data: currentState, error } = await supabase
-                .from(TABLE_NAMES.TERRITORY_STATE)
-                .select(
-                  "faction_id, racket_name, racket_level, racket_created_at, racket_changed_at",
-                )
-                .eq("territory_id", tt.id)
-                .single();
+              const currentState = statesByTerritory.get(tt.id);
 
               const oldFaction = normalizeFactionId(currentState?.faction_id);
               const newFaction = normalizeFactionId(tt.owned_by);
@@ -332,15 +349,6 @@ export function startTerritoryStateSyncWorker() {
               const newRacketName = racket?.name ?? null;
               const newRacketLevel = racket?.level ?? null;
 
-              // Skip if there was an error other than "not found"
-              if (error && error.code !== "PGRST116") {
-                logError(
-                  "territory_state_sync",
-                  `Failed to fetch state for territory ${tt.id}: ${error.message}`,
-                );
-                continue;
-              }
-
               // Detect ownership changes
               if (oldFaction !== newFaction) {
                 changes.push({
@@ -350,12 +358,7 @@ export function startTerritoryStateSyncWorker() {
                 });
 
                 // Check for active war to determine event type
-                const { data: activeWar } = await supabase
-                  .from(TABLE_NAMES.WAR_LEDGER)
-                  .select("assaulting_faction,defending_faction,start_time")
-                  .eq("territory_id", tt.id)
-                  .is("end_time", null)
-                  .single();
+                const activeWar = warsByTerritory.get(tt.id);
 
                 const eventType = determineEventType(
                   oldFaction,
