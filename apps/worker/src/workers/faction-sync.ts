@@ -77,17 +77,10 @@ export function startFactionSyncWorker() {
             try {
               const response = await tornApi.get("/faction/{id}/basic", {
                 apiKey: keyRotator.getNextKey(),
-                pathParams: { id: String(factionId) },
+                pathParams: { id: factionId },
               });
 
-              if ("error" in response) {
-                console.warn(
-                  `[Faction Sync] API error for faction ${factionId}: ${response.error.error}`,
-                );
-                return { success: false };
-              }
-
-              // TypeScript now knows this is FactionBasicResponse
+              // If we get here, API call succeeded
               const basic = response.basic;
 
               // Upsert to database
@@ -123,9 +116,9 @@ export function startFactionSyncWorker() {
 
               return { success: true };
             } catch (error) {
-              console.error(
-                `[Faction Sync] Unexpected error syncing faction ${factionId}:`,
-                error,
+              // TornApiClient throws errors (including Torn API errors)
+              console.warn(
+                `[Faction Sync] Error syncing faction ${factionId}: ${error instanceof Error ? error.message : String(error)}`,
               );
               return { success: false };
             }

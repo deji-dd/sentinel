@@ -1,4 +1,7 @@
 import type { components, operations, paths } from "./generated/torn-api.js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { PerUserRateLimiter } from "./per-user-rate-limiter.js";
+import { TABLE_NAMES } from "./constants.js";
 
 const TORN_API_BASE = "https://api.torn.com/v2";
 const TORN_API_V1_BASE = "https://api.torn.com";
@@ -466,4 +469,89 @@ export class ApiKeyRotator {
   getKeyCount(): number {
     return this.keys.length;
   }
+}
+
+/**
+ * Guild-based API key round-robin distributor
+ * Maintains independent rotation index per guild
+ * Used by Discord bot for distributing requests across guild API keys
+ */
+const guildKeyIndices = new Map<string, number>();
+
+/**
+ * Get next API key for a guild using round-robin rotation
+ * Maintains state per guild to ensure fair distribution
+ *
+ * @example
+ * const key = getNextApiKey("guild123", ["key1", "key2", "key3"]);
+ * const anotherKey = getNextApiKey("guild123", ["key1", "key2", "key3"]); // Gets next key
+ */
+export function getNextApiKey(guildId: string, keys: string[]): string {
+  if (keys.length === 1) {
+    return keys[0];
+  }
+
+  const currentIndex = guildKeyIndices.get(guildId) ?? 0;
+  const nextIndex = currentIndex % keys.length;
+  guildKeyIndices.set(guildId, nextIndex + 1);
+
+  return keys[nextIndex];
+}
+
+/**
+ * Factory function to create a TornApiClient with per-user rate limiting
+ * Centralizes rate limiter setup that was previously duplicated across apps
+ *
+ * Only triggers soft-delete on error code 2 (Incorrect key / invalid API key)
+ * Other errors (rate limits, temporary issues, etc.) do NOT trigger soft-delete
+ *
+ * @param config Configuration for rate limiting
+ * @param config.supabase Supabase client for database operations
+ * @param config.hashPepper Pepper for hashing API keys (from API_KEY_HASH_PEPPER env)
+ * @param config.onInvalidKey Callback when error code 2 (invalid key) occurs
+ *
+ * @example
+ * // Worker setup
+ * export const tornApi = createTornApiClient({
+ *   supabase,
+ *   hashPepper: API_KEY_HASH_PEPPER,
+ *   onInvalidKey: async (apiKey) => {
+ *     await markSystemApiKeyInvalid(apiKey, 3); // Soft-delete
+ *   },
+ * });
+ *
+ * // Bot setup
+ * export const tornApi = createTornApiClient({
+ *   supabase,
+ *   hashPepper: API_KEY_HASH_PEPPER,
+ *   onInvalidKey: async (apiKey) => {
+ *     await markGuildApiKeyInvalid(supabase, apiKey, 3);
+ *   },
+ * });
+ */
+export function createTornApiClient(config: {
+  supabase: SupabaseClient;
+  hashPepper: string;
+  onInvalidKey?: (apiKey: string) => Promise<void>;
+}): TornApiClient {
+  const rateLimiter = new PerUserRateLimiter({
+    supabase: config.supabase,
+    tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+    apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
+    hashPepper: config.hashPepper,
+  });
+
+  return new TornApiClient({
+    rateLimitTracker: rateLimiter,
+    // CRITICAL: Only soft-delete on error code 2 (Incorrect key)
+    // Other errors like rate limits or temporary issues should NOT trigger deletion
+    onInvalidKey: config.onInvalidKey
+      ? async (apiKey, errorCode) => {
+          if (errorCode === 2) {
+            // Incorrect key - this is the only case where we should soft-delete
+            await config.onInvalidKey!(apiKey);
+          }
+        }
+      : undefined,
+  });
 }

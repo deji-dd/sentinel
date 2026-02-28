@@ -4,10 +4,9 @@
  */
 
 import { EmbedBuilder } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { botTornApi } from "./torn-api.js";
+import { supabase } from "./supabase.js";
 import { getFactionNameCached, type TornApiComponents } from "@sentinel/shared";
-import type { TornApiClient } from "@sentinel/shared";
+import { tornApi } from "../services/torn-client.js";
 
 type FactionMember = TornApiComponents["schemas"]["FactionMember"];
 
@@ -55,10 +54,9 @@ export interface WarTrackerDisplayData {
 
 export async function fetchActiveTerritoryWars(
   apiKey: string,
-  apiClient: TornApiClient = botTornApi,
 ): Promise<Map<number, TerritoryWarWithTerritory>> {
   const result = new Map<number, TerritoryWarWithTerritory>();
-  const response = await apiClient.getRaw("/torn", apiKey, {
+  const response = await tornApi.getRaw("/torn", apiKey, {
     selections: "territorywars",
   });
 
@@ -66,7 +64,7 @@ export async function fetchActiveTerritoryWars(
     return result;
   }
 
-  const data = response as unknown as TornV1TerritorywarsResponse;
+  const data = response as TornV1TerritorywarsResponse;
   const warEntries = Object.entries(data.territorywars || {});
 
   for (const [territoryCode, war] of warEntries) {
@@ -160,9 +158,8 @@ export async function resolveEnemyUsers(
   enemyFactionId: number,
   enemyIds: number[],
   minAwayMinutes: number,
-  apiClient: TornApiClient = botTornApi,
 ): Promise<string[]> {
-  const factionMembersResponse = await apiClient.get("/faction/{id}/members", {
+  const factionMembersResponse = await tornApi.get("/faction/{id}/members", {
     apiKey,
     pathParams: { id: String(enemyFactionId) },
   });
@@ -229,17 +226,15 @@ export async function resolveEnemyUsers(
 }
 
 export async function fetchTrackerData(
-  supabase: SupabaseClient,
   tracker: WarTrackerRecord,
   apiKey: string,
-  apiClient: TornApiClient = botTornApi,
 ): Promise<{
   war: TerritoryWarWithTerritory | null;
   assaultingName: string;
   defendingName: string;
   enemyUsers: string[];
 } | null> {
-  const warsMap = await fetchActiveTerritoryWars(apiKey, apiClient);
+  const warsMap = await fetchActiveTerritoryWars(apiKey);
   const war = warsMap.get(tracker.war_id);
   if (!war) {
     return null;
@@ -249,14 +244,14 @@ export async function fetchTrackerData(
     (await getFactionNameCached(
       supabase,
       war.assaulting_faction,
-      apiClient,
+      tornApi,
       apiKey,
     )) || `Faction ${war.assaulting_faction}`;
   const defendingName =
     (await getFactionNameCached(
       supabase,
       war.defending_faction,
-      apiClient,
+      tornApi,
       apiKey,
     )) || `Faction ${war.defending_faction}`;
 
@@ -272,7 +267,6 @@ export async function fetchTrackerData(
     enemyFactionId,
     enemyIds,
     tracker.min_away_minutes,
-    apiClient,
   );
 
   return { war, assaultingName, defendingName, enemyUsers };

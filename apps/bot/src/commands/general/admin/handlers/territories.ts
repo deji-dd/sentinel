@@ -20,10 +20,10 @@ import {
   type StringSelectMenuInteraction,
   type ModalSubmitInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES, getFactionDataBatchCached } from "@sentinel/shared";
 import { decrypt } from "../../../../lib/encryption.js";
-import { botTornApi } from "../../../../lib/torn-api.js";
+import { supabase } from "../../../../lib/supabase.js";
+import { tornApi } from "../../../../services/torn-client.js";
 
 interface TTConfig {
   guild_id: string;
@@ -61,10 +61,7 @@ interface WarTrackerRow {
 
 const WAR_PAGE_SIZE = 10;
 
-async function getTTConfig(
-  supabase: SupabaseClient,
-  guildId: string,
-): Promise<TTConfig> {
+async function getTTConfig(guildId: string): Promise<TTConfig> {
   const { data: ttConfig } = await supabase
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select(
@@ -85,7 +82,6 @@ async function getTTConfig(
 }
 
 async function upsertTTConfig(
-  supabase: SupabaseClient,
   guildId: string,
   updates: Partial<TTConfig>,
 ): Promise<void> {
@@ -99,10 +95,7 @@ async function upsertTTConfig(
   );
 }
 
-async function getActiveApiKey(
-  supabase: SupabaseClient,
-  guildId: string,
-): Promise<string | null> {
+async function getActiveApiKey(guildId: string): Promise<string | null> {
   const { data: guildConfig } = await supabase
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("api_keys")
@@ -124,7 +117,6 @@ async function getActiveApiKey(
 }
 
 async function getFactionNameMap(
-  supabase: SupabaseClient,
   factionIds: number[],
   apiKey: string | null,
 ): Promise<Map<number, string>> {
@@ -156,7 +148,7 @@ async function getFactionNameMap(
   const fetched = await getFactionDataBatchCached(
     supabase,
     missingIds,
-    botTornApi,
+    tornApi,
     apiKey,
   );
 
@@ -173,7 +165,6 @@ function formatChannel(channelId: string | null | undefined): string {
 
 export async function handleShowTTSettings(
   interaction: ButtonInteraction | StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     if (!interaction.deferred && !interaction.replied) {
@@ -183,10 +174,9 @@ export async function handleShowTTSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await getTTConfig(supabase, guildId);
-    const apiKey = await getActiveApiKey(supabase, guildId);
+    const config = await getTTConfig(guildId);
+    const apiKey = await getActiveApiKey(guildId);
     const factionNameMap = await getFactionNameMap(
-      supabase,
       config.tt_faction_ids,
       apiKey,
     );
@@ -281,17 +271,16 @@ export async function handleShowTTSettings(
 
 export async function handleTTSettingsEdit(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     const selectedSetting = interaction.values[0];
 
     if (selectedSetting === "tt_full") {
-      await showFullTTSettings(interaction, supabase);
+      await showFullTTSettings(interaction);
     } else if (selectedSetting === "tt_filtered") {
-      await showFilteredTTSettings(interaction, supabase);
+      await showFilteredTTSettings(interaction);
     } else if (selectedSetting === "tt_war_tracking") {
-      await showTTWarList(interaction, supabase, 0);
+      await showTTWarList(interaction, 0);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -299,9 +288,7 @@ export async function handleTTSettingsEdit(
   }
 }
 
-async function getActiveWars(
-  supabase: SupabaseClient,
-): Promise<WarLedgerRow[]> {
+async function getActiveWars(): Promise<WarLedgerRow[]> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.WAR_LEDGER)
     .select(
@@ -332,7 +319,6 @@ function buildWarOptionLabel(
 }
 
 async function getOrCreateWarTracker(
-  supabase: SupabaseClient,
   guildId: string,
   war: WarLedgerRow,
 ): Promise<WarTrackerRow> {
@@ -375,7 +361,6 @@ async function getOrCreateWarTracker(
 }
 
 async function updateWarTrackerRow(
-  supabase: SupabaseClient,
   guildId: string,
   warId: number,
   updates: Partial<WarTrackerRow>,
@@ -402,14 +387,13 @@ function parseWarAndPage(customId: string): { warId: number; page: number } {
 
 async function showTTWarList(
   interaction: StringSelectMenuInteraction | ButtonInteraction,
-  supabase: SupabaseClient,
   page = 0,
 ): Promise<void> {
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferUpdate();
   }
 
-  const wars = await getActiveWars(supabase);
+  const wars = await getActiveWars();
   if (wars.length === 0) {
     const emptyEmbed = new EmbedBuilder()
       .setColor(0xf59e0b)
@@ -430,13 +414,13 @@ async function showTTWarList(
   }
 
   const guildId = interaction.guildId;
-  const apiKey = guildId ? await getActiveApiKey(supabase, guildId) : null;
+  const apiKey = guildId ? await getActiveApiKey(guildId) : null;
   const factionIds = Array.from(
     new Set(
       wars.flatMap((war) => [war.assaulting_faction, war.defending_faction]),
     ),
   );
-  const factionNameMap = await getFactionNameMap(supabase, factionIds, apiKey);
+  const factionNameMap = await getFactionNameMap(factionIds, apiKey);
 
   const totalPages = Math.ceil(wars.length / WAR_PAGE_SIZE);
   const pageIndex = Math.min(Math.max(page, 0), totalPages - 1);
@@ -567,7 +551,6 @@ async function showTTWarTrackerSettings(
     | ButtonInteraction
     | ChannelSelectMenuInteraction
     | ModalSubmitInteraction,
-  supabase: SupabaseClient,
   warId: number,
   page: number,
 ): Promise<void> {
@@ -578,7 +561,7 @@ async function showTTWarTrackerSettings(
   const guildId = interaction.guildId;
   if (!guildId) return;
 
-  const wars = await getActiveWars(supabase);
+  const wars = await getActiveWars();
   const war = wars.find((entry) => entry.war_id === warId);
   if (!war) {
     const missingEmbed = new EmbedBuilder()
@@ -599,14 +582,14 @@ async function showTTWarTrackerSettings(
     return;
   }
 
-  const tracker = await getOrCreateWarTracker(supabase, guildId, war);
-  const apiKey = await getActiveApiKey(supabase, guildId);
+  const tracker = await getOrCreateWarTracker(guildId, war);
+  const apiKey = await getActiveApiKey(guildId);
   const assaultingName =
-    (await getFactionNameMap(supabase, [war.assaulting_faction], apiKey)).get(
+    (await getFactionNameMap([war.assaulting_faction], apiKey)).get(
       war.assaulting_faction,
     ) || `Faction ${war.assaulting_faction}`;
   const defendingName =
-    (await getFactionNameMap(supabase, [war.defending_faction], apiKey)).get(
+    (await getFactionNameMap([war.defending_faction], apiKey)).get(
       war.defending_faction,
     ) || `Faction ${war.defending_faction}`;
 
@@ -708,16 +691,14 @@ async function showTTWarTrackerSettings(
 
 export async function handleTTWarTrackPage(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   const parts = interaction.customId.split(":");
   const page = parts.length > 1 ? Number(parts[1]) : 0;
-  await showTTWarList(interaction, supabase, Number.isNaN(page) ? 0 : page);
+  await showTTWarList(interaction, Number.isNaN(page) ? 0 : page);
 }
 
 export async function handleTTWarTrackSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   const warId = Number(interaction.values[0]);
   const parts = interaction.customId.split(":");
@@ -729,7 +710,6 @@ export async function handleTTWarTrackSelect(
 
   await showTTWarTrackerSettings(
     interaction,
-    supabase,
     warId,
     Number.isNaN(page) ? 0 : page,
   );
@@ -737,16 +717,14 @@ export async function handleTTWarTrackSelect(
 
 export async function handleTTWarTrackBack(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   const parts = interaction.customId.split(":");
   const page = parts.length > 1 ? Number(parts[1]) : 0;
-  await showTTWarList(interaction, supabase, Number.isNaN(page) ? 0 : page);
+  await showTTWarList(interaction, Number.isNaN(page) ? 0 : page);
 }
 
 export async function handleTTWarTrackChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   const { warId, page } = parseWarAndPage(interaction.customId);
   if (Number.isNaN(warId)) return;
@@ -775,7 +753,7 @@ export async function handleTTWarTrackChannelSelect(
     return;
   }
 
-  const apiKey = await getActiveApiKey(supabase, guildId);
+  const apiKey = await getActiveApiKey(guildId);
   if (!apiKey) {
     await interaction.deferUpdate();
     const errorEmbed = new EmbedBuilder()
@@ -796,16 +774,15 @@ export async function handleTTWarTrackChannelSelect(
     return;
   }
 
-  await updateWarTrackerRow(supabase, guildId, warId, {
+  await updateWarTrackerRow(guildId, warId, {
     channel_id: selectedChannel.id,
   });
 
-  await showTTWarTrackerSettings(interaction, supabase, warId, page);
+  await showTTWarTrackerSettings(interaction, warId, page);
 }
 
 export async function handleTTWarTrackChannelClear(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   const { warId, page } = parseWarAndPage(interaction.customId);
   if (Number.isNaN(warId)) return;
@@ -835,17 +812,16 @@ export async function handleTTWarTrackChannelClear(
     }
   }
 
-  await updateWarTrackerRow(supabase, guildId, warId, {
+  await updateWarTrackerRow(guildId, warId, {
     channel_id: null,
     message_id: null,
   });
 
-  await showTTWarTrackerSettings(interaction, supabase, warId, page);
+  await showTTWarTrackerSettings(interaction, warId, page);
 }
 
 export async function handleTTWarTrackEnemySideSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferUpdate();
@@ -860,11 +836,11 @@ export async function handleTTWarTrackEnemySideSelect(
   const side =
     interaction.values[0] === "assaulting" ? "assaulting" : "defending";
 
-  await updateWarTrackerRow(supabase, guildId, warId, {
+  await updateWarTrackerRow(guildId, warId, {
     enemy_side: side,
   });
 
-  await showTTWarTrackerSettings(interaction, supabase, warId, page);
+  await showTTWarTrackerSettings(interaction, warId, page);
 }
 
 export async function handleTTWarTrackAwayFilterButton(
@@ -892,7 +868,6 @@ export async function handleTTWarTrackAwayFilterButton(
 
 export async function handleTTWarTrackAwayFilterSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   const { warId, page } = parseWarAndPage(interaction.customId);
   if (Number.isNaN(warId)) return;
@@ -904,16 +879,15 @@ export async function handleTTWarTrackAwayFilterSubmit(
   const minutes = Number.parseInt(input, 10);
   const minAwayMinutes = Number.isNaN(minutes) || minutes < 0 ? 0 : minutes;
 
-  await updateWarTrackerRow(supabase, guildId, warId, {
+  await updateWarTrackerRow(guildId, warId, {
     min_away_minutes: minAwayMinutes,
   });
 
-  await showTTWarTrackerSettings(interaction, supabase, warId, page);
+  await showTTWarTrackerSettings(interaction, warId, page);
 }
 
 async function showFullTTSettings(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferUpdate();
@@ -922,7 +896,7 @@ async function showFullTTSettings(
   const guildId = interaction.guildId;
   if (!guildId) return;
 
-  const config = await getTTConfig(supabase, guildId);
+  const config = await getTTConfig(guildId);
 
   const embed = new EmbedBuilder()
     .setColor(0xf59e0b)
@@ -969,7 +943,6 @@ async function showFullTTSettings(
 
 async function showFilteredTTSettings(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferUpdate();
@@ -978,13 +951,9 @@ async function showFilteredTTSettings(
   const guildId = interaction.guildId;
   if (!guildId) return;
 
-  const config = await getTTConfig(supabase, guildId);
-  const apiKey = await getActiveApiKey(supabase, guildId);
-  const factionNameMap = await getFactionNameMap(
-    supabase,
-    config.tt_faction_ids,
-    apiKey,
-  );
+  const config = await getTTConfig(guildId);
+  const apiKey = await getActiveApiKey(guildId);
+  const factionNameMap = await getFactionNameMap(config.tt_faction_ids, apiKey);
 
   const territoryDisplay =
     config.tt_territory_ids.length > 0
@@ -1132,7 +1101,6 @@ export async function handleTTFilteredSettingsEdit(
 
 export async function handleTTFullChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1154,7 +1122,7 @@ export async function handleTTFullChannelSelect(
       return;
     }
 
-    await upsertTTConfig(supabase, guildId, {
+    await upsertTTConfig(guildId, {
       tt_full_channel_id: selectedChannel.id,
     });
 
@@ -1182,7 +1150,6 @@ export async function handleTTFullChannelSelect(
 
 export async function handleTTFilteredChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1204,7 +1171,7 @@ export async function handleTTFilteredChannelSelect(
       return;
     }
 
-    await upsertTTConfig(supabase, guildId, {
+    await upsertTTConfig(guildId, {
       tt_filtered_channel_id: selectedChannel.id,
     });
 
@@ -1234,7 +1201,6 @@ export async function handleTTFilteredChannelSelect(
 
 export async function handleTTFullChannelClear(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1242,7 +1208,7 @@ export async function handleTTFullChannelClear(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    await upsertTTConfig(supabase, guildId, {
+    await upsertTTConfig(guildId, {
       tt_full_channel_id: null,
     });
 
@@ -1270,7 +1236,6 @@ export async function handleTTFullChannelClear(
 
 export async function handleTTFilteredChannelClear(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1278,7 +1243,7 @@ export async function handleTTFilteredChannelClear(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    await upsertTTConfig(supabase, guildId, {
+    await upsertTTConfig(guildId, {
       tt_filtered_channel_id: null,
     });
 
@@ -1306,7 +1271,6 @@ export async function handleTTFilteredChannelClear(
 
 export async function handleTTNotificationTypeSelect(
   interaction: StringSelectMenuInteraction,
-  _supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1340,7 +1304,6 @@ export async function handleTTNotificationTypeSelect(
 
 export async function handleTTEditTerritoriesModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1354,7 +1317,7 @@ export async function handleTTEditTerritoriesModalSubmit(
       .map((id) => id.trim().toUpperCase())
       .filter((id) => id.length > 0);
 
-    await upsertTTConfig(supabase, guildId, {
+    await upsertTTConfig(guildId, {
       tt_territory_ids: territoryIds,
     });
 
@@ -1386,7 +1349,6 @@ export async function handleTTEditTerritoriesModalSubmit(
 
 export async function handleTTEditFactionsModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1400,7 +1362,7 @@ export async function handleTTEditFactionsModalSubmit(
       .map((id) => parseInt(id.trim()))
       .filter((id) => !isNaN(id));
 
-    await upsertTTConfig(supabase, guildId, {
+    await upsertTTConfig(guildId, {
       tt_faction_ids: factionIds,
     });
 

@@ -35,28 +35,12 @@ export function startTerritoryBlueprintSyncWorker() {
         const allTerritories = [];
         let nextUrl: string | null = null;
         let offset = 0;
-        let pageCount = 0;
 
         do {
-          pageCount++;
           const response = await tornApi.get("/torn/territory", {
             apiKey: keyRotator.getNextKey(),
             queryParams: { offset },
           });
-
-          if ("error" in response) {
-            const errorMsg =
-              typeof response.error === "object" &&
-              response.error &&
-              "error" in response.error
-                ? String(response.error.error)
-                : String(response.error);
-            logError(
-              "territory_blueprint_sync",
-              `API error on page ${pageCount}: ${errorMsg}`,
-            );
-            return false;
-          }
 
           const territories = response.territory;
           const metadata = response._metadata;

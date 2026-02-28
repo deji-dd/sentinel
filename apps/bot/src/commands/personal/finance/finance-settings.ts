@@ -7,9 +7,9 @@ import {
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "../../../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getPersonalUserId } from "../../../lib/auth.js";
+import { getPersonalUserId } from "../../../../.archive/auth.js";
 import {
   runWithInteractionError,
   safeReply,
@@ -94,7 +94,6 @@ export async function execute(
 
 export async function handleModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   await runWithInteractionError(
     interaction,

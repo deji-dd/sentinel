@@ -247,11 +247,9 @@ export function startTerritoryStateSyncWorker() {
             // Use optimal pagination - check for empty array to stop
             let allOwnershipData = [];
             let offset = 0;
-            let pageCount = 0;
             const limit = 500;
 
             while (true) {
-              pageCount++;
               const response = await tornApi.get(
                 "/faction/territoryownership",
                 {
@@ -260,20 +258,7 @@ export function startTerritoryStateSyncWorker() {
                 },
               );
 
-              if ("error" in response) {
-                const errorMsg =
-                  typeof response.error === "object" &&
-                  response.error &&
-                  "error" in response.error
-                    ? String(response.error.error)
-                    : String(response.error);
-                logError(
-                  "territory_state_sync",
-                  `API error fetching ownership page ${pageCount}: ${errorMsg}`,
-                );
-                throw new Error(errorMsg);
-              }
-
+              // TornApiClient throws errors on API failures
               const territories = response.territoryOwnership || [];
 
               if (territories.length === 0) {
@@ -291,6 +276,7 @@ export function startTerritoryStateSyncWorker() {
             }
 
             // Fetch racket data from v1 API
+            // TornApiClient throws errors on API failures - caught by outer try-catch
             const racketResponse = await tornApi.getRaw<{
               rackets?: Record<
                 string,
@@ -303,15 +289,7 @@ export function startTerritoryStateSyncWorker() {
                   faction: number;
                 }
               >;
-              error?: { code: number; error: string };
             }>("/torn", keyRotator.getNextKey(), { selections: "rackets" });
-
-            if (racketResponse.error) {
-              logError(
-                "territory_state_sync",
-                `Failed to fetch rackets: ${racketResponse.error.error}`,
-              );
-            }
 
             const racketsByTerritory = racketResponse.rackets || {};
 

@@ -3,30 +3,20 @@ import {
   EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { botTornApi } from "../../../lib/torn-api.js";
+import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
+import { type TornApiComponents } from "@sentinel/shared";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   logGuildError,
   logGuildSuccess,
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
+import { tornApi } from "../../../services/torn-client.js";
+import { supabase } from "../../../lib/supabase.js";
 
-// Round-robin index for distributing API calls across multiple keys
-const roundRobinIndex = new Map<string, number>();
-
-function getNextApiKey(guildId: string, keys: string[]): string {
-  if (keys.length === 1) {
-    return keys[0];
-  }
-
-  const currentIndex = roundRobinIndex.get(guildId) ?? 0;
-  const nextIndex = currentIndex % keys.length;
-  roundRobinIndex.set(guildId, nextIndex + 1);
-
-  return keys[nextIndex];
-}
+type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
+  TornApiComponents["schemas"]["UserFactionResponse"] &
+  TornApiComponents["schemas"]["UserProfileResponse"];
 
 export const data = new SlashCommandBuilder()
   .setName("verify")
@@ -40,7 +30,6 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply();
@@ -72,7 +61,6 @@ export async function execute(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
         "Verify Failed: Not Configured",
         configError?.message || "Missing guild config",
         `${interaction.user} attempted /verify but guild is not configured.`,
@@ -92,13 +80,13 @@ export async function execute(
     }
 
     // Get guild API keys from new table
-    const apiKeys = await getGuildApiKeys(supabase, guildId);
+    const apiKeys = await getGuildApiKeys( guildId);
 
     if (apiKeys.length === 0) {
       await logGuildWarning(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify Warning: API Key Required",
         "No API keys configured for guild",
         [{ name: "User", value: interaction.user.toString(), inline: true }],
@@ -120,11 +108,14 @@ export async function execute(
     const apiKey = getNextApiKey(guildId, apiKeys);
 
     // Call Torn API to check user's Discord linkage and faction
-    let response: any;
+    let response: UserGenericResponse;
     try {
-      response = await botTornApi.getRaw("/user", apiKey, {
-        selections: "discord,faction,profile",
-        id: targetUser.id,
+      response = await tornApi.get<UserGenericResponse>("/user", {
+        apiKey,
+        queryParams: {
+          selections: ["discord", "faction", "profile"],
+          id: targetUser.id,
+        },
       });
     } catch (apiError) {
       const errorMessage =
@@ -135,7 +126,7 @@ export async function execute(
         await logGuildWarning(
           guildId,
           interaction.client,
-          supabase,
+          
           "Verify: Not Linked",
           `${targetUser} is not linked to Torn.`,
           [{ name: "Target", value: targetUser.toString(), inline: true }],
@@ -163,7 +154,7 @@ export async function execute(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify Failed",
         errorMessage || "Failed to verify user.",
         `Verification failed for ${targetUser}.`,
@@ -175,9 +166,6 @@ export async function execute(
       });
       return;
     }
-
-    // At this point, response is definitely assigned and typed correctly
-    if (!response) return;
 
     // Success - user is linked with faction info
     const successEmbed = new EmbedBuilder()
@@ -269,36 +257,21 @@ export async function execute(
           factionRole.leader_role_ids.length > 0
         ) {
           try {
-            const membersResponse = await botTornApi.get(
-              "/faction/{id}/members",
-              {
-                apiKey,
-                pathParams: { id: String(response.faction.id) },
-              },
-            );
+            const membersResponse = await tornApi.get("/faction/{id}/members", {
+              apiKey,
+              pathParams: { id: response.faction.id },
+            });
 
-            // Check for API error first to narrow the type
-            if ("error" in membersResponse) {
-              console.error(
-                "Failed to fetch faction members:",
-                membersResponse.error.error,
-              );
-            } else {
-              // TypeScript now knows this is a success response with members
-              const members = membersResponse.members;
+            const members = membersResponse.members;
 
-              // members is already an array, find user directly
-              const member = members.find(
-                (m) => m.id === response.profile?.id,
-              );
+            // members is already an array, find user directly
+            const member = members.find((m) => m.id === response.profile?.id);
 
-              if (
-                member &&
-                (member.position === "Leader" ||
-                  member.position === "Co-leader")
-              ) {
-                rolesToAssign.push(...factionRole.leader_role_ids);
-              }
+            if (
+              member &&
+              (member.position === "Leader" || member.position === "Co-leader")
+            ) {
+              rolesToAssign.push(...factionRole.leader_role_ids);
             }
           } catch (leaderCheckError) {
             console.error("Failed to check leader status:", leaderCheckError);
@@ -367,7 +340,7 @@ export async function execute(
     await logGuildSuccess(
       guildId,
       interaction.client,
-      supabase,
+      
       "Verify Success",
       `${targetUser} verified as **${response.profile?.name}**.`,
       logFields,

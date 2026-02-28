@@ -1,5 +1,5 @@
-import { TornApiClient } from "@sentinel/shared";
 import { storeSystemApiKey } from "../lib/system-api-keys.js";
+import { tornApi } from "../services/torn-client.js";
 
 interface CliOptions {
   apiKey: string;
@@ -69,19 +69,25 @@ async function run(): Promise<void> {
 
   validateApiKey(apiKey);
 
-  const client = new TornApiClient();
-  const data = await client.get("/user/basic", { apiKey });
-  const userId = data.profile?.id;
+  try {
+    const data = await tornApi.get("/user/basic", { apiKey });
+    const userId = data.profile?.id;
 
-  if (!userId) {
-    throw new Error("Failed to resolve player id from /user/basic response.");
+    if (!userId) {
+      throw new Error("Invalid API response: missing player id");
+    }
+
+    await storeSystemApiKey(apiKey, userId, keyType, isPrimary);
+
+    console.log(
+      `Saved ${keyType} key for player ${userId} ${isPrimary ? "(primary)" : ""}`,
+    );
+  } catch (error) {
+    // TornApiClient throws errors (including Torn API errors like invalid key)
+    throw new Error(
+      `Failed to add system API key: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-
-  await storeSystemApiKey(apiKey, userId, keyType, isPrimary);
-
-  console.log(
-    `Saved ${keyType} key for player ${userId} ${isPrimary ? "(primary)" : ""}`,
-  );
 }
 
 run().catch((error) => {

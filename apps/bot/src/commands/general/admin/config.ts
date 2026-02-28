@@ -20,10 +20,8 @@ import {
   type StringSelectMenuInteraction,
   type ChannelSelectMenuInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { encrypt, decrypt } from "../../../lib/encryption.js";
-import { getAuthorizedDiscordUserId } from "../../../lib/auth.js";
 import {
   fetchAndStoreFactionNames,
   validateAndFetchFactionDetails,
@@ -31,12 +29,19 @@ import {
 } from "../../../lib/faction-utils.js";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
 import * as territoryHandlers from "./handlers/territories.js";
+import { supabase } from "../../../lib/supabase.js";
 
 interface ApiKeyEntry {
   key: string; // encrypted
   fingerprint: string; // last 4 characters for display
   isActive: boolean;
   createdAt: string;
+}
+
+const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+
+if (!botOwnerId) {
+  throw new Error("Missing SENTINEL_DISCORD_USER_ID environment variable");
 }
 
 function buildConfigViewMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
@@ -71,7 +76,6 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -115,7 +119,7 @@ export async function execute(
 
     // Check if user has permission to use config command
     const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
-    const botOwnerId = getAuthorizedDiscordUserId();
+
     const userIsBotOwner = interaction.user.id === botOwnerId;
 
     if (!userIsBotOwner && adminRoleIds.length > 0) {
@@ -165,7 +169,7 @@ export async function execute(
       await logGuildError(
         interaction.guildId,
         interaction.client,
-        supabase,
+
         "Config Command Error",
         error instanceof Error ? error : errorMsg,
         `Error running config command for ${interaction.user}.`,
@@ -192,7 +196,6 @@ export async function execute(
 // Handler for view selection menu
 export async function handleViewSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -236,9 +239,9 @@ export async function handleViewSelect(
     if (selectedView === "admin") {
       await showAdminSettings(interaction, guildConfig);
     } else if (selectedView === "verify") {
-      await showVerifySettings(interaction, supabase, guildConfig);
+      await showVerifySettings(interaction, guildConfig);
     } else if (selectedView === "territories") {
-      await territoryHandlers.handleShowTTSettings(interaction, supabase);
+      await territoryHandlers.handleShowTTSettings(interaction);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -348,7 +351,6 @@ async function showAdminSettings(
 
 async function showVerifySettings(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   guildConfig: any,
 ): Promise<void> {
@@ -484,7 +486,6 @@ async function showVerifySettings(
 // Back button handler
 export async function handleBackToMenu(
   interaction: ButtonInteraction,
-  _supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -517,7 +518,6 @@ export async function handleBackToMenu(
 
 export async function handleBackToVerifySettings(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -555,7 +555,7 @@ export async function handleBackToVerifySettings(
           try {
             const apiKey = decrypt(activeKey.key);
             const factionIds = missingNames.map((fr) => fr.faction_id);
-            await fetchAndStoreFactionNames(factionIds, supabase, apiKey);
+            await fetchAndStoreFactionNames(factionIds, apiKey);
           } catch (error) {
             console.error("Error decrypting API key:", error);
           }
@@ -565,10 +565,34 @@ export async function handleBackToVerifySettings(
       factionRolesDisplay = factionRoles
         .map((fr) => {
           const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
-          const rolesMention = fr.role_ids
-            .map((roleId: string) => `<@&${roleId}>`)
-            .join(", ");
-          return `▸ ${factionName}: ${rolesMention}`;
+          const enabled = fr.enabled !== false;
+          const statusEmoji = enabled
+            ? "<:Green:1474607376140079104>"
+            : "<:Red:1474607810368114886>";
+
+          let rolesText = "";
+
+          // Show member roles
+          if (fr.member_role_ids && fr.member_role_ids.length > 0) {
+            const memberRoles = fr.member_role_ids
+              .map((roleId: string) => `<@&${roleId}>`)
+              .join(", ");
+            rolesText += `Members: ${memberRoles}`;
+          }
+
+          // Show leader roles if configured
+          if (fr.leader_role_ids && fr.leader_role_ids.length > 0) {
+            const leaderRoles = fr.leader_role_ids
+              .map((roleId: string) => `<@&${roleId}>`)
+              .join(", ");
+            rolesText += (rolesText ? " | " : "") + `Leaders: ${leaderRoles}`;
+          }
+
+          if (!rolesText) {
+            rolesText = "No roles configured";
+          }
+
+          return `${statusEmoji} **${factionName}**: ${rolesText}`;
         })
         .join("\n");
     }
@@ -692,7 +716,6 @@ export async function handleBackToVerifySettings(
 
 export async function handleBackToAdminSettings(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -799,7 +822,6 @@ export async function handleBackToAdminSettings(
 // Handler for verify settings edit menu
 export async function handleVerifySettingsEdit(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     const guildId = interaction.guildId;
@@ -940,7 +962,7 @@ export async function handleVerifySettingsEdit(
     } else if (selectedSetting === "edit_faction") {
       await interaction.deferUpdate();
       // Show faction role management
-      await showFactionRoleMenu(interaction, supabase, guildId, apiKey);
+      await showFactionRoleMenu(interaction, guildId, apiKey);
     } else if (selectedSetting === "edit_verified_role") {
       await interaction.deferUpdate();
       // Show role selector for verification role
@@ -981,7 +1003,6 @@ export async function handleVerifySettingsEdit(
 
 async function showFactionRoleMenu(
   interaction: StringSelectMenuInteraction | ButtonInteraction,
-  supabase: SupabaseClient,
   guildId: string,
   apiKey?: string,
 ): Promise<void> {
@@ -1000,7 +1021,7 @@ async function showFactionRoleMenu(
     const missingNames = factionRoles.filter((fr) => !fr.faction_name);
     if (missingNames.length > 0 && apiKey) {
       const factionIds = missingNames.map((fr) => fr.faction_id);
-      await fetchAndStoreFactionNames(factionIds, supabase, apiKey);
+      await fetchAndStoreFactionNames(factionIds, apiKey);
     }
 
     factionRolesDisplay = factionRoles
@@ -1093,7 +1114,6 @@ async function showFactionManagePage(
     | StringSelectMenuInteraction
     | ButtonInteraction
     | RoleSelectMenuInteraction,
-  supabase: SupabaseClient,
   factionId: number,
   _apiKey?: string,
 ): Promise<void> {
@@ -1130,7 +1150,7 @@ async function showFactionManagePage(
 
   // Build description
   let description = `Configure role assignments for **${factionName}**.\n\n`;
-  description += `**Status:** ${enabled ? "🟢 Enabled" : "🔴 Disabled"}\n\n`;
+  description += `**Status:** ${enabled ? "<:Green:1474607376140079104> Enabled" : "<:Red:1474607810368114886> Disabled"}\n\n`;
   description += `**Member Roles** (assigned to ALL faction members):\n`;
   description +=
     memberRoleIds.length > 0
@@ -1185,7 +1205,6 @@ async function showFactionManagePage(
 // Cancel handler for verify settings submenu
 export async function handleVerifySettingsEditCancel(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1225,7 +1244,7 @@ export async function handleVerifySettingsEditCancel(
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await showVerifySettings(interaction as any, supabase, guildConfig);
+    await showVerifySettings(interaction as any, guildConfig);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in cancel handler:", errorMsg);
@@ -1235,7 +1254,6 @@ export async function handleVerifySettingsEditCancel(
 // Handler for API key management
 export async function handleEditApiKeysButton(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1329,7 +1347,6 @@ export async function handleAddApiKeyButton(
 // Handler for adding API key modal submission
 export async function handleAddApiKeyModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1399,7 +1416,7 @@ export async function handleAddApiKeyModalSubmit(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "api_key_added",
@@ -1536,7 +1553,6 @@ function buildApiKeysView(guildConfig: { api_keys?: ApiKeyEntry[] }): {
 // Handler for rotating API key
 export async function handleRotateApiKeyButton(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1621,7 +1637,7 @@ export async function handleRotateApiKeyButton(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "api_key_rotated",
@@ -1658,7 +1674,6 @@ export async function handleRotateApiKeyButton(
 // Handler for removing API key
 export async function handleRemoveApiKeyMenuButton(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1715,7 +1730,6 @@ export async function handleRemoveApiKeyMenuButton(
 // Handler for removing API key selection
 export async function handleRemoveApiKeySelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -1772,7 +1786,7 @@ export async function handleRemoveApiKeySelect(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "api_key_removed",
@@ -1862,7 +1876,6 @@ export async function handleRemoveFactionRoleButton(
 
 export async function handleAddFactionRoleModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1932,7 +1945,6 @@ export async function handleAddFactionRoleModalSubmit(
     const factionDetails = await validateAndFetchFactionDetails(
       factionId,
       apiKey,
-      supabase,
     );
     if (!factionDetails) {
       const errorEmbed = new EmbedBuilder()
@@ -1996,7 +2008,6 @@ export async function handleAddFactionRoleModalSubmit(
 
 export async function handleRemoveFactionRoleModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -2048,7 +2059,7 @@ export async function handleRemoveFactionRoleModalSubmit(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "faction_role_mapping_removed",
@@ -2084,7 +2095,6 @@ export async function handleRemoveFactionRoleModalSubmit(
 
 export async function handleFactionRoleSelect(
   interaction: RoleSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2147,7 +2157,6 @@ export async function handleFactionRoleSelect(
       const factionDetails = await validateAndFetchFactionDetails(
         factionId,
         apiKey,
-        supabase,
       );
       if (factionDetails) {
         factionName = factionDetails.name;
@@ -2160,7 +2169,6 @@ export async function handleFactionRoleSelect(
       factionId,
       roleIds,
       factionName,
-      supabase,
     );
 
     if (!success) {
@@ -2176,7 +2184,7 @@ export async function handleFactionRoleSelect(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "faction_role_mapping_saved",
@@ -2217,7 +2225,6 @@ export async function handleFactionRoleSelect(
 
 export async function handleVerifiedRoleSelect(
   interaction: RoleSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2270,7 +2277,7 @@ export async function handleVerifiedRoleSelect(
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "verified_role_updated",
@@ -2289,7 +2296,6 @@ export async function handleVerifiedRoleSelect(
 
 export async function handleNicknameTemplateModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -2328,7 +2334,7 @@ export async function handleNicknameTemplateModalSubmit(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "nickname_template_updated",
@@ -2381,7 +2387,6 @@ export async function handleNicknameTemplateModalSubmit(
 
 export async function handleSyncIntervalModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -2420,7 +2425,7 @@ export async function handleSyncIntervalModalSubmit(
       { onConflict: "guild_id" },
     );
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "sync_interval_updated",
@@ -2472,7 +2477,6 @@ export async function handleSyncIntervalModalSubmit(
 
 export async function handleConfirmAutoVerifyToggle(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2513,7 +2517,7 @@ export async function handleConfirmAutoVerifyToggle(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "auto_verify_toggled",
@@ -2553,7 +2557,6 @@ export async function handleConfirmAutoVerifyToggle(
 
 export async function handleEditLogChannelButton(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2612,7 +2615,6 @@ export async function handleEditLogChannelButton(
 
 export async function handleLogChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2644,7 +2646,7 @@ export async function handleLogChannelSelect(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
+
         "Log Channel Update Failed",
         error.message,
         `Failed to set log channel to ${selectedChannel}.`,
@@ -2667,7 +2669,7 @@ export async function handleLogChannelSelect(
       .setDescription(`Log channel set to ${selectedChannel}`);
 
     // Log this action
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "log_channel_updated",
@@ -2677,7 +2679,7 @@ export async function handleLogChannelSelect(
     await logGuildSuccess(
       guildId,
       interaction.client,
-      supabase,
+
       "Log Channel Updated",
       `${interaction.user} set the log channel to ${selectedChannel}.`,
       [{ name: "Channel", value: selectedChannel.toString(), inline: false }],
@@ -2702,7 +2704,6 @@ export async function handleLogChannelSelect(
 
 export async function handleClearLogChannel(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2720,7 +2721,7 @@ export async function handleClearLogChannel(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
+
         "Log Channel Clear Failed",
         error.message,
         `Failed to clear log channel for ${interaction.user}.`,
@@ -2743,7 +2744,7 @@ export async function handleClearLogChannel(
       .setDescription("Logging has been disabled.");
 
     // Log this action
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "log_channel_cleared",
@@ -2752,7 +2753,7 @@ export async function handleClearLogChannel(
     await logGuildSuccess(
       guildId,
       interaction.client,
-      supabase,
+
       "Log Channel Cleared",
       `${interaction.user} disabled guild logging.`,
     );
@@ -2811,7 +2812,6 @@ export async function handleEditAdminRolesButton(
 // Handler for admin roles select
 export async function handleAdminRolesSelect(
   interaction: RoleSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -2854,7 +2854,7 @@ export async function handleAdminRolesSelect(
     }
 
     // Log this action
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "admin_roles_updated",
@@ -2892,7 +2892,7 @@ export async function handleAdminRolesSelect(
     await logGuildSuccess(
       guildId,
       interaction.client,
-      supabase,
+
       "Admin Roles Updated",
       `${interaction.user} updated admin roles. Count: ${selectedRoleIds.length}`,
     );
@@ -2902,15 +2902,12 @@ export async function handleAdminRolesSelect(
   }
 }
 
-async function logGuildAudit(
-  supabase: SupabaseClient,
-  entry: {
-    guildId: string;
-    actorId: string;
-    action: string;
-    details?: Record<string, unknown>;
-  },
-): Promise<void> {
+async function logGuildAudit(entry: {
+  guildId: string;
+  actorId: string;
+  action: string;
+  details?: Record<string, unknown>;
+}): Promise<void> {
   try {
     await supabase.from(TABLE_NAMES.GUILD_AUDIT).insert({
       guild_id: entry.guildId,
@@ -2929,16 +2926,14 @@ async function logGuildAudit(
  */
 export async function handleShowTTSettings(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleShowTTSettings(interaction, supabase);
+  return territoryHandlers.handleShowTTSettings(interaction);
 }
 
 export async function handleTTSettingsEdit(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTSettingsEdit(interaction, supabase);
+  return territoryHandlers.handleTTSettingsEdit(interaction);
 }
 
 export async function handleTTFilteredSettingsEdit(
@@ -2949,105 +2944,80 @@ export async function handleTTFilteredSettingsEdit(
 
 export async function handleTTNotificationTypeSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTNotificationTypeSelect(
-    interaction,
-    supabase,
-  );
+  return territoryHandlers.handleTTNotificationTypeSelect(interaction);
 }
 
 export async function handleTTFullChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTFullChannelSelect(interaction, supabase);
+  return territoryHandlers.handleTTFullChannelSelect(interaction);
 }
 
 export async function handleTTFilteredChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTFilteredChannelSelect(interaction, supabase);
+  return territoryHandlers.handleTTFilteredChannelSelect(interaction);
 }
 
 export async function handleTTFullChannelClear(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTFullChannelClear(interaction, supabase);
+  return territoryHandlers.handleTTFullChannelClear(interaction);
 }
 
 export async function handleTTFilteredChannelClear(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTFilteredChannelClear(interaction, supabase);
+  return territoryHandlers.handleTTFilteredChannelClear(interaction);
 }
 
 export async function handleTTEditTerritoriesModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTEditTerritoriesModalSubmit(
-    interaction,
-    supabase,
-  );
+  return territoryHandlers.handleTTEditTerritoriesModalSubmit(interaction);
 }
 
 export async function handleTTEditFactionsModalSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTEditFactionsModalSubmit(
-    interaction,
-    supabase,
-  );
+  return territoryHandlers.handleTTEditFactionsModalSubmit(interaction);
 }
 
 export async function handleTTWarTrackPage(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackPage(interaction, supabase);
+  return territoryHandlers.handleTTWarTrackPage(interaction);
 }
 
 export async function handleTTWarTrackSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackSelect(interaction, supabase);
+  return territoryHandlers.handleTTWarTrackSelect(interaction);
 }
 
 export async function handleTTWarTrackBack(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackBack(interaction, supabase);
+  return territoryHandlers.handleTTWarTrackBack(interaction);
 }
 
 export async function handleTTWarTrackChannelSelect(
   interaction: ChannelSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackChannelSelect(interaction, supabase);
+  return territoryHandlers.handleTTWarTrackChannelSelect(interaction);
 }
 
 export async function handleTTWarTrackChannelClear(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackChannelClear(interaction, supabase);
+  return territoryHandlers.handleTTWarTrackChannelClear(interaction);
 }
 
 export async function handleTTWarTrackEnemySideSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackEnemySideSelect(
-    interaction,
-    supabase,
-  );
+  return territoryHandlers.handleTTWarTrackEnemySideSelect(interaction);
 }
 
 export async function handleTTWarTrackAwayFilterButton(
@@ -3058,18 +3028,13 @@ export async function handleTTWarTrackAwayFilterButton(
 
 export async function handleTTWarTrackAwayFilterSubmit(
   interaction: ModalSubmitInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
-  return territoryHandlers.handleTTWarTrackAwayFilterSubmit(
-    interaction,
-    supabase,
-  );
+  return territoryHandlers.handleTTWarTrackAwayFilterSubmit(interaction);
 }
 
 // Faction Role Management Handlers
 export async function handleFactionManageSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -3104,7 +3069,7 @@ export async function handleFactionManageSelect(
       }
     }
 
-    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+    await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction manage select handler:", errorMsg);
@@ -3113,7 +3078,6 @@ export async function handleFactionManageSelect(
 
 export async function handleFactionManageBack(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -3138,7 +3102,7 @@ export async function handleFactionManageBack(
       }
     }
 
-    await showFactionRoleMenu(interaction, supabase, guildId, apiKey);
+    await showFactionRoleMenu(interaction, guildId, apiKey);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction manage back handler:", errorMsg);
@@ -3147,7 +3111,6 @@ export async function handleFactionManageBack(
 
 export async function handleFactionToggle(
   interaction: ButtonInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -3188,7 +3151,7 @@ export async function handleFactionToggle(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: newEnabled ? "faction_enabled" : "faction_disabled",
@@ -3213,7 +3176,7 @@ export async function handleFactionToggle(
       }
     }
 
-    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+    await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction toggle handler:", errorMsg);
@@ -3306,7 +3269,6 @@ export async function handleFactionLeaderRolesButton(
 
 export async function handleFactionMemberRolesSelect(
   interaction: RoleSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -3337,7 +3299,7 @@ export async function handleFactionMemberRolesSelect(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "faction_member_roles_updated",
@@ -3362,7 +3324,7 @@ export async function handleFactionMemberRolesSelect(
       }
     }
 
-    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+    await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction member roles select handler:", errorMsg);
@@ -3371,7 +3333,6 @@ export async function handleFactionMemberRolesSelect(
 
 export async function handleFactionLeaderRolesSelect(
   interaction: RoleSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -3402,7 +3363,7 @@ export async function handleFactionLeaderRolesSelect(
       return;
     }
 
-    await logGuildAudit(supabase, {
+    await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
       action: "faction_leader_roles_updated",
@@ -3427,7 +3388,7 @@ export async function handleFactionLeaderRolesSelect(
       }
     }
 
-    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+    await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction leader roles select handler:", errorMsg);

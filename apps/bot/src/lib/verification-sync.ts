@@ -1,21 +1,18 @@
 import { type Client } from "discord.js";
-import { type SupabaseClient } from "@supabase/supabase-js";
 import {
   TABLE_NAMES,
-  PerUserRateLimiter,
   TornApiClient,
+  getNextApiKey,
+  type TornApiComponents,
 } from "@sentinel/shared";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
+import { tornApi } from "../services/torn-client.js";
+import { supabase } from "./supabase.js";
 
-// Local round-robin tracker per guild
-const guildKeyIndices = new Map<string, number>();
-function getNextApiKey(guildId: string, keys: string[]): string {
-  const currentIndex = guildKeyIndices.get(guildId) || 0;
-  const apiKey = keys[currentIndex];
-  guildKeyIndices.set(guildId, (currentIndex + 1) % keys.length);
-  return apiKey;
-}
+type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
+  TornApiComponents["schemas"]["UserFactionResponse"] &
+  TornApiComponents["schemas"]["UserProfileResponse"];
 
 interface VerifiedUser {
   discord_id: string;
@@ -63,26 +60,14 @@ interface GuildConfigRecord {
  */
 export class GuildSyncScheduler {
   private client: Client;
-  private supabase: SupabaseClient;
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private rateLimiter: PerUserRateLimiter;
   private tornApi: TornApiClient;
   private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
 
-  constructor(client: Client, supabase: SupabaseClient) {
+  constructor(client: Client) {
     this.client = client;
-    this.supabase = supabase;
-    this.rateLimiter = new PerUserRateLimiter({
-      supabase,
-      tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
-      apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
-      hashPepper: process.env.API_KEY_HASH_PEPPER!,
-      // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
-    });
     // Create single tornApi instance with per-user rate limiting
-    this.tornApi = new TornApiClient({
-      rateLimitTracker: this.rateLimiter,
-    });
+    this.tornApi = tornApi;
   }
 
   /**
@@ -126,7 +111,7 @@ export class GuildSyncScheduler {
   private async pollAndSync(): Promise<void> {
     try {
       // Get all sync jobs that need to run
-      const { data: jobs, error } = await this.supabase
+      const { data: jobs, error } = await supabase
         .from(TABLE_NAMES.GUILD_SYNC_JOBS)
         .select("*")
         .eq("in_progress", false)
@@ -144,7 +129,7 @@ export class GuildSyncScheduler {
 
       const jobGuildIds = jobs.map((job: GuildSyncJob) => job.guild_id);
       const { data: guildConfigs, error: guildConfigError } =
-        await this.supabase
+        await supabase
           .from(TABLE_NAMES.GUILD_CONFIG)
           .select("guild_id, auto_verify")
           .in("guild_id", jobGuildIds);
@@ -189,7 +174,7 @@ export class GuildSyncScheduler {
    */
   private async syncGuild(job: GuildSyncJob): Promise<void> {
     // Lock the job
-    const { error: lockError } = await this.supabase
+    const { error: lockError } = await supabase
       .from(TABLE_NAMES.GUILD_SYNC_JOBS)
       .update({ in_progress: true })
       .eq("guild_id", job.guild_id);
@@ -201,7 +186,6 @@ export class GuildSyncScheduler {
       await logGuildError(
         job.guild_id,
         this.client,
-        this.supabase,
         "Guild Sync Lock Failed",
         lockError.message,
         `Unable to lock sync job for guild ${job.guild_id}.`,
@@ -210,7 +194,7 @@ export class GuildSyncScheduler {
     }
 
     try {
-      const { data: guildConfig, error: configError } = await this.supabase
+      const { data: guildConfig, error: configError } = await supabase
         .from(TABLE_NAMES.GUILD_CONFIG)
         .select("*")
         .eq("guild_id", job.guild_id)
@@ -221,7 +205,6 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          this.supabase,
           "Guild Sync Failed",
           configError?.message || "Missing guild config",
           `Guild config not found for ${job.guild_id}.`,
@@ -239,13 +222,12 @@ export class GuildSyncScheduler {
       await logGuildSuccess(
         job.guild_id,
         this.client,
-        this.supabase,
         "Guild Sync Started",
         "Scheduled verification sync started.",
       );
 
       // Get API keys from new guild-api-keys table
-      const apiKeys = await getGuildApiKeys(this.supabase, job.guild_id);
+      const apiKeys = await getGuildApiKeys(job.guild_id);
 
       if (apiKeys.length === 0) {
         console.error(
@@ -254,7 +236,6 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          this.supabase,
           "Guild Sync Failed",
           "No API keys configured",
           `Missing API key for guild ${job.guild_id}.`,
@@ -263,7 +244,7 @@ export class GuildSyncScheduler {
       }
 
       // Get all verified users
-      const { data: verifiedUsers, error: usersError } = await this.supabase
+      const { data: verifiedUsers, error: usersError } = await supabase
         .from(TABLE_NAMES.VERIFIED_USERS)
         .select("*");
 
@@ -274,7 +255,6 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          this.supabase,
           "Guild Sync Failed",
           usersError?.message || "Failed to fetch verified users",
           `Unable to fetch verified users for guild ${job.guild_id}.`,
@@ -283,7 +263,7 @@ export class GuildSyncScheduler {
       }
 
       // Get faction role mappings for this guild
-      const { data: factionMappings } = await this.supabase
+      const { data: factionMappings } = await supabase
         .from(TABLE_NAMES.FACTION_ROLES)
         .select("*")
         .eq("guild_id", job.guild_id);
@@ -304,19 +284,10 @@ export class GuildSyncScheduler {
               "/faction/{id}/members",
               {
                 apiKey: getNextApiKey(job.guild_id, apiKeys),
-                pathParams: { id: String(mapping.faction_id) },
+                pathParams: { id: mapping.faction_id },
               },
             );
 
-            // Check for API error first to narrow the type
-            if ("error" in membersResponse) {
-              console.warn(
-                `[Guild Sync] API error for faction ${mapping.faction_id}: ${membersResponse.error.error}`,
-              );
-              continue;
-            }
-
-            // TypeScript now knows this is a success response with members
             const leaders = new Set<number>();
             const members = membersResponse.members;
 
@@ -349,7 +320,6 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          this.supabase,
           "Guild Sync Failed",
           "Guild not available in cache",
           `Bot is not in guild ${job.guild_id} or cache missing.`,
@@ -365,52 +335,20 @@ export class GuildSyncScheduler {
       // Sync each verified user
       for (const user of verifiedUsers as VerifiedUser[]) {
         try {
-          // Use generic any type since response shape is dynamic based on selections parameter
-          const response = await this.tornApi.get(`/user`, {
-            apiKey: getNextApiKey(job.guild_id, apiKeys),
-            queryParams: {
-              selections: ["discord", "faction", "profile"],
-              id: user.discord_id,
+          const response = await this.tornApi.get<UserGenericResponse>(
+            `/user`,
+            {
+              apiKey: getNextApiKey(job.guild_id, apiKeys),
+              queryParams: {
+                selections: ["discord", "faction", "profile"],
+                id: user.discord_id,
+              },
             },
-          });
+          );
 
-          // Handle API error - check if response has error property
-          if ("error" in response) {
-            const error = response as unknown as {
-              error: { code: number; error: string };
-            };
-            if (error.error.code === 6) {
-              console.log(
-                `[Guild Sync] User ${user.discord_id} disconnected Discord`,
-              );
-              await this.supabase
-                .from(TABLE_NAMES.VERIFIED_USERS)
-                .delete()
-                .eq("discord_id", user.discord_id);
-              removedCount++;
-              continue;
-            }
-
-            console.warn(
-              `[Guild Sync] API error for ${user.discord_id}: ${error.error.error}`,
-            );
-            errorCount++;
-            continue;
-          }
-
-          // Response shape is dynamic based on selections, so use property access without type assertion
-          const data = response as Record<string, unknown>;
-          const profile =
-            (data.profile as Record<string, unknown> | undefined) || {};
-          const name = profile.name as string | undefined;
-          const playerId = profile.id as number | undefined;
-          const factionData = data.faction as
-            | {
-                id?: number;
-                name?: string;
-                tag?: string;
-              }
-            | undefined;
+          const name = response.profile.name;
+          const playerId = response.profile.id;
+          const factionData = response.faction;
 
           if (!name || !playerId) {
             console.warn(
@@ -428,7 +366,7 @@ export class GuildSyncScheduler {
 
           // Always update database and Discord if name or faction changed
           if (nameChanged || factionChanged) {
-            await this.supabase
+            await supabase
               .from(TABLE_NAMES.VERIFIED_USERS)
               .update({
                 torn_player_name: name,
@@ -518,6 +456,19 @@ export class GuildSyncScheduler {
           await new Promise((resolve) => setTimeout(resolve, 100));
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
+
+          if (/Incorrect ID/i.test(msg)) {
+            console.log(
+              `[Guild Sync] User ${user.discord_id} disconnected Discord`,
+            );
+            await supabase
+              .from(TABLE_NAMES.VERIFIED_USERS)
+              .delete()
+              .eq("discord_id", user.discord_id);
+            removedCount++;
+            continue;
+          }
+
           console.error(
             `[Guild Sync] Error syncing user ${user.discord_id}: ${msg}`,
           );
@@ -533,7 +484,6 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          this.supabase,
           "Guild Sync Completed with Errors",
           `${errorCount} error(s) occurred during sync.`,
           `Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
@@ -542,14 +492,13 @@ export class GuildSyncScheduler {
         await logGuildSuccess(
           job.guild_id,
           this.client,
-          this.supabase,
           "Guild Sync Completed",
           `Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
         );
       }
     } finally {
       // Unlock job and update next sync time
-      const config = (await this.supabase
+      const config = (await supabase
         .from(TABLE_NAMES.GUILD_CONFIG)
         .select("sync_interval_seconds")
         .eq("guild_id", job.guild_id)
@@ -558,7 +507,7 @@ export class GuildSyncScheduler {
       const interval = config.data?.sync_interval_seconds || 3600;
       const nextSync = new Date(Date.now() + interval * 1000);
 
-      await this.supabase
+      await supabase
         .from(TABLE_NAMES.GUILD_SYNC_JOBS)
         .update({
           in_progress: false,

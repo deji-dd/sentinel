@@ -6,7 +6,6 @@ import {
   EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import * as financeCommand from "./commands/personal/finance/finance.js";
 import * as financeSettingsCommand from "./commands/personal/finance/finance-settings.js";
 import * as forceRunCommand from "./commands/personal/admin/force-run.js";
@@ -23,21 +22,19 @@ import * as assaultCheckCommand from "./commands/general/territories/assault-che
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
 import * as burnMapSimulatorCommand from "./commands/general/territories/burn-map-simulator.js";
 import { initHttpServer } from "./lib/http-server.js";
-import { getAuthorizedDiscordUserId } from "./lib/auth.js";
+import { getAuthorizedDiscordUserId } from "../.archive/auth.js";
 import { logGuildSuccess, logGuildError } from "./lib/guild-logger.js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { GuildSyncScheduler } from "./lib/verification-sync.js";
 import { WarTrackerScheduler } from "./lib/war-tracker-scheduler.js";
 import { getGuildApiKeys } from "./lib/guild-api-keys.js";
+import { type TornApiComponents } from "@sentinel/shared";
+import { supabase } from "./lib/supabase.js";
+import { tornApi } from "./services/torn-client.js";
 
-// Local round-robin tracker per guild for auto-verify
-const guildKeyIndices = new Map<string, number>();
-function getNextApiKey(guildId: string, keys: string[]): string {
-  const currentIndex = guildKeyIndices.get(guildId) || 0;
-  const apiKey = keys[currentIndex];
-  guildKeyIndices.set(guildId, (currentIndex + 1) % keys.length);
-  return apiKey;
-}
+type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
+  TornApiComponents["schemas"]["UserFactionResponse"] &
+  TornApiComponents["schemas"]["UserProfileResponse"];
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -69,13 +66,6 @@ console.log(
 console.log(
   `[Bot] Using ${isDev ? "local" : "production"} Discord bot instance`,
 );
-
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
 
 const authorizedDiscordUserId = getAuthorizedDiscordUserId();
 
@@ -119,13 +109,13 @@ client.once(Events.ClientReady, (readyClient) => {
 
   // Start HTTP server for worker communication
   const httpPort = isDev ? 3001 : parseInt(process.env.HTTP_PORT || "3001");
-  initHttpServer(client, supabase, httpPort);
+  initHttpServer(client, httpPort);
 
   // Start periodic guild sync scheduler
-  const guildSyncScheduler = new GuildSyncScheduler(client, supabase);
+  const guildSyncScheduler = new GuildSyncScheduler(client);
   guildSyncScheduler.start();
 
-  const warTrackerScheduler = new WarTrackerScheduler(client, supabase);
+  const warTrackerScheduler = new WarTrackerScheduler(client);
   warTrackerScheduler.start();
 });
 
@@ -148,7 +138,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await forceRunCommand.execute(interaction, supabase);
+        await forceRunCommand.execute(interaction);
       } else if (interaction.commandName === "deploy-commands") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -162,7 +152,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await deployCommandsCommand.execute(interaction, supabase, client);
+        await deployCommandsCommand.execute(interaction, client);
       } else if (interaction.commandName === "setup-guild") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -176,7 +166,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await setupGuildCommand.execute(interaction, supabase, client);
+        await setupGuildCommand.execute(interaction, client);
       } else if (interaction.commandName === "add-bot") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -190,7 +180,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await addBotCommand.execute(interaction, supabase);
+        await addBotCommand.execute(interaction);
       } else if (interaction.commandName === "teardown-guild") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -204,7 +194,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await teardownGuildCommand.execute(interaction, supabase, client);
+        await teardownGuildCommand.execute(interaction, client);
       } else if (interaction.commandName === "enable-module") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -218,7 +208,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await enableModuleCommand.execute(interaction, supabase, client);
+        await enableModuleCommand.execute(interaction, client);
       } else if (interaction.commandName === "guild-status") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -232,7 +222,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           }
           return;
         }
-        await guildStatusCommand.execute(interaction, supabase, client);
+        await guildStatusCommand.execute(interaction, client);
       } else if (interaction.commandName === "test-verification-dms") {
         if (interaction.user.id !== authorizedDiscordUserId) {
           if (interaction.isRepliable()) {
@@ -249,21 +239,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else {
         // Regular commands (personal commands only exist in admin guild)
         if (interaction.commandName === "finance") {
-          await financeCommand.execute(interaction, supabase);
+          await financeCommand.execute(interaction);
         } else if (interaction.commandName === "finance-settings") {
           await financeSettingsCommand.execute(interaction);
         } else if (interaction.commandName === "verify") {
-          await verifyCommand.execute(interaction, supabase);
+          await verifyCommand.execute(interaction);
         } else if (interaction.commandName === "verifyall") {
-          await verifyallCommand.execute(interaction, supabase);
+          await verifyallCommand.execute(interaction);
         } else if (interaction.commandName === "config") {
-          await configCommand.execute(interaction, supabase);
+          await configCommand.execute(interaction);
         } else if (interaction.commandName === "assault-check") {
-          await assaultCheckCommand.execute(interaction, supabase);
+          await assaultCheckCommand.execute(interaction);
         } else if (interaction.commandName === "burn-map") {
-          await burnMapCommand.execute(interaction, supabase);
+          await burnMapCommand.execute(interaction);
         } else if (interaction.commandName === "burn-map-simulator") {
-          await burnMapSimulatorCommand.execute(interaction, supabase);
+          await burnMapSimulatorCommand.execute(interaction);
         }
       }
       return;
@@ -272,33 +262,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle buttons
     if (interaction.isButton()) {
       if (interaction.customId === "config_back_to_menu") {
-        await configCommand.handleBackToMenu(interaction, supabase);
+        await configCommand.handleBackToMenu(interaction);
       } else if (interaction.customId === "config_back_verify_settings") {
-        await configCommand.handleBackToVerifySettings(interaction, supabase);
+        await configCommand.handleBackToVerifySettings(interaction);
       } else if (interaction.customId === "config_back_admin_settings") {
-        await configCommand.handleBackToAdminSettings(interaction, supabase);
+        await configCommand.handleBackToAdminSettings(interaction);
       } else if (interaction.customId === "config_edit_api_keys") {
-        await configCommand.handleEditApiKeysButton(interaction, supabase);
+        await configCommand.handleEditApiKeysButton(interaction);
       } else if (interaction.customId === "config_edit_log_channel") {
-        await configCommand.handleEditLogChannelButton(interaction, supabase);
+        await configCommand.handleEditLogChannelButton(interaction);
       } else if (interaction.customId === "config_clear_log_channel") {
-        await configCommand.handleClearLogChannel(interaction, supabase);
+        await configCommand.handleClearLogChannel(interaction);
       } else if (interaction.customId === "config_edit_admin_roles") {
         await configCommand.handleEditAdminRolesButton(interaction);
       } else if (interaction.customId === "config_add_api_key") {
         await configCommand.handleAddApiKeyButton(interaction);
       } else if (interaction.customId === "config_rotate_api_key") {
-        await configCommand.handleRotateApiKeyButton(interaction, supabase);
+        await configCommand.handleRotateApiKeyButton(interaction);
       } else if (interaction.customId === "config_remove_api_key_menu") {
-        await configCommand.handleRemoveApiKeyMenuButton(interaction, supabase);
+        await configCommand.handleRemoveApiKeyMenuButton(interaction);
       } else if (interaction.customId === "config_add_faction_role") {
         await configCommand.handleAddFactionRoleButton(interaction);
       } else if (interaction.customId === "config_remove_faction_role") {
         await configCommand.handleRemoveFactionRoleButton(interaction);
       } else if (interaction.customId === "config_faction_manage_back") {
-        await configCommand.handleFactionManageBack(interaction, supabase);
+        await configCommand.handleFactionManageBack(interaction);
       } else if (interaction.customId.startsWith("config_faction_toggle_")) {
-        await configCommand.handleFactionToggle(interaction, supabase);
+        await configCommand.handleFactionToggle(interaction);
       } else if (
         interaction.customId.startsWith("config_faction_member_roles_")
       ) {
@@ -308,32 +298,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
       ) {
         await configCommand.handleFactionLeaderRolesButton(interaction);
       } else if (interaction.customId === "confirm_auto_verify_toggle") {
-        await configCommand.handleConfirmAutoVerifyToggle(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleConfirmAutoVerifyToggle(interaction);
       } else if (interaction.customId === "verify_settings_edit_cancel") {
-        await configCommand.handleVerifySettingsEditCancel(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleVerifySettingsEditCancel(interaction);
       } else if (interaction.customId === "tt_settings_show") {
-        await configCommand.handleShowTTSettings(interaction, supabase);
+        await configCommand.handleShowTTSettings(interaction);
       } else if (interaction.customId === "tt_full_channel_clear") {
-        await configCommand.handleTTFullChannelClear(interaction, supabase);
+        await configCommand.handleTTFullChannelClear(interaction);
       } else if (interaction.customId === "tt_filtered_channel_clear") {
-        await configCommand.handleTTFilteredChannelClear(interaction, supabase);
+        await configCommand.handleTTFilteredChannelClear(interaction);
       } else if (
         interaction.customId.startsWith("tt_war_track_page_prev") ||
         interaction.customId.startsWith("tt_war_track_page_next")
       ) {
-        await configCommand.handleTTWarTrackPage(interaction, supabase);
+        await configCommand.handleTTWarTrackPage(interaction);
       } else if (interaction.customId.startsWith("tt_war_track_back")) {
-        await configCommand.handleTTWarTrackBack(interaction, supabase);
+        await configCommand.handleTTWarTrackBack(interaction);
       } else if (
         interaction.customId.startsWith("tt_war_track_channel_clear")
       ) {
-        await configCommand.handleTTWarTrackChannelClear(interaction, supabase);
+        await configCommand.handleTTWarTrackChannelClear(interaction);
       } else if (interaction.customId.startsWith("tt_war_track_away_filter")) {
         await configCommand.handleTTWarTrackAwayFilterButton(interaction);
       }
@@ -343,42 +327,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle modals
     if (interaction.isModalSubmit()) {
       if (interaction.customId.startsWith("config_add_api_key_modal")) {
-        await configCommand.handleAddApiKeyModalSubmit(interaction, supabase);
+        await configCommand.handleAddApiKeyModalSubmit(interaction);
       } else if (interaction.customId === "config_nickname_template_modal") {
-        await configCommand.handleNicknameTemplateModalSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleNicknameTemplateModalSubmit(interaction);
       } else if (interaction.customId === "config_sync_interval_modal") {
-        await configCommand.handleSyncIntervalModalSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleSyncIntervalModalSubmit(interaction);
       } else if (interaction.customId === "config_add_faction_role_modal") {
-        await configCommand.handleAddFactionRoleModalSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleAddFactionRoleModalSubmit(interaction);
       } else if (interaction.customId === "config_remove_faction_role_modal") {
-        await configCommand.handleRemoveFactionRoleModalSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleRemoveFactionRoleModalSubmit(interaction);
       } else if (interaction.customId === "tt_edit_territories_modal") {
-        await configCommand.handleTTEditTerritoriesModalSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTEditTerritoriesModalSubmit(interaction);
       } else if (interaction.customId === "tt_edit_factions_modal") {
-        await configCommand.handleTTEditFactionsModalSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTEditFactionsModalSubmit(interaction);
       } else if (interaction.customId.startsWith("tt_war_track_away_modal")) {
-        await configCommand.handleTTWarTrackAwayFilterSubmit(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTWarTrackAwayFilterSubmit(interaction);
       }
       return;
     }
@@ -386,47 +349,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle string select menus
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId === "setup_guild_select") {
-        await setupGuildCommand.handleGuildSelect(interaction, supabase);
+        await setupGuildCommand.handleGuildSelect(interaction);
       } else if (interaction.customId.startsWith("setup_modules_select")) {
-        await setupGuildCommand.handleModulesSelect(interaction, supabase);
+        await setupGuildCommand.handleModulesSelect(interaction);
       } else if (interaction.customId === "teardown_guild_select") {
         await teardownGuildCommand.handleTeardownGuildSelect(
           interaction,
-          supabase,
           client,
         );
       } else if (interaction.customId === "enable_module_guild_select") {
-        await enableModuleCommand.handleGuildSelect(interaction, supabase);
+        await enableModuleCommand.handleGuildSelect(interaction);
       } else if (interaction.customId.startsWith("enable_module_toggle")) {
-        await enableModuleCommand.handleModuleToggle(
-          interaction,
-          supabase,
-          client,
-        );
+        await enableModuleCommand.handleModuleToggle(interaction, client);
       } else if (interaction.customId === "config_view_select") {
-        await configCommand.handleViewSelect(interaction, supabase);
+        await configCommand.handleViewSelect(interaction);
       } else if (interaction.customId === "verify_settings_edit") {
-        await configCommand.handleVerifySettingsEdit(interaction, supabase);
+        await configCommand.handleVerifySettingsEdit(interaction);
       } else if (interaction.customId === "config_remove_api_key_select") {
-        await configCommand.handleRemoveApiKeySelect(interaction, supabase);
+        await configCommand.handleRemoveApiKeySelect(interaction);
       } else if (interaction.customId === "config_faction_manage_select") {
-        await configCommand.handleFactionManageSelect(interaction, supabase);
+        await configCommand.handleFactionManageSelect(interaction);
       } else if (interaction.customId === "tt_settings_edit") {
-        await configCommand.handleTTSettingsEdit(interaction, supabase);
+        await configCommand.handleTTSettingsEdit(interaction);
       } else if (interaction.customId === "tt_filtered_settings_edit") {
         await configCommand.handleTTFilteredSettingsEdit(interaction);
       } else if (interaction.customId === "tt_notification_type_select") {
-        await configCommand.handleTTNotificationTypeSelect(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTNotificationTypeSelect(interaction);
       } else if (interaction.customId.startsWith("tt_war_track_select")) {
-        await configCommand.handleTTWarTrackSelect(interaction, supabase);
+        await configCommand.handleTTWarTrackSelect(interaction);
       } else if (interaction.customId.startsWith("tt_war_track_enemy_side")) {
-        await configCommand.handleTTWarTrackEnemySideSelect(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTWarTrackEnemySideSelect(interaction);
       }
       return;
     }
@@ -434,25 +386,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle role select menus
     if (interaction.isRoleSelectMenu()) {
       if (interaction.customId.startsWith("config_faction_role_select_")) {
-        await configCommand.handleFactionRoleSelect(interaction, supabase);
+        await configCommand.handleFactionRoleSelect(interaction);
       } else if (
         interaction.customId.startsWith("config_faction_member_roles_select_")
       ) {
-        await configCommand.handleFactionMemberRolesSelect(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleFactionMemberRolesSelect(interaction);
       } else if (
         interaction.customId.startsWith("config_faction_leader_roles_select_")
       ) {
-        await configCommand.handleFactionLeaderRolesSelect(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleFactionLeaderRolesSelect(interaction);
       } else if (interaction.customId === "config_verified_role_select") {
-        await configCommand.handleVerifiedRoleSelect(interaction, supabase);
+        await configCommand.handleVerifiedRoleSelect(interaction);
       } else if (interaction.customId === "config_admin_roles_select") {
-        await configCommand.handleAdminRolesSelect(interaction, supabase);
+        await configCommand.handleAdminRolesSelect(interaction);
       }
       return;
     }
@@ -460,21 +406,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle channel select menus
     if (interaction.isChannelSelectMenu()) {
       if (interaction.customId === "config_log_channel_select") {
-        await configCommand.handleLogChannelSelect(interaction, supabase);
+        await configCommand.handleLogChannelSelect(interaction);
       } else if (interaction.customId === "tt_full_channel_select") {
-        await configCommand.handleTTFullChannelSelect(interaction, supabase);
+        await configCommand.handleTTFullChannelSelect(interaction);
       } else if (interaction.customId === "tt_filtered_channel_select") {
-        await configCommand.handleTTFilteredChannelSelect(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTFilteredChannelSelect(interaction);
       } else if (
         interaction.customId.startsWith("tt_war_track_channel_select")
       ) {
-        await configCommand.handleTTWarTrackChannelSelect(
-          interaction,
-          supabase,
-        );
+        await configCommand.handleTTWarTrackChannelSelect(interaction);
       }
       return;
     }
@@ -488,7 +428,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await logGuildError(
         interaction.guildId,
         client,
-        supabase,
+
         "Command Error",
         error instanceof Error ? error : message,
         `Error handling interaction ${interaction.id}.`,
@@ -540,7 +480,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     }
 
     // Get API keys from new guild-api-keys table
-    const apiKeys = await getGuildApiKeys(supabase, guildId);
+    const apiKeys = await getGuildApiKeys(guildId);
 
     if (apiKeys.length === 0) {
       // No API keys configured for this guild, skip
@@ -562,36 +502,17 @@ client.on(Events.GuildMemberAdd, async (member) => {
     } | null = null;
 
     try {
-      const { botTornApi } = await import("./lib/torn-api.js");
       const apiKey = getNextApiKey(guildId, apiKeys);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response: any = await botTornApi.getRaw(`/user`, apiKey, {
-        selections: "discord,faction,profile",
-        id: member.id,
+
+      const response = await tornApi.get<UserGenericResponse>(`/user`, {
+        apiKey,
+        queryParams: {
+          selections: ["discord", "faction", "profile"],
+          id: member.id,
+        },
       });
 
-      if (response.error) {
-        if (response.error.code === 6) {
-          // User not linked to Torn
-          verificationResult = {
-            status: "not_linked",
-            title: "❌ Not Linked to Torn",
-            description: `Your Discord account is not linked to a Torn account.`,
-            color: 0xef4444,
-            errorMessage:
-              "This Discord account is not linked to any Torn account",
-          };
-        } else {
-          // API error
-          verificationResult = {
-            status: "error",
-            title: "❌ Verification Failed",
-            description: `An error occurred while verifying your account: **${response.error.error || "Unknown error"}**. Please try the /verify command manually.`,
-            color: 0xef4444,
-            errorMessage: `Torn API error: ${response.error.error}`,
-          };
-        }
-      } else if (response.discord) {
+      if (response.discord) {
         // Validate that required fields exist in response
         if (!response.profile?.id || !response.profile?.name) {
           verificationResult = {
@@ -649,7 +570,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
             await logGuildError(
               guildId,
               client,
-              supabase,
+
               "Auto-Verify: Nickname Failed",
               nicknameError instanceof Error
                 ? nicknameError
@@ -722,7 +643,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
           await logGuildSuccess(
             guildId,
             client,
-            supabase,
+
             "Auto-Verify: Success",
             `${member.user} verified as **${response.profile.name}** (${response.profile.id}).`,
             logFields,
@@ -742,25 +663,43 @@ client.on(Events.GuildMemberAdd, async (member) => {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      verificationResult = {
-        status: "error",
-        title: "❌ Verification Failed",
-        description: `An unexpected error occurred. Please try the /verify command manually. (${errorMessage})`,
-        color: 0xef4444,
-        errorMessage,
-      };
+
+      const isNotLinked = /Incorrect ID/i.test(errorMessage);
+
+      if (isNotLinked) {
+        verificationResult = {
+          status: "not_linked",
+          title: "❌ Not Linked to Torn",
+          description: "Your Discord account is not linked to a Torn account.",
+          color: 0xef4444,
+          errorMessage:
+            "This Discord account is not linked to any Torn account",
+        };
+      } else {
+        verificationResult = {
+          status: "error",
+          title: "❌ Verification Failed",
+          description: `An unexpected error occurred. Please try the /verify command manually. (${errorMessage})`,
+          color: 0xef4444,
+          errorMessage,
+        };
+      }
+
       console.error(
         `[Auto-Verify] Error verifying ${member.user.username} (${member.id}):`,
         error,
       );
-      await logGuildError(
-        guildId,
-        client,
-        supabase,
-        "Auto-Verify: Unexpected Error",
-        error instanceof Error ? error : String(error),
-        `Unexpected error verifying ${member.user}.`,
-      );
+
+      if (!isNotLinked) {
+        await logGuildError(
+          guildId,
+          client,
+
+          "Auto-Verify: Unexpected Error",
+          error instanceof Error ? error : String(error),
+          `Unexpected error verifying ${member.user}.`,
+        );
+      }
     }
 
     // Send DM with verification results

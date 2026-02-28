@@ -4,30 +4,23 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { botTornApi } from "../../../lib/torn-api.js";
+import {
+  TABLE_NAMES,
+  getNextApiKey,
+  type TornApiComponents,
+} from "@sentinel/shared";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   logGuildError,
   logGuildSuccess,
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
+import { tornApi } from "../../../services/torn-client.js";
+import { supabase } from "../../../lib/supabase.js";
 
-// Round-robin index for distributing API calls across multiple keys
-const roundRobinIndex = new Map<string, number>();
-
-function getNextApiKey(guildId: string, keys: string[]): string {
-  if (keys.length === 1) {
-    return keys[0];
-  }
-
-  const currentIndex = roundRobinIndex.get(guildId) ?? 0;
-  const nextIndex = currentIndex % keys.length;
-  roundRobinIndex.set(guildId, nextIndex + 1);
-
-  return keys[nextIndex];
-}
+type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
+  TornApiComponents["schemas"]["UserFactionResponse"] &
+  TornApiComponents["schemas"]["UserProfileResponse"];
 
 export const data = new SlashCommandBuilder()
   .setName("verifyall")
@@ -46,10 +39,7 @@ interface VerificationResult {
   errorMessage?: string;
 }
 
-export async function execute(
-  interaction: CommandInteraction,
-  supabase: SupabaseClient,
-): Promise<void> {
+export async function execute(interaction: CommandInteraction): Promise<void> {
   try {
     await interaction.deferReply({ ephemeral: true });
 
@@ -78,7 +68,7 @@ export async function execute(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Failed: Not Configured",
         configError?.message || "Missing guild config",
         `${interaction.user} attempted /verifyall but guild is not configured.`,
@@ -96,13 +86,13 @@ export async function execute(
     }
 
     // Get guild API keys from new table
-    const apiKeys = await getGuildApiKeys(supabase, guildId);
+    const apiKeys = await getGuildApiKeys(guildId);
 
     if (apiKeys.length === 0) {
       await logGuildWarning(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Warning: API Key Required",
         "No API keys configured for guild",
         [{ name: "User", value: interaction.user.toString(), inline: true }],
@@ -127,7 +117,7 @@ export async function execute(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Failed",
         "Unable to fetch guild information",
         `Guild not available for ${interaction.user}.`,
@@ -151,7 +141,7 @@ export async function execute(
     await logGuildSuccess(
       guildId,
       interaction.client,
-      supabase,
+      
       "Verify All Started",
       `${interaction.user} started verification for ${members.size} members.`,
     );
@@ -189,23 +179,11 @@ export async function execute(
       for (const mapping of enabledMappings) {
         try {
           const apiKey = getNextApiKey(guildId, apiKeys);
-          const membersResponse = await botTornApi.get(
-            "/faction/{id}/members",
-            {
-              apiKey,
-              pathParams: { id: String(mapping.faction_id) },
-            },
-          );
+          const membersResponse = await tornApi.get("/faction/{id}/members", {
+            apiKey,
+            pathParams: { id: mapping.faction_id },
+          });
 
-          // Check for API error first to narrow the type
-          if ("error" in membersResponse) {
-            console.warn(
-              `[Verify All] API error for faction ${mapping.faction_id}: ${membersResponse.error.error}`,
-            );
-            continue;
-          }
-
-          // TypeScript now knows this is a success response with members
           const leaders = new Set<number>();
           const members = membersResponse.members;
 
@@ -243,28 +221,15 @@ export async function execute(
       try {
         const apiKey = getNextApiKey(guildId, apiKeys);
         // Call Torn API to verify
-        const response = await botTornApi.getRaw("/user", apiKey, {
-          selections: "discord,faction,profile",
-          id: member.id,
+        const response = await tornApi.get<UserGenericResponse>("/user", {
+          apiKey,
+          queryParams: {
+            selections: ["discord", "faction", "profile"],
+            id: member.id,
+          },
         });
 
-        if (response.error) {
-          if (response.error.code === 6) {
-            // User not linked to Torn
-            results.push({
-              userId: member.id,
-              username: member.user.username,
-              status: "not_linked",
-            });
-          } else {
-            results.push({
-              userId: member.id,
-              username: member.user.username,
-              status: "error",
-              errorMessage: response.error.error,
-            });
-          }
-        } else if (response.discord) {
+        if (response.discord) {
           // Successfully verified
           results.push({
             userId: member.id,
@@ -369,12 +334,22 @@ export async function execute(
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        results.push({
-          userId: member.id,
-          username: member.user.username,
-          status: "error",
-          errorMessage: errorMsg,
-        });
+        const isNotLinked = /Incorrect ID/i.test(errorMsg);
+
+        if (isNotLinked) {
+          results.push({
+            userId: member.id,
+            username: member.user.username,
+            status: "not_linked",
+          });
+        } else {
+          results.push({
+            userId: member.id,
+            username: member.user.username,
+            status: "error",
+            errorMessage: errorMsg,
+          });
+        }
       }
 
       processed++;
@@ -472,7 +447,7 @@ export async function execute(
       await logGuildError(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Completed with Errors",
         `${errors} error(s) occurred during verification.`,
         `Verified: ${successful}, Not Linked: ${notLinked}, Errors: ${errors}.`,
@@ -481,7 +456,7 @@ export async function execute(
       await logGuildWarning(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Completed",
         `Verified: ${successful}, Not Linked: ${notLinked}.`,
       );
@@ -489,7 +464,7 @@ export async function execute(
       await logGuildSuccess(
         guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Completed",
         `Verified: ${successful}, Not Linked: ${notLinked}, Errors: ${errors}.`,
       );
@@ -502,7 +477,7 @@ export async function execute(
       await logGuildError(
         interaction.guildId,
         interaction.client,
-        supabase,
+        
         "Verify All Command Error",
         errorMsg,
         `Error running /verifyall for ${interaction.user}.`,

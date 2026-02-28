@@ -15,12 +15,6 @@
     "sourceMap": true,
     "moduleResolution": "node"
   },
-  "include": [
-    "src/**/*",
-    "src/workers/.archive/travel-alerts.ts",
-    "src/workers/.archive/travel-data.ts",
-    "src/workers/.archive/travel-recommendations.ts",
-    "src/workers/.archive/travel-stock-cache.ts"
-  ],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }
