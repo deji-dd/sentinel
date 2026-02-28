@@ -122,7 +122,23 @@ export async function execute(
       });
     }
 
-    // Check last territory loss: 72 hour cooldown
+    let canAssault = true;
+    const issues: string[] = [];
+    const infoNotes: string[] = [];
+
+    // Get current territory count for faction
+    const { data: ownedTerritories, error: territoriesError } = await supabase
+      .from(TABLE_NAMES.TERRITORY_STATE)
+      .select("territory_id")
+      .eq("faction_id", factionId);
+
+    if (territoriesError) {
+      console.warn("Failed to fetch faction territories:", territoriesError);
+    }
+
+    const currentTerritoryCount = ownedTerritories?.length || 0;
+
+    // Check Rule 1: If faction lost their last territory, 72h cooldown before claiming in Sector 7
     const factionWarsDef = wars?.filter(
       (w) =>
         (w.defending_faction === factionId ||
@@ -130,14 +146,13 @@ export async function execute(
         w.victor_faction !== factionId,
     );
 
-    let canAssault = true;
-    const issues: string[] = [];
-
-    if (factionWarsDef && factionWarsDef.length > 0) {
+    if (
+      factionWarsDef &&
+      factionWarsDef.length > 0 &&
+      currentTerritoryCount === 0
+    ) {
       const lastLoss = factionWarsDef[0]; // Most recent loss first
       const lossTrigger = 72 * 60 * 60 * 1000; // 72 hours
-
-      // Check if this was their last territory (harder to determine without ownership data)
       const timeSinceLoss =
         Date.now() - new Date(lastLoss.start_time).getTime();
 
@@ -145,10 +160,16 @@ export async function execute(
         const hoursRemaining = Math.ceil(
           (lossTrigger - timeSinceLoss) / (60 * 60 * 1000),
         );
-        issues.push(
-          `⏱️ Recent territory loss cooldown: ${hoursRemaining}h remaining (if was last territory)`,
+        infoNotes.push(
+          `ℹ️ Faction has 0 territories and lost a war ${hoursRemaining}h ago. 72h cooldown applies before claiming in Sector 7.`,
         );
       }
+    } else if (currentTerritoryCount > 0) {
+      infoNotes.push(
+        `ℹ️ Faction currently owns ${currentTerritoryCount} territor${currentTerritoryCount === 1 ? "y" : "ies"}.`,
+      );
+    } else if (currentTerritoryCount === 0) {
+      infoNotes.push(`ℹ️ Faction currently owns 0 territories.`);
     }
 
     // Check specific territory cooldowns
@@ -182,9 +203,18 @@ export async function execute(
         }
       }
 
-      // Check 90-day rule: if any war on this territory, must wait 72h after ANY war
-      if (territoryWars.length > 0) {
-        const lastWarOnThis = territoryWars[0];
+      // Check 90-day rule: if faction has warred this territory in last 90 days,
+      // must wait 72h after ANY war on this territory (even by other factions)
+      const factionWarsOnThisTerritory = territoryWars.filter(
+        (w) =>
+          w.assaulting_faction === factionId ||
+          w.defending_faction === factionId,
+      );
+
+      if (factionWarsOnThisTerritory.length > 0) {
+        // Faction has warred this territory in last 90 days
+        // Check if ANY faction has warred this territory in last 72 hours
+        const lastWarOnThis = territoryWars[0]; // Most recent war by ANY faction
         const timeSinceAnyWar =
           Date.now() - new Date(lastWarOnThis.start_time).getTime();
         const waitTrigger = 72 * 60 * 60 * 1000;
@@ -194,7 +224,7 @@ export async function execute(
             (waitTrigger - timeSinceAnyWar) / (60 * 60 * 1000),
           );
           issues.push(
-            `⏱️ War cooldown (any faction): ${hoursRemaining}h remaining`,
+            `⏱️ 90-day rule: Recent war on territory by any faction (${hoursRemaining}h remaining)`,
           );
           canAssault = false;
         }
@@ -238,6 +268,15 @@ export async function execute(
       embed.addFields({
         name: "Active Cooldowns",
         value: issues.join("\n"),
+        inline: false,
+      });
+    }
+
+    // Add informational notes (not blocking)
+    if (infoNotes.length > 0) {
+      embed.addFields({
+        name: "ℹ️ Additional Information",
+        value: infoNotes.join("\n"),
         inline: false,
       });
     }

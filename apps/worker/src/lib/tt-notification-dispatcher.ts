@@ -32,6 +32,7 @@ export interface TTEventNotification {
   assaulting_faction?: number;
   defending_faction?: number;
   occupying_faction: number | null;
+  previous_faction?: number | null; // For "dropped" events - who abandoned it
   racket_name?: string;
   racket_old_level?: number;
   racket_new_level?: number;
@@ -138,9 +139,12 @@ async function buildNotificationEmbeds(
 
     switch (notif.event_type) {
       case "claimed":
-      case "dropped":
         groupKey = `${notif.event_type}:${notif.occupying_faction}`;
         factionId = notif.occupying_faction;
+        break;
+      case "dropped":
+        groupKey = `${notif.event_type}:${notif.previous_faction}`;
+        factionId = notif.previous_faction ?? null;
         break;
       case "assault_succeeded":
         groupKey = `${notif.event_type}:${notif.assaulting_faction}:${notif.defending_faction}`;

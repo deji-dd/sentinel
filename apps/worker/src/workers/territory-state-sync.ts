@@ -341,6 +341,8 @@ export function startTerritoryStateSyncWorker() {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   defending_faction: (activeWar as any)?.defending_faction,
                   occupying_faction: newFaction,
+                  previous_faction:
+                    eventType === "dropped" ? oldFaction : undefined,
                   war_duration_hours: warDurationHours,
                 });
               }
