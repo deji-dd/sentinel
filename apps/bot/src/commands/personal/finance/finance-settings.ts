@@ -9,11 +9,17 @@ import {
 } from "discord.js";
 import { supabase } from "../../../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getPersonalUserId } from "../../../../.archive/auth.js";
 import {
   runWithInteractionError,
   safeReply,
 } from "../../../lib/interaction-utils.js";
+
+const userId = process.env.SENTINEL_USER_ID;
+if (!userId) {
+  throw new Error(
+    "SENTINEL_USER_ID environment variable is required for personalized bot mode",
+  );
+}
 
 function parseNumber(value: string): number | null {
   if (!value) {
@@ -154,8 +160,6 @@ export async function handleModalSubmit(
         );
         return;
       }
-
-      const userId = getPersonalUserId();
 
       const { error } = await supabase
         .from(TABLE_NAMES.FINANCE_SETTINGS)
