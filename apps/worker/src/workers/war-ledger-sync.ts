@@ -2,6 +2,7 @@
  * War ledger sync worker
  * Runs every 15 seconds to fetch territory wars from v1 API
  * Upserts new wars and sets is_warring = true on affected territories
+ * Dispatches notifications for war start/end events
  *
  * Uses system API key via v1 API /torn endpoint
  */
@@ -13,6 +14,7 @@ import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
+import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
 
 interface TerritoryWar {
   territory_war_id: number;
@@ -153,7 +155,7 @@ export function startWarLedgerSyncWorker() {
             // Separate into new wars and existing wars
             const { data: existingWars } = await supabase
               .from(TABLE_NAMES.WAR_LEDGER)
-              .select("war_id")
+              .select("war_id, territory_id")
               .in(
                 "war_id",
                 validWars.map((w) => w.territory_war_id),
@@ -162,12 +164,94 @@ export function startWarLedgerSyncWorker() {
             const existingWarIds = new Set(
               (existingWars || []).map((w) => w.war_id),
             );
-            const _newWars = validWars.filter(
+            const newWars = validWars.filter(
               (w) => !existingWarIds.has(w.territory_war_id),
             );
-            const _updatedWars = validWars.filter((w) =>
-              existingWarIds.has(w.territory_war_id),
+
+            // Detect ended wars (wars in DB but not in API response)
+            const { data: allActiveWars } = await supabase
+              .from(TABLE_NAMES.WAR_LEDGER)
+              .select(
+                "war_id, territory_id, assaulting_faction, defending_faction, start_time",
+              )
+              .is("end_time", null);
+
+            const activeWarIds = new Set(
+              validWars.map((w) => w.territory_war_id),
             );
+            const endedWars = (allActiveWars || []).filter(
+              (w) => !activeWarIds.has(w.war_id),
+            );
+
+            // Prepare notifications
+            const notifications: Array<{
+              guild_id: string;
+              territory_id: string;
+              event_type: "war_started" | "war_ended" | "peace_treaty";
+              assaulting_faction?: number;
+              defending_faction?: number;
+              occupying_faction: number | null;
+              war_id?: number;
+            }> = [];
+
+            // Add war started notifications
+            for (const war of newWars) {
+              notifications.push({
+                guild_id: "",
+                territory_id: war.territory_id,
+                event_type: "war_started",
+                assaulting_faction: war.assaulting_faction,
+                defending_faction: war.defending_faction,
+                occupying_faction: null,
+                war_id: war.territory_war_id,
+              });
+            }
+
+            // Add war ended notifications and update DB
+            for (const war of endedWars) {
+              // Get current owner to determine victor
+              const { data: territoryState } = await supabase
+                .from(TABLE_NAMES.TERRITORY_STATE)
+                .select("faction_id")
+                .eq("territory_id", war.territory_id)
+                .single();
+
+              const victor = territoryState?.faction_id ?? null;
+              const now = new Date();
+              const warStartTime = new Date(war.start_time);
+              const hoursSinceStart =
+                (now.getTime() - warStartTime.getTime()) / (1000 * 60 * 60);
+
+              // Truce: war ended before 72 hours (3 days) AND defender still owns territory
+              const isTruce =
+                hoursSinceStart < 72 && victor === war.defending_faction;
+
+              notifications.push({
+                guild_id: "",
+                territory_id: war.territory_id,
+                event_type: isTruce ? "peace_treaty" : "war_ended",
+                assaulting_faction: war.assaulting_faction,
+                defending_faction: war.defending_faction,
+                occupying_faction: victor,
+                war_id: war.war_id,
+                war_duration_hours: hoursSinceStart,
+              });
+
+              // Mark war as ended in DB
+              await supabase
+                .from(TABLE_NAMES.WAR_LEDGER)
+                .update({
+                  end_time: new Date().toISOString(),
+                  victor_faction: victor,
+                })
+                .eq("war_id", war.war_id);
+
+              // Mark territory as not warring
+              await supabase
+                .from(TABLE_NAMES.TERRITORY_STATE)
+                .update({ is_warring: false })
+                .eq("territory_id", war.territory_id);
+            }
 
             // Upsert war data
             const warData = validWars.map((w) => ({
@@ -177,7 +261,7 @@ export function startWarLedgerSyncWorker() {
               defending_faction: w.defending_faction,
               victor_faction: null, // v1 API doesn't provide victor info, set via state change detection
               start_time: new Date(w.started * 1000).toISOString(),
-              end_time: new Date(w.ends * 1000).toISOString(), // v1 API provides end time immediately
+              end_time: null, // Active wars must have null end_time
             }));
 
             const { error: upsertError } = await supabase
@@ -193,48 +277,64 @@ export function startWarLedgerSyncWorker() {
             }
 
             // Update territory states to mark as warring
-            // First, ensure all territory states exist (create if missing)
+            // First, ensure missing territory_state rows exist without clobbering faction_id
             const warringTerritories = validWars.map((w) => w.territory_id);
 
-            const { error: insertError } = await supabase
+            const { data: existingStates } = await supabase
               .from(TABLE_NAMES.TERRITORY_STATE)
-              .upsert(
-                warringTerritories.map((tid) => ({
-                  territory_id: tid,
-                  faction_id: null,
-                  is_warring: true,
-                })),
-                { onConflict: "territory_id" },
-              );
+              .select("territory_id")
+              .in("territory_id", warringTerritories);
 
-            if (insertError) {
-              logError(
-                "war_ledger_sync",
-                `Failed to upsert territory states: ${insertError.message}`,
-              );
-              // Don't return false - this shouldn't block war ledger updates
-            } else {
-              // Now update remaining territories to is_warring = true
-              const { error: stateError } = await supabase
+            const existingIds = new Set(
+              (existingStates || []).map((row) => row.territory_id),
+            );
+            const missingIds = warringTerritories.filter(
+              (territoryId) => !existingIds.has(territoryId),
+            );
+
+            if (missingIds.length > 0) {
+              const { error: insertError } = await supabase
                 .from(TABLE_NAMES.TERRITORY_STATE)
-                .update({ is_warring: true })
-                .in("territory_id", warringTerritories);
+                .insert(
+                  missingIds.map((territory_id) => ({
+                    territory_id,
+                    is_warring: true,
+                  })),
+                );
 
-              if (stateError) {
+              if (insertError) {
                 logError(
                   "war_ledger_sync",
-                  `Failed to update territory state: ${stateError.message}`,
+                  `Failed to insert missing territory states: ${insertError.message}`,
                 );
-                // Don't return false - DB update failure shouldn't prevent ledger update
               }
+            }
+
+            // Mark all active-war territories as warring without touching faction ownership
+            const { error: stateError } = await supabase
+              .from(TABLE_NAMES.TERRITORY_STATE)
+              .update({ is_warring: true })
+              .in("territory_id", warringTerritories);
+
+            if (stateError) {
+              logError(
+                "war_ledger_sync",
+                `Failed to update territory state: ${stateError.message}`,
+              );
+              // Don't return false - DB update failure shouldn't prevent ledger update
             }
 
             const duration = Date.now() - startTime;
             logDuration(
               "war_ledger_sync",
-              `Sync completed for ${validWars.length} wars`,
+              `Sync completed for ${validWars.length} wars (${newWars.length} new, ${endedWars.length} ended)`,
               duration,
             );
+
+            // Dispatch notifications for war changes
+            if (notifications.length > 0) {
+              await processAndDispatchNotifications(notifications);
+            }
 
             // Update cadence calculation with current war count
             calculateWarCadence(validWars.length);

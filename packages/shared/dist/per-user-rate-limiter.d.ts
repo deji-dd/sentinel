@@ -31,6 +31,8 @@ export declare class PerUserRateLimiter implements RateLimitTracker {
     private userIdCache;
     private unmappedKeysWarned;
     private requestCounter;
+    private initializationTime;
+    private startupGracePeriodMs;
     constructor(config: PerUserRateLimiterConfig);
     private formatTimestamp;
     private formatWindowTimeLeft;

@@ -4,7 +4,7 @@
  * Fetches territory ownership data and syncs to DB
  * Triggers resolution handshake when ownership changes
  *
- * Uses system API key only (distributed across multiple /torn/territory calls)
+ * Uses system API key for /faction/territoryownership endpoint with pagination
  */
 
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -12,8 +12,11 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
-import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
-import { batchHandler } from "../services/torn-client.js";
+import {
+  processAndDispatchNotifications,
+  type TTEventNotification,
+} from "../lib/tt-notification-dispatcher.js";
+import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 
 interface TTOwnershipChange {
@@ -22,31 +25,31 @@ interface TTOwnershipChange {
   new_faction_id: number | null;
 }
 
-interface TTEventNotification {
-  guild_id: string;
-  territory_id: string;
-  event_type: "assault_succeeded" | "assault_failed" | "dropped" | "claimed";
-  assaulting_faction?: number;
-  defending_faction?: number;
-  occupying_faction: number | null;
+function normalizeFactionId(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /**
  * Calculate dynamic cadence based on number of available API keys
- * ~4000 territories, max 50 per request = 80 requests
+ * Current sync loop makes 2 API calls per run (ownership + rackets)
  * Torn API rate limit: 50 req/min per key (safety buffer from 100/min)
- * Formula: (80 requests × 60 seconds) / (numKeys × 50 req/min)
+ * Formula: (2 requests × 60 seconds) / (numKeys × 50 req/min)
  *
  * Examples:
- * - 1 key: 80×60 / (1×50) = 96 seconds
- * - 2 keys: 80×60 / (2×50) = 48 seconds
- * - 4 keys: 80×60 / (4×50) = 24 seconds
+ * - 1 key: 2×60 / (1×50) = 3 seconds
+ * - 2 keys: 2×60 / (2×50) = 2 seconds
+ * - 4 keys: 2×60 / (4×50) = 1 second
  *
  * Dynamically counts actual system keys from database.
- * Min: 24s (4+ keys), Max: 96s (with just system key)
+ * Min is clamped to 15s to avoid overly aggressive scheduling.
  */
 async function calculateCadence(): Promise<number> {
-  const requestsNeeded = 80; // ~4000 territories / 50 per batch
+  const requestsNeeded = 2; // ownership + rackets
   const limitPerKeyPerMin = 50; // Torn limit is 100, using 50 for safety
 
   // Count actual system keys available
@@ -58,8 +61,8 @@ async function calculateCadence(): Promise<number> {
     (requestsNeeded * 60) / (numKeys * limitPerKeyPerMin),
   );
 
-  // Clamp between 24s (minimum practical) and 120s (reasonable max)
-  return Math.max(24, Math.min(120, dynamicCadence));
+  // Clamp between 15s (minimum practical) and 120s (reasonable max)
+  return Math.max(12, Math.min(120, dynamicCadence));
 }
 
 /**
@@ -138,8 +141,9 @@ async function queueGuildNotifications(
     return;
   }
 
-  // Use notification dispatcher to send via bot webhook
-  await processAndDispatchNotifications(notifications);
+  // Fire notification dispatcher asynchronously without blocking sync
+  // (processAndDispatchNotifications returns immediately, queues work internally)
+  processAndDispatchNotifications(notifications);
 }
 
 export function startTerritoryStateSyncWorker() {
@@ -188,96 +192,112 @@ export function startTerritoryStateSyncWorker() {
             const isInitialSeeding =
               !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
 
-            // Batch territories for fetching (max 50 per request)
-            const batchSize = 50;
+            // Fetch territory ownership data using optimal pagination
             const changes: TTOwnershipChange[] = [];
             const notifications: TTEventNotification[] = [];
 
-            // Create batch requests for the handler
-            const batchRequests = [];
-            for (let i = 0; i < ttIds.length; i += batchSize) {
-              const batch = ttIds.slice(i, i + batchSize);
-              batchRequests.push({
-                id: `batch-${Math.floor(i / batchSize)}`,
-                item: { ids: batch },
-              });
+            // Use optimal pagination - check for empty array to stop
+            let allOwnershipData = [];
+            let offset = 0;
+            let pageCount = 0;
+            const limit = 500;
+
+            while (true) {
+              pageCount++;
+              const response = await tornApi.get(
+                "/faction/territoryownership",
+                {
+                  apiKey: apiKeys[0],
+                  queryParams: { offset, limit },
+                },
+              );
+
+              if ("error" in response) {
+                const errorMsg =
+                  typeof response.error === "object" &&
+                  response.error &&
+                  "error" in response.error
+                    ? String(response.error.error)
+                    : String(response.error);
+                logError(
+                  "territory_state_sync",
+                  `API error fetching ownership page ${pageCount}: ${errorMsg}`,
+                );
+                throw new Error(errorMsg);
+              }
+
+              const territories = response.territoryOwnership || [];
+
+              if (territories.length === 0) {
+                break;
+              }
+
+              allOwnershipData.push(...territories);
+
+              // If we got fewer results than the limit, we're done
+              if (territories.length < limit) {
+                break;
+              }
+
+              offset += limit;
             }
 
-            // Execute batches using the batch handler (handles rate limiting)
-            const results = await batchHandler.executeBatch(
-              batchRequests,
-              apiKeys,
-              async (item: { ids: number[] }, key: string) => {
-                const response =
-                  await import("../services/torn-client.js").then((m) =>
-                    m.tornApi.get("/torn/territory", {
-                      apiKey: key,
-                      queryParams: { ids: item.ids },
-                    }),
-                  );
-                return response;
-              },
-              {
-                concurrent: apiKeys.length > 1,
-                delayMs: 0, // Rate limiter handles delays
-                retryAttempts: 2,
-              },
-            );
-
-            // Process results
-            for (const batchResult of results) {
-              if (!batchResult || !batchResult.success || !batchResult.result) {
-                if (batchResult?.error) {
-                  logError(
-                    "territory_state_sync",
-                    `Failed batch ${batchResult.requestId}: ${batchResult.error.message}`,
-                  );
-                } else if (!batchResult) {
-                  logError(
-                    "territory_state_sync",
-                    "Received undefined batch result from handler",
-                  );
+            // Fetch racket data from v1 API
+            const racketResponse = await tornApi.getRaw<{
+              rackets?: Record<
+                string,
+                {
+                  name: string;
+                  level: number;
+                  reward: string;
+                  created: number;
+                  changed: number;
+                  faction: number;
                 }
+              >;
+              error?: { code: number; error: string };
+            }>("/torn", apiKeys[0], { selections: "rackets" });
+
+            if (racketResponse.error) {
+              logError(
+                "territory_state_sync",
+                `Failed to fetch rackets: ${racketResponse.error.error}`,
+              );
+            }
+
+            const racketsByTerritory = racketResponse.rackets || {};
+
+            // Process ownership and racket data, detect all changes
+            for (const tt of allOwnershipData) {
+              const { data: currentState, error } = await supabase
+                .from(TABLE_NAMES.TERRITORY_STATE)
+                .select(
+                  "faction_id, racket_name, racket_level, racket_created_at, racket_changed_at",
+                )
+                .eq("territory_id", tt.id)
+                .single();
+
+              const oldFaction = normalizeFactionId(currentState?.faction_id);
+              const newFaction = normalizeFactionId(tt.owned_by);
+
+              // Get racket data for this territory
+              const racket = racketsByTerritory[tt.id];
+              const oldRacketName = currentState?.racket_name ?? null;
+              const oldRacketLevel = currentState?.racket_level ?? null;
+              const newRacketName = racket?.name ?? null;
+              const newRacketLevel = racket?.level ?? null;
+
+              // Skip if there was an error other than "not found"
+              if (error && error.code !== "PGRST116") {
+                logError(
+                  "territory_state_sync",
+                  `Failed to fetch state for territory ${tt.id}: ${error.message}`,
+                );
                 continue;
               }
 
-              const data = batchResult.result;
-              if ("error" in data) {
-                // API error response
-                continue;
-              }
-
-              const territories = data.territory || [];
-
-              // Compare with DB and detect changes
-              for (const tt of territories) {
-                const { data: currentState, error } = await supabase
-                  .from(TABLE_NAMES.TERRITORY_STATE)
-                  .select("faction_id")
-                  .eq("territory_id", tt.id)
-                  .single();
-
-                // If row doesn't exist, treat as new territory (null -> occupied_by)
-                const oldFaction = currentState?.faction_id ?? null;
-                const newFaction =
-                  tt.occupied_by === null || tt.occupied_by === undefined
-                    ? null
-                    : Number(tt.occupied_by);
-
-                // Skip if no change
-                if (oldFaction === newFaction) {
-                  continue;
-                }
-
-                // Skip if there was an error other than "not found"
-                if (error && error.code !== "PGRST116") {
-                  logError(
-                    "territory_state_sync",
-                    `Failed to fetch state for territory ${tt.id}: ${error.message}`,
-                  );
-                  continue;
-                }
-
+              // Detect ownership changes
+              if (oldFaction !== newFaction) {
                 changes.push({
                   territory_id: tt.id,
                   old_faction_id: oldFaction,
@@ -287,7 +307,7 @@ export function startTerritoryStateSyncWorker() {
                 // Check for active war to determine event type
                 const { data: activeWar } = await supabase
                   .from(TABLE_NAMES.WAR_LEDGER)
-                  .select("assaulting_faction,defending_faction")
+                  .select("assaulting_faction,defending_faction,start_time")
                   .eq("territory_id", tt.id)
                   .is("end_time", null)
                   .single();
@@ -299,8 +319,21 @@ export function startTerritoryStateSyncWorker() {
                   activeWar as any,
                 );
 
+                // Calculate war duration if war is active
+                let warDurationHours: number | undefined;
+                if (
+                  activeWar &&
+                  (eventType === "assault_succeeded" ||
+                    eventType === "assault_failed")
+                ) {
+                  const warStartTime = new Date(activeWar.start_time);
+                  const now = new Date();
+                  warDurationHours =
+                    (now.getTime() - warStartTime.getTime()) / (1000 * 60 * 60);
+                }
+
                 notifications.push({
-                  guild_id: "", // Will be filled in queueGuildNotifications
+                  guild_id: "",
                   territory_id: tt.id,
                   event_type: eventType,
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -308,16 +341,84 @@ export function startTerritoryStateSyncWorker() {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   defending_faction: (activeWar as any)?.defending_faction,
                   occupying_faction: newFaction,
+                  war_duration_hours: warDurationHours,
                 });
+              }
+
+              // Detect racket changes
+              if (
+                oldRacketName !== newRacketName ||
+                oldRacketLevel !== newRacketLevel
+              ) {
+                // Racket spawned
+                if (!oldRacketName && newRacketName) {
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: "racket_spawned",
+                    occupying_faction: newFaction,
+                    racket_name: newRacketName,
+                    racket_new_level: newRacketLevel,
+                  });
+                }
+                // Racket despawned
+                else if (oldRacketName && !newRacketName) {
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: "racket_despawned",
+                    occupying_faction: oldFaction,
+                    racket_name: oldRacketName,
+                    racket_old_level: oldRacketLevel,
+                  });
+                }
+                // Racket level changed
+                else if (
+                  oldRacketName === newRacketName &&
+                  oldRacketLevel !== newRacketLevel
+                ) {
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: "racket_level_changed",
+                    occupying_faction: newFaction,
+                    racket_name: newRacketName,
+                    racket_old_level: oldRacketLevel,
+                    racket_new_level: newRacketLevel,
+                  });
+                }
               }
             }
 
-            if (changes.length > 0) {
-              // Bulk update territory states
-              const stateUpdates = changes.map((change) => ({
-                territory_id: change.territory_id,
-                faction_id: change.new_faction_id,
-              }));
+            // Update database with ownership and racket changes
+            if (
+              changes.length > 0 ||
+              Object.keys(racketsByTerritory).length > 0
+            ) {
+              // Collect all territories that need updates
+              const territoriesToUpdate = new Set<string>();
+
+              changes.forEach((c) => territoriesToUpdate.add(c.territory_id));
+              allOwnershipData.forEach((tt) => territoriesToUpdate.add(tt.id));
+
+              const stateUpdates = Array.from(territoriesToUpdate).map(
+                (territoryId) => {
+                  const ownershipData = allOwnershipData.find(
+                    (t) => t.id === territoryId,
+                  );
+                  const racketData = racketsByTerritory[territoryId];
+
+                  return {
+                    territory_id: territoryId,
+                    faction_id: normalizeFactionId(ownershipData?.owned_by),
+                    racket_name: racketData?.name ?? null,
+                    racket_level: racketData?.level ?? null,
+                    racket_reward: racketData?.reward ?? null,
+                    racket_created_at: racketData?.created ?? null,
+                    racket_changed_at: racketData?.changed ?? null,
+                  };
+                },
+              );
 
               const { error: updateError } = await supabase
                 .from(TABLE_NAMES.TERRITORY_STATE)
@@ -332,15 +433,31 @@ export function startTerritoryStateSyncWorker() {
               }
 
               // Queue guild notifications (skip during initial seeding to avoid channel flood)
-              if (!isInitialSeeding) {
+              if (!isInitialSeeding && notifications.length > 0) {
                 await queueGuildNotifications(changes, notifications);
               }
             }
 
+            const ownershipChanges = notifications.filter((n) =>
+              [
+                "assault_succeeded",
+                "assault_failed",
+                "dropped",
+                "claimed",
+              ].includes(n.event_type),
+            ).length;
+            const racketChanges = notifications.filter((n) =>
+              [
+                "racket_spawned",
+                "racket_despawned",
+                "racket_level_changed",
+              ].includes(n.event_type),
+            ).length;
+
             const duration = Date.now() - startTime;
             logDuration(
               "territory_state_sync",
-              `Sync completed for ${ttIds.length} territories (${changes.length} changes)`,
+              `Sync completed for ${allOwnershipData.length} territories (${ownershipChanges} ownership, ${racketChanges} racket changes)`,
               duration,
             );
           } catch (error) {

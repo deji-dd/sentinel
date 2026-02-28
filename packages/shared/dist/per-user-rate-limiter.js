@@ -23,6 +23,8 @@ export class PerUserRateLimiter {
     userIdCache = new Map();
     unmappedKeysWarned = new Set(); // Track warned keys to avoid spam
     requestCounter = 0; // Counter for logging every Nth request
+    initializationTime = Date.now(); // Track when rate limiter was created
+    startupGracePeriodMs = 30000; // 30-second grace period after startup to allow entries to settle
     constructor(config) {
         this.supabase = config.supabase;
         this.tableName = config.tableName;
@@ -197,8 +199,20 @@ export class PerUserRateLimiter {
      * Wait if necessary to ensure we don't exceed per-user rate limit
      */
     async waitIfNeeded(apiKey) {
-        // Periodic cleanup
-        this.cleanupOldRequests().catch(() => { });
+        // During startup grace period (first 30 seconds), skip rate limiting
+        // This allows entries to settle and old data to be cleaned up
+        const uptime = Date.now() - this.initializationTime;
+        if (uptime < this.startupGracePeriodMs) {
+            return;
+        }
+        // Periodic cleanup of old requests
+        try {
+            await this.cleanupOldRequests();
+        }
+        catch (error) {
+            console.warn("[RateLimiter] Cleanup failed during rate limit check:", error instanceof Error ? error.message : String(error));
+            // Continue despite cleanup failure - rate limiting is still important
+        }
         const userId = await this.getUserIdFromApiKey(apiKey);
         if (!userId) {
             return;
