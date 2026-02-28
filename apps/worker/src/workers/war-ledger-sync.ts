@@ -102,9 +102,13 @@ export function startWarLedgerSyncWorker() {
             const keyRotator = new ApiKeyRotator(apiKeys);
 
             // Fetch territory wars from v1 API using shared client with rate limiting
-            const response = await tornApi.getRaw("/torn", keyRotator.getNextKey(), {
-              selections: "territorywars",
-            });
+            const response = await tornApi.getRaw(
+              "/torn",
+              keyRotator.getNextKey(),
+              {
+                selections: "territorywars",
+              },
+            );
 
             if ("error" in response) {
               // Log API error with timestamp before skipping

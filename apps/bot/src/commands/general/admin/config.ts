@@ -980,7 +980,7 @@ export async function handleVerifySettingsEdit(
 }
 
 async function showFactionRoleMenu(
-  interaction: StringSelectMenuInteraction,
+  interaction: StringSelectMenuInteraction | ButtonInteraction,
   supabase: SupabaseClient,
   guildId: string,
   apiKey?: string,
@@ -991,7 +991,9 @@ async function showFactionRoleMenu(
     .eq("guild_id", guildId)
     .order("faction_id", { ascending: true });
 
-  let factionRolesDisplay = "None configured";
+  let factionRolesDisplay = "None configured\n\nUse the **Add Faction** button below to get started.";
+  const factionSelectOptions: StringSelectMenuOptionBuilder[] = [];
+  
   if (factionRoles && factionRoles.length > 0) {
     // Use stored faction names, fetching missing ones if API key available
     const missingNames = factionRoles.filter((fr) => !fr.faction_name);
@@ -1003,10 +1005,19 @@ async function showFactionRoleMenu(
     factionRolesDisplay = factionRoles
       .map((fr) => {
         const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
-        const rolesMention = fr.role_ids
-          .map((roleId: string) => `<@&${roleId}>`)
-          .join(", ");
-        return `▸ ${factionName}: ${rolesMention}`;
+        const enabled = fr.enabled !== false; // Default to true if not set
+        const statusEmoji = enabled ? "<:Green:1474607376140079104>" : "<:Red:1474607810368114886>";
+        
+        // Add to select menu options
+        factionSelectOptions.push(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${factionName}`)
+            .setDescription(`ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`)
+            .setValue(`faction_manage_${fr.faction_id}`)
+            .setEmoji(enabled ? "1474607376140079104" : "1474607810368114886")
+        );
+        
+        return `${statusEmoji} **${factionName}** (${fr.faction_id})`;
       })
       .join("\n");
   }
@@ -1014,20 +1025,36 @@ async function showFactionRoleMenu(
   const factionEmbed = new EmbedBuilder()
     .setColor(0x10b981)
     .setTitle("Faction Role Management")
+    .setDescription("Select a faction below to manage its role assignments, or add a new faction.")
     .addFields({
-      name: "Current Mappings",
+      name: "Configured Factions",
       value: factionRolesDisplay,
       inline: false,
     });
 
+  const components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] = [];
+
+  // Add faction select menu if there are factions
+  if (factionSelectOptions.length > 0) {
+    const factionSelect = new StringSelectMenuBuilder()
+      .setCustomId("config_faction_manage_select")
+      .setPlaceholder("Select a faction to manage...")
+      .addOptions(factionSelectOptions.slice(0, 25)); // Discord limit
+
+    components.push(
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(factionSelect)
+    );
+  }
+
+  // Add action buttons
   const addBtn = new ButtonBuilder()
     .setCustomId("config_add_faction_role")
-    .setLabel("Add")
+    .setLabel("Add Faction")
     .setStyle(ButtonStyle.Success);
 
   const removeBtn = new ButtonBuilder()
     .setCustomId("config_remove_faction_role")
-    .setLabel("Remove")
+    .setLabel("Remove Faction")
     .setStyle(ButtonStyle.Danger)
     .setDisabled(!factionRoles || factionRoles.length === 0);
 
@@ -1036,15 +1063,97 @@ async function showFactionRoleMenu(
     .setLabel("Back")
     .setStyle(ButtonStyle.Secondary);
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    addBtn,
-    removeBtn,
-    backBtn,
+  components.push(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(addBtn, removeBtn, backBtn)
   );
 
   await interaction.editReply({
     embeds: [factionEmbed],
-    components: [row],
+    components: components,
+  });
+}
+
+async function showFactionManagePage(
+  interaction: StringSelectMenuInteraction | ButtonInteraction | RoleSelectMenuInteraction,
+  supabase: SupabaseClient,
+  factionId: number,
+  _apiKey?: string,
+): Promise<void> {
+  const guildId = interaction.guildId;
+  if (!guildId) return;
+
+  // Fetch faction mapping
+  const { data: factionMapping } = await supabase
+    .from(TABLE_NAMES.FACTION_ROLES)
+    .select("*")
+    .eq("guild_id", guildId)
+    .eq("faction_id", factionId)
+    .single();
+
+  if (!factionMapping) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("Error")
+      .setDescription(`Faction ${factionId} not found in your server's configuration.`);
+
+    await interaction.editReply({
+      embeds: [errorEmbed],
+      components: [],
+    });
+    return;
+  }
+
+  const factionName = factionMapping.faction_name || `Faction ${factionId}`;
+  const enabled = factionMapping.enabled !== false;
+  const memberRoleIds = factionMapping.member_role_ids || [];
+  const leaderRoleIds = factionMapping.leader_role_ids || [];
+
+  // Build description
+  let description = `Configure role assignments for **${factionName}**.\n\n`;
+  description += `**Status:** ${enabled ? "🟢 Enabled" : "🔴 Disabled"}\n\n`;
+  description += `**Member Roles** (assigned to ALL faction members):\n`;
+  description += memberRoleIds.length > 0 
+    ? memberRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+    : "_None configured_";
+  description += `\n\n**Leader Roles** (assigned ONLY to Leaders & Co-leaders):\n`;
+  description += leaderRoleIds.length > 0 
+    ? leaderRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+    : "_None configured_";
+
+  const manageEmbed = new EmbedBuilder()
+    .setColor(enabled ? 0x22c55e : 0xef4444)
+    .setTitle(`Manage Faction: ${factionName}`)
+    .setDescription(description)
+    .setFooter({ text: `Faction ID: ${factionId}` });
+
+  // Buttons
+  const toggleBtn = new ButtonBuilder()
+    .setCustomId(`config_faction_toggle_${factionId}`)
+    .setLabel(enabled ? "Disable" : "Enable")
+    .setStyle(enabled ? ButtonStyle.Secondary : ButtonStyle.Success);
+
+  const memberRolesBtn = new ButtonBuilder()
+    .setCustomId(`config_faction_member_roles_${factionId}`)
+    .setLabel("Set Member Roles")
+    .setStyle(ButtonStyle.Primary);
+
+  const leaderRolesBtn = new ButtonBuilder()
+    .setCustomId(`config_faction_leader_roles_${factionId}`)
+    .setLabel("Set Leader Roles")
+    .setStyle(ButtonStyle.Primary);
+
+  const backBtn = new ButtonBuilder()
+    .setCustomId("config_faction_manage_back")
+    .setLabel("Back to List")
+    .setStyle(ButtonStyle.Secondary);
+
+  const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
+  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(memberRolesBtn, leaderRolesBtn);
+  const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+  await interaction.editReply({
+    embeds: [manageEmbed],
+    components: [row1, row2, row3],
   });
 }
 
@@ -1817,7 +1926,7 @@ export async function handleAddFactionRoleModalSubmit(
     // Check if this faction is already mapped to get existing roles
     const { data: existingMapping } = await supabase
       .from(TABLE_NAMES.FACTION_ROLES)
-      .select("role_ids")
+      .select("member_role_ids")
       .eq("guild_id", guildId)
       .eq("faction_id", factionId)
       .maybeSingle();
@@ -1829,8 +1938,8 @@ export async function handleAddFactionRoleModalSubmit(
         `Select one or more roles to assign to members of **${factionDetails.name}**`,
       );
 
-    if (existingMapping && existingMapping.role_ids.length > 0) {
-      const currentRoles = existingMapping.role_ids
+    if (existingMapping && existingMapping.member_role_ids.length > 0) {
+      const currentRoles = existingMapping.member_role_ids
         .map((roleId: string) => `<@&${roleId}>`)
         .join(", ");
       selectEmbed.addFields({
@@ -2930,4 +3039,372 @@ export async function handleTTWarTrackAwayFilterSubmit(
     interaction,
     supabase,
   );
+}
+
+// Faction Role Management Handlers
+export async function handleFactionManageSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const factionId = parseInt(
+      interaction.values[0].replace("faction_manage_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      return;
+    }
+
+    // Get API key for faction name fetching
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("api_keys")
+      .eq("guild_id", guildId)
+      .single();
+
+    let apiKey: string | undefined;
+    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const activeKey = apiKeys.find((k) => k.isActive);
+    if (activeKey) {
+      try {
+        apiKey = decrypt(activeKey.key);
+      } catch (error) {
+        console.error("Error decrypting API key:", error);
+      }
+    }
+
+    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction manage select handler:", errorMsg);
+  }
+}
+
+export async function handleFactionManageBack(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("api_keys")
+      .eq("guild_id", guildId)
+      .single();
+
+    let apiKey: string | undefined;
+    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const activeKey = apiKeys.find((k) => k.isActive);
+    if (activeKey) {
+      try {
+        apiKey = decrypt(activeKey.key);
+      } catch (error) {
+        console.error("Error decrypting API key:", error);
+      }
+    }
+
+    await showFactionRoleMenu(interaction, supabase, guildId, apiKey);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction manage back handler:", errorMsg);
+  }
+}
+
+export async function handleFactionToggle(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const factionId = parseInt(
+      interaction.customId.replace("config_faction_toggle_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      return;
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    // Get current mapping
+    const { data: currentMapping } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .select("enabled")
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId)
+      .single();
+
+    if (!currentMapping) return;
+
+    const newEnabled = !(currentMapping.enabled !== false); // Toggle
+
+    // Update in database
+    const { error } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .update({ enabled: newEnabled })
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId);
+
+    if (error) {
+      console.error("Error toggling faction:", error);
+      return;
+    }
+
+    await logGuildAudit(supabase, {
+      guildId,
+      actorId: interaction.user.id,
+      action: newEnabled ? "faction_enabled" : "faction_disabled",
+      details: { factionId },
+    });
+
+    // Refresh manage page
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("api_keys")
+      .eq("guild_id", guildId)
+      .single();
+
+    let apiKey: string | undefined;
+    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const activeKey = apiKeys.find((k) => k.isActive);
+    if (activeKey) {
+      try {
+        apiKey = decrypt(activeKey.key);
+      } catch (error) {
+        console.error("Error decrypting API key:", error);
+      }
+    }
+
+    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction toggle handler:", errorMsg);
+  }
+}
+
+export async function handleFactionMemberRolesButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const factionId = parseInt(
+      interaction.customId.replace("config_faction_member_roles_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      return;
+    }
+
+    const selectEmbed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle("Select Member Roles")
+      .setDescription(
+        `Select one or more roles to assign to **all members** of this faction.`,
+      );
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId(`config_faction_member_roles_select_${factionId}`)
+      .setPlaceholder("Select roles for all faction members")
+      .setMinValues(0)
+      .setMaxValues(10);
+
+    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      roleSelect,
+    );
+
+    await interaction.editReply({
+      embeds: [selectEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction member roles button handler:", errorMsg);
+  }
+}
+
+export async function handleFactionLeaderRolesButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const factionId = parseInt(
+      interaction.customId.replace("config_faction_leader_roles_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      return;
+    }
+
+    const selectEmbed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle("Select Leader Roles")
+      .setDescription(
+        `Select one or more roles to assign **only to Leaders and Co-leaders** of this faction.`,
+      );
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId(`config_faction_leader_roles_select_${factionId}`)
+      .setPlaceholder("Select roles for faction leaders")
+      .setMinValues(0)
+      .setMaxValues(10);
+
+    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      roleSelect,
+    );
+
+    await interaction.editReply({
+      embeds: [selectEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction leader roles button handler:", errorMsg);
+  }
+}
+
+export async function handleFactionMemberRolesSelect(
+  interaction: RoleSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const factionId = parseInt(
+      interaction.customId.replace("config_faction_member_roles_select_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      return;
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const roleIds = interaction.values;
+
+    // Update in database
+    const { error } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .update({ member_role_ids: roleIds })
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId);
+
+    if (error) {
+      console.error("Error updating member roles:", error);
+      return;
+    }
+
+    await logGuildAudit(supabase, {
+      guildId,
+      actorId: interaction.user.id,
+      action: "faction_member_roles_updated",
+      details: { factionId, roleIds },
+    });
+
+    // Refresh manage page
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("api_keys")
+      .eq("guild_id", guildId)
+      .single();
+
+    let apiKey: string | undefined;
+    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const activeKey = apiKeys.find((k) => k.isActive);
+    if (activeKey) {
+      try {
+        apiKey = decrypt(activeKey.key);
+      } catch (error) {
+        console.error("Error decrypting API key:", error);
+      }
+    }
+
+    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction member roles select handler:", errorMsg);
+  }
+}
+
+export async function handleFactionLeaderRolesSelect(
+  interaction: RoleSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const factionId = parseInt(
+      interaction.customId.replace("config_faction_leader_roles_select_", ""),
+      10,
+    );
+
+    if (isNaN(factionId)) {
+      return;
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const roleIds = interaction.values;
+
+    // Update in database
+    const { error } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .update({ leader_role_ids: roleIds })
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId);
+
+    if (error) {
+      console.error("Error updating leader roles:", error);
+      return;
+    }
+
+    await logGuildAudit(supabase, {
+      guildId,
+      actorId: interaction.user.id,
+      action: "faction_leader_roles_updated",
+      details: { factionId, roleIds },
+    });
+
+    // Refresh manage page
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("api_keys")
+      .eq("guild_id", guildId)
+      .single();
+
+    let apiKey: string | undefined;
+    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const activeKey = apiKeys.find((k) => k.isActive);
+    if (activeKey) {
+      try {
+        apiKey = decrypt(activeKey.key);
+      } catch (error) {
+        console.error("Error decrypting API key:", error);
+      }
+    }
+
+    await showFactionManagePage(interaction, supabase, factionId, apiKey);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction leader roles select handler:", errorMsg);
+  }
 }

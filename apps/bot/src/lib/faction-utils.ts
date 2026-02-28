@@ -57,7 +57,7 @@ export async function storeFactionDetails(
       {
         guild_id: guildId,
         faction_id: factionId,
-        role_ids: roleIds,
+        member_role_ids: roleIds,
         faction_name: factionName,
         updated_at: new Date().toISOString(),
       },

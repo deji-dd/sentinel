@@ -35,6 +35,7 @@ export function startFactionSyncWorker() {
         const uniqueFactionIds = Array.from(
           new Set(
             factionRoles
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               ?.map((row: any) => row.faction_id)
               .filter((id) => id != null) || [],
           ),
@@ -81,12 +82,13 @@ export function startFactionSyncWorker() {
 
               if ("error" in response) {
                 console.warn(
-                  `[Faction Sync] API error for faction ${factionId}: ${(response as any).error.error}`,
+                  `[Faction Sync] API error for faction ${factionId}: ${response.error.error}`,
                 );
                 return { success: false };
               }
 
-              const basic = (response as any).basic;
+              // TypeScript now knows this is FactionBasicResponse
+              const basic = response.basic;
 
               // Upsert to database
               const { error: upsertError } = await supabase

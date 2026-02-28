@@ -120,7 +120,9 @@ async function syncTornItems(): Promise<void> {
   const keyRotator = new ApiKeyRotator(apiKeys);
 
   // Torn API returns full item list in one call
-  const response = await tornApi.get("/torn/items", { apiKey: keyRotator.getNextKey() });
+  const response = await tornApi.get("/torn/items", {
+    apiKey: keyRotator.getNextKey(),
+  });
 
   // Extract unique categories from items
   const categories = new Set<string>();
