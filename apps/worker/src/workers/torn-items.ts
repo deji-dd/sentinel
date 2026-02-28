@@ -8,7 +8,7 @@ import {
   supabase,
   type TornItemRow,
 } from "../lib/supabase.js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
@@ -111,14 +111,16 @@ function normalizeItems(
 async function syncTornItems(): Promise<void> {
   const startTime = Date.now();
   const apiKeys = await getAllSystemApiKeys("all");
-  const apiKey = apiKeys[0];
-  if (!apiKey) {
+  if (!apiKeys.length) {
     logWarn(WORKER_NAME, "No system API keys available");
     return;
   }
 
+  // Create API key rotator to distribute requests across all available keys
+  const keyRotator = new ApiKeyRotator(apiKeys);
+
   // Torn API returns full item list in one call
-  const response = await tornApi.get("/torn/items", { apiKey });
+  const response = await tornApi.get("/torn/items", { apiKey: keyRotator.getNextKey() });
 
   // Extract unique categories from items
   const categories = new Set<string>();

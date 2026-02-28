@@ -4,11 +4,11 @@
  * Uses system and guild API keys to distribute rate limit load
  */
 
-import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
-import { logDuration, logWarn, logError } from "../lib/logger.js";
+import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 
 export function startFactionSyncWorker() {
@@ -53,14 +53,15 @@ export function startFactionSyncWorker() {
           `[Faction Sync] Syncing ${uniqueFactionIds.length} factions`,
         );
 
-        // Get available API key (system key)
+        // Get available API keys and initialize rotator for load balancing
         const apiKeys = await getAllSystemApiKeys("all");
         if (!apiKeys.length) {
           logError("faction_sync", "No system API key available");
           return false;
         }
 
-        const apiKey = apiKeys[0];
+        // Create API key rotator to distribute requests across all available keys
+        const keyRotator = new ApiKeyRotator(apiKeys);
 
         // Sync faction data in batches using shared client with rate limiting
         let successCount = 0;
@@ -74,7 +75,7 @@ export function startFactionSyncWorker() {
           const promises = batch.map(async (factionId) => {
             try {
               const response = await tornApi.get("/faction/{id}/basic", {
-                apiKey,
+                apiKey: keyRotator.getNextKey(),
                 pathParams: { id: String(factionId) },
               });
 

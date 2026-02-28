@@ -7,7 +7,7 @@
  * Uses system API key for /faction/territoryownership endpoint with pagination
  */
 
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
@@ -61,8 +61,8 @@ async function calculateCadence(): Promise<number> {
     (requestsNeeded * 60) / (numKeys * limitPerKeyPerMin),
   );
 
-  // Clamp between 15s (minimum practical) and 120s (reasonable max)
-  return Math.max(12, Math.min(120, dynamicCadence));
+  // Clamp between 11s (minimum practical) and 120s (reasonable max)
+  return Math.max(11, Math.min(120, dynamicCadence));
 }
 
 /**
@@ -192,12 +192,15 @@ export function startTerritoryStateSyncWorker() {
           const startTime = Date.now();
 
           try {
-            // Get system API key
+            // Get system API keys and initialize rotator for load balancing
             const apiKeys = await getAllSystemApiKeys("all");
             if (!apiKeys.length) {
               // Silently skip if no system key
               return;
             }
+
+            // Create API key rotator to distribute requests across all available keys
+            const keyRotator = new ApiKeyRotator(apiKeys);
 
             // Get all territory IDs (with explicit limit to bypass default 1000-row limit)
             const { data: allTTs } = await supabase
@@ -252,7 +255,7 @@ export function startTerritoryStateSyncWorker() {
               const response = await tornApi.get(
                 "/faction/territoryownership",
                 {
-                  apiKey: apiKeys[0],
+                  apiKey: keyRotator.getNextKey(),
                   queryParams: { offset, limit },
                 },
               );
@@ -301,7 +304,7 @@ export function startTerritoryStateSyncWorker() {
                 }
               >;
               error?: { code: number; error: string };
-            }>("/torn", apiKeys[0], { selections: "rackets" });
+            }>("/torn", keyRotator.getNextKey(), { selections: "rackets" });
 
             if (racketResponse.error) {
               logError(
