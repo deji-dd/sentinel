@@ -7,6 +7,7 @@ import * as teardownGuildCommand from "./commands/personal/admin/teardown-guild.
 import * as forceRunCommand from "./commands/personal/admin/force-run.js";
 import * as addBotCommand from "./commands/personal/admin/add-bot.js";
 import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
+import * as removeModuleCommand from "./commands/personal/admin/remove-module.js";
 import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
@@ -45,6 +46,7 @@ const commands = [
   teardownGuildCommand.data.toJSON(),
   addBotCommand.data.toJSON(),
   enableModuleCommand.data.toJSON(),
+  removeModuleCommand.data.toJSON(),
   guildStatusCommand.data.toJSON(),
   configCommand.data.toJSON(),
   verifyCommand.data.toJSON(),

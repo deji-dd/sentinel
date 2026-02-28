@@ -68,7 +68,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       await logGuildError(
         guildId,
         interaction.client,
-        
+
         "Verify All Failed: Not Configured",
         configError?.message || "Missing guild config",
         `${interaction.user} attempted /verifyall but guild is not configured.`,
@@ -92,7 +92,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       await logGuildWarning(
         guildId,
         interaction.client,
-        
+
         "Verify All Warning: API Key Required",
         "No API keys configured for guild",
         [{ name: "User", value: interaction.user.toString(), inline: true }],
@@ -117,7 +117,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       await logGuildError(
         guildId,
         interaction.client,
-        
+
         "Verify All Failed",
         "Unable to fetch guild information",
         `Guild not available for ${interaction.user}.`,
@@ -141,7 +141,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
     await logGuildSuccess(
       guildId,
       interaction.client,
-      
+
       "Verify All Started",
       `${interaction.user} started verification for ${members.size} members.`,
     );
@@ -245,11 +245,11 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
           // Store in database
           await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
             discord_id: member.id,
-            torn_player_id: response.profile?.id,
-            torn_player_name: response.profile?.name,
+            torn_id: response.profile?.id,
+            torn_name: response.profile?.name,
             faction_id: response.faction?.id || null,
-            faction_name: response.faction?.name || null,
-            verified_at: new Date().toISOString(),
+            faction_tag: response.faction?.tag || null,
+            updated_at: new Date().toISOString(),
           });
 
           // Apply nickname template
@@ -261,10 +261,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
             await member.setNickname(nickname);
           } catch (nicknameError) {
-            console.error(
-              `Failed to set nickname for ${member.user.username}:`,
-              nicknameError,
-            );
+            // Silently ignore nickname errors (expected for admins with higher perms)
           }
 
           // Assign verification role if configured
@@ -331,6 +328,58 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
               }
             }
           }
+
+          // Log individual verification success
+          const result = results[results.length - 1];
+          const logFields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Torn ID",
+              value: String(response.profile?.id || "Unknown"),
+              inline: true,
+            },
+          ];
+
+          if (response.faction) {
+            logFields.push({
+              name: "Faction",
+              value: response.faction.name,
+              inline: true,
+            });
+          }
+
+          if (result.rolesAdded && result.rolesAdded.length > 0) {
+            const rolesMention = result.rolesAdded
+              .map((roleId) => `<@&${roleId}>`)
+              .join(", ");
+            logFields.push({
+              name: "✅ Roles Added",
+              value: rolesMention,
+              inline: false,
+            });
+          }
+
+          if (result.rolesFailed && result.rolesFailed.length > 0) {
+            const rolesMention = result.rolesFailed
+              .map((roleId) => `<@&${roleId}>`)
+              .join(", ");
+            logFields.push({
+              name: "❌ Roles Failed",
+              value: rolesMention,
+              inline: false,
+            });
+          }
+
+          await logGuildSuccess(
+            guildId,
+            interaction.client,
+            "Verify All Success",
+            `${member.user} verified as **${response.profile?.name}**.`,
+            logFields,
+          );
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -443,11 +492,11 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
     await interaction.editReply({ embeds: [resultEmbed], components: [] });
 
+    // Only log errors/warnings, not success summary (individual verifications already logged)
     if (errors > 0) {
       await logGuildError(
         guildId,
         interaction.client,
-        
         "Verify All Completed with Errors",
         `${errors} error(s) occurred during verification.`,
         `Verified: ${successful}, Not Linked: ${notLinked}, Errors: ${errors}.`,
@@ -456,17 +505,8 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       await logGuildWarning(
         guildId,
         interaction.client,
-        
-        "Verify All Completed",
-        `Verified: ${successful}, Not Linked: ${notLinked}.`,
-      );
-    } else {
-      await logGuildSuccess(
-        guildId,
-        interaction.client,
-        
-        "Verify All Completed",
-        `Verified: ${successful}, Not Linked: ${notLinked}, Errors: ${errors}.`,
+        "Verify All: Users Not Linked",
+        `${notLinked} user(s) not linked to Torn.`,
       );
     }
   } catch (error) {
@@ -477,7 +517,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       await logGuildError(
         interaction.guildId,
         interaction.client,
-        
+
         "Verify All Command Error",
         errorMsg,
         `Error running /verifyall for ${interaction.user}.`,

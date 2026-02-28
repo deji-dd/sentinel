@@ -100,7 +100,7 @@ export async function getPrimaryGuildApiKey(
 export async function storeGuildApiKey(
   guildId: string,
   apiKey: string,
-  userId: string,
+  userId: number,
   providedBy: string,
   isPrimary: boolean = false,
 ): Promise<void> {

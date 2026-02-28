@@ -21,21 +21,72 @@ import {
   type ChannelSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { encrypt, decrypt } from "../../../lib/encryption.js";
+import { decrypt } from "../../../lib/encryption.js";
+import {
+  getGuildApiKeys,
+  storeGuildApiKey,
+  deleteGuildApiKey,
+} from "../../../lib/guild-api-keys.js";
 import {
   fetchAndStoreFactionNames,
   validateAndFetchFactionDetails,
   storeFactionDetails,
 } from "../../../lib/faction-utils.js";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
+import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import { supabase } from "../../../lib/supabase.js";
 
-interface ApiKeyEntry {
-  key: string; // encrypted
-  fingerprint: string; // last 4 characters for display
-  isActive: boolean;
+interface StoredGuildApiKey {
+  id: number;
+  api_key_encrypted: string;
+  is_primary: boolean;
   createdAt: string;
+}
+
+async function getStoredGuildApiKeys(
+  guildId: string,
+): Promise<StoredGuildApiKey[]> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.GUILD_API_KEYS)
+    .select("id, api_key_encrypted, is_primary, created_at")
+    .eq("guild_id", guildId)
+    .is("deleted_at", null)
+    .order("is_primary", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  if (error || !data) {
+    return [];
+  }
+
+  return data.map(
+    (row) =>
+      ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        id: (row as any).id,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        api_key_encrypted: (row as any).api_key_encrypted,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        is_primary: Boolean((row as any).is_primary),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        createdAt: (row as any).created_at,
+      }) as StoredGuildApiKey,
+  );
+}
+
+async function getActiveGuildApiKey(
+  guildId: string,
+): Promise<string | undefined> {
+  const apiKeys = await getGuildApiKeys(guildId);
+  return apiKeys.length > 0 ? apiKeys[0] : undefined;
+}
+
+function getApiKeyFingerprint(encrypted: string): string {
+  try {
+    return decrypt(encrypted).slice(-4);
+  } catch {
+    return "????";
+  }
 }
 
 const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
@@ -219,7 +270,7 @@ export async function handleViewSelect(
     // Get guild config
     const { data: guildConfig } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
+      .select("guild_id")
       .eq("guild_id", guildId)
       .single();
 
@@ -263,18 +314,17 @@ async function showAdminSettings(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   guildConfig: any,
 ): Promise<void> {
-  // Parse API keys from config
-  const apiKeys: ApiKeyEntry[] = guildConfig.api_keys || [];
-  const _hasApiKey = apiKeys.length > 0;
+  const guildId = interaction.guildId;
+  const apiKeys = guildId ? await getStoredGuildApiKeys(guildId) : [];
 
   let apiKeyDisplay = "No keys configured";
   if (apiKeys.length > 0) {
     apiKeyDisplay = apiKeys
-      .map((k: ApiKeyEntry) => {
-        const status = k.isActive
+      .map((k) => {
+        const status = k.is_primary
           ? "<:Green:1474607376140079104>"
           : "<:Red:1474607810368114886>";
-        return `${status} ...${k.fingerprint}`;
+        return `${status} ...${getApiKeyFingerprint(k.api_key_encrypted)}`;
       })
       .join("\n");
   }
@@ -361,7 +411,8 @@ async function showVerifySettings(
     .eq("guild_id", interaction.guildId)
     .order("faction_id", { ascending: true });
 
-  const apiKeys: ApiKeyEntry[] = guildConfig.api_keys || [];
+  const guildId = interaction.guildId;
+  const apiKeys = guildId ? await getStoredGuildApiKeys(guildId) : [];
   const hasApiKey = apiKeys.length > 0;
 
   // Format faction roles display - show count instead of listing
@@ -542,7 +593,7 @@ export async function handleBackToVerifySettings(
       .eq("guild_id", guildId)
       .order("faction_id", { ascending: true });
 
-    const apiKeys: ApiKeyEntry[] = guildConfig.api_keys || [];
+    const apiKeys = await getStoredGuildApiKeys(guildId);
     const hasApiKey = apiKeys.length > 0;
 
     let factionRolesDisplay = "None configured";
@@ -550,12 +601,11 @@ export async function handleBackToVerifySettings(
       // Fetch faction names for display (if API key available)
       const missingNames = factionRoles.filter((fr) => !fr.faction_name);
       if (missingNames.length > 0) {
-        const activeKey = apiKeys.find((k) => k.isActive);
-        if (activeKey) {
+        const activeApiKey = await getActiveGuildApiKey(guildId);
+        if (activeApiKey) {
           try {
-            const apiKey = decrypt(activeKey.key);
             const factionIds = missingNames.map((fr) => fr.faction_id);
-            await fetchAndStoreFactionNames(factionIds, apiKey);
+            await fetchAndStoreFactionNames(factionIds, activeApiKey);
           } catch (error) {
             console.error("Error decrypting API key:", error);
           }
@@ -731,16 +781,16 @@ export async function handleBackToAdminSettings(
 
     if (!guildConfig) return;
 
-    const apiKeys: ApiKeyEntry[] = guildConfig.api_keys || [];
+    const apiKeys = await getStoredGuildApiKeys(guildId);
 
     let apiKeyDisplay = "No keys configured";
     if (apiKeys.length > 0) {
       apiKeyDisplay = apiKeys
-        .map((k: ApiKeyEntry) => {
-          const status = k.isActive
+        .map((k) => {
+          const status = k.is_primary
             ? "<:Green:1474607376140079104>"
             : "<:Red:1474607810368114886>";
-          return `${status} ...${k.fingerprint}`;
+          return `${status} ...${getApiKeyFingerprint(k.api_key_encrypted)}`;
         })
         .join("\n");
     }
@@ -863,16 +913,7 @@ export async function handleVerifySettingsEdit(
     }
 
     // Extract active API key for faction lookups
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     if (selectedSetting === "edit_auto_verify") {
       await interaction.deferUpdate();
@@ -1292,7 +1333,8 @@ export async function handleEditApiKeysButton(
       return;
     }
 
-    const apiKeysView = buildApiKeysView(guildConfig);
+    const apiKeys = await getStoredGuildApiKeys(guildId);
+    const apiKeysView = buildApiKeysView(apiKeys);
 
     await interaction.editReply(apiKeysView);
   } catch (error) {
@@ -1366,14 +1408,7 @@ export async function handleAddApiKeyModalSubmit(
       return;
     }
 
-    // Get current keys
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const apiKeys = await getStoredGuildApiKeys(guildId);
 
     if (apiKeys.length >= 5) {
       const errorEmbed = new EmbedBuilder()
@@ -1387,28 +1422,21 @@ export async function handleAddApiKeyModalSubmit(
       return;
     }
 
-    // Encrypt and add new key
-    const encryptedKey = encrypt(apiKey);
+    const keyInfo = await validateTornApiKey(apiKey);
     const fingerprint = apiKey.slice(-4);
-    const newKeyEntry: ApiKeyEntry = {
-      key: encryptedKey,
-      fingerprint,
-      isActive: apiKeys.length === 0, // First key is automatically active
-      createdAt: new Date().toISOString(),
-    };
-
-    const updatedKeys = [...apiKeys, newKeyEntry];
-
-    const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ api_keys: updatedKeys })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await storeGuildApiKey(
+        guildId,
+        apiKey,
+        keyInfo.playerId,
+        interaction.user.id,
+        apiKeys.length === 0,
+      );
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Failed to Add Key")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -1422,8 +1450,8 @@ export async function handleAddApiKeyModalSubmit(
       action: "api_key_added",
       details: {
         fingerprint,
-        isActive: newKeyEntry.isActive,
-        totalKeys: updatedKeys.length,
+        isActive: apiKeys.length === 0,
+        totalKeys: apiKeys.length + 1,
       },
     });
 
@@ -1431,7 +1459,7 @@ export async function handleAddApiKeyModalSubmit(
       .setColor(0x22c55e)
       .setTitle("API Key Added")
       .setDescription(
-        `New key added: **...${fingerprint}**\n\n${newKeyEntry.isActive ? "This key is now active" : "This key is inactive. Use Rotate to activate it"}`,
+        `New key added: **...${fingerprint}**\n\n${apiKeys.length === 0 ? "This key is now active" : "This key is inactive. Use Rotate to activate it"}`,
       );
 
     const backBtn = new ButtonBuilder()
@@ -1445,34 +1473,6 @@ export async function handleAddApiKeyModalSubmit(
       embeds: [successEmbed],
       components: [row],
     });
-
-    const modalIdParts = interaction.customId.split(":");
-    const messageId = modalIdParts.length > 1 ? modalIdParts[1] : null;
-    if (messageId && interaction.channel) {
-      try {
-        const message = await interaction.channel.messages.fetch(messageId);
-        if (message) {
-          const refreshedConfig = await supabase
-            .from(TABLE_NAMES.GUILD_CONFIG)
-            .select("api_keys")
-            .eq("guild_id", guildId)
-            .single();
-
-          if (refreshedConfig.data) {
-            await message.edit(buildApiKeysView(refreshedConfig.data));
-          }
-        }
-      } catch (error) {
-        const errorCode =
-          typeof error === "object" && error !== null && "code" in error
-            ? (error as { code?: number }).code
-            : undefined;
-
-        if (errorCode !== 10008) {
-          console.warn("Failed to refresh API key view:", error);
-        }
-      }
-    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in add API key modal handler:", errorMsg);
@@ -1487,20 +1487,19 @@ export async function handleAddApiKeyModalSubmit(
   }
 }
 
-function buildApiKeysView(guildConfig: { api_keys?: ApiKeyEntry[] }): {
+function buildApiKeysView(apiKeys: StoredGuildApiKey[]): {
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 } {
-  const apiKeys: ApiKeyEntry[] = guildConfig.api_keys || [];
-
   let keysDisplay = "No keys configured";
   if (apiKeys.length > 0) {
     keysDisplay = apiKeys
-      .map((k: ApiKeyEntry, idx: number) => {
-        const status = k.isActive
+      .map((k, idx: number) => {
+        const status = k.is_primary
           ? "<:Green:1474607376140079104>"
           : "<:Red:1474607810368114886>";
-        return `${idx + 1}. ${status} ...${k.fingerprint} (${new Date(k.createdAt).toLocaleDateString()})`;
+        const fingerprint = getApiKeyFingerprint(k.api_key_encrypted);
+        return `${idx + 1}. ${status} ...${fingerprint} (${new Date(k.createdAt).toLocaleDateString()})`;
       })
       .join("\n");
   }
@@ -1572,13 +1571,7 @@ export async function handleRotateApiKeyButton(
       return;
     }
 
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const apiKeys = await getStoredGuildApiKeys(guildId);
 
     if (apiKeys.length < 2) {
       const errorEmbed = new EmbedBuilder()
@@ -1594,9 +1587,9 @@ export async function handleRotateApiKeyButton(
     }
 
     // Find current active key and next inactive key
-    const currentActiveIdx = apiKeys.findIndex((k) => k.isActive);
+    const currentActiveIdx = apiKeys.findIndex((k) => k.is_primary);
     const nextInactiveIdx = apiKeys.findIndex(
-      (k, idx) => !k.isActive && idx !== currentActiveIdx,
+      (k, idx) => !k.is_primary && idx !== currentActiveIdx,
     );
 
     if (nextInactiveIdx === -1) {
@@ -1612,17 +1605,38 @@ export async function handleRotateApiKeyButton(
       return;
     }
 
-    const fromFingerprint = apiKeys[currentActiveIdx].fingerprint;
-    const toFingerprint = apiKeys[nextInactiveIdx].fingerprint;
+    const fromFingerprint = getApiKeyFingerprint(
+      apiKeys[currentActiveIdx].api_key_encrypted,
+    );
+    const toFingerprint = getApiKeyFingerprint(
+      apiKeys[nextInactiveIdx].api_key_encrypted,
+    );
 
-    // Rotate: deactivate current, activate next
-    apiKeys[currentActiveIdx].isActive = false;
-    apiKeys[nextInactiveIdx].isActive = true;
+    const { error: clearPrimaryError } = await supabase
+      .from(TABLE_NAMES.GUILD_API_KEYS)
+      .update({ is_primary: false })
+      .eq("guild_id", guildId)
+      .is("deleted_at", null);
+
+    if (clearPrimaryError) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Failed to Rotate Key")
+        .setDescription(clearPrimaryError.message);
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
 
     const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ api_keys: apiKeys })
-      .eq("guild_id", guildId);
+      .from(TABLE_NAMES.GUILD_API_KEYS)
+      .update({ is_primary: true })
+      .eq("id", apiKeys[nextInactiveIdx].id)
+      .eq("guild_id", guildId)
+      .is("deleted_at", null);
 
     if (error) {
       const errorEmbed = new EmbedBuilder()
@@ -1684,23 +1698,18 @@ export async function handleRemoveApiKeyMenuButton(
       return;
     }
 
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
+    const apiKeys = await getStoredGuildApiKeys(guildId);
 
     if (apiKeys.length === 0) {
       return;
     }
 
-    const options = apiKeys.map((k, idx) => {
-      const status = k.isActive ? "🟢" : "🔴";
+    const options = apiKeys.map((k) => {
+      const status = k.is_primary ? "🟢" : "🔴";
+      const fingerprint = getApiKeyFingerprint(k.api_key_encrypted);
       return new StringSelectMenuOptionBuilder()
-        .setLabel(`${status} ...${k.fingerprint}`)
-        .setValue(`remove_key_${idx}`);
+        .setLabel(`${status} ...${fingerprint}`)
+        .setValue(`remove_key_${k.id}`);
     });
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -1735,43 +1744,35 @@ export async function handleRemoveApiKeySelect(
     await interaction.deferUpdate();
 
     const guildId = interaction.guildId;
-    const keyIndexStr = interaction.values[0].replace("remove_key_", "");
-    const keyIndex = parseInt(keyIndexStr, 10);
+    const keyIdStr = interaction.values[0].replace("remove_key_", "");
+    const keyId = parseInt(keyIdStr, 10);
 
     if (!guildId) {
       return;
     }
 
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
+    const apiKeys = await getStoredGuildApiKeys(guildId);
+    const removedKey = apiKeys.find((key) => key.id === keyId);
 
-    let apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-
-    if (keyIndex < 0 || keyIndex >= apiKeys.length) {
+    if (!removedKey) {
       return;
     }
 
-    const removedKey = apiKeys[keyIndex];
-    const removedFingerprint = removedKey.fingerprint;
-    const removedWasActive = removedKey.isActive;
+    const removedFingerprint = getApiKeyFingerprint(
+      removedKey.api_key_encrypted,
+    );
+    const removedWasActive = removedKey.is_primary;
+    const removedRawKey = decrypt(removedKey.api_key_encrypted);
 
-    if (removedKey.isActive && apiKeys.length > 1) {
-      // If removing active key, make the next key active
-      apiKeys.splice(keyIndex, 1);
-      if (apiKeys.length > 0) {
-        apiKeys[0].isActive = true;
-      }
-    } else {
-      apiKeys.splice(keyIndex, 1);
+    let error: Error | null = null;
+    try {
+      await deleteGuildApiKey(guildId, removedRawKey);
+    } catch (deleteError) {
+      error =
+        deleteError instanceof Error
+          ? deleteError
+          : new Error(String(deleteError));
     }
-
-    const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ api_keys: apiKeys })
-      .eq("guild_id", guildId);
 
     if (error) {
       const errorEmbed = new EmbedBuilder()
@@ -1786,6 +1787,18 @@ export async function handleRemoveApiKeySelect(
       return;
     }
 
+    if (removedWasActive) {
+      const remainingKeys = await getStoredGuildApiKeys(guildId);
+      if (remainingKeys.length > 0) {
+        await supabase
+          .from(TABLE_NAMES.GUILD_API_KEYS)
+          .update({ is_primary: true })
+          .eq("id", remainingKeys[0].id)
+          .eq("guild_id", guildId)
+          .is("deleted_at", null);
+      }
+    }
+
     await logGuildAudit({
       guildId,
       actorId: interaction.user.id,
@@ -1793,7 +1806,7 @@ export async function handleRemoveApiKeySelect(
       details: {
         fingerprint: removedFingerprint,
         wasActive: removedWasActive,
-        totalKeys: apiKeys.length,
+        totalKeys: Math.max(apiKeys.length - 1, 0),
       },
     });
 
@@ -1909,24 +1922,7 @@ export async function handleAddFactionRoleModalSubmit(
       return;
     }
 
-    // Get guild config to extract API key for faction validation
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    // Get active API key if available
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     // Validate that the faction exists in Torn
     if (!apiKey) {
@@ -1960,45 +1956,92 @@ export async function handleAddFactionRoleModalSubmit(
       return;
     }
 
-    // Check if this faction is already mapped to get existing roles
+    // Check if this faction is already mapped
     const { data: existingMapping } = await supabase
       .from(TABLE_NAMES.FACTION_ROLES)
-      .select("member_role_ids")
+      .select("*")
       .eq("guild_id", guildId)
       .eq("faction_id", factionId)
       .maybeSingle();
 
-    const selectEmbed = new EmbedBuilder()
-      .setColor(0x3b82f6)
-      .setTitle("Select Roles")
-      .setDescription(
-        `Select one or more roles to assign to members of **${factionDetails.name}**`,
-      );
+    // If not exists, create it with empty roles
+    if (!existingMapping) {
+      await supabase.from(TABLE_NAMES.FACTION_ROLES).insert({
+        guild_id: guildId,
+        faction_id: factionId,
+        faction_name: factionDetails.name,
+        member_role_ids: [],
+        leader_role_ids: [],
+        enabled: true,
+      });
 
-    if (existingMapping && existingMapping.member_role_ids.length > 0) {
-      const currentRoles = existingMapping.member_role_ids
-        .map((roleId: string) => `<@&${roleId}>`)
-        .join(", ");
-      selectEmbed.addFields({
-        name: "Current Roles",
-        value: currentRoles,
-        inline: false,
+      await logGuildAudit({
+        guildId,
+        actorId: interaction.user.id,
+        action: "faction_added",
+        details: {
+          factionId,
+          factionName: factionDetails.name,
+        },
       });
     }
 
-    const roleSelect = new RoleSelectMenuBuilder()
-      .setCustomId(`config_faction_role_select_${factionId}`)
-      .setPlaceholder("Select roles for this faction")
-      .setMinValues(1)
-      .setMaxValues(10);
+    // Show faction management page
+    const memberRoleIds = existingMapping?.member_role_ids || [];
+    const leaderRoleIds = existingMapping?.leader_role_ids || [];
+    const enabled = existingMapping?.enabled !== false;
 
-    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
-      roleSelect,
+    // Build description
+    let description = `Configure role assignments for **${factionDetails.name}**.\n\n`;
+    description += `**Status:** ${enabled ? "<:Green:1474607376140079104> Enabled" : "<:Red:1474607810368114886> Disabled"}\n\n`;
+    description += `**Member Roles** (assigned to ALL faction members):\n`;
+    description +=
+      memberRoleIds.length > 0
+        ? memberRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+        : "_None configured_";
+    description += `\n\n**Leader Roles** (assigned ONLY to Leaders & Co-leaders):\n`;
+    description +=
+      leaderRoleIds.length > 0
+        ? leaderRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+        : "_None configured_";
+
+    const manageEmbed = new EmbedBuilder()
+      .setColor(enabled ? 0x22c55e : 0xef4444)
+      .setTitle(`Manage Faction: ${factionDetails.name}`)
+      .setDescription(description)
+      .setFooter({ text: `Faction ID: ${factionId}` });
+
+    // Buttons
+    const toggleBtn = new ButtonBuilder()
+      .setCustomId(`config_faction_toggle_${factionId}`)
+      .setLabel(enabled ? "Disable" : "Enable")
+      .setStyle(enabled ? ButtonStyle.Secondary : ButtonStyle.Success);
+
+    const memberRolesBtn = new ButtonBuilder()
+      .setCustomId(`config_faction_member_roles_${factionId}`)
+      .setLabel("Set Member Roles")
+      .setStyle(ButtonStyle.Primary);
+
+    const leaderRolesBtn = new ButtonBuilder()
+      .setCustomId(`config_faction_leader_roles_${factionId}`)
+      .setLabel("Set Leader Roles")
+      .setStyle(ButtonStyle.Primary);
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("config_back_verify_settings")
+      .setLabel("Back to Verification Settings")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      memberRolesBtn,
+      leaderRolesBtn,
     );
+    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
     await interaction.editReply({
-      embeds: [selectEmbed],
-      components: [row],
+      embeds: [manageEmbed],
+      components: [row1, row2, row3],
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -2133,23 +2176,7 @@ export async function handleFactionRoleSelect(
 
     const roleIds = interaction.values;
 
-    // Get API key to fetch faction name
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     // Fetch faction details
     let factionName = "Unknown";
@@ -3048,26 +3075,10 @@ export async function handleFactionManageSelect(
       return;
     }
 
-    // Get API key for faction name fetching
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3085,22 +3096,7 @@ export async function handleFactionManageBack(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     await showFactionRoleMenu(interaction, guildId, apiKey);
   } catch (error) {
@@ -3158,23 +3154,7 @@ export async function handleFactionToggle(
       details: { factionId },
     });
 
-    // Refresh manage page
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3306,23 +3286,7 @@ export async function handleFactionMemberRolesSelect(
       details: { factionId, roleIds },
     });
 
-    // Refresh manage page
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3370,23 +3334,7 @@ export async function handleFactionLeaderRolesSelect(
       details: { factionId, roleIds },
     });
 
-    // Refresh manage page
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys")
-      .eq("guild_id", guildId)
-      .single();
-
-    let apiKey: string | undefined;
-    const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-    const activeKey = apiKeys.find((k) => k.isActive);
-    if (activeKey) {
-      try {
-        apiKey = decrypt(activeKey.key);
-      } catch (error) {
-        console.error("Error decrypting API key:", error);
-      }
-    }
+    const apiKey = await getActiveGuildApiKey(guildId);
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {

@@ -14,14 +14,6 @@ type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
   TornApiComponents["schemas"]["UserProfileResponse"];
 
-interface VerifiedUser {
-  discord_id: string;
-  torn_player_id: number;
-  torn_player_name: string;
-  faction_id: number | null;
-  faction_name: string | null;
-}
-
 interface FactionRoleMapping {
   guild_id: string;
   faction_id: number;
@@ -39,8 +31,6 @@ interface GuildSyncJob {
 
 interface GuildConfigRecord {
   guild_id: string;
-  api_key?: string | null;
-  api_keys?: { key?: string; isActive?: boolean }[] | null;
   nickname_template: string;
   sync_interval_seconds: number;
   enabled_modules: string[];
@@ -128,11 +118,10 @@ export class GuildSyncScheduler {
       }
 
       const jobGuildIds = jobs.map((job: GuildSyncJob) => job.guild_id);
-      const { data: guildConfigs, error: guildConfigError } =
-        await supabase
-          .from(TABLE_NAMES.GUILD_CONFIG)
-          .select("guild_id, auto_verify")
-          .in("guild_id", jobGuildIds);
+      const { data: guildConfigs, error: guildConfigError } = await supabase
+        .from(TABLE_NAMES.GUILD_CONFIG)
+        .select("guild_id, auto_verify")
+        .in("guild_id", jobGuildIds);
 
       if (guildConfigError) {
         console.error(
@@ -205,7 +194,7 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          "Guild Sync Failed",
+          "Guild Auto Verification Failed",
           configError?.message || "Missing guild config",
           `Guild config not found for ${job.guild_id}.`,
         );
@@ -219,13 +208,6 @@ export class GuildSyncScheduler {
         return;
       }
 
-      await logGuildSuccess(
-        job.guild_id,
-        this.client,
-        "Guild Sync Started",
-        "Scheduled verification sync started.",
-      );
-
       // Get API keys from new guild-api-keys table
       const apiKeys = await getGuildApiKeys(job.guild_id);
 
@@ -236,31 +218,30 @@ export class GuildSyncScheduler {
         await logGuildError(
           job.guild_id,
           this.client,
-          "Guild Sync Failed",
+          "Guild Auto Verification Failed",
           "No API keys configured",
           `Missing API key for guild ${job.guild_id}.`,
         );
         return;
       }
 
-      // Get all verified users
-      const { data: verifiedUsers, error: usersError } = await supabase
-        .from(TABLE_NAMES.VERIFIED_USERS)
-        .select("*");
-
-      if (usersError || !verifiedUsers) {
-        console.error(
-          `[Guild Sync] Failed to fetch verified users: ${usersError?.message}`,
-        );
+      // Get Discord guild
+      const discord = this.client.guilds.cache.get(job.guild_id);
+      if (!discord) {
+        console.log(`[Guild Sync] Guild ${job.guild_id} not in cache`);
         await logGuildError(
           job.guild_id,
           this.client,
-          "Guild Sync Failed",
-          usersError?.message || "Failed to fetch verified users",
-          `Unable to fetch verified users for guild ${job.guild_id}.`,
+          "Guild Auto Verification Failed",
+          "Guild not available in cache",
+          `Bot is not in guild ${job.guild_id} or cache missing.`,
         );
         return;
       }
+
+      // Fetch all guild members
+      await discord.members.fetch();
+      const allMembers = discord.members.cache;
 
       // Get faction role mappings for this guild
       const { data: factionMappings } = await supabase
@@ -314,34 +295,28 @@ export class GuildSyncScheduler {
         }
       }
 
-      const discord = this.client.guilds.cache.get(job.guild_id);
-      if (!discord) {
-        console.log(`[Guild Sync] Guild ${job.guild_id} not in cache`);
-        await logGuildError(
-          job.guild_id,
-          this.client,
-          "Guild Sync Failed",
-          "Guild not available in cache",
-          `Bot is not in guild ${job.guild_id} or cache missing.`,
-        );
-        return;
-      }
-
+      let verifiedCount = 0;
       let updatedCount = 0;
       let unchangedCount = 0;
       let removedCount = 0;
       let errorCount = 0;
 
-      // Sync each verified user
-      for (const user of verifiedUsers as VerifiedUser[]) {
+      // Sync each guild member
+      for (const [, member] of allMembers) {
+        // Skip bots
+        if (member.user.bot) {
+          continue;
+        }
+
         try {
+          // Try to fetch Torn data via Discord ID
           const response = await this.tornApi.get<UserGenericResponse>(
             `/user`,
             {
               apiKey: getNextApiKey(job.guild_id, apiKeys),
               queryParams: {
                 selections: ["discord", "faction", "profile"],
-                id: user.discord_id,
+                id: member.id,
               },
             },
           );
@@ -352,101 +327,181 @@ export class GuildSyncScheduler {
 
           if (!name || !playerId) {
             console.warn(
-              `[Guild Sync] Missing required fields for user ${user.discord_id}`,
+              `[Guild Sync] Missing required fields for user ${member.id}`,
             );
             errorCount++;
             continue;
           }
 
-          // Check if anything changed
-          const nameChanged = name !== user.torn_player_name;
-          const factionChanged =
-            factionData?.id !== user.faction_id ||
-            factionData?.name !== user.faction_name;
+          // Check if user exists in database
+          const { data: existingUser } = await supabase
+            .from(TABLE_NAMES.VERIFIED_USERS)
+            .select("*")
+            .eq("discord_id", member.id)
+            .maybeSingle();
 
-          // Always update database and Discord if name or faction changed
-          if (nameChanged || factionChanged) {
-            await supabase
-              .from(TABLE_NAMES.VERIFIED_USERS)
-              .update({
-                torn_player_name: name,
-                faction_id: factionData?.id || null,
-                faction_name: factionData?.name || null,
-                verified_at: new Date().toISOString(),
-              })
-              .eq("discord_id", user.discord_id);
+          const isNewUser = !existingUser;
+          const nameChanged = existingUser && name !== existingUser.torn_name;
+          const factionChanged =
+            existingUser &&
+            (factionData?.id !== existingUser.faction_id ||
+              factionData?.tag !== existingUser.faction_tag);
+
+          // Upsert to database
+          await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
+            discord_id: member.id,
+            torn_id: playerId,
+            torn_name: name,
+            faction_id: factionData?.id || null,
+            faction_tag: factionData?.tag || null,
+            updated_at: new Date().toISOString(),
+          });
+
+          const rolesAdded: string[] = [];
+
+          // Always update nickname to apply current template
+          const nickname = this.applyNicknameTemplate(
+            (guildConfig as GuildConfigRecord).nickname_template,
+            name,
+            playerId,
+            factionData?.tag,
+          );
+          await member.setNickname(nickname).catch(() => {});
+
+          // Ensure verification role is assigned if configured
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const config = guildConfig as any;
+          const verifiedRoleId = config.verified_role_id;
+          if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
+            const addVerifiedRoleResult = await member.roles
+              .add(verifiedRoleId)
+              .then(() => true)
+              .catch(() => false);
+            if (addVerifiedRoleResult) {
+              rolesAdded.push(verifiedRoleId);
+            }
           }
 
-          // ALWAYS update Discord member (nickname template might have changed)
-          const member = await discord.members
-            .fetch(user.discord_id)
-            .catch(() => null);
-          if (member) {
-            // Always update nickname to apply current template
-            const nickname = this.applyNicknameTemplate(
-              (guildConfig as GuildConfigRecord).nickname_template,
-              name,
-              playerId,
-              factionData?.tag,
-            );
-            await member.setNickname(nickname).catch(() => {});
-
-            // Ensure verification role is assigned if configured
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const config = guildConfig as any;
-            const verifiedRoleId = config.verified_role_id;
-            if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
-              await member.roles.add(verifiedRoleId).catch(() => {});
-            }
-
-            // Update faction roles if faction changed
+          // Handle faction roles
+          if (factionMappings && factionMappings.length > 0) {
+            // If faction changed, remove old faction roles
             if (
               factionChanged &&
-              factionMappings &&
-              factionMappings.length > 0
+              existingUser &&
+              existingUser.faction_id !== null
             ) {
               const oldFactionMapping = (
                 factionMappings as FactionRoleMapping[]
-              ).find((m) => m.faction_id === user.faction_id);
-              const newFactionMapping = (
-                factionMappings as FactionRoleMapping[]
-              ).find((m) => m.faction_id === factionData?.id);
+              ).find((m) => m.faction_id === existingUser.faction_id);
 
-              // Remove old faction roles (both member and leader roles)
               if (oldFactionMapping && oldFactionMapping.enabled !== false) {
                 const oldRolesToRemove = [
                   ...oldFactionMapping.member_role_ids,
                   ...oldFactionMapping.leader_role_ids,
                 ];
                 if (oldRolesToRemove.length > 0) {
-                  await member.roles.remove(oldRolesToRemove).catch(() => {});
+                  const removableRoles = oldRolesToRemove.filter((roleId) =>
+                    member.roles.cache.has(roleId),
+                  );
+
+                  if (removableRoles.length > 0) {
+                    await member.roles.remove(removableRoles).catch(() => {});
+                  }
                 }
               }
+            }
 
-              // Add new faction roles
-              if (newFactionMapping && newFactionMapping.enabled !== false) {
-                const rolesToAdd = [...newFactionMapping.member_role_ids];
+            // Add current faction roles
+            if (factionData?.id) {
+              const factionMapping = (
+                factionMappings as FactionRoleMapping[]
+              ).find((m) => m.faction_id === factionData.id);
+
+              if (factionMapping && factionMapping.enabled !== false) {
+                const rolesToAdd = [...factionMapping.member_role_ids];
 
                 // Check if user is a leader and add leader roles
-                if (
-                  newFactionMapping.leader_role_ids.length > 0 &&
-                  playerId &&
-                  factionData?.id
-                ) {
+                if (factionMapping.leader_role_ids.length > 0) {
                   const leaders = factionLeadersCache.get(factionData.id);
                   if (leaders && leaders.has(playerId)) {
-                    rolesToAdd.push(...newFactionMapping.leader_role_ids);
+                    rolesToAdd.push(...factionMapping.leader_role_ids);
                   }
                 }
 
                 if (rolesToAdd.length > 0) {
-                  await member.roles.add(rolesToAdd).catch(() => {});
+                  const missingRolesToAdd = rolesToAdd.filter(
+                    (roleId) => !member.roles.cache.has(roleId),
+                  );
+
+                  if (missingRolesToAdd.length > 0) {
+                    const addRolesResult = await member.roles
+                      .add(missingRolesToAdd)
+                      .then(() => true)
+                      .catch(() => false);
+
+                    if (addRolesResult) {
+                      rolesAdded.push(...missingRolesToAdd);
+                    }
+                  }
                 }
               }
             }
           }
 
-          if (nameChanged || factionChanged) {
+          // Log individual verification/update for this user
+          if (
+            isNewUser ||
+            nameChanged ||
+            factionChanged ||
+            rolesAdded.length > 0
+          ) {
+            const logFields: Array<{
+              name: string;
+              value: string;
+              inline: boolean;
+            }> = [
+              {
+                name: "Torn ID",
+                value: String(playerId),
+                inline: true,
+              },
+            ];
+
+            if (factionData) {
+              logFields.push({
+                name: "Faction",
+                value: factionData.name || "Unknown",
+                inline: true,
+              });
+            }
+
+            if (rolesAdded.length > 0) {
+              const rolesMention = rolesAdded
+                .map((roleId) => `<@&${roleId}>`)
+                .join(", ");
+              logFields.push({
+                name: "✅ Roles Added",
+                value: rolesMention,
+                inline: false,
+              });
+            }
+
+            const actionText = isNewUser
+              ? "Auto-Verified"
+              : "Auto-Verification Updated";
+
+            await logGuildSuccess(
+              job.guild_id,
+              this.client,
+              actionText,
+              `${member.user} verified as **${name}**.`,
+              logFields,
+            );
+          }
+
+          if (isNewUser) {
+            verifiedCount++;
+          } else if (nameChanged || factionChanged) {
             updatedCount++;
           } else {
             unchangedCount++;
@@ -457,27 +512,23 @@ export class GuildSyncScheduler {
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
 
-          if (/Incorrect ID/i.test(msg)) {
-            console.log(
-              `[Guild Sync] User ${user.discord_id} disconnected Discord`,
-            );
+          // Check if user has no linked Torn account or disconnected
+          if (/Incorrect ID/i.test(msg) || /User not found/i.test(msg)) {
+            // Remove from verified_users if they were previously verified
             await supabase
               .from(TABLE_NAMES.VERIFIED_USERS)
               .delete()
-              .eq("discord_id", user.discord_id);
-            removedCount++;
+              .eq("discord_id", member.id);
             continue;
           }
 
-          console.error(
-            `[Guild Sync] Error syncing user ${user.discord_id}: ${msg}`,
-          );
+          console.error(`[Guild Sync] Error syncing user ${member.id}: ${msg}`);
           errorCount++;
         }
       }
 
       console.log(
-        `[Guild Sync] Guild ${job.guild_id} sync complete: ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed, ${errorCount} errors`,
+        `[Guild Sync] Guild ${job.guild_id} sync complete: ${verifiedCount} verified, ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed, ${errorCount} errors`,
       );
 
       if (errorCount > 0) {
@@ -486,14 +537,7 @@ export class GuildSyncScheduler {
           this.client,
           "Guild Sync Completed with Errors",
           `${errorCount} error(s) occurred during sync.`,
-          `Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
-        );
-      } else {
-        await logGuildSuccess(
-          job.guild_id,
-          this.client,
-          "Guild Sync Completed",
-          `Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
+          `Verified: ${verifiedCount}, Updated: ${updatedCount}, Unchanged: ${unchangedCount}, Removed: ${removedCount}.`,
         );
       }
     } finally {

@@ -6,7 +6,7 @@
 import { EmbedBuilder, type Client } from "discord.js";
 import { supabase } from "./supabase.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
-import { decrypt } from "./encryption.js";
+import { getGuildApiKeys } from "./guild-api-keys.js";
 import {
   buildWarTrackerEmbed,
   fetchActiveTerritoryWars,
@@ -16,11 +16,6 @@ import {
 import { tornApi } from "../services/torn-client.js";
 
 const POLL_INTERVAL_MS = 5000;
-
-interface ApiKeyEntry {
-  key: string; // encrypted
-  isActive: boolean;
-}
 
 interface WarTrackerRow {
   guild_id: string;
@@ -33,24 +28,8 @@ interface WarTrackerRow {
 }
 
 async function getActiveApiKey(guildId: string): Promise<string | null> {
-  const { data: guildConfig } = await supabase
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("api_keys")
-    .eq("guild_id", guildId)
-    .single();
-
-  const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-  const activeKey = apiKeys.find((key) => key.isActive);
-  if (!activeKey) {
-    return null;
-  }
-
-  try {
-    return decrypt(activeKey.key);
-  } catch (error) {
-    console.warn("Failed to decrypt API key for war tracker:", error);
-    return null;
-  }
+  const apiKeys = await getGuildApiKeys(guildId);
+  return apiKeys.length > 0 ? apiKeys[0] : null;
 }
 
 function buildEndedEmbed(territoryId: string): EmbedBuilder {

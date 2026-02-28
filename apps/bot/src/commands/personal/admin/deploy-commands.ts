@@ -80,6 +80,7 @@ export async function execute(
     const teardownGuildCommand = await import("./teardown-guild.js");
     const addBotCommand = await import("./add-bot.js");
     const enableModuleCommand = await import("./enable-module.js");
+    const removeModuleCommand = await import("./remove-module.js");
     const guildStatusCommand = await import("./guild-status.js");
 
     // Map of module names to commands
@@ -116,6 +117,7 @@ export async function execute(
         teardownGuildCommand.data.toJSON(),
         addBotCommand.data.toJSON(),
         enableModuleCommand.data.toJSON(),
+        removeModuleCommand.data.toJSON(),
         guildStatusCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),

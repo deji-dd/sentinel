@@ -7,6 +7,7 @@ import { Client, type Interaction } from "discord.js";
 import * as setupGuildCommand from "../commands/personal/admin/setup-guild.js";
 import * as teardownGuildCommand from "../commands/personal/admin/teardown-guild.js";
 import * as enableModuleCommand from "../commands/personal/admin/enable-module.js";
+import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as configCommand from "../commands/general/admin/config.js";
 
 /**
@@ -146,6 +147,12 @@ export async function handleStringSelectMenuInteraction(
     await enableModuleCommand.handleGuildSelect(interaction);
   } else if (customId.startsWith("enable_module_toggle")) {
     await enableModuleCommand.handleModuleToggle(interaction, client);
+  }
+  // Remove module
+  else if (customId === "remove_module_guild_select") {
+    await removeModuleCommand.handleGuildSelect(interaction);
+  } else if (customId.startsWith("remove_module_select")) {
+    await removeModuleCommand.handleModuleRemove(interaction, client);
   }
   // Config command selects
   else if (customId === "config_view_select") {
