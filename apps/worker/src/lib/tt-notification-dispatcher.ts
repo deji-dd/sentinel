@@ -151,7 +151,7 @@ async function buildNotificationEmbeds(
         factionId = notif.assaulting_faction ?? null;
         break;
       case "assault_failed":
-        groupKey = `${notif.event_type}:${notif.defending_faction}:${notif.assaulting_faction}`;
+        groupKey = `${notif.event_type}:${notif.assaulting_faction}:${notif.defending_faction}`;
         factionId = notif.defending_faction ?? null;
         break;
       case "war_started":

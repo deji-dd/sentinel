@@ -21,7 +21,7 @@ import {
   type ModalSubmitInteraction,
 } from "discord.js";
 import { TABLE_NAMES, getFactionDataBatchCached } from "@sentinel/shared";
-import { decrypt } from "../../../../lib/encryption.js";
+import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
 import { supabase } from "../../../../lib/supabase.js";
 import { tornApi } from "../../../../services/torn-client.js";
 
@@ -31,13 +31,6 @@ interface TTConfig {
   tt_filtered_channel_id: string | null;
   tt_territory_ids: string[];
   tt_faction_ids: number[];
-}
-
-interface ApiKeyEntry {
-  key: string; // encrypted
-  fingerprint: string;
-  isActive: boolean;
-  createdAt: string;
 }
 
 interface WarLedgerRow {
@@ -96,24 +89,8 @@ async function upsertTTConfig(
 }
 
 async function getActiveApiKey(guildId: string): Promise<string | null> {
-  const { data: guildConfig } = await supabase
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("api_keys")
-    .eq("guild_id", guildId)
-    .single();
-
-  const apiKeys: ApiKeyEntry[] = guildConfig?.api_keys || [];
-  const activeKey = apiKeys.find((key) => key.isActive);
-  if (!activeKey) {
-    return null;
-  }
-
-  try {
-    return decrypt(activeKey.key);
-  } catch (error) {
-    console.warn("Failed to decrypt API key for TT settings:", error);
-    return null;
-  }
+  const apiKeys = await getGuildApiKeys(guildId);
+  return apiKeys.length > 0 ? apiKeys[0] : null;
 }
 
 async function getFactionNameMap(

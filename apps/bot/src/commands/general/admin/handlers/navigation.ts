@@ -14,6 +14,7 @@ import {
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
 import { supabase } from "../../../../lib/supabase.js";
 
 export async function handleViewSelect(
@@ -37,17 +38,17 @@ export async function handleViewSelect(
 
     if (selectedView === "view_admin") {
       // Show admin settings
-      const apiKeys: Array<{ isActive: boolean; fingerprint: string }> =
-        guildConfig.api_keys || [];
+      const apiKeys = await getGuildApiKeys(guildId);
 
       let apiKeyDisplay = "No keys configured";
       if (apiKeys.length > 0) {
         apiKeyDisplay = apiKeys
-          .map((k) => {
-            const status = k.isActive
-              ? "<:Green:1474607376140079104>"
-              : "<:Red:1474607810368114886>";
-            return `${status} ...${k.fingerprint}`;
+          .map((key, idx) => {
+            const status =
+              idx === 0
+                ? "<:Green:1474607376140079104>"
+                : "<:Red:1474607810368114886>";
+            return `${status} ...${key.slice(-4)}`;
           })
           .join("\n");
       }

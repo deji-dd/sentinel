@@ -10,6 +10,7 @@ import * as setupGuildCommand from "../commands/personal/admin/setup-guild.js";
 import * as teardownGuildCommand from "../commands/personal/admin/teardown-guild.js";
 import * as addBotCommand from "../commands/personal/admin/add-bot.js";
 import * as enableModuleCommand from "../commands/personal/admin/enable-module.js";
+import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as guildStatusCommand from "../commands/personal/admin/guild-status.js";
 
 /**
@@ -77,6 +78,9 @@ export async function handleAdminCommand(
     case "enable-module":
       await enableModuleCommand.execute(interaction, client);
       break;
+    case "remove-module":
+      await removeModuleCommand.execute(interaction, client);
+      break;
     case "guild-status":
       await guildStatusCommand.execute(interaction, client);
       break;
@@ -99,6 +103,7 @@ export function isAdminCommandName(commandName: string): boolean {
     "teardown-guild",
     "add-bot",
     "enable-module",
+    "remove-module",
     "guild-status",
     "test-verification-dms",
   ].includes(commandName);
