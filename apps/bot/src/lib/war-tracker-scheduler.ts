@@ -11,6 +11,7 @@ import { botTornApi } from "./torn-api.js";
 import {
   buildWarTrackerEmbed,
   fetchActiveTerritoryWars,
+  resolveEnemyUsers,
   type TerritoryWarWithTerritory,
 } from "./war-tracker.js";
 
@@ -29,13 +30,6 @@ interface WarTrackerRow {
   message_id: string | null;
   enemy_side: "assaulting" | "defending";
   min_away_minutes: number;
-}
-
-interface FactionMember {
-  id: number;
-  name: string;
-  is_on_wall: boolean;
-  last_action: { timestamp: number };
 }
 
 async function getActiveApiKey(
@@ -62,56 +56,6 @@ async function getActiveApiKey(
   }
 }
 
-async function fetchFactionMembers(
-  apiKey: string,
-  factionId: number,
-): Promise<FactionMember[]> {
-  const response = await botTornApi.get("/faction/{id}/members", {
-    apiKey,
-    pathParams: { id: String(factionId) },
-  });
-
-  if ("error" in response) {
-    return [];
-  }
-
-  return (response.members || []) as FactionMember[];
-}
-
-function buildEnemyUsers(
-  members: FactionMember[],
-  enemyIds: number[],
-  minAwayMinutes: number,
-): string[] {
-  const enemyIdSet = new Set(enemyIds);
-  const filtered = members.filter((member) => {
-    if (!member.is_on_wall) {
-      return false;
-    }
-
-    if (!enemyIdSet.has(member.id)) {
-      return false;
-    }
-
-    if (minAwayMinutes <= 0) {
-      return true;
-    }
-
-    const awayMinutes = Math.floor(
-      (Date.now() - member.last_action.timestamp * 1000) / 60000,
-    );
-    return awayMinutes >= minAwayMinutes;
-  });
-
-  return filtered.map((member) => {
-    const awayMinutes = Math.max(
-      0,
-      Math.floor((Date.now() - member.last_action.timestamp * 1000) / 60000),
-    );
-    return `${member.name} (${awayMinutes}m)`;
-  });
-}
-
 function buildEndedEmbed(territoryId: string): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xf59e0b)
@@ -136,14 +80,12 @@ export class WarTrackerScheduler {
 
     this.intervalId = setInterval(() => {
       this.pollAndUpdate().catch((error) => {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[War Tracker] Scheduler error: ${msg}`);
+        console.error(`[War Tracker] Scheduler error:`, error);
       });
     }, POLL_INTERVAL_MS);
 
     this.pollAndUpdate().catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(`[War Tracker] Initial sync error: ${msg}`);
+      console.error(`[War Tracker] Initial sync error:`, error);
     });
   }
 
@@ -181,7 +123,6 @@ export class WarTrackerScheduler {
       }
 
       const warMap = await fetchActiveTerritoryWars(apiKey, botTornApi);
-      const membersCache = new Map<number, FactionMember[]>();
 
       for (const tracker of guildTrackers) {
         const war = warMap.get(tracker.war_id);
@@ -212,14 +153,9 @@ export class WarTrackerScheduler {
         const enemyIds =
           tracker.enemy_side === "assaulting" ? war.assaulters : war.defenders;
 
-        let members = membersCache.get(enemyFactionId);
-        if (!members) {
-          members = await fetchFactionMembers(apiKey, enemyFactionId);
-          membersCache.set(enemyFactionId, members);
-        }
-
-        const enemyUsers = buildEnemyUsers(
-          members,
+        const enemyUsers = await resolveEnemyUsers(
+          apiKey,
+          enemyFactionId,
           enemyIds,
           tracker.min_away_minutes,
         );
@@ -229,6 +165,8 @@ export class WarTrackerScheduler {
           war,
           assaultingName,
           defendingName,
+          war.assaulting_faction,
+          war.defending_faction,
           enemyUsers,
         );
       }
@@ -240,6 +178,8 @@ export class WarTrackerScheduler {
     war: TerritoryWarWithTerritory,
     assaultingName: string,
     defendingName: string,
+    assaultingFactionId: number,
+    defendingFactionId: number,
     enemyUsers: string[],
   ): Promise<void> {
     if (!tracker.channel_id) {
@@ -249,17 +189,20 @@ export class WarTrackerScheduler {
     const channel = await this.client.channels
       .fetch(tracker.channel_id)
       .catch(() => null);
-    if (!channel || !channel.isTextBased()) {
+    if (!channel || !channel.isTextBased() || !("send" in channel)) {
       return;
     }
 
     const embed = buildWarTrackerEmbed(war, {
       assaultingName,
       defendingName,
+      assaultingFactionId,
+      defendingFactionId,
       enemySide: tracker.enemy_side,
       enemyUsers,
       minAwayMinutes: tracker.min_away_minutes,
       territoryId: tracker.territory_id,
+      lastUpdated: new Date(),
     });
 
     if (tracker.message_id) {

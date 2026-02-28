@@ -2870,3 +2870,64 @@ export async function handleTTEditFactionsModalSubmit(
     supabase,
   );
 }
+
+export async function handleTTWarTrackPage(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackPage(interaction, supabase);
+}
+
+export async function handleTTWarTrackSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackSelect(interaction, supabase);
+}
+
+export async function handleTTWarTrackBack(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackBack(interaction, supabase);
+}
+
+export async function handleTTWarTrackChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackChannelSelect(interaction, supabase);
+}
+
+export async function handleTTWarTrackChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackChannelClear(interaction, supabase);
+}
+
+export async function handleTTWarTrackEnemySideSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackEnemySideSelect(
+    interaction,
+    supabase,
+  );
+}
+
+export async function handleTTWarTrackAwayFilterButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackAwayFilterButton(interaction);
+}
+
+export async function handleTTWarTrackAwayFilterSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackAwayFilterSubmit(
+    interaction,
+    supabase,
+  );
+}

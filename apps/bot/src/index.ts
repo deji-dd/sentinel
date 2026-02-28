@@ -20,14 +20,9 @@ import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
-import * as warTrackCommand from "./commands/general/territories/war-track.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
-import {
-  logGuildSuccess,
-  logGuildError,
-  logGuildWarning,
-} from "./lib/guild-logger.js";
+import { logGuildSuccess, logGuildError } from "./lib/guild-logger.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { GuildSyncScheduler } from "./lib/verification-sync.js";
 import { WarTrackerScheduler } from "./lib/war-tracker-scheduler.js";
@@ -263,8 +258,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await configCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "assault-check") {
           await assaultCheckCommand.execute(interaction, supabase);
-        } else if (interaction.commandName === "war-track") {
-          await warTrackCommand.execute(interaction, supabase);
         }
       }
       return;
@@ -313,16 +306,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else if (interaction.customId === "tt_filtered_channel_clear") {
         await configCommand.handleTTFilteredChannelClear(interaction, supabase);
       } else if (
-        interaction.customId.startsWith("war_track_page_prev") ||
-        interaction.customId.startsWith("war_track_page_next")
+        interaction.customId.startsWith("tt_war_track_page_prev") ||
+        interaction.customId.startsWith("tt_war_track_page_next")
       ) {
-        await warTrackCommand.handleWarTrackPage(interaction, supabase);
-      } else if (interaction.customId.startsWith("war_track_back")) {
-        await warTrackCommand.handleWarTrackBack(interaction, supabase);
-      } else if (interaction.customId.startsWith("war_track_channel_clear")) {
-        await warTrackCommand.handleWarTrackChannelClear(interaction, supabase);
-      } else if (interaction.customId.startsWith("war_track_away_filter")) {
-        await warTrackCommand.handleWarTrackAwayFilterButton(interaction);
+        await configCommand.handleTTWarTrackPage(interaction, supabase);
+      } else if (interaction.customId.startsWith("tt_war_track_back")) {
+        await configCommand.handleTTWarTrackBack(interaction, supabase);
+      } else if (
+        interaction.customId.startsWith("tt_war_track_channel_clear")
+      ) {
+        await configCommand.handleTTWarTrackChannelClear(interaction, supabase);
+      } else if (interaction.customId.startsWith("tt_war_track_away_filter")) {
+        await configCommand.handleTTWarTrackAwayFilterButton(interaction);
       }
       return;
     }
@@ -361,8 +356,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction,
           supabase,
         );
-      } else if (interaction.customId.startsWith("war_track_away_modal")) {
-        await warTrackCommand.handleWarTrackAwayFilterSubmit(
+      } else if (interaction.customId.startsWith("tt_war_track_away_modal")) {
+        await configCommand.handleTTWarTrackAwayFilterSubmit(
           interaction,
           supabase,
         );
@@ -405,10 +400,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction,
           supabase,
         );
-      } else if (interaction.customId.startsWith("war_track_select")) {
-        await warTrackCommand.handleWarTrackSelect(interaction, supabase);
-      } else if (interaction.customId.startsWith("war_track_enemy_side")) {
-        await warTrackCommand.handleWarTrackEnemySideSelect(
+      } else if (interaction.customId.startsWith("tt_war_track_select")) {
+        await configCommand.handleTTWarTrackSelect(interaction, supabase);
+      } else if (interaction.customId.startsWith("tt_war_track_enemy_side")) {
+        await configCommand.handleTTWarTrackEnemySideSelect(
           interaction,
           supabase,
         );
@@ -439,8 +434,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction,
           supabase,
         );
-      } else if (interaction.customId.startsWith("war_track_channel_select")) {
-        await warTrackCommand.handleWarTrackChannelSelect(
+      } else if (
+        interaction.customId.startsWith("tt_war_track_channel_select")
+      ) {
+        await configCommand.handleTTWarTrackChannelSelect(
           interaction,
           supabase,
         );
@@ -533,6 +530,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     try {
       const { botTornApi } = await import("./lib/torn-api.js");
       const apiKey = getNextApiKey(guildId, apiKeys);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const response: any = await botTornApi.getRaw(`/user`, apiKey, {
         selections: "discord,faction,profile",
         id: member.id,
@@ -631,6 +629,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
             try {
               await member.roles.add(guildConfig.verified_role_id);
               rolesAdded.push(guildConfig.verified_role_id);
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
             } catch (roleError) {
               rolesFailed.push(guildConfig.verified_role_id);
             }
@@ -649,6 +648,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
               try {
                 await member.roles.add(factionRole.role_ids);
                 rolesAdded.push(...factionRole.role_ids);
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
               } catch (roleError) {
                 rolesFailed.push(...factionRole.role_ids);
               }
