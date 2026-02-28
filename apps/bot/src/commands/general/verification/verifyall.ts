@@ -197,25 +197,29 @@ export async function execute(
             },
           );
 
-          if ("members" in membersResponse && membersResponse.members) {
-            const leaders = new Set<number>();
-            const members = membersResponse.members;
-
-            for (const member of Object.values(members)) {
-              const factionMember = member as {
-                player_id: number;
-                position: string;
-              };
-              if (
-                factionMember.position === "Leader" ||
-                factionMember.position === "Co-leader"
-              ) {
-                leaders.add(factionMember.player_id);
-              }
-            }
-
-            factionLeadersCache.set(mapping.faction_id, leaders);
+          // Check for API error first to narrow the type
+          if ("error" in membersResponse) {
+            console.warn(
+              `[Verify All] API error for faction ${mapping.faction_id}: ${membersResponse.error.error}`,
+            );
+            continue;
           }
+
+          // TypeScript now knows this is a success response with members
+          const leaders = new Set<number>();
+          const members = membersResponse.members;
+
+          // members is already an array, iterate directly
+          for (const member of members) {
+            if (
+              member.position === "Leader" ||
+              member.position === "Co-leader"
+            ) {
+              leaders.add(member.id);
+            }
+          }
+
+          factionLeadersCache.set(mapping.faction_id, leaders);
 
           // Rate limiting delay
           await new Promise((resolve) => setTimeout(resolve, 100));

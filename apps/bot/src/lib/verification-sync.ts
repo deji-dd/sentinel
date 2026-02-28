@@ -33,12 +33,6 @@ interface FactionRoleMapping {
   enabled: boolean;
 }
 
-interface FactionMember {
-  player_id: number;
-  name: string;
-  position: string;
-}
-
 interface GuildSyncJob {
   guild_id: string;
   last_sync_at: string | null;
@@ -72,6 +66,7 @@ export class GuildSyncScheduler {
   private supabase: SupabaseClient;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private rateLimiter: PerUserRateLimiter;
+  private tornApi: TornApiClient;
   private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
 
   constructor(client: Client, supabase: SupabaseClient) {
@@ -83,6 +78,10 @@ export class GuildSyncScheduler {
       apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
       hashPepper: process.env.API_KEY_HASH_PEPPER!,
       // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
+    });
+    // Create single tornApi instance with per-user rate limiting
+    this.tornApi = new TornApiClient({
+      rateLimitTracker: this.rateLimiter,
     });
   }
 
@@ -301,29 +300,37 @@ export class GuildSyncScheduler {
 
         for (const mapping of enabledMappings) {
           try {
-            const membersResponse = await tornApi.get("/faction/{id}/members", {
-              apiKey: getNextApiKey(job.guild_id, apiKeys),
-              pathParams: { id: String(mapping.faction_id) },
-            });
+            const membersResponse = await this.tornApi.get(
+              "/faction/{id}/members",
+              {
+                apiKey: getNextApiKey(job.guild_id, apiKeys),
+                pathParams: { id: String(mapping.faction_id) },
+              },
+            );
 
-            if ("members" in membersResponse && membersResponse.members) {
-              const leaders = new Set<number>();
-              const members = membersResponse.members as Record<
-                string,
-                FactionMember
-              >;
-
-              for (const member of Object.values(members)) {
-                if (
-                  member.position === "Leader" ||
-                  member.position === "Co-leader"
-                ) {
-                  leaders.add(member.player_id);
-                }
-              }
-
-              factionLeadersCache.set(mapping.faction_id, leaders);
+            // Check for API error first to narrow the type
+            if ("error" in membersResponse) {
+              console.warn(
+                `[Guild Sync] API error for faction ${mapping.faction_id}: ${membersResponse.error.error}`,
+              );
+              continue;
             }
+
+            // TypeScript now knows this is a success response with members
+            const leaders = new Set<number>();
+            const members = membersResponse.members;
+
+            // members is already an array, iterate directly
+            for (const member of members) {
+              if (
+                member.position === "Leader" ||
+                member.position === "Co-leader"
+              ) {
+                leaders.add(member.id);
+              }
+            }
+
+            factionLeadersCache.set(mapping.faction_id, leaders);
 
             // Rate limiting delay
             await new Promise((resolve) => setTimeout(resolve, 100));
@@ -350,11 +357,6 @@ export class GuildSyncScheduler {
         return;
       }
 
-      // Create Torn API client with per-guild rate limiting
-      const tornApi = new TornApiClient({
-        rateLimitTracker: this.rateLimiter,
-      });
-
       let updatedCount = 0;
       let unchangedCount = 0;
       let removedCount = 0;
@@ -364,7 +366,7 @@ export class GuildSyncScheduler {
       for (const user of verifiedUsers as VerifiedUser[]) {
         try {
           // Use generic any type since response shape is dynamic based on selections parameter
-          const response = await tornApi.get(`/user`, {
+          const response = await this.tornApi.get(`/user`, {
             apiKey: getNextApiKey(job.guild_id, apiKeys),
             queryParams: {
               selections: ["discord", "faction", "profile"],

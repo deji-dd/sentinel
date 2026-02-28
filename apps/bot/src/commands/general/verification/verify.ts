@@ -277,11 +277,19 @@ export async function execute(
               },
             );
 
-            if ("members" in membersResponse && membersResponse.members) {
+            // Check for API error first to narrow the type
+            if ("error" in membersResponse) {
+              console.error(
+                "Failed to fetch faction members:",
+                membersResponse.error.error,
+              );
+            } else {
+              // TypeScript now knows this is a success response with members
               const members = membersResponse.members;
 
-              const member = Object.values(members).find(
-                (m) => m.player_id === response.profile?.id,
+              // members is already an array, find user directly
+              const member = members.find(
+                (m) => m.id === response.profile?.id,
               );
 
               if (
