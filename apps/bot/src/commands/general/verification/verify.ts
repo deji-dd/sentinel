@@ -262,27 +262,33 @@ export async function execute(
 
       if (factionRole && factionRole.enabled !== false) {
         const rolesToAssign = [...(factionRole.member_role_ids || [])];
-        
+
         // Check if user is a leader by fetching faction members
-        if (factionRole.leader_role_ids && factionRole.leader_role_ids.length > 0) {
+        if (
+          factionRole.leader_role_ids &&
+          factionRole.leader_role_ids.length > 0
+        ) {
           try {
-            const membersResponse = await botTornApi.getRaw(
-              `/faction/${response.faction.id}`,
-              apiKey,
-              { selections: "members" }
+            const membersResponse = await botTornApi.get(
+              "/faction/{id}/members",
+              {
+                apiKey,
+                pathParams: { id: String(response.faction.id) },
+              },
             );
-            
-            if (membersResponse.members) {
-              const members = membersResponse.members as Record<string, { 
-                player_id: number; 
-                position: string 
-              }>;
-              
+
+            if ("members" in membersResponse && membersResponse.members) {
+              const members = membersResponse.members;
+
               const member = Object.values(members).find(
-                (m) => m.player_id === response.profile?.id
+                (m) => m.player_id === response.profile?.id,
               );
-              
-              if (member && (member.position === "Leader" || member.position === "Co-leader")) {
+
+              if (
+                member &&
+                (member.position === "Leader" ||
+                  member.position === "Co-leader")
+              ) {
                 rolesToAssign.push(...factionRole.leader_role_ids);
               }
             }
@@ -291,7 +297,7 @@ export async function execute(
             // Continue with member roles only
           }
         }
-        
+
         if (rolesToAssign.length > 0) {
           try {
             const member = await interaction.guild.members.fetch(targetUser.id);

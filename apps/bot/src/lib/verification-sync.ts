@@ -292,39 +292,45 @@ export class GuildSyncScheduler {
       // Cache faction members for leader detection
       // Map: factionId -> Set of leader player IDs
       const factionLeadersCache = new Map<number, Set<number>>();
-      
+
       // Fetch faction members for all mapped factions that are enabled
       if (factionMappings && factionMappings.length > 0) {
-        const enabledMappings = (factionMappings as FactionRoleMapping[]).filter(
-          (m) => m.enabled !== false && m.leader_role_ids.length > 0
-        );
-        
+        const enabledMappings = (
+          factionMappings as FactionRoleMapping[]
+        ).filter((m) => m.enabled !== false && m.leader_role_ids.length > 0);
+
         for (const mapping of enabledMappings) {
           try {
             const membersResponse = await tornApi.get("/faction/{id}/members", {
               apiKey: getNextApiKey(job.guild_id, apiKeys),
               pathParams: { id: String(mapping.faction_id) },
             });
-            
+
             if ("members" in membersResponse && membersResponse.members) {
               const leaders = new Set<number>();
-              const members = membersResponse.members as Record<string, FactionMember>;
-              
+              const members = membersResponse.members as Record<
+                string,
+                FactionMember
+              >;
+
               for (const member of Object.values(members)) {
-                if (member.position === "Leader" || member.position === "Co-leader") {
+                if (
+                  member.position === "Leader" ||
+                  member.position === "Co-leader"
+                ) {
                   leaders.add(member.player_id);
                 }
               }
-              
+
               factionLeadersCache.set(mapping.faction_id, leaders);
             }
-            
+
             // Rate limiting delay
             await new Promise((resolve) => setTimeout(resolve, 100));
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error(
-              `[Guild Sync] Error fetching faction ${mapping.faction_id} members: ${msg}`
+              `[Guild Sync] Error fetching faction ${mapping.faction_id} members: ${msg}`,
             );
           }
         }
@@ -473,16 +479,14 @@ export class GuildSyncScheduler {
                   ...oldFactionMapping.leader_role_ids,
                 ];
                 if (oldRolesToRemove.length > 0) {
-                  await member.roles
-                    .remove(oldRolesToRemove)
-                    .catch(() => {});
+                  await member.roles.remove(oldRolesToRemove).catch(() => {});
                 }
               }
 
               // Add new faction roles
               if (newFactionMapping && newFactionMapping.enabled !== false) {
                 const rolesToAdd = [...newFactionMapping.member_role_ids];
-                
+
                 // Check if user is a leader and add leader roles
                 if (
                   newFactionMapping.leader_role_ids.length > 0 &&
@@ -494,11 +498,9 @@ export class GuildSyncScheduler {
                     rolesToAdd.push(...newFactionMapping.leader_role_ids);
                   }
                 }
-                
+
                 if (rolesToAdd.length > 0) {
-                  await member.roles
-                    .add(rolesToAdd)
-                    .catch(() => {});
+                  await member.roles.add(rolesToAdd).catch(() => {});
                 }
               }
             }

@@ -189,25 +189,28 @@ export async function execute(
       for (const mapping of enabledMappings) {
         try {
           const apiKey = getNextApiKey(guildId, apiKeys);
-          const membersResponse = await botTornApi.getRaw(
-            `/faction/${mapping.faction_id}`,
-            apiKey,
-            { selections: "members" },
+          const membersResponse = await botTornApi.get(
+            "/faction/{id}/members",
+            {
+              apiKey,
+              pathParams: { id: String(mapping.faction_id) },
+            },
           );
 
-          if (membersResponse.members) {
+          if ("members" in membersResponse && membersResponse.members) {
             const leaders = new Set<number>();
-            const members = membersResponse.members as Record<
-              string,
-              { player_id: number; position: string }
-            >;
+            const members = membersResponse.members;
 
             for (const member of Object.values(members)) {
+              const factionMember = member as {
+                player_id: number;
+                position: string;
+              };
               if (
-                member.position === "Leader" ||
-                member.position === "Co-leader"
+                factionMember.position === "Leader" ||
+                factionMember.position === "Co-leader"
               ) {
-                leaders.add(member.player_id);
+                leaders.add(factionMember.player_id);
               }
             }
 
