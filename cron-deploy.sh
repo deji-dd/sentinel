@@ -46,8 +46,9 @@ echo "Installing dependencies..."
 pnpm install --frozen-lockfile --child-concurrency 1
 
 echo "Building worker and bot..."
-pnpm worker:build
-pnpm bot:build
+pnpm --filter shared build
+pnpm --filter worker build
+pnpm --filter bot build
 
 # Ensure logs directory exists
 mkdir -p logs
