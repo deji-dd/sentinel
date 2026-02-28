@@ -192,6 +192,7 @@ export function startWarLedgerSyncWorker() {
               defending_faction?: number;
               occupying_faction: number | null;
               war_id?: number;
+              war_duration_hours?: number;
             }> = [];
 
             // Add war started notifications
