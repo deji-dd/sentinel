@@ -47,11 +47,41 @@ export async function execute(
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("guild_id, enabled_modules");
 
-    if (queryError || !configuredGuilds || configuredGuilds.length === 0) {
+    // Get all guilds the bot is currently in
+    const botsGuilds = client.guilds.cache;
+
+    // Combine both lists: configured first, then uninitialized guilds
+    const allGuilds = new Map<
+      string,
+      { id: string; configured: boolean; enabled_modules?: string[] }
+    >();
+
+    // Add configured guilds
+    if (!queryError && configuredGuilds) {
+      for (const config of configuredGuilds) {
+        allGuilds.set(config.guild_id, {
+          id: config.guild_id,
+          configured: true,
+          enabled_modules: config.enabled_modules,
+        });
+      }
+    }
+
+    // Add uninitialized guilds (bot is in but not configured)
+    for (const [guildId, guild] of botsGuilds) {
+      if (!allGuilds.has(guildId)) {
+        allGuilds.set(guildId, {
+          id: guildId,
+          configured: false,
+        });
+      }
+    }
+
+    if (allGuilds.size === 0) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
-        .setTitle("❌ No Configured Guilds")
-        .setDescription("No guilds are currently configured.");
+        .setTitle("❌ No Guilds Found")
+        .setDescription("Bot is not in any guilds. No teardown needed.");
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -59,37 +89,71 @@ export async function execute(
       return;
     }
 
-    // Create select menu for guild selection, including bot presence status
-    const guildOptions = configuredGuilds.map((config) => {
-      const guild = client.guilds.cache.get(config.guild_id);
-      const guildName = guild
-        ? guild.name
-        : `Unknown Guild (${config.guild_id})`;
-      const isInGuild = guild ? "✅" : "❌";
+    // Create select menu for guild selection, including configuration status
+    const guildOptions: StringSelectMenuOptionBuilder[] = [];
 
-      return new StringSelectMenuOptionBuilder()
-        .setLabel(`${isInGuild} ${guildName.substring(0, 95)}`)
-        .setValue(config.guild_id)
-        .setDescription(`ID: ${config.guild_id}`);
-    });
+    // Add configured guilds first
+    for (const [guildId, guildData] of allGuilds) {
+      if (guildData.configured) {
+        const guild = botsGuilds.get(guildId);
+        const guildName = guild ? guild.name : `Unknown Guild (${guildId})`;
+        const isInGuild = guild ? "✅" : "❌";
+
+        guildOptions.push(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${isInGuild} ${guildName.substring(0, 90)} [Configured]`)
+            .setValue(guildId)
+            .setDescription(`ID: ${guildId}`),
+        );
+      }
+    }
+
+    // Then add uninitialized guilds
+    for (const [guildId, guildData] of allGuilds) {
+      if (!guildData.configured) {
+        const guild = botsGuilds.get(guildId);
+        const guildName = guild ? guild.name : `Unknown Guild (${guildId})`;
+
+        guildOptions.push(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${guildName.substring(0, 90)} [Uninitialized]`)
+            .setValue(guildId)
+            .setDescription(`ID: ${guildId}`),
+        );
+      }
+    }
 
     const guildSelectMenu = new StringSelectMenuBuilder()
       .setCustomId("teardown_guild_select")
-      .setPlaceholder("Select a guild to de-initialize...")
+      .setPlaceholder("Select a guild to remove bot from...")
       .addOptions(guildOptions);
 
     const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       guildSelectMenu,
     );
 
+    const configuredCount = Array.from(allGuilds.values()).filter(
+      (g) => g.configured,
+    ).length;
+    const uninitializedCount = allGuilds.size - configuredCount;
+
+    let footerText = "";
+    if (configuredCount > 0 && uninitializedCount > 0) {
+      footerText = `${configuredCount} configured, ${uninitializedCount} uninitialized`;
+    } else if (configuredCount > 0) {
+      footerText = `${configuredCount} configured guild(s)`;
+    } else {
+      footerText = `${uninitializedCount} uninitialized guild(s)`;
+    }
+
     const embed = new EmbedBuilder()
       .setColor(0xef4444)
       .setTitle("Guild Teardown")
       .setDescription(
-        "Select a guild to de-initialize and remove bot integration. ✅ = Bot is in guild, ❌ = Bot left",
+        "Select a guild to remove the bot from. Configured guilds will have their data removed.",
       )
       .setFooter({
-        text: `${configuredGuilds.length} configured guild(s)`,
+        text: footerText,
       });
 
     await interaction.editReply({
@@ -119,6 +183,15 @@ export async function handleTeardownGuildSelect(
     await interaction.deferUpdate();
 
     const selectedGuildId = interaction.values[0];
+
+    // Check if guild is configured
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("guild_id")
+      .eq("guild_id", selectedGuildId)
+      .single();
+
+    const isConfigured = !!guildConfig;
 
     // Try to leave the guild if bot is in it
     const guild = client.guilds.cache.get(selectedGuildId);
@@ -168,56 +241,76 @@ export async function handleTeardownGuildSelect(
       leftGuildMessage = "\n⚠️ Bot is no longer in this guild.";
     }
 
-    // Remove guild config from database
-    const { error: deleteConfigError } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .delete()
-      .eq("guild_id", selectedGuildId);
+    // Only clean up database records if the guild was configured
+    if (isConfigured) {
+      // Remove guild config from database
+      const { error: deleteConfigError } = await supabase
+        .from(TABLE_NAMES.GUILD_CONFIG)
+        .delete()
+        .eq("guild_id", selectedGuildId);
 
-    if (deleteConfigError) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("❌ Teardown Failed")
-        .setDescription(
-          `Failed to remove guild configuration: ${deleteConfigError.message}`,
+      if (deleteConfigError) {
+        const errorEmbed = new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle("❌ Teardown Failed")
+          .setDescription(
+            `Failed to remove guild configuration: ${deleteConfigError.message}`,
+          );
+
+        await interaction.editReply({
+          embeds: [errorEmbed],
+          components: [],
+        });
+        return;
+      }
+
+      // Remove sync jobs for this guild
+      const { error: deleteSyncError } = await supabase
+        .from(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .delete()
+        .eq("guild_id", selectedGuildId);
+
+      if (deleteSyncError) {
+        console.error(
+          `Warning: Failed to remove sync jobs for guild ${selectedGuildId}:`,
+          deleteSyncError.message,
         );
+        // Don't fail teardown for this, just log it
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x22c55e)
+        .setTitle("✅ Guild De-Initialized")
+        .setDescription(
+          `Guild **${selectedGuildId}** has been de-initialized.${leftGuildMessage}`,
+        )
+        .addFields({
+          name: "Cleaned Up",
+          value: "• Guild configuration\n• Sync jobs\n• Database records",
+        });
 
       await interaction.editReply({
-        embeds: [errorEmbed],
+        embeds: [embed],
         components: [],
       });
-      return;
-    }
+    } else {
+      // Guild was not configured, just removed bot from it
+      const embed = new EmbedBuilder()
+        .setColor(0x22c55e)
+        .setTitle("✅ Bot Removed from Guild")
+        .setDescription(
+          `Guild **${selectedGuildId}** had no configuration.${leftGuildMessage}`,
+        )
+        .addFields({
+          name: "Action",
+          value: "• Bot removed from guild",
+        });
 
-    // Remove sync jobs for this guild
-    const { error: deleteSyncError } = await supabase
-      .from(TABLE_NAMES.GUILD_SYNC_JOBS)
-      .delete()
-      .eq("guild_id", selectedGuildId);
-
-    if (deleteSyncError) {
-      console.error(
-        `Warning: Failed to remove sync jobs for guild ${selectedGuildId}:`,
-        deleteSyncError.message,
-      );
-      // Don't fail teardown for this, just log it
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("✅ Guild De-Initialized")
-      .setDescription(
-        `Guild **${selectedGuildId}** has been de-initialized.${leftGuildMessage}`,
-      )
-      .addFields({
-        name: "Cleaned Up",
-        value: "• Guild configuration\n• Sync jobs\n• Database records",
+      await interaction.editReply({
+        embeds: [embed],
+        components: [],
       });
-
-    await interaction.editReply({
-      embeds: [embed],
-      components: [],
-    });
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in teardown guild select handler:", errorMsg);

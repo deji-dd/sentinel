@@ -80,13 +80,13 @@ export async function execute(
     }
 
     // Get guild API keys from new table
-    const apiKeys = await getGuildApiKeys( guildId);
+    const apiKeys = await getGuildApiKeys(guildId);
 
     if (apiKeys.length === 0) {
       await logGuildWarning(
         guildId,
         interaction.client,
-        
+
         "Verify Warning: API Key Required",
         "No API keys configured for guild",
         [{ name: "User", value: interaction.user.toString(), inline: true }],
@@ -126,7 +126,7 @@ export async function execute(
         await logGuildWarning(
           guildId,
           interaction.client,
-          
+
           "Verify: Not Linked",
           `${targetUser} is not linked to Torn.`,
           [{ name: "Target", value: targetUser.toString(), inline: true }],
@@ -154,7 +154,7 @@ export async function execute(
       await logGuildError(
         guildId,
         interaction.client,
-        
+
         "Verify Failed",
         errorMessage || "Failed to verify user.",
         `Verification failed for ${targetUser}.`,
@@ -198,11 +198,11 @@ export async function execute(
     // Store verification in database
     await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
       discord_id: targetUser.id,
-      torn_player_id: response.profile?.id,
-      torn_player_name: response.profile?.name,
+      torn_id: response.profile?.id,
+      torn_name: response.profile?.name,
       faction_id: response.faction?.id || null,
-      faction_name: response.faction?.name || null,
-      verified_at: new Date().toISOString(),
+      faction_tag: response.faction?.tag || null,
+      updated_at: new Date().toISOString(),
     });
 
     // Apply nickname template
@@ -216,7 +216,7 @@ export async function execute(
 
         await member.setNickname(nickname);
       } catch (nicknameError) {
-        console.error("Failed to set nickname:", nicknameError);
+        // Silently ignore nickname errors (expected for admins with higher perms)
         // Don't fail verification if nickname update fails
       }
     }
@@ -340,7 +340,7 @@ export async function execute(
     await logGuildSuccess(
       guildId,
       interaction.client,
-      
+
       "Verify Success",
       `${targetUser} verified as **${response.profile?.name}**.`,
       logFields,

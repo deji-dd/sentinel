@@ -193,7 +193,12 @@ export function startWarLedgerSyncWorker() {
             const notifications: Array<{
               guild_id: string;
               territory_id: string;
-              event_type: "war_started" | "war_ended" | "peace_treaty";
+              event_type:
+                | "war_started"
+                | "war_ended"
+                | "peace_treaty"
+                | "assault_succeeded"
+                | "assault_failed";
               assaulting_faction?: number;
               defending_faction?: number;
               occupying_faction: number | null;
@@ -233,10 +238,25 @@ export function startWarLedgerSyncWorker() {
               const isTruce =
                 hoursSinceStart < 72 && victor === war.defending_faction;
 
+              // Determine assault outcome
+              let eventType:
+                | "peace_treaty"
+                | "war_ended"
+                | "assault_succeeded"
+                | "assault_failed" = "war_ended";
+              if (isTruce) {
+                eventType = "peace_treaty";
+              } else if (victor === war.assaulting_faction) {
+                eventType = "assault_succeeded";
+              } else if (victor === war.defending_faction) {
+                eventType = "assault_failed";
+              }
+              // else: neither faction owns it (shouldn't happen), use generic war_ended
+
               notifications.push({
                 guild_id: "",
                 territory_id: war.territory_id,
-                event_type: isTruce ? "peace_treaty" : "war_ended",
+                event_type: eventType,
                 assaulting_faction: war.assaulting_faction,
                 defending_faction: war.defending_faction,
                 occupying_faction: victor,
