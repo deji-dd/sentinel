@@ -63,19 +63,25 @@ export async function ensureWorkerRegistered(
   }
 
   // Ensure schedule row exists for the worker
-  const { error: schedError } = await supabase
+  // Only insert if it doesn't exist - do NOT overwrite existing schedules
+  const { data: existingSchedule } = await supabase
     .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .upsert(
-      {
+    .select("worker_id")
+    .eq("worker_id", workerRow.id)
+    .single();
+
+  if (!existingSchedule) {
+    const { error: schedError } = await supabase
+      .from(TABLE_NAMES.WORKER_SCHEDULES)
+      .insert({
         worker_id: workerRow.id,
         cadence_seconds: cadenceSeconds,
         next_run_at: initialNextRunAt || new Date().toISOString(),
-      },
-      { onConflict: "worker_id" },
-    );
+      });
 
-  if (schedError) {
-    throw new Error(`Failed to ensure schedule: ${schedError.message}`);
+    if (schedError) {
+      throw new Error(`Failed to create schedule: ${schedError.message}`);
+    }
   }
 
   return workerRow;
@@ -169,6 +175,20 @@ export async function triggerWorkerNow(workerId: string): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to trigger worker: ${error.message}`);
+  }
+}
+
+export async function updateWorkerCadence(
+  workerId: string,
+  cadenceSeconds: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABLE_NAMES.WORKER_SCHEDULES)
+    .update({ cadence_seconds: cadenceSeconds })
+    .eq("worker_id", workerId);
+
+  if (error) {
+    throw new Error(`Failed to update worker cadence: ${error.message}`);
   }
 }
 

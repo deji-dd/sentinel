@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey } from "../lib/supabase.js";
+import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { logError } from "../lib/logger.js";
+import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -505,11 +505,12 @@ async function getUserBuildPreference(): Promise<{
  * Main handler for training recommendations
  */
 async function computeTrainingRecommendations(): Promise<void> {
+  const startTime = Date.now();
   // Fetch latest snapshot
   const snapshot = await getLatestSnapshot();
 
   // Get the user's API key
-  const apiKey = await getPersonalApiKey();
+  const apiKey = await getSystemApiKey("personal");
 
   // Get booster cooldown
   const boosterCooldown = await getBoosterCooldown();
@@ -611,9 +612,18 @@ async function computeTrainingRecommendations(): Promise<void> {
       );
     }
 
-    logError(
+    const duration = Date.now() - startTime;
+    logDuration(
       TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      `Saved ${recommendations.length} training recommendations (main focus: ${buildPref.mainStat || "not set"})`,
+      `Sync completed (${recommendations.length} recommendations, main focus: ${buildPref.mainStat || "not set"})`,
+      duration,
+    );
+  } else {
+    const duration = Date.now() - startTime;
+    logDuration(
+      TRAINING_RECOMMENDATIONS_WORKER_NAME,
+      "Sync completed (no recommendations)",
+      duration,
     );
   }
 }

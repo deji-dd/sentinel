@@ -30,12 +30,39 @@ import {
   storeFactionDetails,
 } from "../../../lib/faction-utils.js";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
+import * as territoryHandlers from "./handlers/territories.js";
 
 interface ApiKeyEntry {
   key: string; // encrypted
   fingerprint: string; // last 4 characters for display
   isActive: boolean;
   createdAt: string;
+}
+
+function buildConfigViewMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
+  const options = [
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Admin Settings")
+      .setValue("admin")
+      .setDescription("Manage administrative settings"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Verification Settings")
+      .setValue("verify")
+      .setDescription("Manage verification settings"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Territories Settings")
+      .setValue("territories")
+      .setDescription("Manage TT notifications and filters"),
+  ];
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId("config_view_select")
+    .setPlaceholder("Select a settings section...")
+    .addOptions(options);
+
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    selectMenu,
+  );
 }
 
 export const data = new SlashCommandBuilder()
@@ -115,25 +142,7 @@ export async function execute(
     }
 
     // Show view selection menu
-    const options = [
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Admin Settings")
-        .setValue("admin")
-        .setDescription("Manage administrative settings"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Verification Settings")
-        .setValue("verify")
-        .setDescription("Manage verification settings"),
-    ];
-
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("config_view_select")
-      .setPlaceholder("Select a settings section...")
-      .addOptions(options);
-
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
+    const row = buildConfigViewMenuRow();
 
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -228,6 +237,8 @@ export async function handleViewSelect(
       await showAdminSettings(interaction, guildConfig);
     } else if (selectedView === "verify") {
       await showVerifySettings(interaction, supabase, guildConfig);
+    } else if (selectedView === "territories") {
+      await territoryHandlers.handleShowTTSettings(interaction, supabase);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -370,7 +381,7 @@ async function showVerifySettings(
     .setTitle("Verification Settings")
     .addFields(
       {
-        name: "Auto Verify on Join",
+        name: "Auto Verification",
         value: `${autoVerifyStatus} ${guildConfig.auto_verify ? "Enabled" : "Disabled"}`,
         inline: false,
       },
@@ -379,22 +390,29 @@ async function showVerifySettings(
         value: `\`${guildConfig.nickname_template || "{name}#{id}"}\``,
         inline: false,
       },
-      {
-        name: "Sync Interval",
-        value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
-        inline: false,
-      },
-      {
-        name: "Verification Role",
-        value: verifiedRoleDisplay,
-        inline: false,
-      },
-      {
-        name: "Faction Role Assignments",
-        value: factionRolesDisplay,
-        inline: false,
-      },
     );
+
+  // Only show sync interval if auto verification is enabled
+  if (guildConfig.auto_verify) {
+    verifyEmbed.addFields({
+      name: "Sync Interval",
+      value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
+      inline: false,
+    });
+  }
+
+  verifyEmbed.addFields(
+    {
+      name: "Verification Role",
+      value: verifiedRoleDisplay,
+      inline: false,
+    },
+    {
+      name: "Faction Role Assignments",
+      value: factionRolesDisplay,
+      inline: false,
+    },
+  );
 
   if (!hasApiKey) {
     verifyEmbed.addFields({
@@ -407,7 +425,7 @@ async function showVerifySettings(
   // Edit settings menu
   const settingOptions = [
     new StringSelectMenuOptionBuilder()
-      .setLabel("Auto Verify")
+      .setLabel("Auto Verification")
       .setValue("edit_auto_verify")
       .setDescription(
         guildConfig.auto_verify ? "Currently enabled" : "Currently disabled",
@@ -416,10 +434,19 @@ async function showVerifySettings(
       .setLabel("Nickname Template")
       .setValue("edit_nickname")
       .setDescription("e.g., {name}#{id}"),
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Sync Interval")
-      .setValue("edit_sync")
-      .setDescription("How often to resync data"),
+  ];
+
+  // Only show sync interval option if auto verification is enabled
+  if (guildConfig.auto_verify) {
+    settingOptions.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Sync Interval")
+        .setValue("edit_sync")
+        .setDescription("How often to resync data"),
+    );
+  }
+
+  settingOptions.push(
     new StringSelectMenuOptionBuilder()
       .setLabel("Verification Role")
       .setValue("edit_verified_role")
@@ -428,7 +455,7 @@ async function showVerifySettings(
       .setLabel("Faction Roles")
       .setValue("edit_faction")
       .setDescription("Manage role assignments"),
-  ];
+  );
 
   const settingsMenu = new StringSelectMenuBuilder()
     .setCustomId("verify_settings_edit")
@@ -466,25 +493,7 @@ export async function handleBackToMenu(
     const adminGuildId = process.env.ADMIN_GUILD_ID;
     const isAdminGuild = guildId === adminGuildId;
 
-    const options = [
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Admin Settings")
-        .setValue("admin")
-        .setDescription("Manage administrative settings"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Verification Settings")
-        .setValue("verify")
-        .setDescription("Manage verification settings"),
-    ];
-
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("config_view_select")
-      .setPlaceholder("Select a settings section...")
-      .addOptions(options);
-
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
+    const row = buildConfigViewMenuRow();
 
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -577,7 +586,7 @@ export async function handleBackToVerifySettings(
       .setTitle("Verification Settings")
       .addFields(
         {
-          name: "Auto Verify on Join",
+          name: "Auto Verification",
           value: `${autoVerifyStatus} ${guildConfig.auto_verify ? "Enabled" : "Disabled"}`,
           inline: false,
         },
@@ -586,22 +595,29 @@ export async function handleBackToVerifySettings(
           value: `\`${guildConfig.nickname_template || "{name}#{id}"}\``,
           inline: false,
         },
-        {
-          name: "Sync Interval",
-          value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
-          inline: false,
-        },
-        {
-          name: "Verification Role",
-          value: verifiedRoleDisplay,
-          inline: false,
-        },
-        {
-          name: "Faction Role Assignments",
-          value: factionRolesDisplay,
-          inline: false,
-        },
       );
+
+    // Only show sync interval if auto verification is enabled
+    if (guildConfig.auto_verify) {
+      verifyEmbed.addFields({
+        name: "Sync Interval",
+        value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
+        inline: false,
+      });
+    }
+
+    verifyEmbed.addFields(
+      {
+        name: "Verification Role",
+        value: verifiedRoleDisplay,
+        inline: false,
+      },
+      {
+        name: "Faction Role Assignments",
+        value: factionRolesDisplay,
+        inline: false,
+      },
+    );
 
     if (!hasApiKey) {
       verifyEmbed.addFields({
@@ -613,7 +629,7 @@ export async function handleBackToVerifySettings(
 
     const settingOptions = [
       new StringSelectMenuOptionBuilder()
-        .setLabel("Auto Verify")
+        .setLabel("Auto Verification")
         .setValue("edit_auto_verify")
         .setDescription(
           guildConfig.auto_verify ? "Currently enabled" : "Currently disabled",
@@ -622,10 +638,19 @@ export async function handleBackToVerifySettings(
         .setLabel("Nickname Template")
         .setValue("edit_nickname")
         .setDescription("e.g., {name}#{id}"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Sync Interval")
-        .setValue("edit_sync")
-        .setDescription("How often to resync data"),
+    ];
+
+    // Only show sync interval option if auto verification is enabled
+    if (guildConfig.auto_verify) {
+      settingOptions.push(
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Sync Interval")
+          .setValue("edit_sync")
+          .setDescription("How often to resync data"),
+      );
+    }
+
+    settingOptions.push(
       new StringSelectMenuOptionBuilder()
         .setLabel("Verification Role")
         .setValue("edit_verified_role")
@@ -634,7 +659,7 @@ export async function handleBackToVerifySettings(
         .setLabel("Faction Roles")
         .setValue("edit_faction")
         .setDescription("Manage role assignments"),
-    ];
+    );
 
     const settingsMenu = new StringSelectMenuBuilder()
       .setCustomId("verify_settings_edit")
@@ -837,7 +862,7 @@ export async function handleVerifySettingsEdit(
         .setColor(0xf59e0b)
         .setTitle("Confirm Change")
         .setDescription(
-          `Turn auto-verify **${newStatus ? "on" : "off"}**?\n\n${newStatus ? "New members will be automatically verified on join" : "Members will need to manually run /verify"}`,
+          `Turn auto-verification **${newStatus ? "on" : "off"}**?\n\n${newStatus ? "New members will be automatically verified on join and during sync intervals" : "Members will need to manually run /verify"}`,
         );
 
       const confirmBtn = new ButtonBuilder()
@@ -1287,7 +1312,14 @@ export async function handleAddApiKeyModalSubmit(
           }
         }
       } catch (error) {
-        console.warn("Failed to refresh API key view:", error);
+        const errorCode =
+          typeof error === "object" && error !== null && "code" in error
+            ? (error as { code?: number }).code
+            : undefined;
+
+        if (errorCode !== 10008) {
+          console.warn("Failed to refresh API key view:", error);
+        }
       }
     }
   } catch (error) {
@@ -1762,10 +1794,11 @@ export async function handleAddFactionRoleModalSubmit(
       return;
     }
 
-    // Fetch and validate faction details from Torn API
+    // Fetch and validate faction details from Torn API (with caching)
     const factionDetails = await validateAndFetchFactionDetails(
       factionId,
       apiKey,
+      supabase,
     );
     if (!factionDetails) {
       const errorEmbed = new EmbedBuilder()
@@ -1980,6 +2013,7 @@ export async function handleFactionRoleSelect(
       const factionDetails = await validateAndFetchFactionDetails(
         factionId,
         apiKey,
+        supabase,
       );
       if (factionDetails) {
         factionName = factionDetails.name;
@@ -2356,13 +2390,13 @@ export async function handleConfirmAutoVerifyToggle(
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
-      .setTitle("Auto Verify Updated")
+      .setTitle("Auto Verification Updated")
       .setDescription(
         `Auto verification is now **${newValue ? "enabled" : "disabled"}**`,
       )
       .setFooter({
         text: newValue
-          ? "New members will be automatically verified on join"
+          ? "New members will be automatically verified on join and during sync intervals"
           : "New members will not be automatically verified",
       });
 
@@ -2753,4 +2787,147 @@ async function logGuildAudit(
   } catch (error) {
     console.warn("Failed to write guild audit entry:", error);
   }
+}
+
+/**
+ * Territory (TT) module handlers - re-exported from territoryHandlers module
+ * Enables clean dispatch from index.ts
+ */
+export async function handleShowTTSettings(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleShowTTSettings(interaction, supabase);
+}
+
+export async function handleTTSettingsEdit(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTSettingsEdit(interaction, supabase);
+}
+
+export async function handleTTFilteredSettingsEdit(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return territoryHandlers.handleTTFilteredSettingsEdit(interaction);
+}
+
+export async function handleTTNotificationTypeSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTNotificationTypeSelect(
+    interaction,
+    supabase,
+  );
+}
+
+export async function handleTTFullChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFullChannelSelect(interaction, supabase);
+}
+
+export async function handleTTFilteredChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFilteredChannelSelect(interaction, supabase);
+}
+
+export async function handleTTFullChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFullChannelClear(interaction, supabase);
+}
+
+export async function handleTTFilteredChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTFilteredChannelClear(interaction, supabase);
+}
+
+export async function handleTTEditTerritoriesModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTEditTerritoriesModalSubmit(
+    interaction,
+    supabase,
+  );
+}
+
+export async function handleTTEditFactionsModalSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTEditFactionsModalSubmit(
+    interaction,
+    supabase,
+  );
+}
+
+export async function handleTTWarTrackPage(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackPage(interaction, supabase);
+}
+
+export async function handleTTWarTrackSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackSelect(interaction, supabase);
+}
+
+export async function handleTTWarTrackBack(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackBack(interaction, supabase);
+}
+
+export async function handleTTWarTrackChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackChannelSelect(interaction, supabase);
+}
+
+export async function handleTTWarTrackChannelClear(
+  interaction: ButtonInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackChannelClear(interaction, supabase);
+}
+
+export async function handleTTWarTrackEnemySideSelect(
+  interaction: StringSelectMenuInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackEnemySideSelect(
+    interaction,
+    supabase,
+  );
+}
+
+export async function handleTTWarTrackAwayFilterButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackAwayFilterButton(interaction);
+}
+
+export async function handleTTWarTrackAwayFilterSubmit(
+  interaction: ModalSubmitInteraction,
+  supabase: SupabaseClient,
+): Promise<void> {
+  return territoryHandlers.handleTTWarTrackAwayFilterSubmit(
+    interaction,
+    supabase,
+  );
 }

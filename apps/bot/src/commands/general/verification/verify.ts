@@ -6,15 +6,27 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { botTornApi } from "../../../lib/torn-api.js";
-import {
-  getNextApiKey,
-  resolveApiKeysForGuild,
-} from "../../../lib/api-keys.js";
+import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   logGuildError,
   logGuildSuccess,
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
+
+// Round-robin index for distributing API calls across multiple keys
+const roundRobinIndex = new Map<string, number>();
+
+function getNextApiKey(guildId: string, keys: string[]): string {
+  if (keys.length === 1) {
+    return keys[0];
+  }
+
+  const currentIndex = roundRobinIndex.get(guildId) ?? 0;
+  const nextIndex = currentIndex % keys.length;
+  roundRobinIndex.set(guildId, nextIndex + 1);
+
+  return keys[nextIndex];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("verify")
@@ -49,10 +61,10 @@ export async function execute(
       return;
     }
 
-    // Get guild config and API key(s)
+    // Get guild config for settings (nickname template, verified role)
     const { data: guildConfig, error: configError } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("api_keys, api_key, nickname_template, verified_role_id")
+      .select("nickname_template, verified_role_id")
       .eq("guild_id", guildId)
       .single();
 
@@ -69,7 +81,7 @@ export async function execute(
         .setColor(0xef4444)
         .setTitle("❌ Not Configured")
         .setDescription(
-          "This guild has not configured an API key. Ask an admin to run `/config` to set this up.",
+          "This guild has not been configured yet. Ask an admin to set up the guild first.",
         );
 
       await interaction.editReply({
@@ -79,24 +91,24 @@ export async function execute(
       return;
     }
 
-    const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
-      guildId,
-      guildConfig,
-    );
+    // Get guild API keys from new table
+    const apiKeys = await getGuildApiKeys(supabase, guildId);
 
-    if (apiKeyError) {
+    if (apiKeys.length === 0) {
       await logGuildWarning(
         guildId,
         interaction.client,
         supabase,
         "Verify Warning: API Key Required",
-        apiKeyError,
+        "No API keys configured for guild",
         [{ name: "User", value: interaction.user.toString(), inline: true }],
       );
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ API Key Required")
-        .setDescription(apiKeyError);
+        .setDescription(
+          "This guild has no API keys configured. Guild members need to add their API keys for verification to work.",
+        );
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -108,14 +120,11 @@ export async function execute(
     const apiKey = getNextApiKey(guildId, apiKeys);
 
     // Call Torn API to check user's Discord linkage and faction
-    let response;
+    let response: any;
     try {
-      response = await botTornApi.get("/user", {
-        apiKey,
-        queryParams: {
-          selections: ["discord", "faction", "profile"],
-          id: targetUser.id,
-        },
+      response = await botTornApi.getRaw("/user", apiKey, {
+        selections: "discord,faction,profile",
+        id: targetUser.id,
       });
     } catch (apiError) {
       const errorMessage =

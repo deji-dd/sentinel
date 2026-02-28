@@ -5,8 +5,9 @@ import {
   failWorker,
   ensureWorkerRegistered,
   insertWorkerLog,
+  updateWorkerCadence,
 } from "./supabase-helpers.js";
-import { logError, logWarn, logDuration } from "./logger.js";
+import { logError, logWarn } from "./logger.js";
 
 export interface RunConfig {
   worker: string; // worker name, registered in sentinel_workers
@@ -14,6 +15,7 @@ export interface RunConfig {
   pollIntervalMs?: number;
   handler: () => Promise<void | boolean>;
   initialNextRunAt?: string;
+  getDynamicCadence?: () => Promise<number>; // Optional: returns updated cadence based on current state
 }
 
 export function startDbScheduledRunner(
@@ -22,9 +24,10 @@ export function startDbScheduledRunner(
   const {
     worker,
     defaultCadenceSeconds,
-    pollIntervalMs = 5000,
+    pollIntervalMs = 2000, // Check every 2s for faster capacity response
     handler,
     initialNextRunAt,
+    getDynamicCadence,
   } = config;
 
   let workerId: string | null = null;
@@ -69,7 +72,19 @@ export function startDbScheduledRunner(
           return;
         }
 
-        await completeWorker(workerId, dueRow.cadence_seconds);
+        // Calculate cadence for next run (use dynamic if provided, otherwise use current)
+        let nextCadence = dueRow.cadence_seconds;
+        if (getDynamicCadence) {
+          try {
+            nextCadence = await getDynamicCadence();
+          } catch (_err) {
+            // Silently ignore cadence calculation errors - use existing cadence
+          }
+        }
+
+        // Complete worker with calculated cadence (single DB write)
+        await completeWorker(workerId, nextCadence);
+
         await insertWorkerLog({
           worker_id: workerId,
           duration_ms: duration,
@@ -77,7 +92,7 @@ export function startDbScheduledRunner(
           run_started_at: new Date(start).toISOString(),
           run_finished_at: new Date().toISOString(),
         });
-        logDuration(worker, "Sync completed", duration);
+        // Note: Workers log their own success messages, don't duplicate here
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const duration = Date.now() - start;

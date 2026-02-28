@@ -1,3 +1,25 @@
+/**
+ * @deprecated This file is DEPRECATED as of Phase 2 migration (Feb 2026)
+ *
+ * All bot commands now use guild-api-keys.ts and the sentinel_guild_api_keys table.
+ * This file managed API keys stored in sentinel_guild_config.api_keys JSONB array.
+ *
+ * LEGACY SYSTEM (this file):
+ * - Stored encrypted keys in guild_config.api_keys JSONB array
+ * - No per-key tracking or RLS isolation
+ * - Round-robin managed in-memory
+ *
+ * NEW SYSTEM (guild-api-keys.ts):
+ * - Each key is a row in sentinel_guild_api_keys table
+ * - RLS protection per guild_id
+ * - Invalid key tracking (invalid_count, last_invalid_at)
+ * - Per-user rate limiting via sentinel_api_key_user_mapping
+ * - Soft-delete after threshold failures
+ *
+ * DO NOT USE THIS FILE FOR NEW CODE.
+ * See guild-api-keys.ts for current implementation.
+ */
+
 import { decrypt } from "./encryption.js";
 
 type ApiKeyEntry = {

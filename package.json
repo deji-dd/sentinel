@@ -2,7 +2,7 @@
   "name": "sentinel",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.28.2",
+  "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "pnpm --filter ui dev",
     "build": "pnpm --filter ui build",
@@ -18,7 +18,7 @@
     "dev:all": "pnpm -r dev",
     "build:all": "pnpm -r build",
     "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build",
-    "supabase:push": "pnpm dlx supabase db push && pnpm dlx supabase db push --local"
+    "supabase:push": "pnpm dlx supabase db push --local && pnpm dlx supabase db push"
   },
   "devDependencies": {
     "openapi-typescript": "^7.10.1"

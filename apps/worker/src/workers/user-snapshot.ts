@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
-import { getPersonalApiKey } from "../lib/supabase.js";
+import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { logError } from "../lib/logger.js";
+import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -168,7 +168,7 @@ function calculateLiquidCash(
  * Take a snapshot of the user's current state (financial, stats, training, bars, and cooldowns)
  */
 async function takeSnapshot(): Promise<void> {
-  const apiKey = getPersonalApiKey();
+  const apiKey = await getSystemApiKey("personal");
   const startTime = Date.now();
 
   try {
@@ -323,6 +323,9 @@ async function takeSnapshot(): Promise<void> {
     if (error) {
       throw error;
     }
+
+    const duration = Date.now() - startTime;
+    logDuration(SNAPSHOT_WORKER_NAME, "Sync completed", duration);
   } catch (error) {
     const elapsed = Date.now() - startTime;
     let errorMessage = "Unknown error";
@@ -337,7 +340,7 @@ async function takeSnapshot(): Promise<void> {
       elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
     logError(
       SNAPSHOT_WORKER_NAME,
-      `Sync failed: ${errorMessage} (${duration})`,
+      `Sync failed: ${errorMessage} (${new Date().toISOString()}) (${duration})`,
     );
     throw error;
   }
@@ -406,6 +409,20 @@ async function pruneSnapshots(): Promise<void> {
       if (deleteError) {
         throw deleteError;
       }
+
+      const duration = Date.now() - startTime;
+      logDuration(
+        PRUNING_WORKER_NAME,
+        `Sync completed (deleted ${idsToDelete.length} old snapshots)`,
+        duration,
+      );
+    } else {
+      const duration = Date.now() - startTime;
+      logDuration(
+        PRUNING_WORKER_NAME,
+        "Sync completed (no snapshots to delete)",
+        duration,
+      );
     }
   } catch (error) {
     const elapsed = Date.now() - startTime;
