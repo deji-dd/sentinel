@@ -2,11 +2,20 @@ import { type Client } from "discord.js";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import {
   TABLE_NAMES,
-  DatabaseRateLimiter,
+  PerUserRateLimiter,
   TornApiClient,
 } from "@sentinel/shared";
-import { getNextApiKey, resolveApiKeysForGuild } from "./api-keys.js";
+import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
+
+// Local round-robin tracker per guild
+const guildKeyIndices = new Map<string, number>();
+function getNextApiKey(guildId: string, keys: string[]): string {
+  const currentIndex = guildKeyIndices.get(guildId) || 0;
+  const apiKey = keys[currentIndex];
+  guildKeyIndices.set(guildId, (currentIndex + 1) % keys.length);
+  return apiKey;
+}
 
 interface VerifiedUser {
   discord_id: string;
@@ -38,6 +47,7 @@ interface GuildConfigRecord {
   enabled_modules: string[];
   admin_role_ids: string[];
   verified_role_ids: string[];
+  auto_verify?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -46,23 +56,25 @@ interface GuildConfigRecord {
  * Database-driven guild sync scheduler
  * - Polls database every 60s for guilds needing sync
  * - Syncs each guild independently with its own API key
- * - Respects per-guild rate limits via DatabaseRateLimiter
+ * - Respects per-user rate limits via PerUserRateLimiter
  * - Allows guilds to customize sync interval
  */
 export class GuildSyncScheduler {
   private client: Client;
   private supabase: SupabaseClient;
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private rateLimiter: DatabaseRateLimiter;
+  private rateLimiter: PerUserRateLimiter;
   private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
 
   constructor(client: Client, supabase: SupabaseClient) {
     this.client = client;
     this.supabase = supabase;
-    this.rateLimiter = new DatabaseRateLimiter({
+    this.rateLimiter = new PerUserRateLimiter({
       supabase,
       tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
+      apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
       hashPepper: process.env.API_KEY_HASH_PEPPER!,
+      // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
     });
   }
 
@@ -123,10 +135,40 @@ export class GuildSyncScheduler {
         return;
       }
 
-      console.log(`[Guild Sync] Found ${jobs.length} guild(s) needing sync`);
+      const jobGuildIds = jobs.map((job: GuildSyncJob) => job.guild_id);
+      const { data: guildConfigs, error: guildConfigError } =
+        await this.supabase
+          .from(TABLE_NAMES.GUILD_CONFIG)
+          .select("guild_id, auto_verify")
+          .in("guild_id", jobGuildIds);
+
+      if (guildConfigError) {
+        console.error(
+          `[Guild Sync] Failed to fetch guild configs: ${guildConfigError.message}`,
+        );
+        return;
+      }
+
+      const autoVerifyGuilds = new Set(
+        (guildConfigs || [])
+          .filter((config) => config.auto_verify)
+          .map((config) => config.guild_id),
+      );
+
+      const jobsToRun = jobs.filter((job: GuildSyncJob) =>
+        autoVerifyGuilds.has(job.guild_id),
+      );
+
+      if (jobsToRun.length === 0) {
+        return;
+      }
+
+      console.log(
+        `[Guild Sync] Found ${jobsToRun.length} guild(s) needing sync`,
+      );
 
       // Process each guild sequentially (one at a time)
-      for (const job of jobs as GuildSyncJob[]) {
+      for (const job of jobsToRun as GuildSyncJob[]) {
         await this.syncGuild(job);
       }
     } catch (error) {
@@ -160,14 +202,6 @@ export class GuildSyncScheduler {
       return;
     }
 
-    await logGuildSuccess(
-      job.guild_id,
-      this.client,
-      this.supabase,
-      "Guild Sync Started",
-      "Scheduled verification sync started.",
-    );
-
     try {
       const { data: guildConfig, error: configError } = await this.supabase
         .from(TABLE_NAMES.GUILD_CONFIG)
@@ -188,19 +222,34 @@ export class GuildSyncScheduler {
         return;
       }
 
-      const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
+      if (!guildConfig.auto_verify) {
+        console.log(
+          `[Guild Sync] Auto verification disabled for guild ${job.guild_id}. Skipping sync.`,
+        );
+        return;
+      }
+
+      await logGuildSuccess(
         job.guild_id,
-        guildConfig as GuildConfigRecord,
+        this.client,
+        this.supabase,
+        "Guild Sync Started",
+        "Scheduled verification sync started.",
       );
 
-      if (apiKeyError) {
-        console.error(`[Guild Sync] ${apiKeyError} (guild ${job.guild_id})`);
+      // Get API keys from new guild-api-keys table
+      const apiKeys = await getGuildApiKeys(this.supabase, job.guild_id);
+
+      if (apiKeys.length === 0) {
+        console.error(
+          `[Guild Sync] No API keys configured (guild ${job.guild_id})`,
+        );
         await logGuildError(
           job.guild_id,
           this.client,
           this.supabase,
           "Guild Sync Failed",
-          apiKeyError,
+          "No API keys configured",
           `Missing API key for guild ${job.guild_id}.`,
         );
         return;

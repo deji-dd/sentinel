@@ -53,6 +53,7 @@ export const TORN_ERROR_CODES: Record<number, string> = {
 export interface RateLimitTracker {
   waitIfNeeded(apiKey: string): Promise<void>;
   recordRequest(apiKey: string): Promise<void>;
+  getRequestCount?(apiKey: string): Promise<number>;
 }
 
 /**
@@ -61,6 +62,7 @@ export interface RateLimitTracker {
 export interface TornApiConfig {
   rateLimitTracker?: RateLimitTracker;
   timeout?: number;
+  onInvalidKey?: (apiKey: string, errorCode: number) => Promise<void>;
 }
 
 /**
@@ -113,10 +115,12 @@ type OperationPathParams<Op> = Op extends {
  */
 export class TornApiClient {
   private rateLimitTracker?: RateLimitTracker;
+  private onInvalidKey?: (apiKey: string, errorCode: number) => Promise<void>;
   private timeout: number;
 
   constructor(config: TornApiConfig = {}) {
     this.rateLimitTracker = config.rateLimitTracker;
+    this.onInvalidKey = config.onInvalidKey;
     this.timeout = config.timeout ?? REQUEST_TIMEOUT;
   }
 
@@ -217,6 +221,13 @@ export class TornApiClient {
           TORN_ERROR_CODES[error.code] ||
           error.error ||
           `Error code ${error.code}`;
+
+        // Call invalid key handler for error code 2 (Incorrect Key)
+        // This allows apps to soft-delete keys after multiple failures
+        if (error.code === 2 && this.onInvalidKey) {
+          await this.onInvalidKey(apiKey, error.code);
+        }
+
         throw new Error(errorMessage);
       }
 
@@ -291,6 +302,13 @@ export class TornApiClient {
           TORN_ERROR_CODES[error.code] ||
           error.error ||
           `Error code ${error.code}`;
+
+        // Call invalid key handler for error code 2 (Incorrect Key)
+        // This allows apps to soft-delete keys after multiple failures
+        if (error.code === 2 && this.onInvalidKey) {
+          await this.onInvalidKey(apiKey, error.code);
+        }
+
         throw new Error(errorMessage);
       }
 

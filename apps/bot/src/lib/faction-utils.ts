@@ -1,38 +1,40 @@
 /**
  * Faction utilities for fetching and syncing faction information
- * Names are stored in sentinel_faction_roles table and synced daily via worker
+ * Uses caching via sentinel_torn_factions table
+ * Synced daily via faction-sync worker
  */
 
 import { botTornApi } from "./torn-api.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, getFactionDataCached } from "@sentinel/shared";
 
 /**
- * Validate and fetch faction details from Torn API
+ * Validate and fetch faction details from Torn API (with caching)
  * Returns faction details (name, tag) if it exists, null if not
- * Does NOT store anything to database
+ * Stores result in sentinel_torn_factions table for future use
  */
 export async function validateAndFetchFactionDetails(
   factionId: number,
   apiKey: string,
+  supabase: SupabaseClient,
 ) {
   if (!apiKey) {
     return null;
   }
 
   try {
-    const factionData = await botTornApi.get("/faction/{id}/basic", {
+    const factionData = await getFactionDataCached(
+      supabase,
+      factionId,
+      botTornApi,
       apiKey,
-      pathParams: { id: String(factionId) },
-    });
+    );
 
-    const name = factionData.basic.name;
-
-    if (!name) {
+    if (!factionData || !factionData.name) {
       return null;
     }
 
-    return { name };
+    return { name: factionData.name };
   } catch (error) {
     console.error(`Faction ${factionId} validation failed:`, error);
     return null;

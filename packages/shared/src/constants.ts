@@ -17,6 +17,9 @@ export const TABLE_NAMES = {
   TORN_DESTINATIONS: "sentinel_torn_destinations",
   DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
   RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
+  SYSTEM_API_KEYS: "sentinel_system_api_keys",
+  GUILD_API_KEYS: "sentinel_guild_api_keys",
+  API_KEY_USER_MAPPING: "sentinel_api_key_user_mapping",
   USER_ALERTS: "sentinel_user_alerts",
   USER_SNAPSHOTS: "sentinel_user_snapshots",
   FINANCE_SETTINGS: "sentinel_finance_settings",
@@ -29,10 +32,23 @@ export const TABLE_NAMES = {
   GUILD_SYNC_JOBS: "sentinel_guild_sync_jobs",
   GUILD_AUDIT: "sentinel_guild_audit",
   FACTION_ROLES: "sentinel_faction_roles",
+  TERRITORY_BLUEPRINT: "sentinel_territory_blueprint",
+  TERRITORY_STATE: "sentinel_territory_state",
+  WAR_LEDGER: "sentinel_war_ledger",
+  WAR_TRACKERS: "sentinel_war_trackers",
+  TORN_FACTIONS: "sentinel_torn_factions",
+  TT_CONFIG: "sentinel_tt_config",
 } as const;
 
 /** Alert module types */
 export const ALERT_MODULES = {
   TRAVEL: "travel",
   // Future: CRIMES: "crimes", FACTION: "faction", etc.
+} as const;
+/** Rate limiting constants */
+export const RATE_LIMITING = {
+  /** Max requests per minute per Torn user across all API keys and guilds */
+  MAX_REQUESTS_PER_MINUTE: 50,
+  /** Window size for rate limiting (1 minute) */
+  WINDOW_MS: 60000,
 } as const;

@@ -19,16 +19,25 @@ import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as configCommand from "./commands/general/admin/config.js";
+import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
+import * as burnMapCommand from "./commands/general/territories/burn-map.js";
+import * as burnMapSimulatorCommand from "./commands/general/territories/burn-map-simulator.js";
 import { initHttpServer } from "./lib/http-server.js";
 import { getAuthorizedDiscordUserId } from "./lib/auth.js";
-import {
-  logGuildSuccess,
-  logGuildError,
-  logGuildWarning,
-} from "./lib/guild-logger.js";
+import { logGuildSuccess, logGuildError } from "./lib/guild-logger.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { GuildSyncScheduler } from "./lib/verification-sync.js";
-import { getNextApiKey, resolveApiKeysForGuild } from "./lib/api-keys.js";
+import { WarTrackerScheduler } from "./lib/war-tracker-scheduler.js";
+import { getGuildApiKeys } from "./lib/guild-api-keys.js";
+
+// Local round-robin tracker per guild for auto-verify
+const guildKeyIndices = new Map<string, number>();
+function getNextApiKey(guildId: string, keys: string[]): string {
+  const currentIndex = guildKeyIndices.get(guildId) || 0;
+  const apiKey = keys[currentIndex];
+  guildKeyIndices.set(guildId, (currentIndex + 1) % keys.length);
+  return apiKey;
+}
 
 // Use local Supabase in development, cloud in production
 const isDev = process.env.NODE_ENV === "development";
@@ -115,6 +124,9 @@ client.once(Events.ClientReady, (readyClient) => {
   // Start periodic guild sync scheduler
   const guildSyncScheduler = new GuildSyncScheduler(client, supabase);
   guildSyncScheduler.start();
+
+  const warTrackerScheduler = new WarTrackerScheduler(client, supabase);
+  warTrackerScheduler.start();
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -246,6 +258,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await verifyallCommand.execute(interaction, supabase);
         } else if (interaction.commandName === "config") {
           await configCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "assault-check") {
+          await assaultCheckCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "burn-map") {
+          await burnMapCommand.execute(interaction, supabase);
+        } else if (interaction.commandName === "burn-map-simulator") {
+          await burnMapSimulatorCommand.execute(interaction, supabase);
         }
       }
       return;
@@ -287,6 +305,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction,
           supabase,
         );
+      } else if (interaction.customId === "tt_settings_show") {
+        await configCommand.handleShowTTSettings(interaction, supabase);
+      } else if (interaction.customId === "tt_full_channel_clear") {
+        await configCommand.handleTTFullChannelClear(interaction, supabase);
+      } else if (interaction.customId === "tt_filtered_channel_clear") {
+        await configCommand.handleTTFilteredChannelClear(interaction, supabase);
+      } else if (
+        interaction.customId.startsWith("tt_war_track_page_prev") ||
+        interaction.customId.startsWith("tt_war_track_page_next")
+      ) {
+        await configCommand.handleTTWarTrackPage(interaction, supabase);
+      } else if (interaction.customId.startsWith("tt_war_track_back")) {
+        await configCommand.handleTTWarTrackBack(interaction, supabase);
+      } else if (
+        interaction.customId.startsWith("tt_war_track_channel_clear")
+      ) {
+        await configCommand.handleTTWarTrackChannelClear(interaction, supabase);
+      } else if (interaction.customId.startsWith("tt_war_track_away_filter")) {
+        await configCommand.handleTTWarTrackAwayFilterButton(interaction);
       }
       return;
     }
@@ -312,6 +349,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
       } else if (interaction.customId === "config_remove_faction_role_modal") {
         await configCommand.handleRemoveFactionRoleModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "tt_edit_territories_modal") {
+        await configCommand.handleTTEditTerritoriesModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId === "tt_edit_factions_modal") {
+        await configCommand.handleTTEditFactionsModalSubmit(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId.startsWith("tt_war_track_away_modal")) {
+        await configCommand.handleTTWarTrackAwayFilterSubmit(
           interaction,
           supabase,
         );
@@ -345,6 +397,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await configCommand.handleVerifySettingsEdit(interaction, supabase);
       } else if (interaction.customId === "config_remove_api_key_select") {
         await configCommand.handleRemoveApiKeySelect(interaction, supabase);
+      } else if (interaction.customId === "tt_settings_edit") {
+        await configCommand.handleTTSettingsEdit(interaction, supabase);
+      } else if (interaction.customId === "tt_filtered_settings_edit") {
+        await configCommand.handleTTFilteredSettingsEdit(interaction);
+      } else if (interaction.customId === "tt_notification_type_select") {
+        await configCommand.handleTTNotificationTypeSelect(
+          interaction,
+          supabase,
+        );
+      } else if (interaction.customId.startsWith("tt_war_track_select")) {
+        await configCommand.handleTTWarTrackSelect(interaction, supabase);
+      } else if (interaction.customId.startsWith("tt_war_track_enemy_side")) {
+        await configCommand.handleTTWarTrackEnemySideSelect(
+          interaction,
+          supabase,
+        );
       }
       return;
     }
@@ -365,6 +433,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChannelSelectMenu()) {
       if (interaction.customId === "config_log_channel_select") {
         await configCommand.handleLogChannelSelect(interaction, supabase);
+      } else if (interaction.customId === "tt_full_channel_select") {
+        await configCommand.handleTTFullChannelSelect(interaction, supabase);
+      } else if (interaction.customId === "tt_filtered_channel_select") {
+        await configCommand.handleTTFilteredChannelSelect(
+          interaction,
+          supabase,
+        );
+      } else if (
+        interaction.customId.startsWith("tt_war_track_channel_select")
+      ) {
+        await configCommand.handleTTWarTrackChannelSelect(
+          interaction,
+          supabase,
+        );
       }
       return;
     }
@@ -415,9 +497,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     // Get guild config to check if auto-verify is enabled
     const { data: guildConfig, error: configError } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select(
-        "auto_verify, api_keys, api_key, nickname_template, verified_role_id",
-      )
+      .select("auto_verify, nickname_template, verified_role_id")
       .eq("guild_id", guildId)
       .single();
 
@@ -431,13 +511,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
       return;
     }
 
-    const { keys: apiKeys, error: apiKeyError } = resolveApiKeysForGuild(
-      guildId,
-      guildConfig,
-    );
+    // Get API keys from new guild-api-keys table
+    const apiKeys = await getGuildApiKeys(supabase, guildId);
 
-    if (apiKeyError) {
-      // No usable API keys configured, skip
+    if (apiKeys.length === 0) {
+      // No API keys configured for this guild, skip
       return;
     }
 
@@ -458,12 +536,10 @@ client.on(Events.GuildMemberAdd, async (member) => {
     try {
       const { botTornApi } = await import("./lib/torn-api.js");
       const apiKey = getNextApiKey(guildId, apiKeys);
-      const response = await botTornApi.get(`/user`, {
-        apiKey,
-        queryParams: {
-          selections: ["discord", "faction", "profile"],
-          id: member.id,
-        },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response: any = await botTornApi.getRaw(`/user`, apiKey, {
+        selections: "discord,faction,profile",
+        id: member.id,
       });
 
       if (response.error) {
@@ -477,17 +553,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
             errorMessage:
               "This Discord account is not linked to any Torn account",
           };
-          console.log(
-            `[Auto-Verify] User ${member.user.username} (${member.id}) not linked to Torn`,
-          );
-          await logGuildWarning(
-            guildId,
-            client,
-            supabase,
-            "Auto-Verify: Not Linked",
-            `${member.user} is not linked to a Torn account.`,
-            [{ name: "Discord ID", value: member.id, inline: true }],
-          );
         } else {
           // API error
           verificationResult = {
@@ -497,25 +562,9 @@ client.on(Events.GuildMemberAdd, async (member) => {
             color: 0xef4444,
             errorMessage: `Torn API error: ${response.error.error}`,
           };
-          console.error(
-            `[Auto-Verify] Torn API error for ${member.id}:`,
-            response.error.error,
-          );
-          await logGuildError(
-            guildId,
-            client,
-            supabase,
-            "Auto-Verify: Torn API Error",
-            response.error.error,
-            `${member.user} verification failed due to Torn API error.`,
-          );
         }
       } else if (response.discord) {
         // Validate that required fields exist in response
-        console.log(
-          `[Auto-Verify] Full response for ${member.id}:`,
-          JSON.stringify(response, null, 2),
-        );
         if (!response.profile?.id || !response.profile?.name) {
           verificationResult = {
             status: "error",
@@ -524,17 +573,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
             color: 0xef4444,
             errorMessage: `Torn API returned incomplete data: player_id=${response.profile?.id}, name=${response.profile?.name}`,
           };
-          console.error(
-            `[Auto-Verify] Incomplete response for ${member.id}: player_id=${response.profile?.id}, name=${response.profile?.name}`,
-          );
-          await logGuildError(
-            guildId,
-            client,
-            supabase,
-            "Auto-Verify: Incomplete Response",
-            "Torn API returned incomplete data",
-            `Discord ID: ${member.id}`,
-          );
         } else {
           // Successfully verified with complete data
           await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
@@ -567,10 +605,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
           const rolesAdded: string[] = [];
           const rolesFailed: string[] = [];
 
-          console.log(
-            `[Auto-Verify] Successfully verified ${member.user.username} (${member.id}) as ${response.profile.name} [${response.profile.id}]`,
-          );
-
           // Apply nickname template
           try {
             const nickname = guildConfig.nickname_template
@@ -579,9 +613,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
               .replace("{tag}", response.faction?.tag || "");
 
             await member.setNickname(nickname);
-            console.log(
-              `[Auto-Verify] Set nickname for ${member.user.username}: ${nickname}`,
-            );
           } catch (nicknameError) {
             console.error(
               `[Auto-Verify] Failed to set nickname for ${member.user.username}:`,
@@ -604,15 +635,9 @@ client.on(Events.GuildMemberAdd, async (member) => {
             try {
               await member.roles.add(guildConfig.verified_role_id);
               rolesAdded.push(guildConfig.verified_role_id);
-              console.log(
-                `[Auto-Verify] Assigned verification role to ${member.user.username}`,
-              );
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
             } catch (roleError) {
               rolesFailed.push(guildConfig.verified_role_id);
-              console.error(
-                `[Auto-Verify] Failed to assign verification role to ${member.user.username}:`,
-                roleError,
-              );
             }
           }
 
@@ -629,21 +654,19 @@ client.on(Events.GuildMemberAdd, async (member) => {
               try {
                 await member.roles.add(factionRole.role_ids);
                 rolesAdded.push(...factionRole.role_ids);
-                console.log(
-                  `[Auto-Verify] Assigned ${factionRole.role_ids.length} role(s) to ${member.user.username}`,
-                );
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
               } catch (roleError) {
                 rolesFailed.push(...factionRole.role_ids);
-                console.error(
-                  `[Auto-Verify] Failed to assign roles to ${member.user.username}:`,
-                  roleError,
-                );
               }
             }
           }
 
           // Build guild log fields
-          const logFields: Array<{ name: string; value: string; inline: boolean }> = [
+          const logFields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
             { name: "Discord ID", value: member.id, inline: true },
             {
               name: "Torn ID",
@@ -722,20 +745,28 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
         if (verificationResult.data) {
           dmEmbed.addFields([
-            { name: "Player Name", value: verificationResult.data.name, inline: true },
-            { name: "Player ID", value: String(verificationResult.data.id), inline: true },
+            {
+              name: "Player Name",
+              value: verificationResult.data.name,
+              inline: true,
+            },
+            {
+              name: "Player ID",
+              value: String(verificationResult.data.id),
+              inline: true,
+            },
           ]);
           if (verificationResult.data.faction) {
             dmEmbed.addFields([
-              { name: "Faction", value: `${verificationResult.data.faction.name} [${verificationResult.data.faction.tag}]` },
+              {
+                name: "Faction",
+                value: `${verificationResult.data.faction.name} [${verificationResult.data.faction.tag}]`,
+              },
             ]);
           }
         }
 
         await member.send({ embeds: [dmEmbed] });
-        console.log(
-          `[Auto-Verify] Sent verification result DM to ${member.user.username}`,
-        );
       } catch (dmError) {
         console.warn(
           `[Auto-Verify] Failed to send verification DM to ${member.user.username}:`,
