@@ -27,8 +27,6 @@ type ApiKeyEntry = {
   isActive?: boolean;
 };
 
-const roundRobinIndex = new Map<string, number>();
-
 function getEncryptedKeys(guildConfig: {
   api_keys?: ApiKeyEntry[] | null;
   api_key?: string | null;
@@ -97,16 +95,4 @@ export function resolveApiKeysForGuild(
   }
 
   return { keys: decryptedKeys };
-}
-
-export function getNextApiKey(guildId: string, keys: string[]): string {
-  if (keys.length === 1) {
-    return keys[0];
-  }
-
-  const currentIndex = roundRobinIndex.get(guildId) ?? 0;
-  const nextIndex = currentIndex % keys.length;
-  roundRobinIndex.set(guildId, nextIndex + 1);
-
-  return keys[nextIndex];
 }

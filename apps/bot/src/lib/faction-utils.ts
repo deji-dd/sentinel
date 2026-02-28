@@ -4,9 +4,9 @@
  * Synced daily via faction-sync worker
  */
 
-import { botTornApi } from "./torn-api.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES, getFactionDataCached } from "@sentinel/shared";
+import { tornApi } from "../services/torn-client.js";
+import { supabase } from "./supabase.js";
 
 /**
  * Validate and fetch faction details from Torn API (with caching)
@@ -16,7 +16,6 @@ import { TABLE_NAMES, getFactionDataCached } from "@sentinel/shared";
 export async function validateAndFetchFactionDetails(
   factionId: number,
   apiKey: string,
-  supabase: SupabaseClient,
 ) {
   if (!apiKey) {
     return null;
@@ -26,7 +25,7 @@ export async function validateAndFetchFactionDetails(
     const factionData = await getFactionDataCached(
       supabase,
       factionId,
-      botTornApi,
+      tornApi,
       apiKey,
     );
 
@@ -50,14 +49,13 @@ export async function storeFactionDetails(
   factionId: number,
   roleIds: string[],
   factionName: string,
-  supabase: SupabaseClient,
 ): Promise<boolean> {
   try {
     const { error } = await supabase.from(TABLE_NAMES.FACTION_ROLES).upsert(
       {
         guild_id: guildId,
         faction_id: factionId,
-        role_ids: roleIds,
+        member_role_ids: roleIds,
         faction_name: factionName,
         updated_at: new Date().toISOString(),
       },
@@ -84,7 +82,6 @@ export async function storeFactionDetails(
  */
 export async function fetchAndStoreFactionNames(
   factionIds: number[],
-  supabase: SupabaseClient,
   apiKey: string,
 ): Promise<Map<number, string>> {
   const names = new Map<number, string>();
@@ -97,7 +94,7 @@ export async function fetchAndStoreFactionNames(
     // Fetch all factions in parallel
     const fetchPromises = factionIds.map(async (id) => {
       try {
-        const factionData = await botTornApi.get("/faction/{id}/basic", {
+        const factionData = await tornApi.get("/faction/{id}/basic", {
           apiKey,
           pathParams: { id: String(id) },
         });

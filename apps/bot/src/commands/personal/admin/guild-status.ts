@@ -4,8 +4,9 @@ import {
   type ChatInputCommandInteraction,
   type Client,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { TABLE_NAMES } from "@sentinel/shared";
+import { supabase } from "../../../lib/supabase.js";
 
 export const data = new SlashCommandBuilder()
   .setName("guild-status")
@@ -15,7 +16,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
+
   client: Client,
 ): Promise<void> {
   try {

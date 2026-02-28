@@ -3,7 +3,6 @@ import {
   EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const data = new SlashCommandBuilder()
   .setName("add-bot")
@@ -11,7 +10,6 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  _supabase: SupabaseClient,
 ): Promise<void> {
   try {
     const isDev = process.env.NODE_ENV === "development";

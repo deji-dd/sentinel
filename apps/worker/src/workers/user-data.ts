@@ -16,7 +16,6 @@ function formatDuration(ms: number): string {
 async function syncUserDataHandler(): Promise<void> {
   const apiKey = await getSystemApiKey("personal");
   const startTime = Date.now();
-  let profileId: number | undefined;
 
   try {
     const profileResponse = await tornApi.get("/user/profile", { apiKey });
@@ -25,8 +24,6 @@ async function syncUserDataHandler(): Promise<void> {
     if (!profile?.id || !profile?.name) {
       throw new Error("Missing profile id or name in Torn response");
     }
-
-    profileId = profile.id;
 
     const isDonator =
       (profile.donator_status || "").toLowerCase() === "donator";

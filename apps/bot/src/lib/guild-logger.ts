@@ -1,5 +1,5 @@
 import { EmbedBuilder, ChannelType, type Client } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
 export interface GuildLogOptions {
@@ -20,7 +20,7 @@ export interface GuildLogOptions {
 export async function logGuildAction(
   guildId: string,
   client: Client,
-  supabase: SupabaseClient,
+
   options: GuildLogOptions,
 ): Promise<void> {
   try {
@@ -95,12 +95,12 @@ export async function logGuildAction(
 export async function logGuildSuccess(
   guildId: string,
   client: Client,
-  supabase: SupabaseClient,
+
   title: string,
   description?: string,
   fields?: Array<{ name: string; value: string; inline?: boolean }>,
 ): Promise<void> {
-  await logGuildAction(guildId, client, supabase, {
+  await logGuildAction(guildId, client, {
     title,
     description,
     color: 0x22c55e,
@@ -114,7 +114,7 @@ export async function logGuildSuccess(
 export async function logGuildError(
   guildId: string,
   client: Client,
-  supabase: SupabaseClient,
+
   title: string,
   error: Error | string,
   description?: string,
@@ -122,7 +122,7 @@ export async function logGuildError(
   const errorMessage =
     typeof error === "string" ? error : error.message || String(error);
 
-  await logGuildAction(guildId, client, supabase, {
+  await logGuildAction(guildId, client, {
     title,
     description,
     color: 0xef4444,
@@ -136,12 +136,12 @@ export async function logGuildError(
 export async function logGuildWarning(
   guildId: string,
   client: Client,
-  supabase: SupabaseClient,
+
   title: string,
   description?: string,
   fields?: Array<{ name: string; value: string; inline?: boolean }>,
 ): Promise<void> {
-  await logGuildAction(guildId, client, supabase, {
+  await logGuildAction(guildId, client, {
     title,
     description,
     color: 0xf59e0b,

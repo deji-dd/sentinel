@@ -1,6 +1,5 @@
 import express, { type Request, type Response } from "express";
 import { type Client } from "discord.js";
-import { type SupabaseClient } from "@supabase/supabase-js";
 
 const app = express();
 app.use(express.json());
@@ -10,11 +9,7 @@ let discordClient: Client;
 /**
  * Initialize the HTTP server with Discord and Supabase clients
  */
-export function initHttpServer(
-  client: Client,
-  _supabase: SupabaseClient,
-  port: number = 3001,
-) {
+export function initHttpServer(client: Client, port: number = 3001) {
   discordClient = client;
 
   // Health check endpoint

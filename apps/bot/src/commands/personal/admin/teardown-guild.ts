@@ -10,8 +10,8 @@ import {
   REST,
   Routes,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { supabase } from "../../../lib/supabase.js";
 
 export const data = new SlashCommandBuilder()
   .setName("teardown-guild")
@@ -19,7 +19,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
+
   client: Client,
 ): Promise<void> {
   try {
@@ -112,7 +112,7 @@ export async function execute(
 
 export async function handleTeardownGuildSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
+
   client: Client,
 ): Promise<void> {
   try {

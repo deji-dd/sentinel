@@ -13,12 +13,11 @@ import {
   type ButtonInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { supabase } from "../../../../lib/supabase.js";
 
 export async function handleViewSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -115,7 +114,6 @@ export async function handleViewSelect(
 
 export async function handleBackToMenu(
   interaction: ButtonInteraction,
-  _supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();

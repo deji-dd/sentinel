@@ -8,8 +8,9 @@ import {
   type StringSelectMenuInteraction,
   type Client,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { TABLE_NAMES } from "@sentinel/shared";
+import { supabase } from "../../../lib/supabase.js";
 
 export const data = new SlashCommandBuilder()
   .setName("setup-guild")
@@ -17,7 +18,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
+
   client: Client,
 ): Promise<void> {
   try {
@@ -133,7 +134,6 @@ export async function execute(
 
 export async function handleGuildSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();
@@ -259,7 +259,6 @@ export async function handleGuildSelect(
 
 export async function handleModulesSelect(
   interaction: StringSelectMenuInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferUpdate();

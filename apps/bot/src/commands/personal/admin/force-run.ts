@@ -3,8 +3,9 @@ import {
   EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { TABLE_NAMES } from "@sentinel/shared";
+import { supabase } from "../../../lib/supabase.js";
 
 export const data = new SlashCommandBuilder()
   .setName("force-run")
@@ -30,7 +31,6 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply();

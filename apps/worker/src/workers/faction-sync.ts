@@ -4,11 +4,11 @@
  * Uses system and guild API keys to distribute rate limit load
  */
 
-import { TABLE_NAMES, TornApiClient } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
-import { logDuration, logWarn, logError } from "../lib/logger.js";
+import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 
 export function startFactionSyncWorker() {
@@ -35,6 +35,7 @@ export function startFactionSyncWorker() {
         const uniqueFactionIds = Array.from(
           new Set(
             factionRoles
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               ?.map((row: any) => row.faction_id)
               .filter((id) => id != null) || [],
           ),
@@ -53,14 +54,15 @@ export function startFactionSyncWorker() {
           `[Faction Sync] Syncing ${uniqueFactionIds.length} factions`,
         );
 
-        // Get available API key (system key)
+        // Get available API keys and initialize rotator for load balancing
         const apiKeys = await getAllSystemApiKeys("all");
         if (!apiKeys.length) {
           logError("faction_sync", "No system API key available");
           return false;
         }
 
-        const apiKey = apiKeys[0];
+        // Create API key rotator to distribute requests across all available keys
+        const keyRotator = new ApiKeyRotator(apiKeys);
 
         // Sync faction data in batches using shared client with rate limiting
         let successCount = 0;
@@ -74,18 +76,12 @@ export function startFactionSyncWorker() {
           const promises = batch.map(async (factionId) => {
             try {
               const response = await tornApi.get("/faction/{id}/basic", {
-                apiKey,
-                pathParams: { id: String(factionId) },
+                apiKey: keyRotator.getNextKey(),
+                pathParams: { id: factionId },
               });
 
-              if ("error" in response) {
-                console.warn(
-                  `[Faction Sync] API error for faction ${factionId}: ${(response as any).error.error}`,
-                );
-                return { success: false };
-              }
-
-              const basic = (response as any).basic;
+              // If we get here, API call succeeded
+              const basic = response.basic;
 
               // Upsert to database
               const { error: upsertError } = await supabase
@@ -120,9 +116,9 @@ export function startFactionSyncWorker() {
 
               return { success: true };
             } catch (error) {
-              console.error(
-                `[Faction Sync] Unexpected error syncing faction ${factionId}:`,
-                error,
+              // TornApiClient throws errors (including Torn API errors)
+              console.warn(
+                `[Faction Sync] Error syncing faction ${factionId}: ${error instanceof Error ? error.message : String(error)}`,
               );
               return { success: false };
             }

@@ -3,13 +3,19 @@ import {
   EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "../../../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getPersonalUserId } from "../../../lib/auth.js";
 import {
   runWithInteractionError,
   safeReply,
 } from "../../../lib/interaction-utils.js";
+
+const userId = process.env.SENTINEL_USER_ID;
+if (!userId) {
+  throw new Error(
+    "SENTINEL_USER_ID environment variable is required for personalized bot mode",
+  );
+}
 
 function formatMoney(value: number): string {
   return `$${Math.max(0, Math.floor(value)).toLocaleString("en-US")}`;
@@ -39,14 +45,11 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   await runWithInteractionError(
     interaction,
     async () => {
       await interaction.deferReply();
-
-      const userId = getPersonalUserId();
 
       const [snapshotResult, settingsResult] = await Promise.all([
         supabase
