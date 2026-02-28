@@ -7,7 +7,7 @@ import { Client, Events } from "discord.js";
 import { initHttpServer } from "./http-server.js";
 import { GuildSyncScheduler } from "./verification-sync.js";
 import { WarTrackerScheduler } from "./war-tracker-scheduler.js";
-import { isDev, getHttpPort } from "./bot-config.js";
+import { getHttpPort } from "./bot-config.js";
 
 /**
  * Register client ready event handler

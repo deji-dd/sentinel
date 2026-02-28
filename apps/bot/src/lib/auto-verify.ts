@@ -214,7 +214,8 @@ async function attemptAutoVerification(
     try {
       await member.roles.add(guildConfig.verified_role_id);
       rolesAdded.push(guildConfig.verified_role_id);
-    } catch (roleError) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_roleError) {
       rolesFailed.push(guildConfig.verified_role_id);
     }
   }
@@ -232,7 +233,8 @@ async function attemptAutoVerification(
       try {
         await member.roles.add(factionRole.role_ids);
         rolesAdded.push(...factionRole.role_ids);
-      } catch (roleError) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (_roleError) {
         rolesFailed.push(...factionRole.role_ids);
       }
     }

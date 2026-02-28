@@ -8,7 +8,10 @@ import {
   createDiscordClient,
 } from "./lib/bot-config.js";
 import { logCommandAudit } from "./lib/command-audit.js";
-import { handleAdminCommand, isAdminCommandName } from "./lib/admin-commands.js";
+import {
+  handleAdminCommand,
+  isAdminCommandName,
+} from "./lib/admin-commands.js";
 import { handleRegularCommand } from "./lib/regular-commands.js";
 import { routeInteractionHandler } from "./lib/interaction-handlers.js";
 import { handleMemberJoin } from "./lib/auto-verify.js";
@@ -48,7 +51,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!handled) {
       console.warn(`Unhandled interaction type or custom ID:`, {
         type: interaction.type,
-        customId: interaction.isButton() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu() || interaction.isModalSubmit() ? interaction.customId : "N/A",
+        customId:
+          interaction.isButton() ||
+          interaction.isStringSelectMenu() ||
+          interaction.isRoleSelectMenu() ||
+          interaction.isChannelSelectMenu() ||
+          interaction.isModalSubmit()
+            ? interaction.customId
+            : "N/A",
       });
     }
   } catch (error) {
