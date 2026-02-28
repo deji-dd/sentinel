@@ -1,7 +1,8 @@
 import { SlashCommandBuilder, EmbedBuilder, REST, Routes } from "discord.js";
 import type { ChatInputCommandInteraction, Client } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { TABLE_NAMES } from "@sentinel/shared";
+import { supabase } from "../../../lib/supabase.js";
 
 export const data = new SlashCommandBuilder()
   .setName("deploy-commands")
@@ -9,7 +10,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
+
   client: Client,
 ): Promise<void> {
   try {

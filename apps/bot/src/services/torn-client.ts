@@ -5,17 +5,18 @@
  * Key difference from old system:
  * - Tracks rate limits per USER (not per API key)
  * - Respects Torn's actual limit: 100 req/min per user across all their keys
- * - Auto-marks invalid keys after multiple failures to prevent IP blocking
+ * - Auto-marks invalid keys (error code 2) after multiple failures to prevent IP blocking
  */
 
-import {
-  TornApiClient,
-  PerUserRateLimiter,
-  TABLE_NAMES,
-  TORN_ERROR_CODES,
-} from "@sentinel/shared";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createTornApiClient } from "@sentinel/shared";
 import { markGuildApiKeyInvalid } from "../lib/guild-api-keys.js";
+import { supabase } from "../lib/supabase.js";
+
+const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
+
+if (!API_KEY_HASH_PEPPER) {
+  throw new Error("API_KEY_HASH_PEPPER environment variable is required");
+}
 
 export interface ValidatedKeyInfo {
   playerId: number;
@@ -26,32 +27,18 @@ export interface ValidatedKeyInfo {
 
 /**
  * Create a Torn API client with per-user rate limiting for the bot
+ * Uses the centralized factory from @sentinel/shared
  */
-export function createTornApiClient(supabase: SupabaseClient): TornApiClient {
-  const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
-
-  if (!API_KEY_HASH_PEPPER) {
-    throw new Error("API_KEY_HASH_PEPPER environment variable is required");
-  }
-
-  const rateLimiter = new PerUserRateLimiter({
-    supabase,
-    tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
-    apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
-    hashPepper: API_KEY_HASH_PEPPER,
-    // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
-  });
-
-  return new TornApiClient({
-    rateLimitTracker: rateLimiter,
-    onInvalidKey: async (apiKey, errorCode) => {
-      console.warn(
-        `Invalid guild API key detected (error code ${errorCode}), marking for deletion`,
-      );
-      await markGuildApiKeyInvalid(supabase, apiKey, 3); // Soft-delete after 3 failures
-    },
-  });
-}
+export const tornApi = createTornApiClient({
+  supabase,
+  hashPepper: API_KEY_HASH_PEPPER,
+  onInvalidKey: async (apiKey: string) => {
+    console.warn(
+      `Invalid guild API key detected (error code 2), marking for deletion`,
+    );
+    await markGuildApiKeyInvalid(apiKey, 3); // Soft-delete after 3 failures
+  },
+});
 
 /**
  * Validates a Torn API key and returns key info.
@@ -60,7 +47,6 @@ export function createTornApiClient(supabase: SupabaseClient): TornApiClient {
  */
 export async function validateTornApiKey(
   apiKey: string,
-  tornApi: TornApiClient,
 ): Promise<ValidatedKeyInfo> {
   // Validate API key format
   if (!/^[a-zA-Z0-9]{16}$/.test(apiKey)) {
@@ -96,6 +82,3 @@ export async function validateTornApiKey(
     accessLevel: keyData.info.access.level,
   };
 }
-
-// Re-export error codes for convenience
-export { TORN_ERROR_CODES };

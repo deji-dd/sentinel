@@ -1,6 +1,6 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logDuration, logWarn } from "../lib/logger.js";
+import { logDuration, logError, logWarn } from "../lib/logger.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import {
   upsertTornItems,
@@ -8,7 +8,7 @@ import {
   supabase,
   type TornItemRow,
 } from "../lib/supabase.js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
@@ -110,61 +110,76 @@ function normalizeItems(
 
 async function syncTornItems(): Promise<void> {
   const startTime = Date.now();
-  const apiKeys = await getAllSystemApiKeys("all");
-  const apiKey = apiKeys[0];
-  if (!apiKey) {
-    logWarn(WORKER_NAME, "No system API keys available");
-    return;
-  }
 
-  // Torn API returns full item list in one call
-  const response = await tornApi.get("/torn/items", { apiKey });
-
-  // Extract unique categories from items
-  const categories = new Set<string>();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const itemsArray: any[] = Array.isArray(response.items)
-    ? response.items
-    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      Object.values(response.items as Record<string, any>);
-
-  for (const item of itemsArray) {
-    if (item.type && typeof item.type === "string") {
-      categories.add(item.type);
+  try {
+    const apiKeys = await getAllSystemApiKeys("all");
+    if (!apiKeys.length) {
+      logWarn(WORKER_NAME, "No system API keys available");
+      return;
     }
+
+    // Create API key rotator to distribute requests across all available keys
+    const keyRotator = new ApiKeyRotator(apiKeys);
+
+    // Torn API returns full item list in one call
+    const response = await tornApi.get("/torn/items", {
+      apiKey: keyRotator.getNextKey(),
+    });
+
+    // Extract unique categories from items
+    const categories = new Set<string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const itemsArray: any[] = Array.isArray(response.items)
+      ? response.items
+      : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Object.values(response.items as Record<string, any>);
+
+    for (const item of itemsArray) {
+      if (item.type && typeof item.type === "string") {
+        categories.add(item.type);
+      }
+    }
+
+    // Sync categories first (insert new ones only)
+    if (categories.size > 0) {
+      await syncTornCategories(Array.from(categories));
+    }
+
+    // Fetch all categories to map names to IDs
+    const { data: categoryData, error: categoryError } = await supabase
+      .from(TABLE_NAMES.TORN_CATEGORIES)
+      .select("id, name");
+
+    if (categoryError) {
+      throw new Error(`Failed to fetch categories: ${categoryError.message}`);
+    }
+
+    const categoryNameToId = new Map<string, number>();
+    categoryData?.forEach((cat) => {
+      categoryNameToId.set(cat.name, cat.id);
+    });
+
+    // Normalize items with category IDs
+    const items = normalizeItems(response, categoryNameToId);
+
+    if (!items.length) {
+      logWarn(WORKER_NAME, "No items received from Torn API");
+      return;
+    }
+
+    await upsertTornItems(items);
+
+    const duration = Date.now() - startTime;
+    logDuration(
+      WORKER_NAME,
+      `Sync completed for ${items.length} items`,
+      duration,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logError(WORKER_NAME, `Sync failed: ${message}`);
+    throw error;
   }
-
-  // Sync categories first (insert new ones only)
-  if (categories.size > 0) {
-    await syncTornCategories(Array.from(categories));
-  }
-
-  // Fetch all categories to map names to IDs
-  const { data: categoryData } = await supabase
-    .from(TABLE_NAMES.TORN_CATEGORIES)
-    .select("id, name");
-
-  const categoryNameToId = new Map<string, number>();
-  categoryData?.forEach((cat) => {
-    categoryNameToId.set(cat.name, cat.id);
-  });
-
-  // Normalize items with category IDs
-  const items = normalizeItems(response, categoryNameToId);
-
-  if (!items.length) {
-    logWarn(WORKER_NAME, "No items received from Torn API");
-    return;
-  }
-
-  await upsertTornItems(items);
-
-  const duration = Date.now() - startTime;
-  logDuration(
-    WORKER_NAME,
-    `Sync completed for ${items.length} items`,
-    duration,
-  );
 }
 
 export function startTornItemsWorker(): void {

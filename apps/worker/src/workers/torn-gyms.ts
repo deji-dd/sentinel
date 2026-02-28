@@ -96,96 +96,116 @@ interface UserStats {
   dexterity: number;
 }
 
+interface TornGym {
+  name: string;
+  stage: number;
+  cost: number;
+  energy: number;
+  strength: number;
+  speed: number;
+  defense: number;
+  dexterity: number;
+  note: string;
+}
+
+interface TornGymsResponse {
+  gyms: Record<string, TornGym>;
+}
+
 async function syncTornGyms(): Promise<void> {
   const startTime = Date.now();
-  const apiKey = await getSystemApiKey("personal");
 
-  // Fetch gyms from Torn API
-  const gymsResponse = await tornApi.get("/torn", {
-    apiKey,
-    queryParams: { selections: ["gyms"] },
-  });
+  try {
+    const apiKey = await getSystemApiKey("personal");
 
-  // Extract gyms data
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gymsData: any = (gymsResponse as any).gyms;
-  if (!gymsData || typeof gymsData !== "object") {
-    logError(WORKER_NAME, "No gyms data received from Torn API");
-    throw new Error("No gyms data in response");
-  }
+    // Fetch gyms from Torn API
+    const gymsResponse = await tornApi.get<TornGymsResponse>("/torn", {
+      apiKey,
+      queryParams: { selections: ["gyms"] },
+    });
 
-  // Fetch user stats from most recent snapshot in database
-  const { data: snapshotData, error: snapshotError } = await supabase
-    .from("sentinel_user_snapshots")
-    .select("strength, speed, defense, dexterity")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+    // Extract gyms data (getRaw throws on API errors, so no need to check)
+    const gymsData = gymsResponse.gyms;
+    if (!gymsData || typeof gymsData !== "object") {
+      throw new Error("No gyms data in response");
+    }
 
-  if (snapshotError) {
-    logError(
+    // Fetch user stats from most recent snapshot in database
+    const { data: snapshotData, error: snapshotError } = await supabase
+      .from("sentinel_user_snapshots")
+      .select("strength, speed, defense, dexterity")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (snapshotError) {
+      logError(
+        WORKER_NAME,
+        `Failed to fetch user snapshot: ${snapshotError.message}`,
+      );
+      throw snapshotError;
+    }
+
+    const userStats: UserStats = {
+      strength: snapshotData?.strength || 0,
+      speed: snapshotData?.speed || 0,
+      defense: snapshotData?.defense || 0,
+      dexterity: snapshotData?.dexterity || 0,
+    };
+
+    // Convert gyms object to array, preserving IDs from object keys
+    const gymsArray = Object.entries(gymsData).map(([id, gym]) => ({
+      ...gym,
+      id: Number(id),
+    }));
+
+    // Normalize gym data
+    const gyms: GymRow[] = gymsArray
+      .map((gym) => {
+        const id = typeof gym.id === "number" ? gym.id : Number(gym.id);
+        const name = typeof gym.name === "string" ? gym.name : null;
+        if (!id || !name) return null;
+
+        const stage = typeof gym.stage === "number" ? gym.stage : 0;
+        const unlocked = calculateGymUnlocked(id, stage, userStats);
+
+        return {
+          id,
+          name,
+          energy: typeof gym.energy === "number" ? gym.energy : 0,
+          strength: typeof gym.strength === "number" ? gym.strength : 0,
+          speed: typeof gym.speed === "number" ? gym.speed : 0,
+          dexterity: typeof gym.dexterity === "number" ? gym.dexterity : 0,
+          defense: typeof gym.defense === "number" ? gym.defense : 0,
+          unlocked,
+        } as GymRow;
+      })
+      .filter((gym): gym is GymRow => Boolean(gym));
+
+    if (gyms.length === 0) {
+      throw new Error("No valid gyms parsed from response");
+    }
+
+    // Upsert gyms (replace existing)
+    const { error } = await supabase
+      .from("sentinel_torn_gyms")
+      .upsert(gyms, { onConflict: "id" });
+
+    if (error) {
+      throw error;
+    }
+
+    const duration = Date.now() - startTime;
+    logDuration(
       WORKER_NAME,
-      `Failed to fetch user snapshot: ${snapshotError.message}`,
+      `Sync completed for ${gyms.length} gyms`,
+      duration,
     );
-    throw snapshotError;
-  }
-
-  const userStats: UserStats = {
-    strength: snapshotData?.strength || 0,
-    speed: snapshotData?.speed || 0,
-    defense: snapshotData?.defense || 0,
-    dexterity: snapshotData?.dexterity || 0,
-  };
-
-  // Convert gyms object to array, preserving IDs from object keys
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gymsArray: any[] = Array.isArray(gymsData)
-    ? gymsData
-    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      Object.entries(gymsData).map(([id, gym]: [string, any]) => ({
-        ...gym,
-        id: Number(id),
-      }));
-
-  // Normalize gym data
-  const gyms: GymRow[] = gymsArray
-    .map((gym) => {
-      const id = typeof gym.id === "number" ? gym.id : Number(gym.id);
-      const name = typeof gym.name === "string" ? gym.name : null;
-      if (!id || !name) return null;
-
-      const stage = typeof gym.stage === "number" ? gym.stage : 0;
-      const unlocked = calculateGymUnlocked(id, stage, userStats);
-
-      return {
-        id,
-        name,
-        energy: typeof gym.energy === "number" ? gym.energy : 0,
-        strength: typeof gym.strength === "number" ? gym.strength : 0,
-        speed: typeof gym.speed === "number" ? gym.speed : 0,
-        dexterity: typeof gym.dexterity === "number" ? gym.dexterity : 0,
-        defense: typeof gym.defense === "number" ? gym.defense : 0,
-        unlocked,
-      } as GymRow;
-    })
-    .filter((gym): gym is GymRow => Boolean(gym));
-
-  if (gyms.length === 0) {
-    logError(WORKER_NAME, "No valid gyms parsed from API response");
-    throw new Error("No valid gyms parsed from response");
-  }
-
-  // Upsert gyms (replace existing)
-  const { error } = await supabase
-    .from("sentinel_torn_gyms")
-    .upsert(gyms, { onConflict: "id" });
-
-  if (error) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logError(WORKER_NAME, `Sync failed: ${message}`);
     throw error;
   }
-
-  const duration = Date.now() - startTime;
-  logDuration(WORKER_NAME, `Sync completed for ${gyms.length} gyms`, duration);
 }
 
 export function startTornGymsWorker(): void {

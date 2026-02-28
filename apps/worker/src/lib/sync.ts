@@ -56,7 +56,7 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
 
   try {
     await handler();
-    const duration = Date.now() - (state.startTime || 0);
+    const _duration = Date.now() - (state.startTime || 0);
     // Removed custom logging - scheduler handles logging via database
     return true;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars

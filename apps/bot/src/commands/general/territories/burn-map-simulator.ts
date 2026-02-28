@@ -9,9 +9,9 @@ import {
   AttachmentBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
+import { supabase } from "../../../lib/supabase.js";
 
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
 
@@ -33,7 +33,6 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply();

@@ -9,7 +9,6 @@ import {
   AttachmentBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   TABLE_NAMES,
   getBurnedTerritories,
@@ -17,7 +16,8 @@ import {
 } from "@sentinel/shared";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
 import { decrypt } from "../../../lib/encryption.js";
-import { botTornApi } from "../../../lib/torn-api.js";
+import { tornApi } from "../../../services/torn-client.js";
+import { supabase } from "../../../lib/supabase.js";
 
 const STATUS_EMOJI_SUCCESS = "<:Green:1474607376140079104>";
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
@@ -30,7 +30,6 @@ interface ApiKeyEntry {
 }
 
 async function getActiveApiKey(
-  supabase: SupabaseClient,
   guildId: string,
 ): Promise<string | null> {
   const { data: guildConfig } = await supabase
@@ -65,20 +64,19 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
-  supabase: SupabaseClient,
 ): Promise<void> {
   try {
     await interaction.deferReply();
 
     const factionId = interaction.options.getInteger("faction_id", true);
     const guildId = interaction.guildId;
-    const apiKey = guildId ? await getActiveApiKey(supabase, guildId) : null;
+    const apiKey = guildId ? await getActiveApiKey(guildId) : null;
 
     // Get faction name
     const factionName = await getFactionNameCached(
       supabase,
       factionId,
-      botTornApi,
+      tornApi,
       apiKey,
     );
     const factionDisplay = factionName

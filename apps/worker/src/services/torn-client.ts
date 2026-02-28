@@ -6,11 +6,11 @@
  * - Tracks rate limits per USER (not per API key)
  * - Respects Torn's actual limit: 100 req/min per user across all their keys
  * - Supports batch operations with smart key distribution
- * - Auto-marks invalid keys after multiple failures to prevent IP blocking
+ * - Auto-marks invalid keys (error code 2) after multiple failures to prevent IP blocking
  */
 
 import {
-  TornApiClient,
+  createTornApiClient,
   PerUserRateLimiter,
   BatchOperationHandler,
   ApiKeyRotator,
@@ -36,18 +36,18 @@ const rateLimiter = new PerUserRateLimiter({
   tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
   apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
   hashPepper: API_KEY_HASH_PEPPER,
-  // Uses RATE_LIMITING.MAX_REQUESTS_PER_MINUTE from constants (50 req/min per user)
 });
 
 /**
  * Global Torn API client instance with per-user rate limiting
- * and invalid key auto-deletion
+ * and invalid key auto-deletion (only on error code 2)
  */
-export const tornApi = new TornApiClient({
-  rateLimitTracker: rateLimiter,
-  onInvalidKey: async (apiKey, errorCode) => {
+export const tornApi = createTornApiClient({
+  supabase,
+  hashPepper: API_KEY_HASH_PEPPER,
+  onInvalidKey: async (apiKey: string) => {
     console.warn(
-      `Invalid API key detected (error code ${errorCode}), marking for deletion`,
+      `Invalid API key detected (error code 2), marking for deletion`,
     );
     await markSystemApiKeyInvalid(apiKey, 3); // Soft-delete after 3 failures
   },

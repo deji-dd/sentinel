@@ -11,7 +11,7 @@
  */
 
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
 if (!process.env.ENCRYPTION_KEY) {
@@ -29,10 +29,7 @@ const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
  * Get guild's API keys (guild-isolated via RLS)
  * Returns decrypted keys for a specific guild
  */
-export async function getGuildApiKeys(
-  supabase: SupabaseClient,
-  guildId: string,
-): Promise<string[]> {
+export async function getGuildApiKeys(guildId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.GUILD_API_KEYS)
     .select("api_key_encrypted")
@@ -67,7 +64,6 @@ export async function getGuildApiKeys(
  * Returns null if no primary key is set
  */
 export async function getPrimaryGuildApiKey(
-  supabase: SupabaseClient,
   guildId: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -102,7 +98,6 @@ export async function getPrimaryGuildApiKey(
  * @param isPrimary Whether this is the default key for guild operations
  */
 export async function storeGuildApiKey(
-  supabase: SupabaseClient,
   guildId: string,
   apiKey: string,
   userId: string,
@@ -159,7 +154,6 @@ export async function storeGuildApiKey(
  * @param apiKey The raw API key to delete
  */
 export async function deleteGuildApiKey(
-  supabase: SupabaseClient,
   guildId: string,
   apiKey: string,
 ): Promise<void> {
@@ -219,7 +213,6 @@ export async function deleteGuildApiKey(
  * @param threshold Number of failures before soft-deleting (default: 3)
  */
 export async function markGuildApiKeyInvalid(
-  supabase: SupabaseClient,
   apiKey: string,
   threshold: number = 3,
 ): Promise<void> {
@@ -320,9 +313,9 @@ export async function markGuildApiKeyInvalid(
  *
  * @param supabase Service role client (admin access)
  */
-export async function getGuildsWithApiKeys(
-  supabase: SupabaseClient,
-): Promise<Array<{ guildId: string; keyCount: number }>> {
+export async function getGuildsWithApiKeys(): Promise<
+  Array<{ guildId: string; keyCount: number }>
+> {
   const { data, error } = await supabase
     .from(TABLE_NAMES.GUILD_API_KEYS)
     .select("guild_id")

@@ -7,7 +7,7 @@
  * Uses system API key via v1 API /torn endpoint
  */
 
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
@@ -91,18 +91,24 @@ export function startWarLedgerSyncWorker() {
           const startTime = Date.now();
 
           try {
-            // Get system API key
+            // Get system API keys and initialize rotator for load balancing
             const apiKeys = await getAllSystemApiKeys("all");
-            const apiKey = apiKeys[0];
-            if (!apiKey) {
+            if (!apiKeys.length) {
               // Silently skip if no API key
               return;
             }
 
+            // Create API key rotator to distribute requests across all available keys
+            const keyRotator = new ApiKeyRotator(apiKeys);
+
             // Fetch territory wars from v1 API using shared client with rate limiting
-            const response = await tornApi.getRaw("/torn", apiKey, {
-              selections: "territorywars",
-            });
+            const response = await tornApi.getRaw(
+              "/torn",
+              keyRotator.getNextKey(),
+              {
+                selections: "territorywars",
+              },
+            );
 
             if ("error" in response) {
               // Log API error with timestamp before skipping

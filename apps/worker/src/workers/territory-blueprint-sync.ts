@@ -6,7 +6,7 @@
  * Uses system API key (single request gets all territories)
  */
 
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
@@ -21,40 +21,26 @@ export function startTerritoryBlueprintSyncWorker() {
       const startTime = Date.now();
 
       try {
-        // Get system API key
+        // Get system API keys and initialize rotator for load balancing
         const apiKeys = await getAllSystemApiKeys("all");
-        const apiKey = apiKeys[0];
-        if (!apiKey) {
+        if (!apiKeys.length) {
           logError("territory_blueprint_sync", "No system API key available");
           return false;
         }
+
+        // Create API key rotator to distribute requests across all available keys
+        const keyRotator = new ApiKeyRotator(apiKeys);
 
         // Fetch all territories with pagination support using shared client with rate limiting
         const allTerritories = [];
         let nextUrl: string | null = null;
         let offset = 0;
-        let pageCount = 0;
 
         do {
-          pageCount++;
           const response = await tornApi.get("/torn/territory", {
-            apiKey,
+            apiKey: keyRotator.getNextKey(),
             queryParams: { offset },
           });
-
-          if ("error" in response) {
-            const errorMsg =
-              typeof response.error === "object" &&
-              response.error &&
-              "error" in response.error
-                ? String(response.error.error)
-                : String(response.error);
-            logError(
-              "territory_blueprint_sync",
-              `API error on page ${pageCount}: ${errorMsg}`,
-            );
-            return false;
-          }
 
           const territories = response.territory;
           const metadata = response._metadata;

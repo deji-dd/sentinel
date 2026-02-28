@@ -4,16 +4,16 @@
  */
 
 import { EmbedBuilder, type Client } from "discord.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
 import { decrypt } from "./encryption.js";
-import { botTornApi } from "./torn-api.js";
 import {
   buildWarTrackerEmbed,
   fetchActiveTerritoryWars,
   resolveEnemyUsers,
   type TerritoryWarWithTerritory,
 } from "./war-tracker.js";
+import { tornApi } from "../services/torn-client.js";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -32,10 +32,7 @@ interface WarTrackerRow {
   min_away_minutes: number;
 }
 
-async function getActiveApiKey(
-  supabase: SupabaseClient,
-  guildId: string,
-): Promise<string | null> {
+async function getActiveApiKey(guildId: string): Promise<string | null> {
   const { data: guildConfig } = await supabase
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("api_keys")
@@ -65,12 +62,10 @@ function buildEndedEmbed(territoryId: string): EmbedBuilder {
 
 export class WarTrackerScheduler {
   private client: Client;
-  private supabase: SupabaseClient;
   private intervalId: ReturnType<typeof setInterval> | null = null;
 
-  constructor(client: Client, supabase: SupabaseClient) {
+  constructor(client: Client) {
     this.client = client;
-    this.supabase = supabase;
   }
 
   start(): void {
@@ -97,7 +92,7 @@ export class WarTrackerScheduler {
   }
 
   private async pollAndUpdate(): Promise<void> {
-    const { data: trackers, error } = await this.supabase
+    const { data: trackers, error } = await supabase
       .from(TABLE_NAMES.WAR_TRACKERS)
       .select(
         "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
@@ -117,12 +112,12 @@ export class WarTrackerScheduler {
     }
 
     for (const [guildId, guildTrackers] of trackersByGuild.entries()) {
-      const apiKey = await getActiveApiKey(this.supabase, guildId);
+      const apiKey = await getActiveApiKey(guildId);
       if (!apiKey) {
         continue;
       }
 
-      const warMap = await fetchActiveTerritoryWars(apiKey, botTornApi);
+      const warMap = await fetchActiveTerritoryWars(apiKey);
 
       for (const tracker of guildTrackers) {
         const war = warMap.get(tracker.war_id);
@@ -133,16 +128,16 @@ export class WarTrackerScheduler {
 
         const assaultingName =
           (await getFactionNameCached(
-            this.supabase,
+            supabase,
             war.assaulting_faction,
-            botTornApi,
+            tornApi,
             apiKey,
           )) || `Faction ${war.assaulting_faction}`;
         const defendingName =
           (await getFactionNameCached(
-            this.supabase,
+            supabase,
             war.defending_faction,
-            botTornApi,
+            tornApi,
             apiKey,
           )) || `Faction ${war.defending_faction}`;
 
@@ -219,7 +214,7 @@ export class WarTrackerScheduler {
       .send({ embeds: [embed] })
       .catch(() => null);
     if (newMessage) {
-      await this.supabase
+      await supabase
         .from(TABLE_NAMES.WAR_TRACKERS)
         .update({
           message_id: newMessage.id,
@@ -232,7 +227,7 @@ export class WarTrackerScheduler {
 
   private async handleWarEnded(tracker: WarTrackerRow): Promise<void> {
     if (!tracker.channel_id || !tracker.message_id) {
-      await this.supabase
+      await supabase
         .from(TABLE_NAMES.WAR_TRACKERS)
         .update({
           channel_id: null,
@@ -258,7 +253,7 @@ export class WarTrackerScheduler {
       }
     }
 
-    await this.supabase
+    await supabase
       .from(TABLE_NAMES.WAR_TRACKERS)
       .update({
         channel_id: null,
