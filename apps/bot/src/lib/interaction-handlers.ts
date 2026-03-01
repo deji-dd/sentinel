@@ -76,6 +76,11 @@ export async function handleButtonInteraction(
     await configCommand.handleTTWarTrackChannelClear(interaction);
   } else if (customId.startsWith("tt_war_track_away_filter")) {
     await configCommand.handleTTWarTrackAwayFilterButton(interaction);
+  } else if (
+    customId.startsWith("config_faction_role_menu_prev_") ||
+    customId.startsWith("config_faction_role_menu_next_")
+  ) {
+    await configCommand.handleFactionRoleMenuPage(interaction);
   } else {
     return false;
   }

@@ -1049,6 +1049,7 @@ async function showFactionRoleMenu(
   interaction: StringSelectMenuInteraction | ButtonInteraction,
   guildId: string,
   apiKey?: string,
+  page: number = 1,
 ): Promise<void> {
   const { data: factionRoles } = await supabase
     .from(TABLE_NAMES.FACTION_ROLES)
@@ -1092,6 +1093,14 @@ async function showFactionRoleMenu(
       .join("\n");
   }
 
+  // Pagination: 25 options per page (Discord limit)
+  const PAGE_SIZE = 25;
+  const totalPages = Math.ceil(factionSelectOptions.length / PAGE_SIZE);
+  const currentPage = Math.max(1, Math.min(page, totalPages));
+  const startIdx = (currentPage - 1) * PAGE_SIZE;
+  const endIdx = startIdx + PAGE_SIZE;
+  const pageOptions = factionSelectOptions.slice(startIdx, endIdx);
+
   const factionEmbed = new EmbedBuilder()
     .setColor(0x10b981)
     .setTitle("Faction Role Management")
@@ -1104,21 +1113,47 @@ async function showFactionRoleMenu(
       inline: false,
     });
 
+  // Add pagination info if needed
+  if (totalPages > 1) {
+    factionEmbed.setFooter({
+      text: `Page ${currentPage}/${totalPages}`,
+    });
+  }
+
   const components: ActionRowBuilder<
     StringSelectMenuBuilder | ButtonBuilder
   >[] = [];
 
   // Add faction select menu if there are factions
-  if (factionSelectOptions.length > 0) {
+  if (pageOptions.length > 0) {
     const factionSelect = new StringSelectMenuBuilder()
       .setCustomId("config_faction_manage_select")
       .setPlaceholder("Select a faction to manage...")
-      .addOptions(factionSelectOptions.slice(0, 25)); // Discord limit
+      .addOptions(pageOptions);
 
     components.push(
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         factionSelect,
       ),
+    );
+  }
+
+  // Add pagination buttons if needed
+  if (totalPages > 1) {
+    const prevBtn = new ButtonBuilder()
+      .setCustomId(`config_faction_role_menu_prev_${currentPage - 1}`)
+      .setLabel("← Previous")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentPage <= 1);
+
+    const nextBtn = new ButtonBuilder()
+      .setCustomId(`config_faction_role_menu_next_${currentPage + 1}`)
+      .setLabel("Next →")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentPage >= totalPages);
+
+    components.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn),
     );
   }
 
@@ -1151,6 +1186,32 @@ async function showFactionRoleMenu(
     embeds: [factionEmbed],
     components: components,
   });
+}
+
+/**
+ * Handle faction role menu pagination
+ */
+export async function handleFactionRoleMenuPage(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const { customId } = interaction;
+    const pageStr = customId.split("_").pop();
+    const page = Number(pageStr) || 1;
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const apiKeys = await getGuildApiKeys(guildId);
+    const apiKey = apiKeys.length > 0 ? apiKeys[0] : undefined;
+
+    await showFactionRoleMenu(interaction, guildId, apiKey, page);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction role menu pagination:", errorMsg);
+  }
 }
 
 async function showFactionManagePage(
