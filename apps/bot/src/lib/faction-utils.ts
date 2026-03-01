@@ -90,34 +90,53 @@ export async function fetchAndStoreFactionNames(
     return names;
   }
 
+  // If too many missing factions, skip fetching to avoid rate limits
+  // (faction names will be populated gradually over time)
+  if (factionIds.length > 10) {
+    console.warn(
+      `[Faction Utils] Skipping bulk fetch of ${factionIds.length} faction names to avoid rate limiting`,
+    );
+    return names;
+  }
+
   try {
-    // Fetch all factions in parallel
-    const fetchPromises = factionIds.map(async (id) => {
+    // Fetch factions with delays to respect rate limits
+    // Instead of Promise.all, use sequential fetches with small delays
+    const results = [];
+    for (const id of factionIds) {
       try {
         const factionData = await tornApi.get("/faction/{id}/basic", {
           apiKey,
           pathParams: { id: String(id) },
         });
-        return { id, name: factionData.basic.name ?? null };
+        results.push({ id, name: factionData.basic.name ?? null });
+        // Small delay between API calls to avoid rate limiting
+        await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
         console.error(`Error fetching faction ${id}:`, error);
-        return { id, name: null };
+        results.push({ id, name: null });
       }
-    });
-
-    const results = await Promise.all(fetchPromises);
+    }
 
     // Batch update database with new names
     const successfulResults = results.filter((r) => r.name !== null);
     if (successfulResults.length > 0) {
       for (const { id, name } of successfulResults) {
-        // Update all rows with this faction_id across all guilds
-        await supabase
-          .from(TABLE_NAMES.FACTION_ROLES)
-          .update({ faction_name: name!, updated_at: new Date().toISOString() })
-          .eq("faction_id", id);
+        try {
+          // Update all rows with this faction_id across all guilds
+          await supabase
+            .from(TABLE_NAMES.FACTION_ROLES)
+            .update({
+              faction_name: name!,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("faction_id", id);
 
-        names.set(id, name!);
+          names.set(id, name!);
+        } catch (dbError) {
+          console.error(`Error updating faction ${id} in database:`, dbError);
+          // Continue with other factions even if one fails
+        }
       }
     }
 

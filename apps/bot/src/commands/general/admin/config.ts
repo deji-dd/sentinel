@@ -1006,7 +1006,23 @@ export async function handleVerifySettingsEdit(
     } else if (selectedSetting === "edit_faction") {
       await interaction.deferUpdate();
       // Show faction role management
-      await showFactionRoleMenu(interaction, guildId, apiKey);
+      try {
+        await showFactionRoleMenu(interaction, guildId, apiKey);
+      } catch (factionError) {
+        const factionMsg =
+          factionError instanceof Error
+            ? factionError.message
+            : String(factionError);
+        console.error("Error showing faction role menu:", factionMsg);
+        const errorEmbed = new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle("Error Loading Faction Roles")
+          .setDescription(`Failed to load faction roles: ${factionMsg}`);
+        await interaction.editReply({
+          embeds: [errorEmbed],
+          components: [],
+        });
+      }
     } else if (selectedSetting === "edit_verified_role") {
       await interaction.deferUpdate();
       // Show role selector for verification role
@@ -1051,141 +1067,175 @@ async function showFactionRoleMenu(
   apiKey?: string,
   page: number = 1,
 ): Promise<void> {
-  const { data: factionRoles } = await supabase
-    .from(TABLE_NAMES.FACTION_ROLES)
-    .select("*")
-    .eq("guild_id", guildId)
-    .order("faction_id", { ascending: true });
+  try {
+    const { data: factionRoles, error: factionError } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .select("*")
+      .eq("guild_id", guildId)
+      .order("faction_id", { ascending: true });
 
-  let factionRolesDisplay =
-    "None configured\n\nUse the **Add Faction** button below to get started.";
-  const factionSelectOptions: StringSelectMenuOptionBuilder[] = [];
-
-  if (factionRoles && factionRoles.length > 0) {
-    // Use stored faction names, fetching missing ones if API key available
-    const missingNames = factionRoles.filter((fr) => !fr.faction_name);
-    if (missingNames.length > 0 && apiKey) {
-      const factionIds = missingNames.map((fr) => fr.faction_id);
-      await fetchAndStoreFactionNames(factionIds, apiKey);
+    if (factionError) {
+      console.error("Error fetching faction roles:", factionError);
+      throw new Error(`Failed to fetch faction roles: ${factionError.message}`);
     }
 
-    factionRolesDisplay = factionRoles
-      .map((fr) => {
-        const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
-        const enabled = fr.enabled !== false; // Default to true if not set
-        const statusEmoji = enabled
-          ? "<:Green:1474607376140079104>"
-          : "<:Red:1474607810368114886>";
+    let factionRolesDisplay =
+      "None configured\n\nUse the **Add Faction** button below to get started.";
+    const factionSelectOptions: StringSelectMenuOptionBuilder[] = [];
 
-        // Add to select menu options
-        factionSelectOptions.push(
-          new StringSelectMenuOptionBuilder()
-            .setLabel(`${factionName}`)
-            .setDescription(
-              `ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`,
-            )
-            .setValue(`faction_manage_${fr.faction_id}`)
-            .setEmoji(enabled ? "1474607376140079104" : "1474607810368114886"),
-        );
+    if (factionRoles && factionRoles.length > 0) {
+      // Use stored faction names, fetching missing ones if API key available
+      const missingNames = factionRoles.filter((fr) => !fr.faction_name);
+      if (missingNames.length > 0 && apiKey) {
+        try {
+          const factionIds = missingNames.map((fr) => fr.faction_id);
+          await fetchAndStoreFactionNames(factionIds, apiKey);
+        } catch (fetchError) {
+          console.error("Error fetching faction names:", fetchError);
+          // Continue without faction names - they'll be populated later
+        }
+      }
 
-        return `${statusEmoji} **${factionName}** (${fr.faction_id})`;
-      })
-      .join("\n");
-  }
+      factionRolesDisplay = factionRoles
+        .map((fr) => {
+          const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
+          const enabled = fr.enabled !== false; // Default to true if not set
+          const statusEmoji = enabled
+            ? "<:Green:1474607376140079104>"
+            : "<:Red:1474607810368114886>";
 
-  // Pagination: 25 options per page (Discord limit)
-  const PAGE_SIZE = 25;
-  const totalPages = Math.ceil(factionSelectOptions.length / PAGE_SIZE);
-  const currentPage = Math.max(1, Math.min(page, totalPages));
-  const startIdx = (currentPage - 1) * PAGE_SIZE;
-  const endIdx = startIdx + PAGE_SIZE;
-  const pageOptions = factionSelectOptions.slice(startIdx, endIdx);
+          // Add to select menu options
+          factionSelectOptions.push(
+            new StringSelectMenuOptionBuilder()
+              .setLabel(`${factionName}`)
+              .setDescription(
+                `ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`,
+              )
+              .setValue(`faction_manage_${fr.faction_id}`)
+              .setEmoji(
+                enabled ? "1474607376140079104" : "1474607810368114886",
+              ),
+          );
 
-  const factionEmbed = new EmbedBuilder()
-    .setColor(0x10b981)
-    .setTitle("Faction Role Management")
-    .setDescription(
-      "Select a faction below to manage its role assignments, or add a new faction.",
-    )
-    .addFields({
-      name: "Configured Factions",
-      value: factionRolesDisplay,
-      inline: false,
-    });
+          return `${statusEmoji} **${factionName}** (${fr.faction_id})`;
+        })
+        .join("\n");
+    }
 
-  // Add pagination info if needed
-  if (totalPages > 1) {
-    factionEmbed.setFooter({
-      text: `Page ${currentPage}/${totalPages}`,
-    });
-  }
+    // Pagination: 25 options per page (Discord limit)
+    const PAGE_SIZE = 25;
+    const totalPages = Math.max(
+      1,
+      Math.ceil(factionSelectOptions.length / PAGE_SIZE),
+    );
+    const currentPage = Math.max(1, Math.min(page, totalPages));
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    const endIdx = startIdx + PAGE_SIZE;
+    const pageOptions = factionSelectOptions.slice(startIdx, endIdx);
 
-  const components: ActionRowBuilder<
-    StringSelectMenuBuilder | ButtonBuilder
-  >[] = [];
+    const factionEmbed = new EmbedBuilder()
+      .setColor(0x10b981)
+      .setTitle("Faction Role Management")
+      .setDescription(
+        "Select a faction below to manage its role assignments, or add a new faction.",
+      )
+      .addFields({
+        name: "Configured Factions",
+        value: factionRolesDisplay,
+        inline: false,
+      });
 
-  // Add faction select menu if there are factions
-  if (pageOptions.length > 0) {
-    const factionSelect = new StringSelectMenuBuilder()
-      .setCustomId("config_faction_manage_select")
-      .setPlaceholder("Select a faction to manage...")
-      .addOptions(pageOptions);
+    // Add pagination info if needed
+    if (totalPages > 1 && factionSelectOptions.length > 0) {
+      factionEmbed.setFooter({
+        text: `Page ${currentPage}/${totalPages}`,
+      });
+    }
+
+    const components: ActionRowBuilder<
+      StringSelectMenuBuilder | ButtonBuilder
+    >[] = [];
+
+    // Add faction select menu if there are factions
+    if (pageOptions.length > 0) {
+      const factionSelect = new StringSelectMenuBuilder()
+        .setCustomId("config_faction_manage_select")
+        .setPlaceholder("Select a faction to manage...")
+        .addOptions(pageOptions);
+
+      components.push(
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+          factionSelect,
+        ),
+      );
+    }
+
+    // Add pagination buttons if needed
+    if (totalPages > 1) {
+      const prevBtn = new ButtonBuilder()
+        .setCustomId(`config_faction_role_menu_prev_${currentPage - 1}`)
+        .setLabel("← Previous")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(currentPage <= 1);
+
+      const nextBtn = new ButtonBuilder()
+        .setCustomId(`config_faction_role_menu_next_${currentPage + 1}`)
+        .setLabel("Next →")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(currentPage >= totalPages);
+
+      components.push(
+        new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn),
+      );
+    }
+
+    // Add action buttons
+    const addBtn = new ButtonBuilder()
+      .setCustomId("config_add_faction_role")
+      .setLabel("Add Faction")
+      .setStyle(ButtonStyle.Success);
+
+    const removeBtn = new ButtonBuilder()
+      .setCustomId("config_remove_faction_role")
+      .setLabel("Remove Faction")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!factionRoles || factionRoles.length === 0);
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("verify_settings_edit_cancel")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
 
     components.push(
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        factionSelect,
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        addBtn,
+        removeBtn,
+        backBtn,
       ),
     );
+
+    await interaction.editReply({
+      embeds: [factionEmbed],
+      components: components,
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in showFactionRoleMenu:", errorMsg);
+
+    try {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Error")
+        .setDescription(errorMsg || "Failed to load faction roles.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+    } catch (replyError) {
+      console.error("Failed to send error reply:", replyError);
+    }
   }
-
-  // Add pagination buttons if needed
-  if (totalPages > 1) {
-    const prevBtn = new ButtonBuilder()
-      .setCustomId(`config_faction_role_menu_prev_${currentPage - 1}`)
-      .setLabel("← Previous")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage <= 1);
-
-    const nextBtn = new ButtonBuilder()
-      .setCustomId(`config_faction_role_menu_next_${currentPage + 1}`)
-      .setLabel("Next →")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage >= totalPages);
-
-    components.push(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn),
-    );
-  }
-
-  // Add action buttons
-  const addBtn = new ButtonBuilder()
-    .setCustomId("config_add_faction_role")
-    .setLabel("Add Faction")
-    .setStyle(ButtonStyle.Success);
-
-  const removeBtn = new ButtonBuilder()
-    .setCustomId("config_remove_faction_role")
-    .setLabel("Remove Faction")
-    .setStyle(ButtonStyle.Danger)
-    .setDisabled(!factionRoles || factionRoles.length === 0);
-
-  const backBtn = new ButtonBuilder()
-    .setCustomId("verify_settings_edit_cancel")
-    .setLabel("Back")
-    .setStyle(ButtonStyle.Secondary);
-
-  components.push(
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      addBtn,
-      removeBtn,
-      backBtn,
-    ),
-  );
-
-  await interaction.editReply({
-    embeds: [factionEmbed],
-    components: components,
-  });
 }
 
 /**
@@ -1202,7 +1252,18 @@ export async function handleFactionRoleMenuPage(
     const page = Number(pageStr) || 1;
 
     const guildId = interaction.guildId;
-    if (!guildId) return;
+    if (!guildId) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Error")
+        .setDescription("Unable to determine guild.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+      return;
+    }
 
     const apiKeys = await getGuildApiKeys(guildId);
     const apiKey = apiKeys.length > 0 ? apiKeys[0] : undefined;
@@ -1211,6 +1272,20 @@ export async function handleFactionRoleMenuPage(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction role menu pagination:", errorMsg);
+
+    try {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Error")
+        .setDescription(errorMsg || "An unexpected error occurred.");
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [],
+      });
+    } catch (replyError) {
+      console.error("Failed to send error reply:", replyError);
+    }
   }
 }
 
