@@ -21,8 +21,6 @@ export async function handleViewSelect(
   interaction: StringSelectMenuInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
-
     const guildId = interaction.guildId;
     if (!guildId) return;
 
@@ -35,6 +33,9 @@ export async function handleViewSelect(
       .single();
 
     if (!guildConfig) return;
+
+    // Now that we have data, defer the update
+    await interaction.deferUpdate();
 
     if (selectedView === "view_admin") {
       // Show admin settings
@@ -57,6 +58,13 @@ export async function handleViewSelect(
         ? `<#${guildConfig.log_channel_id}>`
         : "Not configured";
 
+      let adminRolesDisplay = "None configured";
+      if (guildConfig.admin_role_ids && guildConfig.admin_role_ids.length > 0) {
+        adminRolesDisplay = guildConfig.admin_role_ids
+          .map((roleId: string) => `<@&${roleId}>`)
+          .join(", ");
+      }
+
       const adminEmbed = new EmbedBuilder()
         .setColor(0x8b5cf6)
         .setTitle("Admin Settings")
@@ -71,7 +79,15 @@ export async function handleViewSelect(
             value: logChannelDisplay,
             inline: false,
           },
-        );
+          {
+            name: "Admin Roles",
+            value: adminRolesDisplay,
+            inline: false,
+          },
+        )
+        .setFooter({
+          text: "API keys are encrypted and stored securely",
+        });
 
       const apiKeysBtn = new ButtonBuilder()
         .setCustomId("config_edit_api_keys")
@@ -80,7 +96,12 @@ export async function handleViewSelect(
 
       const logChannelBtn = new ButtonBuilder()
         .setCustomId("config_edit_log_channel")
-        .setLabel("Set Log Channel")
+        .setLabel("Edit Log Channel")
+        .setStyle(ButtonStyle.Primary);
+
+      const adminRolesBtn = new ButtonBuilder()
+        .setCustomId("config_edit_admin_roles")
+        .setLabel("Manage Admin Roles")
         .setStyle(ButtonStyle.Primary);
 
       const backBtn = new ButtonBuilder()
@@ -91,6 +112,7 @@ export async function handleViewSelect(
       const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         apiKeysBtn,
         logChannelBtn,
+        adminRolesBtn,
         backBtn,
       );
 
@@ -99,8 +121,8 @@ export async function handleViewSelect(
         components: [buttonRow],
       });
     } else if (selectedView === "view_verify") {
-      // Show verification settings (imported from verification.ts)
-      // This will be called separately - just return for now
+      // Verification settings are handled by main config handler
+      // Navigation handler routes to main handler which will call handleViewSelect
       return;
     } else if (selectedView === "view_territories") {
       // Show territories settings (imported from territories.ts)
@@ -117,8 +139,7 @@ export async function handleBackToMenu(
   interaction: ButtonInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
-
+    // Prepare menu data before deferring
     const mainEmbed = new EmbedBuilder()
       .setColor(0x6366f1)
       .setTitle("Guild Configuration")
@@ -146,6 +167,9 @@ export async function handleBackToMenu(
 
     const menuRow =
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(viewMenu);
+
+    // Now defer after preparing data
+    await interaction.deferUpdate();
 
     await interaction.editReply({
       embeds: [mainEmbed],

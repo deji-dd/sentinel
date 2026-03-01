@@ -249,8 +249,6 @@ export async function handleViewSelect(
   interaction: StringSelectMenuInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
-
     const guildId = interaction.guildId;
     const selectedView = interaction.values[0];
 
@@ -260,6 +258,7 @@ export async function handleViewSelect(
         .setTitle("Error")
         .setDescription("Unable to determine guild.");
 
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await interaction.editReply({
         embeds: [errorEmbed],
         components: [],
@@ -267,10 +266,10 @@ export async function handleViewSelect(
       return;
     }
 
-    // Get guild config
+    // Get guild config BEFORE deferring
     const { data: guildConfig } = await supabase
       .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id")
+      .select("*")
       .eq("guild_id", guildId)
       .single();
 
@@ -280,12 +279,16 @@ export async function handleViewSelect(
         .setTitle("Error")
         .setDescription("Guild configuration not found.");
 
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await interaction.editReply({
         embeds: [errorEmbed],
         components: [],
       });
       return;
     }
+
+    // NOW defer after we have the data
+    await interaction.deferUpdate();
 
     if (selectedView === "admin") {
       await showAdminSettings(interaction, guildConfig);
