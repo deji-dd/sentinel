@@ -166,6 +166,12 @@ async function buildNotificationEmbeds(
         groupKey = `${notif.event_type}:${notif.assaulting_faction}:${notif.defending_faction}`;
         factionId = null; // No single faction for truce
         break;
+      case "racket_spawned":
+      case "racket_despawned":
+      case "racket_level_changed":
+        groupKey = `${notif.event_type}:${notif.territory_id}`;
+        factionId = notif.occupying_faction;
+        break;
       default:
         groupKey = `${notif.event_type}:${notif.territory_id}`;
     }
