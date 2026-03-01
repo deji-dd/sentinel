@@ -100,21 +100,19 @@ async function isCatchUpSync(expectedCadenceSeconds: number): Promise<boolean> {
 
 /**
  * Determine ownership change event type
+ * NOTE: War outcome notifications (assault_succeeded/failed) are handled
+ * exclusively by war-ledger-sync to prevent duplicates. This only handles
+ * non-war ownership changes.
  */
 function determineEventType(
   oldFaction: number | null,
   newFaction: number | null,
   activeWar: { assaulting_faction: number; defending_faction: number } | null,
-): TTEventNotification["event_type"] {
+): TTEventNotification["event_type"] | null {
   if (activeWar) {
-    // War is active - determine outcome
-    if (newFaction === activeWar.assaulting_faction) {
-      return "assault_succeeded";
-    } else if (newFaction === activeWar.defending_faction) {
-      return "assault_failed";
-    }
-    // War active but neither faction owns it? Treat as claim
-    return "claimed";
+    // War is active - war-ledger-sync will handle outcome notifications
+    // Don't send duplicate assault_succeeded/assault_failed here
+    return null;
   }
 
   // No active war
@@ -348,32 +346,22 @@ export function startTerritoryStateSyncWorker() {
                   activeWar as any,
                 );
 
-                // Calculate war duration if war is active
-                let warDurationHours: number | undefined;
-                if (
-                  activeWar &&
-                  (eventType === "assault_succeeded" ||
-                    eventType === "assault_failed")
-                ) {
-                  const warStartTime = new Date(activeWar.start_time);
-                  const now = new Date();
-                  warDurationHours =
-                    (now.getTime() - warStartTime.getTime()) / (1000 * 60 * 60);
+                // Only send notification if no active war
+                // (war-ledger-sync handles war outcome notifications)
+                if (eventType !== null) {
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: eventType,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    assaulting_faction: (activeWar as any)?.assaulting_faction,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    defending_faction: (activeWar as any)?.defending_faction,
+                    occupying_faction: newFaction,
+                    previous_faction:
+                      eventType === "dropped" ? oldFaction : undefined,
+                  });
                 }
-
-                notifications.push({
-                  guild_id: "",
-                  territory_id: tt.id,
-                  event_type: eventType,
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  assaulting_faction: (activeWar as any)?.assaulting_faction,
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  defending_faction: (activeWar as any)?.defending_faction,
-                  occupying_faction: newFaction,
-                  previous_faction:
-                    eventType === "dropped" ? oldFaction : undefined,
-                  war_duration_hours: warDurationHours,
-                });
               }
 
               // Detect racket changes
@@ -464,28 +452,42 @@ export function startTerritoryStateSyncWorker() {
               }
 
               // Queue guild notifications
-              // Skip if: initial seeding OR catch-up sync detected (to avoid false positives)
-              if (!isInitialSeeding && !isCatchUp && notifications.length > 0) {
-                await queueGuildNotifications(changes, notifications);
+              // Skip ownership notifications if: initial seeding OR catch-up sync
+              // BUT always send racket notifications (low false-positive rate)
+              const ownershipNotifications = notifications.filter((n) =>
+                [
+                  "assault_succeeded",
+                  "assault_failed",
+                  "dropped",
+                  "claimed",
+                ].includes(n.event_type),
+              );
+              const racketNotifications = notifications.filter((n) =>
+                [
+                  "racket_spawned",
+                  "racket_despawned",
+                  "racket_level_changed",
+                ].includes(n.event_type),
+              );
+
+              const notificationsToSend = [
+                ...racketNotifications, // Always send racket notifications
+                ...(!isInitialSeeding && !isCatchUp
+                  ? ownershipNotifications
+                  : []), // Only send ownership if not catching up
+              ];
+
+              if (notificationsToSend.length > 0) {
+                await queueGuildNotifications(changes, notificationsToSend);
               }
 
-              // If catch-up sync, log suppressed notification count
-              if (isCatchUp && notifications.length > 0) {
-                const suppressed = notifications.filter((n) =>
-                  [
-                    "assault_succeeded",
-                    "assault_failed",
-                    "dropped",
-                    "claimed",
-                  ].includes(n.event_type),
-                ).length;
-                if (suppressed > 0) {
-                  logDuration(
-                    "territory_state_sync",
-                    `Suppressed ${suppressed} ownership change notification(s) during catch-up`,
-                    0,
-                  );
-                }
+              // If catch-up sync, log suppressed ownership notification count
+              if (isCatchUp && ownershipNotifications.length > 0) {
+                logDuration(
+                  "territory_state_sync",
+                  `Suppressed ${ownershipNotifications.length} ownership change notification(s) during catch-up (racket notifications still sent)`,
+                  0,
+                );
               }
             }
 

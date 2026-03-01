@@ -345,7 +345,15 @@ export class GuildSyncScheduler {
           const factionChanged =
             existingUser &&
             (factionData?.id !== existingUser.faction_id ||
-              factionData?.tag !== existingUser.faction_tag);
+              factionData?.tag !== existingUser.faction_tag) &&
+            // Prevent false positives: don't count leaving a faction as "changed" every sync
+            // (when both old and new are null, it's truly unchanged)
+            !(
+              factionData?.id === null &&
+              factionData?.tag === null &&
+              existingUser.faction_id === null &&
+              existingUser.faction_tag === null
+            );
 
           // Upsert to database
           await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
@@ -383,95 +391,70 @@ export class GuildSyncScheduler {
             }
           }
 
-          // Handle faction roles
+          // Handle faction roles - WITH STRICT ROLE SECURITY
+          // Treat faction roles as "master" - only people in that faction can have those roles
           if (factionMappings && factionMappings.length > 0) {
-            // If faction changed, remove old faction roles
-            if (
-              factionChanged &&
-              existingUser &&
-              existingUser.faction_id !== null
-            ) {
-              const oldFactionMapping = (
-                factionMappings as FactionRoleMapping[]
-              ).find((m) => m.faction_id === existingUser.faction_id);
+            const enabledMappings = (
+              factionMappings as FactionRoleMapping[]
+            ).filter((m) => m.enabled !== false);
 
-              if (oldFactionMapping && oldFactionMapping.enabled !== false) {
-                const oldRolesToRemove = [
-                  ...oldFactionMapping.member_role_ids,
-                  ...oldFactionMapping.leader_role_ids,
-                ];
-                if (oldRolesToRemove.length > 0) {
-                  const removableRoles = oldRolesToRemove.filter((roleId) =>
-                    member.roles.cache.has(roleId),
-                  );
+            // Determine which roles user SHOULD have (based on their faction)
+            const rolesUserShouldHave = new Set<string>();
 
-                  if (removableRoles.length > 0) {
-                    const removeRolesResult = await member.roles
-                      .remove(removableRoles)
-                      .then(() => true)
-                      .catch(() => false);
-                    if (removeRolesResult) {
-                      rolesRemoved.push(...removableRoles);
-                    }
-                  }
+            // Add member roles if they're in the mapped faction
+            if (factionData?.id) {
+              const currentFactionMapping = enabledMappings.find(
+                (m) => m.faction_id === factionData.id,
+              );
+
+              if (currentFactionMapping) {
+                // Add member roles
+                currentFactionMapping.member_role_ids.forEach((roleId) => {
+                  rolesUserShouldHave.add(roleId);
+                });
+
+                // Add leader roles if they are a leader
+                const isLeader =
+                  currentFactionMapping.leader_role_ids.length > 0 &&
+                  factionLeadersCache.get(factionData.id)?.has(playerId);
+
+                if (isLeader) {
+                  currentFactionMapping.leader_role_ids.forEach((roleId) => {
+                    rolesUserShouldHave.add(roleId);
+                  });
                 }
               }
             }
 
-            // Add current faction roles
-            if (factionData?.id) {
-              const factionMapping = (
-                factionMappings as FactionRoleMapping[]
-              ).find((m) => m.faction_id === factionData.id);
+            // Now enforce role state: remove all faction-mapped roles that user shouldn't have
+            // This ensures roles as "master" - no one can manually keep a role they shouldn't have
+            for (const mapping of enabledMappings) {
+              const allMappedRoles = [
+                ...mapping.member_role_ids,
+                ...mapping.leader_role_ids,
+              ];
 
-              if (factionMapping && factionMapping.enabled !== false) {
-                // Determine which roles should be added
-                const rolesToAdd = [...factionMapping.member_role_ids];
-                const isLeader =
-                  factionMapping.leader_role_ids.length > 0 &&
-                  factionLeadersCache.get(factionData.id)?.has(playerId);
+              for (const roleId of allMappedRoles) {
+                const userHasRole = member.roles.cache.has(roleId);
+                const userShouldHaveRole = rolesUserShouldHave.has(roleId);
 
-                if (isLeader) {
-                  rolesToAdd.push(...factionMapping.leader_role_ids);
-                }
-
-                // Remove roles that user shouldn't have
-                // This includes: leader roles if user is no longer a leader
-                const rolesToRemoveFromCurrent = [
-                  ...factionMapping.leader_role_ids,
-                ].filter((roleId) => !rolesToAdd.includes(roleId));
-
-                if (rolesToRemoveFromCurrent.length > 0) {
-                  const removableRoles = rolesToRemoveFromCurrent.filter(
-                    (roleId) => member.roles.cache.has(roleId),
-                  );
-
-                  if (removableRoles.length > 0) {
-                    const removeResult = await member.roles
-                      .remove(removableRoles)
-                      .then(() => true)
-                      .catch(() => false);
-                    if (removeResult) {
-                      rolesRemoved.push(...removableRoles);
-                    }
+                if (userHasRole && !userShouldHaveRole) {
+                  // User has a role they shouldn't - remove it
+                  const removeResult = await member.roles
+                    .remove(roleId)
+                    .then(() => true)
+                    .catch(() => false);
+                  if (removeResult) {
+                    rolesRemoved.push(roleId);
                   }
-                }
-
-                // Add roles that user should have but doesn't
-                if (rolesToAdd.length > 0) {
-                  const missingRolesToAdd = rolesToAdd.filter(
-                    (roleId) => !member.roles.cache.has(roleId),
-                  );
-
-                  if (missingRolesToAdd.length > 0) {
-                    const addRolesResult = await member.roles
-                      .add(missingRolesToAdd)
-                      .then(() => true)
-                      .catch(() => false);
-
-                    if (addRolesResult) {
-                      rolesAdded.push(...missingRolesToAdd);
-                    }
+                } else if (!userHasRole && userShouldHaveRole) {
+                  // User should have a role - add it
+                  const addResult = await member.roles
+                    .add(roleId)
+                    .then(() => true)
+                    .catch(() => false);
+                  if (addResult) {
+                    rolesAdded.push(roleId);
                   }
                 }
               }
