@@ -1082,56 +1082,87 @@ async function showFactionRoleMenu(
     let factionRolesDisplay =
       "None configured\n\nUse the **Add Faction** button below to get started.";
     const factionSelectOptions: StringSelectMenuOptionBuilder[] = [];
+    const factionDisplayLines: string[] = [];
+
+    // Pagination: 10 items per page
+    const PAGE_SIZE = 10;
+    const totalPages = Math.max(
+      1,
+      Math.ceil((factionRoles?.length || 0) / PAGE_SIZE),
+    );
+    const currentPage = Math.max(1, Math.min(page, totalPages));
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    const endIdx = startIdx + PAGE_SIZE;
 
     if (factionRoles && factionRoles.length > 0) {
-      // Use stored faction names, fetching missing ones if API key available
-      const missingNames = factionRoles.filter((fr) => !fr.faction_name);
+      // Get only the faction roles for the current page
+      const pageFactionRoles = factionRoles.slice(startIdx, endIdx);
+
+      // Fetch missing faction names ONLY for the current page
+      const missingNames = pageFactionRoles.filter((fr) => !fr.faction_name);
       if (missingNames.length > 0 && apiKey) {
         try {
           const factionIds = missingNames.map((fr) => fr.faction_id);
           await fetchAndStoreFactionNames(factionIds, apiKey);
+
+          // Re-fetch the page's faction roles to get updated names
+          const { data: updatedRoles } = await supabase
+            .from(TABLE_NAMES.FACTION_ROLES)
+            .select("*")
+            .eq("guild_id", guildId)
+            .in(
+              "faction_id",
+              pageFactionRoles.map((fr) => fr.faction_id),
+            )
+            .order("faction_id", { ascending: true });
+
+          if (updatedRoles) {
+            // Update the page faction roles with fetched names
+            pageFactionRoles.forEach((fr, idx) => {
+              const updated = updatedRoles.find(
+                (ur) => ur.faction_id === fr.faction_id,
+              );
+              if (updated?.faction_name) {
+                pageFactionRoles[idx] = updated;
+              }
+            });
+          }
         } catch (fetchError) {
           console.error("Error fetching faction names:", fetchError);
           // Continue without faction names - they'll be populated later
         }
       }
 
-      factionRolesDisplay = factionRoles
-        .map((fr) => {
-          const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
-          const enabled = fr.enabled !== false; // Default to true if not set
-          const statusEmoji = enabled
-            ? "<:Green:1474607376140079104>"
-            : "<:Red:1474607810368114886>";
+      // Build options and display for current page only
+      pageFactionRoles.forEach((fr) => {
+        const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
+        const enabled = fr.enabled !== false; // Default to true if not set
+        const statusEmoji = enabled
+          ? "<:Green:1474607376140079104>"
+          : "<:Red:1474607810368114886>";
 
-          // Add to select menu options
-          factionSelectOptions.push(
-            new StringSelectMenuOptionBuilder()
-              .setLabel(`${factionName}`)
-              .setDescription(
-                `ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`,
-              )
-              .setValue(`faction_manage_${fr.faction_id}`)
-              .setEmoji(
-                enabled ? "1474607376140079104" : "1474607810368114886",
-              ),
-          );
+        // Add to select menu options
+        factionSelectOptions.push(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${factionName}`)
+            .setDescription(
+              `ID: ${fr.faction_id} • ${enabled ? "Enabled" : "Disabled"}`,
+            )
+            .setValue(`faction_manage_${fr.faction_id}`)
+            .setEmoji(enabled ? "1474607376140079104" : "1474607810368114886"),
+        );
 
-          return `${statusEmoji} **${factionName}** (${fr.faction_id})`;
-        })
-        .join("\n");
+        // Add to display lines
+        factionDisplayLines.push(
+          `${statusEmoji} **${factionName}** (${fr.faction_id})`,
+        );
+      });
+
+      // Set display for current page
+      if (factionDisplayLines.length > 0) {
+        factionRolesDisplay = factionDisplayLines.join("\n");
+      }
     }
-
-    // Pagination: 25 options per page (Discord limit)
-    const PAGE_SIZE = 25;
-    const totalPages = Math.max(
-      1,
-      Math.ceil(factionSelectOptions.length / PAGE_SIZE),
-    );
-    const currentPage = Math.max(1, Math.min(page, totalPages));
-    const startIdx = (currentPage - 1) * PAGE_SIZE;
-    const endIdx = startIdx + PAGE_SIZE;
-    const pageOptions = factionSelectOptions.slice(startIdx, endIdx);
 
     const factionEmbed = new EmbedBuilder()
       .setColor(0x10b981)
@@ -1146,7 +1177,7 @@ async function showFactionRoleMenu(
       });
 
     // Add pagination info if needed
-    if (totalPages > 1 && factionSelectOptions.length > 0) {
+    if (totalPages > 1 && factionRoles && factionRoles.length > 0) {
       factionEmbed.setFooter({
         text: `Page ${currentPage}/${totalPages}`,
       });
@@ -1157,11 +1188,11 @@ async function showFactionRoleMenu(
     >[] = [];
 
     // Add faction select menu if there are factions
-    if (pageOptions.length > 0) {
+    if (factionSelectOptions.length > 0) {
       const factionSelect = new StringSelectMenuBuilder()
         .setCustomId("config_faction_manage_select")
         .setPlaceholder("Select a faction to manage...")
-        .addOptions(pageOptions);
+        .addOptions(factionSelectOptions);
 
       components.push(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
