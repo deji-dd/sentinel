@@ -358,6 +358,7 @@ export class GuildSyncScheduler {
           });
 
           const rolesAdded: string[] = [];
+          const rolesRemoved: string[] = [];
 
           // Always update nickname to apply current template
           const nickname = this.applyNicknameTemplate(
@@ -405,7 +406,13 @@ export class GuildSyncScheduler {
                   );
 
                   if (removableRoles.length > 0) {
-                    await member.roles.remove(removableRoles).catch(() => {});
+                    const removeRolesResult = await member.roles
+                      .remove(removableRoles)
+                      .then(() => true)
+                      .catch(() => false);
+                    if (removeRolesResult) {
+                      rolesRemoved.push(...removableRoles);
+                    }
                   }
                 }
               }
@@ -418,16 +425,39 @@ export class GuildSyncScheduler {
               ).find((m) => m.faction_id === factionData.id);
 
               if (factionMapping && factionMapping.enabled !== false) {
+                // Determine which roles should be added
                 const rolesToAdd = [...factionMapping.member_role_ids];
+                const isLeader =
+                  factionMapping.leader_role_ids.length > 0 &&
+                  factionLeadersCache.get(factionData.id)?.has(playerId);
 
-                // Check if user is a leader and add leader roles
-                if (factionMapping.leader_role_ids.length > 0) {
-                  const leaders = factionLeadersCache.get(factionData.id);
-                  if (leaders && leaders.has(playerId)) {
-                    rolesToAdd.push(...factionMapping.leader_role_ids);
+                if (isLeader) {
+                  rolesToAdd.push(...factionMapping.leader_role_ids);
+                }
+
+                // Remove roles that user shouldn't have
+                // This includes: leader roles if user is no longer a leader
+                const rolesToRemoveFromCurrent = [
+                  ...factionMapping.leader_role_ids,
+                ].filter((roleId) => !rolesToAdd.includes(roleId));
+
+                if (rolesToRemoveFromCurrent.length > 0) {
+                  const removableRoles = rolesToRemoveFromCurrent.filter(
+                    (roleId) => member.roles.cache.has(roleId),
+                  );
+
+                  if (removableRoles.length > 0) {
+                    const removeResult = await member.roles
+                      .remove(removableRoles)
+                      .then(() => true)
+                      .catch(() => false);
+                    if (removeResult) {
+                      rolesRemoved.push(...removableRoles);
+                    }
                   }
                 }
 
+                // Add roles that user should have but doesn't
                 if (rolesToAdd.length > 0) {
                   const missingRolesToAdd = rolesToAdd.filter(
                     (roleId) => !member.roles.cache.has(roleId),
@@ -453,7 +483,8 @@ export class GuildSyncScheduler {
             isNewUser ||
             nameChanged ||
             factionChanged ||
-            rolesAdded.length > 0
+            rolesAdded.length > 0 ||
+            rolesRemoved.length > 0
           ) {
             const logFields: Array<{
               name: string;
@@ -481,6 +512,17 @@ export class GuildSyncScheduler {
                 .join(", ");
               logFields.push({
                 name: "✅ Roles Added",
+                value: rolesMention,
+                inline: false,
+              });
+            }
+
+            if (rolesRemoved.length > 0) {
+              const rolesMention = rolesRemoved
+                .map((roleId) => `<@&${roleId}>`)
+                .join(", ");
+              logFields.push({
+                name: "❌ Roles Removed",
                 value: rolesMention,
                 inline: false,
               });
