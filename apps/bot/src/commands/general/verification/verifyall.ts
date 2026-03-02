@@ -352,23 +352,34 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
           }
 
           if (result.rolesAdded && result.rolesAdded.length > 0) {
-            const rolesMention = result.rolesAdded
+            // Group roles by type (verified vs faction)
+            const rolesText = result.rolesAdded
               .map((roleId) => `<@&${roleId}>`)
+              .slice(0, 10)
               .join(", ");
+            const rolesDisplay =
+              result.rolesAdded.length > 10
+                ? `${rolesText}\n...and ${result.rolesAdded.length - 10} more`
+                : rolesText;
             logFields.push({
               name: "✅ Roles Added",
-              value: rolesMention,
+              value: rolesDisplay,
               inline: false,
             });
           }
 
           if (result.rolesFailed && result.rolesFailed.length > 0) {
-            const rolesMention = result.rolesFailed
+            const failedText = result.rolesFailed
               .map((roleId) => `<@&${roleId}>`)
+              .slice(0, 10)
               .join(", ");
+            const failedDisplay =
+              result.rolesFailed.length > 10
+                ? `${failedText}\n...and ${result.rolesFailed.length - 10} more`
+                : failedText;
             logFields.push({
               name: "❌ Roles Failed",
-              value: rolesMention,
+              value: failedDisplay,
               inline: false,
             });
           }
@@ -426,69 +437,14 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       .setColor(0x22c55e)
       .setTitle("✅ Verification Complete")
       .setDescription(
-        `**Total Members:** ${total}\n` +
-          `**Verified:** ${successful}\n` +
-          `**Not Linked:** ${notLinked}\n` +
-          `**Errors:** ${errors}`,
+        `Processed **${total}** members.\n` +
+          `✅ Verified: **${successful}**\n` +
+          `⚠️ Not Linked: **${notLinked}**\n` +
+          `❌ Errors: **${errors}**`,
       )
       .setFooter({
-        text: "Verification results saved to database",
+        text: "Check guild logs for detailed verification records",
       });
-
-    // Add not linked details if any
-    if (notLinked > 0) {
-      const notLinkedUsers = results
-        .filter((r) => r.status === "not_linked")
-        .map((r) => `- ${r.username}`)
-        .slice(0, 10)
-        .join("\n");
-
-      resultEmbed.addFields({
-        name: "Not Linked to Torn",
-        value:
-          notLinkedUsers +
-          (notLinked > 10 ? `\n...and ${notLinked - 10} more` : ""),
-        inline: false,
-      });
-    }
-
-    // Add error details if any
-    if (errors > 0) {
-      const errorUsers = results
-        .filter((r) => r.status === "error")
-        .map((r) => `- ${r.username}: ${r.errorMessage}`)
-        .slice(0, 5)
-        .join("\n");
-
-      resultEmbed.addFields({
-        name: "Errors",
-        value: errorUsers + (errors > 5 ? `\n...and ${errors - 5} more` : ""),
-        inline: false,
-      });
-    }
-
-    // Add role assignment summary
-    const totalRolesAdded = results.reduce(
-      (sum, r) => sum + (r.rolesAdded?.length || 0),
-      0,
-    );
-    const totalRolesFailed = results.reduce(
-      (sum, r) => sum + (r.rolesFailed?.length || 0),
-      0,
-    );
-
-    if (totalRolesAdded > 0 || totalRolesFailed > 0) {
-      let rolesSummary = "";
-      if (totalRolesAdded > 0)
-        rolesSummary += `✅ **${totalRolesAdded}** roles added\n`;
-      if (totalRolesFailed > 0)
-        rolesSummary += `❌ **${totalRolesFailed}** roles failed to assign`;
-      resultEmbed.addFields({
-        name: "Role Assignment",
-        value: rolesSummary,
-        inline: false,
-      });
-    }
 
     await interaction.editReply({ embeds: [resultEmbed], components: [] });
 
