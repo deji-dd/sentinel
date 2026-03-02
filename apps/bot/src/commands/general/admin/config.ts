@@ -1072,7 +1072,7 @@ async function showFactionRoleMenu(
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("*")
       .eq("guild_id", guildId)
-      .order("faction_id", { ascending: true });
+      .order("created_at", { ascending: true });
 
     if (factionError) {
       console.error("Error fetching faction roles:", factionError);
@@ -3348,11 +3348,24 @@ export async function handleFactionMemberRolesButton(
       return;
     }
 
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    // Fetch faction name
+    const { data: factionMapping } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .select("faction_name")
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId)
+      .single();
+
+    const factionName = factionMapping?.faction_name || `Faction ${factionId}`;
+
     const selectEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
       .setTitle("Select Member Roles")
       .setDescription(
-        `Select one or more roles to assign to **all members** of this faction.`,
+        `Select one or more roles to assign to **all members** of **${factionName}** (ID: ${factionId}).`,
       );
 
     const roleSelect = new RoleSelectMenuBuilder()
@@ -3390,11 +3403,24 @@ export async function handleFactionLeaderRolesButton(
       return;
     }
 
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    // Fetch faction name
+    const { data: factionMapping } = await supabase
+      .from(TABLE_NAMES.FACTION_ROLES)
+      .select("faction_name")
+      .eq("guild_id", guildId)
+      .eq("faction_id", factionId)
+      .single();
+
+    const factionName = factionMapping?.faction_name || `Faction ${factionId}`;
+
     const selectEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
       .setTitle("Select Leader Roles")
       .setDescription(
-        `Select one or more roles to assign **only to Leaders and Co-leaders** of this faction.`,
+        `Select one or more roles to assign **only to Leaders and Co-leaders** of **${factionName}** (ID: ${factionId}).`,
       );
 
     const roleSelect = new RoleSelectMenuBuilder()
