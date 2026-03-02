@@ -194,32 +194,54 @@ async function isCatchUpSync(expectedCadenceSeconds: number): Promise<boolean> {
 }
 
 /**
- * Determine ownership change event type
+ * Determine ownership change event types
  * NOTE: War outcome notifications (assault_succeeded/failed) are handled
  * exclusively by war-ledger-sync to prevent duplicates. This only handles
  * non-war ownership changes.
+ *
+ * IMPORTANT: Can return multiple events for the case where faction A drops
+ * and faction B claims before the bot detects - both "dropped" and "claimed"
+ * events are generated to properly log the full transition.
  */
-function determineEventType(
+function determineEventTypes(
   oldFaction: number | null,
   newFaction: number | null,
   activeWar: { assaulting_faction: number; defending_faction: number } | null,
-): TTEventNotification["event_type"] | null {
+): Array<{
+  type: TTEventNotification["event_type"];
+  factionId: number | null;
+}> {
   if (activeWar) {
     // War is active - war-ledger-sync will handle outcome notifications
     // Don't send duplicate assault_succeeded/assault_failed here
-    return null;
+    return [];
   }
 
-  // No active war
+  const events: Array<{
+    type: TTEventNotification["event_type"];
+    factionId: number | null;
+  }> = [];
+
+  // Case 1: Faction dropped (X -> null)
   if (oldFaction !== null && newFaction === null) {
-    return "dropped";
+    events.push({ type: "dropped", factionId: oldFaction });
   }
-  if (oldFaction === null && newFaction !== null) {
-    return "claimed";
+  // Case 2: New faction claimed empty territory (null -> X)
+  else if (oldFaction === null && newFaction !== null) {
+    events.push({ type: "claimed", factionId: newFaction });
+  }
+  // Case 3: Faction A dropped and faction B claimed before sync detected (A -> B)
+  // This generates BOTH a "dropped" event for A and a "claimed" event for B
+  else if (
+    oldFaction !== null &&
+    newFaction !== null &&
+    oldFaction !== newFaction
+  ) {
+    events.push({ type: "dropped", factionId: oldFaction });
+    events.push({ type: "claimed", factionId: newFaction });
   }
 
-  // Shouldn't reach here (no change), but default to claimed
-  return "claimed";
+  return events;
 }
 
 /**
@@ -460,30 +482,31 @@ export function startTerritoryStateSyncWorker() {
                   new_faction_id: newFaction,
                 });
 
-                // Check for active war to determine event type
+                // Check for active war to determine event type(s)
                 const activeWar = warsByTerritory.get(tt.id);
 
-                const eventType = determineEventType(
+                const events = determineEventTypes(
                   oldFaction,
                   newFaction,
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   activeWar as any,
                 );
 
-                // Only send notification if no active war
-                // (war-ledger-sync handles war outcome notifications)
-                if (eventType !== null) {
+                // Add notifications for all detected events
+                // (can be multiple events: e.g., faction A dropped + faction B claimed)
+                for (const event of events) {
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
-                    event_type: eventType,
+                    event_type: event.type,
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     assaulting_faction: (activeWar as any)?.assaulting_faction,
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     defending_faction: (activeWar as any)?.defending_faction,
-                    occupying_faction: newFaction,
+                    occupying_faction:
+                      event.type === "claimed" ? newFaction : null,
                     previous_faction:
-                      eventType === "dropped" ? oldFaction : undefined,
+                      event.type === "dropped" ? event.factionId : undefined,
                   });
                 }
               }
