@@ -224,18 +224,23 @@ async function attemptAutoVerification(
   if (response.faction?.id) {
     const { data: factionRole } = await supabase
       .from(TABLE_NAMES.FACTION_ROLES)
-      .select("role_ids")
+      .select("member_role_ids, enabled")
       .eq("guild_id", member.guild.id)
       .eq("faction_id", response.faction.id)
       .single();
 
-    if (factionRole && factionRole.role_ids.length > 0) {
+    if (
+      factionRole &&
+      factionRole.enabled !== false &&
+      factionRole.member_role_ids &&
+      factionRole.member_role_ids.length > 0
+    ) {
       try {
-        await member.roles.add(factionRole.role_ids);
-        rolesAdded.push(...factionRole.role_ids);
+        await member.roles.add(factionRole.member_role_ids);
+        rolesAdded.push(...factionRole.member_role_ids);
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_roleError) {
-        rolesFailed.push(...factionRole.role_ids);
+        rolesFailed.push(...factionRole.member_role_ids);
       }
     }
   }

@@ -1,5 +1,7 @@
+import { TornApiClient } from "@sentinel/shared";
 import { storeSystemApiKey } from "../lib/system-api-keys.js";
-import { tornApi } from "../services/torn-client.js";
+
+const bootstrapTornApi = new TornApiClient();
 
 interface CliOptions {
   apiKey: string;
@@ -70,7 +72,9 @@ async function run(): Promise<void> {
   validateApiKey(apiKey);
 
   try {
-    const data = await tornApi.get("/user/basic", { apiKey });
+    // Bootstrap call intentionally bypasses rate limiter because this key
+    // is not mapped yet; mapping is created by storeSystemApiKey().
+    const data = await bootstrapTornApi.get("/user/basic", { apiKey });
     const userId = data.profile?.id;
 
     if (!userId) {
