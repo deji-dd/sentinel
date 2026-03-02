@@ -31,35 +31,49 @@ export function startTerritoryBlueprintSyncWorker() {
         // Create API key rotator to distribute requests across all available keys
         const keyRotator = new ApiKeyRotator(apiKeys);
 
-        // Fetch all territories with pagination support using shared client with rate limiting
-        const allTerritories = [];
-        let nextUrl: string | null = null;
-        let offset = 0;
+        // OPTIMIZATION: Parallel pagination instead of sequential
+        // Fetch first page to determine total count
+        const firstResponse = await tornApi.get("/torn/territory", {
+          apiKey: keyRotator.getNextKey(),
+          queryParams: { offset: 0, limit: 250 },
+        });
 
-        do {
-          const response = await tornApi.get("/torn/territory", {
-            apiKey: keyRotator.getNextKey(),
-            queryParams: { offset },
-          });
+        const allTerritories = [...(firstResponse.territory || [])];
 
-          const territories = response.territory;
-          const metadata = response._metadata;
+        // Calculate remaining pages (we know there are ~4100+ territories)
+        // Estimate based on first page: if we got 250, there are likely more pages
+        const limit = 250;
+        const firstPageSize = allTerritories.length;
 
-          if (!territories || territories.length === 0) {
-            break;
+        // If we got a full page, assume there are more territories
+        // Use a safe estimate of ~4200 total territories (actual is ~4108)
+        if (firstPageSize >= limit) {
+          const estimatedTotal = 4200;
+          const pageCount = Math.ceil(estimatedTotal / limit);
+
+          // Generate offsets for remaining pages
+          const remainingOffsets = Array.from(
+            { length: pageCount - 1 },
+            (_, i) => (i + 1) * limit,
+          );
+
+          // Fetch all remaining pages in parallel
+          const remainingResponses = await Promise.all(
+            remainingOffsets.map((offset) =>
+              tornApi.get("/torn/territory", {
+                apiKey: keyRotator.getNextKey(),
+                queryParams: { offset, limit },
+              }),
+            ),
+          );
+
+          // Combine all remaining territories (filter out empty responses)
+          for (const response of remainingResponses) {
+            if (response.territory && response.territory.length > 0) {
+              allTerritories.push(...response.territory);
+            }
           }
-
-          allTerritories.push(...territories);
-
-          // Check for next page
-          nextUrl = metadata?.links?.next || null;
-          if (nextUrl) {
-            // Extract offset from next URL
-            const nextUrlObj = new URL(nextUrl);
-            const nextOffset = nextUrlObj.searchParams.get("offset");
-            offset = nextOffset ? parseInt(nextOffset) : offset + 250;
-          }
-        } while (nextUrl);
+        }
 
         const territories = allTerritories;
 

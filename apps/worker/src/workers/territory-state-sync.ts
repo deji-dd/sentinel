@@ -4,9 +4,34 @@
  * Fetches territory ownership data and syncs to DB
  * Triggers resolution handshake when ownership changes
  *
+ * OPTIMIZATION STRATEGY:
+ * 1. Hash-based detection: Compute hash of API responses (ownership + rackets)
+ *    - If hash matches last run = no changes anywhere, skip DB processing
+ *    - Saves ~1s of DB operations but still makes API calls (API is the bottleneck)
+ * 2. Only upsert changed territories: Track specific territories that changed
+ *    - Only update those rows instead of all 4,108 territories
+ *    - Reduces DB upsert from ~1s to ~0.01s for small changes
+ *
+ * WORKFLOW:
+ * 1. Fetch territory ownership from API (paginated) - ~7.5s
+ * 2. Fetch racket data from API - ~0.5s
+ * 3. Compute hash of combined data
+ * 4. Compare with last run's hash from worker_schedules.metadata
+ * 5. IF HASH MATCHES (no changes):
+ *    - Log "No changes detected" and skip to step 10
+ * 6. IF HASH DIFFERS:
+ *    - Fetch current states from DB
+ *    - Compare old vs new, detect changes
+ *    - Build list of changed territories
+ * 7. Only upsert changed territories to DB (not all 4,108)
+ * 8. Send notifications for changes
+ * 9. Store new hash in metadata
+ * 10. Log completion stats
+ *
  * Uses system API key for /faction/territoryownership endpoint with pagination
  */
 
+import { createHash } from "crypto";
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
@@ -35,21 +60,91 @@ function normalizeFactionId(value: unknown): number | null {
 }
 
 /**
+ * Compute SHA-256 hash of API response data
+ * Used to detect if anything changed since last sync run
+ */
+function computeResponseHash(
+  ownershipData: unknown[],
+  racketData: Record<string, unknown>,
+): string {
+  // Create deterministic string representation
+  const combined = JSON.stringify({
+    ownership: ownershipData,
+    rackets: racketData,
+  });
+  return createHash("sha256").update(combined).digest("hex");
+}
+
+// Cache worker ID at module level (never changes)
+let cachedWorkerId: string | null = null;
+
+async function getWorkerId(): Promise<string | null> {
+  if (cachedWorkerId) return cachedWorkerId;
+
+  const { data: worker } = await supabase
+    .from(TABLE_NAMES.WORKERS)
+    .select("id")
+    .eq("name", "territory_state_sync")
+    .maybeSingle();
+
+  cachedWorkerId = worker?.id || null;
+  return cachedWorkerId;
+}
+
+/**
+ * Get worker metadata from scheduler table
+ */
+async function getWorkerMetadata(): Promise<{
+  response_hash?: string;
+  consecutive_no_change_runs?: number;
+}> {
+  const workerId = await getWorkerId();
+  if (!workerId) return {};
+
+  const { data: schedule } = await supabase
+    .from(TABLE_NAMES.WORKER_SCHEDULES)
+    .select("metadata")
+    .eq("worker_id", workerId)
+    .maybeSingle();
+
+  return schedule?.metadata || {};
+}
+
+/**
+ * Update worker metadata in scheduler table
+ */
+async function updateWorkerMetadata(metadata: {
+  response_hash?: string;
+  consecutive_no_change_runs?: number;
+}): Promise<void> {
+  const workerId = await getWorkerId();
+  if (!workerId) return;
+
+  await supabase
+    .from(TABLE_NAMES.WORKER_SCHEDULES)
+    .update({ metadata })
+    .eq("worker_id", workerId);
+}
+
+/**
  * Calculate dynamic cadence based on number of available API keys
- * Current sync loop makes 2 API calls per run (ownership + rackets)
+ * Current sync loop makes ~11 API calls per run (9 ownership pages + 1 racket + 1 buffer)
+ * With parallel pagination, all requests happen simultaneously (~1s total)
  * Torn API rate limit: 50 req/min per key (safety buffer from 100/min)
- * Formula: (2 requests × 60 seconds) / (numKeys × 50 req/min)
+ * Formula: (11 requests × 60 seconds) / (numKeys × 50 req/min)
  *
  * Examples:
- * - 1 key: 2×60 / (1×50) = 3 seconds
- * - 2 keys: 2×60 / (2×50) = 2 seconds
- * - 4 keys: 2×60 / (4×50) = 1 second
+ * - 1 key: 11×60 / (1×50) = 13 seconds (to stay under 50/min limit)
+ * - 2 keys: 11×60 / (2×50) = 7 seconds
+ * - 4 keys: 11×60 / (4×50) = 4 seconds
+ *
+ * Note: Actual sync time is ~2-3s (parallel API + DB), but cadence accounts
+ * for rate limit spacing across multiple sync runs.
  *
  * Dynamically counts actual system keys from database.
- * Min is clamped to 15s to avoid overly aggressive scheduling.
  */
 async function calculateCadence(): Promise<number> {
-  const requestsNeeded = 2; // ownership + rackets
+  const requestsNeeded = 11; // 9 ownership pages + 1 racket + 1 buffer
   const limitPerKeyPerMin = 50; // Torn limit is 100, using 50 for safety
 
   // Count actual system keys available
@@ -61,8 +156,8 @@ async function calculateCadence(): Promise<number> {
     (requestsNeeded * 60) / (numKeys * limitPerKeyPerMin),
   );
 
-  // Clamp between 11s (minimum practical) and 120s (reasonable max)
-  return Math.max(11, Math.min(120, dynamicCadence));
+  // Clamp between 4s (minimum safe for rate limits) and 120s (reasonable max)
+  return Math.max(4, Math.min(120, dynamicCadence));
 }
 
 /**
@@ -99,32 +194,54 @@ async function isCatchUpSync(expectedCadenceSeconds: number): Promise<boolean> {
 }
 
 /**
- * Determine ownership change event type
+ * Determine ownership change event types
  * NOTE: War outcome notifications (assault_succeeded/failed) are handled
  * exclusively by war-ledger-sync to prevent duplicates. This only handles
  * non-war ownership changes.
+ *
+ * IMPORTANT: Can return multiple events for the case where faction A drops
+ * and faction B claims before the bot detects - both "dropped" and "claimed"
+ * events are generated to properly log the full transition.
  */
-function determineEventType(
+function determineEventTypes(
   oldFaction: number | null,
   newFaction: number | null,
   activeWar: { assaulting_faction: number; defending_faction: number } | null,
-): TTEventNotification["event_type"] | null {
+): Array<{
+  type: TTEventNotification["event_type"];
+  factionId: number | null;
+}> {
   if (activeWar) {
     // War is active - war-ledger-sync will handle outcome notifications
     // Don't send duplicate assault_succeeded/assault_failed here
-    return null;
+    return [];
   }
 
-  // No active war
+  const events: Array<{
+    type: TTEventNotification["event_type"];
+    factionId: number | null;
+  }> = [];
+
+  // Case 1: Faction dropped (X -> null)
   if (oldFaction !== null && newFaction === null) {
-    return "dropped";
+    events.push({ type: "dropped", factionId: oldFaction });
   }
-  if (oldFaction === null && newFaction !== null) {
-    return "claimed";
+  // Case 2: New faction claimed empty territory (null -> X)
+  else if (oldFaction === null && newFaction !== null) {
+    events.push({ type: "claimed", factionId: newFaction });
+  }
+  // Case 3: Faction A dropped and faction B claimed before sync detected (A -> B)
+  // This generates BOTH a "dropped" event for A and a "claimed" event for B
+  else if (
+    oldFaction !== null &&
+    newFaction !== null &&
+    oldFaction !== newFaction
+  ) {
+    events.push({ type: "dropped", factionId: oldFaction });
+    events.push({ type: "claimed", factionId: newFaction });
   }
 
-  // Shouldn't reach here (no change), but default to claimed
-  return "claimed";
+  return events;
 }
 
 /**
@@ -242,36 +359,31 @@ export function startTerritoryStateSyncWorker() {
             const changes: TTOwnershipChange[] = [];
             const notifications: TTEventNotification[] = [];
 
-            // Use optimal pagination - check for empty array to stop
-            let allOwnershipData = [];
-            let offset = 0;
+            // OPTIMIZATION: Parallel pagination instead of sequential
+            // We know there are ~4108 territories, so calculate all offsets upfront
+            // and fetch them in parallel (9 requests in ~1s instead of ~9s)
             const limit = 500;
+            const estimatedTerritoryCount = ttIds.length; // ~4108
+            const pageCount = Math.ceil(estimatedTerritoryCount / limit);
+            const offsets = Array.from(
+              { length: pageCount },
+              (_, i) => i * limit,
+            );
 
-            while (true) {
-              const response = await tornApi.get(
-                "/faction/territoryownership",
-                {
+            // Fetch all pages in parallel with key rotation
+            const responses = await Promise.all(
+              offsets.map((offset) =>
+                tornApi.get("/faction/territoryownership", {
                   apiKey: keyRotator.getNextKey(),
                   queryParams: { offset, limit },
-                },
-              );
+                }),
+              ),
+            );
 
-              // TornApiClient throws errors on API failures
-              const territories = response.territoryOwnership || [];
-
-              if (territories.length === 0) {
-                break;
-              }
-
-              allOwnershipData.push(...territories);
-
-              // If we got fewer results than the limit, we're done
-              if (territories.length < limit) {
-                break;
-              }
-
-              offset += limit;
-            }
+            // Combine all territories from parallel responses
+            const allOwnershipData = responses.flatMap(
+              (response) => response.territoryOwnership || [],
+            );
 
             // Fetch racket data from v1 API
             // TornApiClient throws errors on API failures - caught by outer try-catch
@@ -291,6 +403,36 @@ export function startTerritoryStateSyncWorker() {
 
             const racketsByTerritory = racketResponse.rackets || {};
 
+            // OPTIMIZATION: Hash-based detection
+            // Compute hash of API responses to detect if anything changed
+            const currentHash = computeResponseHash(
+              allOwnershipData,
+              racketsByTerritory,
+            );
+            const metadata = await getWorkerMetadata();
+            const lastHash = metadata.response_hash;
+
+            // If hash matches last run, nothing changed - skip DB processing
+            if (lastHash && currentHash === lastHash) {
+              const duration = Date.now() - startTime;
+              logDuration(
+                "territory_state_sync",
+                `No changes detected (hash match) for ${allOwnershipData.length} territories`,
+                duration,
+              );
+
+              // Track consecutive no-change runs for future adaptive cadence
+              const consecutiveNoChangeRuns =
+                (metadata.consecutive_no_change_runs || 0) + 1;
+              await updateWorkerMetadata({
+                response_hash: currentHash,
+                consecutive_no_change_runs: consecutiveNoChangeRuns,
+              });
+
+              return; // Early exit - no DB updates needed
+            }
+
+            // Hash differs or first run - proceed with full sync
             // Batch-fetch all territory states at once (avoid N+1 queries)
             const { data: allCurrentStates } = await supabase
               .from(TABLE_NAMES.TERRITORY_STATE)
@@ -315,6 +457,9 @@ export function startTerritoryStateSyncWorker() {
             );
 
             // Process ownership and racket data, detect all changes
+            // OPTIMIZATION: Track specific territories that changed
+            const changedTerritories = new Set<string>();
+
             for (const tt of allOwnershipData) {
               const currentState = statesByTerritory.get(tt.id);
 
@@ -330,36 +475,38 @@ export function startTerritoryStateSyncWorker() {
 
               // Detect ownership changes
               if (oldFaction !== newFaction) {
+                changedTerritories.add(tt.id); // Track this territory changed
                 changes.push({
                   territory_id: tt.id,
                   old_faction_id: oldFaction,
                   new_faction_id: newFaction,
                 });
 
-                // Check for active war to determine event type
+                // Check for active war to determine event type(s)
                 const activeWar = warsByTerritory.get(tt.id);
 
-                const eventType = determineEventType(
+                const events = determineEventTypes(
                   oldFaction,
                   newFaction,
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   activeWar as any,
                 );
 
-                // Only send notification if no active war
-                // (war-ledger-sync handles war outcome notifications)
-                if (eventType !== null) {
+                // Add notifications for all detected events
+                // (can be multiple events: e.g., faction A dropped + faction B claimed)
+                for (const event of events) {
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
-                    event_type: eventType,
+                    event_type: event.type,
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     assaulting_faction: (activeWar as any)?.assaulting_faction,
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     defending_faction: (activeWar as any)?.defending_faction,
-                    occupying_faction: newFaction,
+                    occupying_faction:
+                      event.type === "claimed" ? newFaction : null,
                     previous_faction:
-                      eventType === "dropped" ? oldFaction : undefined,
+                      event.type === "dropped" ? event.factionId : undefined,
                   });
                 }
               }
@@ -369,6 +516,7 @@ export function startTerritoryStateSyncWorker() {
                 oldRacketName !== newRacketName ||
                 oldRacketLevel !== newRacketLevel
               ) {
+                changedTerritories.add(tt.id); // Track this territory changed
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {
                   notifications.push({
@@ -409,18 +557,10 @@ export function startTerritoryStateSyncWorker() {
               }
             }
 
-            // Update database with ownership and racket changes
-            if (
-              changes.length > 0 ||
-              Object.keys(racketsByTerritory).length > 0
-            ) {
-              // Collect all territories that need updates
-              const territoriesToUpdate = new Set<string>();
-
-              changes.forEach((c) => territoriesToUpdate.add(c.territory_id));
-              allOwnershipData.forEach((tt) => territoriesToUpdate.add(tt.id));
-
-              const stateUpdates = Array.from(territoriesToUpdate).map(
+            // OPTIMIZATION: Only upsert territories that actually changed
+            // Instead of upserting all 4,108 territories, only update changed ones
+            if (changedTerritories.size > 0) {
+              const stateUpdates = Array.from(changedTerritories).map(
                 (territoryId) => {
                   const ownershipData = allOwnershipData.find(
                     (t) => t.id === territoryId,
@@ -507,10 +647,16 @@ export function startTerritoryStateSyncWorker() {
               ].includes(n.event_type),
             ).length;
 
+            // Store new hash and reset consecutive no-change counter
+            await updateWorkerMetadata({
+              response_hash: currentHash,
+              consecutive_no_change_runs: 0,
+            });
+
             const duration = Date.now() - startTime;
             logDuration(
               "territory_state_sync",
-              `Sync completed for ${allOwnershipData.length} territories (${ownershipChanges} ownership, ${racketChanges} racket changes)`,
+              `Sync completed for ${allOwnershipData.length} territories (${ownershipChanges} ownership, ${racketChanges} racket changes, ${changedTerritories.size} DB updates)`,
               duration,
             );
           } catch (error) {
