@@ -223,6 +223,7 @@ export async function execute(
 
     // Assign verification role if configured
     const rolesAdded: string[] = [];
+    const rolesRemoved: string[] = [];
     const rolesFailed: string[] = [];
 
     if (guildConfig.verified_role_id && interaction.guild) {
@@ -239,64 +240,108 @@ export async function execute(
       }
     }
 
-    // Check for faction role mapping and assign if exists
-    if (response.faction?.id && interaction.guild) {
-      const { data: factionRole } = await supabase
+    // Handle faction roles - WITH STRICT ROLE SECURITY
+    // Treat faction roles as "master" - only people in that faction can have those roles
+    if (interaction.guild) {
+      const member = await interaction.guild.members.fetch(targetUser.id);
+
+      // Fetch ALL faction role mappings for this guild
+      const { data: allFactionMappings } = await supabase
         .from(TABLE_NAMES.FACTION_ROLES)
-        .select("member_role_ids, leader_role_ids, enabled")
-        .eq("guild_id", interaction.guildId)
-        .eq("faction_id", response.faction.id)
-        .single();
+        .select("faction_id, member_role_ids, leader_role_ids, enabled")
+        .eq("guild_id", interaction.guildId);
 
-      if (factionRole && factionRole.enabled !== false) {
-        const rolesToAssign = [...(factionRole.member_role_ids || [])];
+      if (allFactionMappings && allFactionMappings.length > 0) {
+        const enabledMappings = allFactionMappings.filter(
+          (m) => m.enabled !== false,
+        );
 
-        // Check if user is a leader by fetching faction members
-        if (
-          factionRole.leader_role_ids &&
-          factionRole.leader_role_ids.length > 0
-        ) {
-          try {
-            const membersResponse = await tornApi.get("/faction/{id}/members", {
-              apiKey,
-              pathParams: { id: response.faction.id },
+        // Determine which roles user SHOULD have (based on their faction)
+        const rolesUserShouldHave = new Set<string>();
+
+        // Add roles if they're in the mapped faction
+        if (response.faction?.id) {
+          const currentFactionMapping = enabledMappings.find(
+            (m) => m.faction_id === response.faction.id,
+          );
+
+          if (currentFactionMapping) {
+            // Add member roles
+            currentFactionMapping.member_role_ids?.forEach((roleId: string) => {
+              rolesUserShouldHave.add(roleId);
             });
 
-            const members = membersResponse.members;
-
-            // members is already an array, find user directly
-            const member = members.find((m) => m.id === response.profile?.id);
-
+            // Check if user is a leader and add leader roles
             if (
-              member &&
-              (member.position === "Leader" || member.position === "Co-leader")
+              currentFactionMapping.leader_role_ids &&
+              currentFactionMapping.leader_role_ids.length > 0
             ) {
-              rolesToAssign.push(...factionRole.leader_role_ids);
+              try {
+                const membersResponse = await tornApi.get(
+                  "/faction/{id}/members",
+                  {
+                    apiKey,
+                    pathParams: { id: response.faction.id },
+                  },
+                );
+
+                const members = membersResponse.members;
+                const factionMember = members.find(
+                  (m) => m.id === response.profile?.id,
+                );
+
+                if (
+                  factionMember &&
+                  (factionMember.position === "Leader" ||
+                    factionMember.position === "Co-leader")
+                ) {
+                  currentFactionMapping.leader_role_ids.forEach(
+                    (roleId: string) => {
+                      rolesUserShouldHave.add(roleId);
+                    },
+                  );
+                }
+              } catch (leaderCheckError) {
+                console.error(
+                  "Failed to check leader status:",
+                  leaderCheckError,
+                );
+                // Continue with member roles only
+              }
             }
-          } catch (leaderCheckError) {
-            console.error("Failed to check leader status:", leaderCheckError);
-            // Continue with member roles only
           }
         }
 
-        if (rolesToAssign.length > 0) {
-          try {
-            const member = await interaction.guild.members.fetch(targetUser.id);
-            for (const roleId of rolesToAssign) {
-              if (!member.roles.cache.has(roleId)) {
+        // Now enforce role state: remove all faction-mapped roles that user shouldn't have
+        // This ensures roles as "master" - no one can manually keep a role they shouldn't have
+        for (const mapping of enabledMappings) {
+          const allMappedRoles = [
+            ...(mapping.member_role_ids || []),
+            ...(mapping.leader_role_ids || []),
+          ];
+
+          for (const roleId of allMappedRoles) {
+            const userHasRole = member.roles.cache.has(roleId);
+            const userShouldHaveRole = rolesUserShouldHave.has(roleId);
+
+            if (userHasRole && !userShouldHaveRole) {
+              // User has a role they shouldn't - remove it
+              try {
+                await member.roles.remove(roleId);
+                rolesRemoved.push(roleId);
+              } catch (removeError) {
+                console.error("Failed to remove role:", removeError);
+              }
+            } else if (!userHasRole && userShouldHaveRole) {
+              // User should have a role - add it
+              try {
                 await member.roles.add(roleId);
                 rolesAdded.push(roleId);
+              } catch (addError) {
+                console.error("Failed to add role:", addError);
+                rolesFailed.push(roleId);
               }
             }
-          } catch (roleError) {
-            console.error("Failed to assign roles:", roleError);
-            // Track failed faction roles
-            for (const roleId of rolesToAssign) {
-              rolesFailed.push(roleId);
-            }
-            successEmbed.setFooter({
-              text: "Verified but failed to assign some roles (check bot permissions)",
-            });
           }
         }
       }
@@ -314,6 +359,23 @@ export async function execute(
       });
       logFields.push({
         name: "✅ Roles Added",
+        value: rolesMention,
+        inline: false,
+      });
+    }
+
+    // Show removed roles if any
+    if (rolesRemoved.length > 0) {
+      const rolesMention = rolesRemoved
+        .map((roleId: string) => `<@&${roleId}>`)
+        .join(", ");
+      successEmbed.addFields({
+        name: "🗑️ Roles Removed",
+        value: rolesMention,
+        inline: true,
+      });
+      logFields.push({
+        name: "🗑️ Roles Removed",
         value: rolesMention,
         inline: false,
       });

@@ -220,27 +220,66 @@ async function attemptAutoVerification(
     }
   }
 
-  // Assign faction role if mapping exists
-  if (response.faction?.id) {
-    const { data: factionRole } = await supabase
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("member_role_ids, enabled")
-      .eq("guild_id", member.guild.id)
-      .eq("faction_id", response.faction.id)
-      .single();
+  // Handle faction roles - WITH STRICT ROLE SECURITY
+  // Treat faction roles as "master" - only people in that faction can have those roles
+  // Note: Auto-verify only assigns member roles, not leader roles (new members aren't leaders)
+  const { data: allFactionMappings } = await supabase
+    .from(TABLE_NAMES.FACTION_ROLES)
+    .select("faction_id, member_role_ids, leader_role_ids, enabled")
+    .eq("guild_id", member.guild.id);
 
-    if (
-      factionRole &&
-      factionRole.enabled !== false &&
-      factionRole.member_role_ids &&
-      factionRole.member_role_ids.length > 0
-    ) {
-      try {
-        await member.roles.add(factionRole.member_role_ids);
-        rolesAdded.push(...factionRole.member_role_ids);
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (_roleError) {
-        rolesFailed.push(...factionRole.member_role_ids);
+  if (allFactionMappings && allFactionMappings.length > 0) {
+    const enabledMappings = allFactionMappings.filter(
+      (m) => m.enabled !== false,
+    );
+
+    // Determine which roles user SHOULD have (based on their faction)
+    const rolesUserShouldHave = new Set<string>();
+
+    // Add member roles if they're in the mapped faction
+    if (response.faction?.id) {
+      const currentFactionMapping = enabledMappings.find(
+        (m) => m.faction_id === response.faction.id,
+      );
+
+      if (currentFactionMapping) {
+        // Add member roles only (new members won't be leaders)
+        currentFactionMapping.member_role_ids?.forEach((roleId: string) => {
+          rolesUserShouldHave.add(roleId);
+        });
+      }
+    }
+
+    // Now enforce role state: remove all faction-mapped roles that user shouldn't have
+    for (const mapping of enabledMappings) {
+      const allMappedRoles = [
+        ...(mapping.member_role_ids || []),
+        ...(mapping.leader_role_ids || []),
+      ];
+
+      for (const roleId of allMappedRoles) {
+        const userHasRole = member.roles.cache.has(roleId);
+        const userShouldHaveRole = rolesUserShouldHave.has(roleId);
+
+        if (userHasRole && !userShouldHaveRole) {
+          // User has a role they shouldn't - remove it
+          try {
+            await member.roles.remove(roleId);
+            // Note: Don't track in rolesAdded/Removed for simplicity in auto-verify
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          } catch (_removeError) {
+            // Silently ignore removal errors
+          }
+        } else if (!userHasRole && userShouldHaveRole) {
+          // User should have a role - add it
+          try {
+            await member.roles.add(roleId);
+            rolesAdded.push(roleId);
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          } catch (_addError) {
+            rolesFailed.push(roleId);
+          }
+        }
       }
     }
   }
