@@ -92,7 +92,7 @@ export function startWarLedgerSyncWorker() {
 
           try {
             // Get system API keys and initialize rotator for load balancing
-            const apiKeys = await getAllSystemApiKeys("all");
+            const apiKeys = await getAllSystemApiKeys("system");
             if (!apiKeys.length) {
               // Silently skip if no API key
               return;

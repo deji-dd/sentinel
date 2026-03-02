@@ -148,7 +148,7 @@ async function calculateCadence(): Promise<number> {
   const limitPerKeyPerMin = 50; // Torn limit is 100, using 50 for safety
 
   // Count actual system keys available
-  const apiKeys = await getAllSystemApiKeys("all");
+  const apiKeys = await getAllSystemApiKeys("system");
   const numKeys = Math.max(1, apiKeys.length);
 
   // cadence = (requests needed × 60s) / (keys available × limit per key)
@@ -308,7 +308,7 @@ export function startTerritoryStateSyncWorker() {
 
           try {
             // Get system API keys and initialize rotator for load balancing
-            const apiKeys = await getAllSystemApiKeys("all");
+            const apiKeys = await getAllSystemApiKeys("system");
             if (!apiKeys.length) {
               // Silently skip if no system key
               return;

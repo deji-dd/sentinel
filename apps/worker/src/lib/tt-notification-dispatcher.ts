@@ -52,7 +52,7 @@ async function getApiKeyForDispatcher(): Promise<string | null> {
     return cachedSystemApiKey;
   }
 
-  const apiKeys = await getAllSystemApiKeys("all");
+  const apiKeys = await getAllSystemApiKeys("system");
   if (apiKeys.length > 0) {
     cachedSystemApiKey = apiKeys[0];
   }
