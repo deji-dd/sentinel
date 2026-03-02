@@ -262,7 +262,7 @@ export async function execute(
         // Add roles if they're in the mapped faction
         if (response.faction?.id) {
           const currentFactionMapping = enabledMappings.find(
-            (m) => m.faction_id === response.faction.id,
+            (m) => m.faction_id === response.faction!.id,
           );
 
           if (currentFactionMapping) {
