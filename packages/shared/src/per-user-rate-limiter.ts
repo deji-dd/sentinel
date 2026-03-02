@@ -8,6 +8,11 @@ import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RateLimitTracker } from "./torn.js";
 import { hashApiKey } from "./api-key-manager.js";
+import {
+  registerApiKeyUser,
+  setApiKeyCooldown,
+  setUserCooldown,
+} from "./api-key-cooldown.js";
 import { RATE_LIMITING } from "./constants.js";
 
 export interface PerUserRateLimiterConfig {
@@ -159,6 +164,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
 
       const userId = Number((data as any).user_id);
       this.userIdCache.set(keyHash, userId);
+      registerApiKeyUser(apiKey, userId);
       return userId;
     } catch (error) {
       // Re-throw to ensure we don't silently fail
@@ -280,6 +286,8 @@ export class PerUserRateLimiter implements RateLimitTracker {
         const age = now - oldestRequest.getTime();
         const waitTime = this.windowMs - age + 100; // +100ms buffer
         if (waitTime > 0) {
+          setUserCooldown(userId, waitTime);
+          setApiKeyCooldown(apiKey, waitTime);
           const timestamp = this.formatTimestamp();
           console.log(
             `[rate_limiter] ${timestamp} User ${userId} rate limited. Waiting ${waitTime}ms before retry.`,

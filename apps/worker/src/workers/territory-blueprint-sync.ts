@@ -22,7 +22,7 @@ export function startTerritoryBlueprintSyncWorker() {
 
       try {
         // Get system API keys and initialize rotator for load balancing
-        const apiKeys = await getAllSystemApiKeys("all");
+        const apiKeys = await getAllSystemApiKeys("system");
         if (!apiKeys.length) {
           logError("territory_blueprint_sync", "No system API key available");
           return false;

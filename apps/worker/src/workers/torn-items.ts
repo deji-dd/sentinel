@@ -112,7 +112,7 @@ async function syncTornItems(): Promise<void> {
   const startTime = Date.now();
 
   try {
-    const apiKeys = await getAllSystemApiKeys("all");
+    const apiKeys = await getAllSystemApiKeys("system");
     if (!apiKeys.length) {
       logWarn(WORKER_NAME, "No system API keys available");
       return;

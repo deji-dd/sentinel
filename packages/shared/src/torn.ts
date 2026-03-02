@@ -1,6 +1,8 @@
 import type { components, operations, paths } from "./generated/torn-api.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "crypto";
 import { PerUserRateLimiter } from "./per-user-rate-limiter.js";
+import { getApiKeyCooldownRemainingMs } from "./api-key-cooldown.js";
 import { TABLE_NAMES } from "./constants.js";
 
 const TORN_API_BASE = "https://api.torn.com/v2";
@@ -374,22 +376,47 @@ export class TornApiClient {
  * );
  */
 export class ApiKeyRotator {
+  private static poolIndices: Map<string, number> = new Map();
   private keys: string[];
-  private currentIndex: number = 0;
+  private currentIndex: number;
+  private poolId: string;
 
   constructor(keys: string[]) {
     if (!keys.length) {
       throw new Error("ApiKeyRotator requires at least one API key");
     }
     this.keys = keys;
+    this.poolId = createHash("sha256").update(keys.join("|")).digest("hex");
+    this.currentIndex = ApiKeyRotator.poolIndices.get(this.poolId) ?? 0;
   }
 
   /**
    * Get the next key in round-robin rotation
    */
   getNextKey(): string {
-    const key = this.keys[this.currentIndex];
-    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+    let selectedIndex = this.currentIndex;
+    let shortestRemainingCooldown = Number.POSITIVE_INFINITY;
+
+    for (let offset = 0; offset < this.keys.length; offset += 1) {
+      const index = (this.currentIndex + offset) % this.keys.length;
+      const key = this.keys[index];
+      const remainingCooldown = getApiKeyCooldownRemainingMs(key);
+
+      if (remainingCooldown <= 0) {
+        selectedIndex = index;
+        shortestRemainingCooldown = 0;
+        break;
+      }
+
+      if (remainingCooldown < shortestRemainingCooldown) {
+        shortestRemainingCooldown = remainingCooldown;
+        selectedIndex = index;
+      }
+    }
+
+    const key = this.keys[selectedIndex];
+    this.currentIndex = (selectedIndex + 1) % this.keys.length;
+    ApiKeyRotator.poolIndices.set(this.poolId, this.currentIndex);
     return key;
   }
 

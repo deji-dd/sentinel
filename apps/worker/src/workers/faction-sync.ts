@@ -1,7 +1,7 @@
 /**
  * Faction data sync worker
  * Runs once daily to update faction data in sentinel_torn_factions table
- * Uses system and guild API keys to distribute rate limit load
+ * Uses system API keys to distribute rate limit load
  */
 
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
@@ -55,7 +55,7 @@ export function startFactionSyncWorker() {
         );
 
         // Get available API keys and initialize rotator for load balancing
-        const apiKeys = await getAllSystemApiKeys("all");
+        const apiKeys = await getAllSystemApiKeys("system");
         if (!apiKeys.length) {
           logError("faction_sync", "No system API key available");
           return false;

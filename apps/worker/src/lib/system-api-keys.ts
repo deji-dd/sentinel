@@ -189,7 +189,7 @@ export async function getAllSystemApiKeys(
 ): Promise<string[]> {
   let query = supabase
     .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("api_key_encrypted")
+    .select("api_key_encrypted, key_type")
     .is("deleted_at", null)
     .order("is_primary", { ascending: false })
     .order("created_at", { ascending: true }); // Ensure consistent ordering
@@ -205,7 +205,8 @@ export async function getAllSystemApiKeys(
     return [];
   }
 
-  const keys: string[] = [];
+  const systemKeys: string[] = [];
+  const personalKeys: string[] = [];
   for (const row of data || []) {
     try {
       const decrypted = decryptApiKey(
@@ -213,13 +214,29 @@ export async function getAllSystemApiKeys(
         (row as any).api_key_encrypted,
         ENCRYPTION_KEY,
       );
-      keys.push(decrypted);
+
+      // For pooled usage, bias toward system keys by returning them first.
+      if (keyType === "all") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rowKeyType = (row as any).key_type;
+        if (rowKeyType === "personal") {
+          personalKeys.push(decrypted);
+        } else {
+          systemKeys.push(decrypted);
+        }
+      } else {
+        systemKeys.push(decrypted);
+      }
     } catch (err) {
       console.error("Failed to decrypt system API key:", err);
     }
   }
 
-  return keys;
+  if (keyType === "all") {
+    return [...systemKeys, ...personalKeys];
+  }
+
+  return systemKeys;
 }
 
 /**

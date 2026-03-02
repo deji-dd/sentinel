@@ -128,7 +128,7 @@ export async function initializeApiKeyMappings(
   }
 
   if (scope === "public") {
-    const pooledKeys = await getAllSystemApiKeys("all");
+    const pooledKeys = await getAllSystemApiKeys("system");
     if (!pooledKeys.length) {
       throw new Error(
         "[CRITICAL] No system API keys available. Add system keys to sentinel_system_api_keys to start public workers.",
@@ -139,7 +139,7 @@ export async function initializeApiKeyMappings(
 
   if (scope === "all") {
     const personalKey = await getSystemApiKey("personal");
-    const pooledKeys = await getAllSystemApiKeys("all");
+    const pooledKeys = await getAllSystemApiKeys("system");
     keysToMap.push(personalKey, ...pooledKeys);
   }
 
