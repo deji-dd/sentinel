@@ -18,12 +18,13 @@ import {
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "../../../../lib/supabase.js";
 import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
+import { logGuildError } from "../../../../lib/guild-logger.js";
 import { tornApi } from "../../../../services/torn-client.js";
 
 const REVIVE_REQUEST_TTL_SECONDS = 300;
 const REVIVE_MAINTENANCE_INTERVAL_MS = 60000;
 
-let reviveMaintenanceTimer: NodeJS.Timeout | null = null;
+let reviveMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
 let reviveMaintenanceRunning = false;
 
 type ReviveConfig = {
@@ -93,22 +94,15 @@ function buildRequestPanelEmbed(config: ReviveConfig): EmbedBuilder {
 
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle("Revive Requests")
-    .setDescription("Press **Revive Me** to post a revive request.")
-    .addFields(
-      {
-        name: "Minimum Hospital Time Left",
-        value: minHosp,
-        inline: true,
-      },
-      {
-        name: "Requests Channel",
-        value: config.requests_output_channel_id
-          ? `<#${config.requests_output_channel_id}>`
-          : "Not configured",
-        inline: true,
-      },
+    .setTitle("YABA Reviving Service")
+    .setDescription(
+      "Use the buttons below to request a YABA revive for yourself or another player.\n\n**Payment:** 1.8m cash **or** 2x Xanax per successful revive.",
     )
+    .addFields({
+      name: "Minimum Hospital Time Left",
+      value: minHosp,
+      inline: true,
+    })
     .setFooter({
       text: "Only one active request per user. Requests auto-expire after 5 minutes.",
     });
@@ -117,10 +111,18 @@ function buildRequestPanelEmbed(config: ReviveConfig): EmbedBuilder {
 function buildRequestPanelRow(): ActionRowBuilder<ButtonBuilder> {
   const requestBtn = new ButtonBuilder()
     .setCustomId("revive_request_me")
-    .setLabel("Revive Me")
+    .setLabel("Request YABA Revive")
     .setStyle(ButtonStyle.Danger);
 
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(requestBtn);
+  const requestOtherBtn = new ButtonBuilder()
+    .setCustomId("revive_request_other")
+    .setLabel("Revive Someone Else")
+    .setStyle(ButtonStyle.Primary);
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    requestBtn,
+    requestOtherBtn,
+  );
 }
 
 function buildReviveRequestEmbed(
@@ -404,6 +406,28 @@ export async function handleShowReviveSettings(
 
     const guildId = interaction.guildId;
     if (!guildId) return;
+
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("enabled_modules")
+      .eq("guild_id", guildId)
+      .maybeSingle();
+
+    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    if (!enabledModules.includes("revive")) {
+      const disabledEmbed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("Revive Module Disabled")
+        .setDescription(
+          "This guild has not enabled the revive module yet. Use personal admin module management to enable it first.",
+        );
+
+      await interaction.editReply({
+        embeds: [disabledEmbed],
+        components: [],
+      });
+      return;
+    }
 
     const config = await getReviveConfig(guildId);
 
@@ -714,7 +738,7 @@ async function getActiveRequestByUser(
 }
 
 async function sendTempEphemeralError(
-  interaction: ButtonInteraction,
+  interaction: ButtonInteraction | ModalSubmitInteraction,
   title: string,
   description: string,
 ): Promise<void> {
@@ -735,213 +759,341 @@ async function sendTempEphemeralError(
   }, 8000);
 }
 
-export async function handleReviveRequestMe(
-  interaction: ButtonInteraction,
+async function createAndPostReviveRequest(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  guildId: string,
+  config: ReviveConfig,
+  outputChannel: NonNullable<Awaited<ReturnType<typeof safeFetchTextChannel>>>,
+  profile: {
+    id: number;
+    name: string;
+    revivable: boolean;
+    status?: {
+      description?: string;
+      details?: string | null;
+      state?: string;
+      until?: number | null;
+    };
+    faction_id?: number | null;
+    last_action?: {
+      status?: string;
+      relative?: string;
+      timestamp?: number;
+    };
+  },
+  hospitalSecondsLeft: number,
+  successLabel?: string,
 ): Promise<void> {
-  try {
-    const guildId = interaction.guildId;
-    if (!guildId) {
-      await sendTempEphemeralError(
-        interaction,
-        "Request Failed",
-        "This action can only be used in a server.",
-      );
-      return;
-    }
-
-    await expireRequestsForGuild(guildId, interaction.client);
-
-    const activeRequest = await getActiveRequestByUser(
-      guildId,
-      interaction.user.id,
+  const activeRequest = await getActiveRequestByUser(
+    guildId,
+    interaction.user.id,
+  );
+  if (activeRequest) {
+    await sendTempEphemeralError(
+      interaction,
+      "Active Request Found",
+      "You already have an active revive request. Cancel that request first if you need to send another one.",
     );
-    if (activeRequest) {
-      await sendTempEphemeralError(
-        interaction,
-        "Active Request Found",
-        "You already have an active revive request.",
-      );
-      return;
-    }
+    return;
+  }
 
-    const config = await getReviveConfig(guildId);
-    if (!config.requests_output_channel_id) {
-      await sendTempEphemeralError(
-        interaction,
-        "Requests Channel Not Configured",
-        "An admin needs to set the revive requests output channel in /config first.",
-      );
-      return;
-    }
+  const expiresAt = new Date(
+    Date.now() + REVIVE_REQUEST_TTL_SECONDS * 1000,
+  ).toISOString();
 
-    const outputChannel = await safeFetchTextChannel(
-      interaction.client,
-      config.requests_output_channel_id,
+  const { data: inserted, error: insertError } = await supabase
+    .from(TABLE_NAMES.REVIVE_REQUESTS)
+    .insert({
+      guild_id: guildId,
+      requester_discord_id: interaction.user.id,
+      request_channel_id: config.requests_output_channel_id,
+      requester_torn_id: profile.id,
+      requester_torn_name: profile.name,
+      revivable: profile.revivable,
+      status_description: profile.status?.description || null,
+      status_details: profile.status?.details || null,
+      status_state: profile.status?.state || null,
+      hospital_until: profile.status?.until || null,
+      hospital_seconds_left: hospitalSecondsLeft,
+      faction_id: profile.faction_id || null,
+      last_action_status: profile.last_action?.status || null,
+      last_action_relative: profile.last_action?.relative || null,
+      last_action_timestamp: profile.last_action?.timestamp || null,
+      state: "active",
+      expires_at: expiresAt,
+    })
+    .select("*")
+    .single();
+
+  if (insertError || !inserted) {
+    await sendTempEphemeralError(
+      interaction,
+      "Request Failed",
+      "I couldn't create your revive request right now. Please try again in a moment.",
     );
+    return;
+  }
 
-    if (!outputChannel) {
-      await sendTempEphemeralError(
-        interaction,
-        "Requests Channel Unavailable",
-        "I could not access the configured revive requests channel.",
-      );
-      return;
-    }
+  const request = inserted as ReviveRequest;
 
-    const { data: verifiedUser } = await supabase
-      .from(TABLE_NAMES.VERIFIED_USERS)
-      .select("torn_id, torn_name")
-      .eq("discord_id", interaction.user.id)
-      .maybeSingle();
-
-    if (!verifiedUser?.torn_id) {
-      await sendTempEphemeralError(
-        interaction,
-        "Not Verified",
-        "You need to run /verify first before requesting a revive.",
-      );
-      return;
-    }
-
-    const apiKeys = await getGuildApiKeys(guildId);
-    const apiKey = apiKeys[0];
-
-    if (!apiKey) {
-      await sendTempEphemeralError(
-        interaction,
-        "API Key Missing",
-        "This guild has no active Torn API key configured for revive checks.",
-      );
-      return;
-    }
-
-    const profileResponse = await tornApi.get("/user/{id}/profile", {
-      apiKey,
-      pathParams: { id: String(verifiedUser.torn_id) },
+  const postedMessage = await outputChannel
+    .send({
+      embeds: [buildReviveRequestEmbed(request)],
+      components: [buildActiveRequestRow(request.id)],
+    })
+    .catch(async () => {
+      await supabase
+        .from(TABLE_NAMES.REVIVE_REQUESTS)
+        .delete()
+        .eq("id", request.id);
+      return null;
     });
 
-    const profile = profileResponse.profile;
-    const statusUntil = profile?.status?.until || null;
-    const nowUnix = Math.floor(Date.now() / 1000);
-    const hospitalSecondsLeft = statusUntil
-      ? Math.max(0, statusUntil - nowUnix)
-      : 0;
+  if (!postedMessage) {
+    await sendTempEphemeralError(
+      interaction,
+      "Request Failed",
+      "I couldn't post your request to the configured reviver channel.",
+    );
+    return;
+  }
 
-    if (profile?.status?.state !== "Hospital") {
-      await sendTempEphemeralError(
-        interaction,
-        "Not Hospitalized",
-        "You must be in hospital to create a revive request.",
-      );
-      return;
-    }
+  await supabase
+    .from(TABLE_NAMES.REVIVE_REQUESTS)
+    .update({
+      request_message_id: postedMessage.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", request.id);
 
-    if (!profile?.revivable) {
-      await sendTempEphemeralError(
-        interaction,
-        "Not Revivable",
-        "Your profile is currently not revivable.",
-      );
-      return;
-    }
+  await interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x22c55e)
+        .setTitle("Revive Request Sent")
+        .setDescription(
+          successLabel
+            ? `${successLabel} has been sent to <#${config.requests_output_channel_id}>.`
+            : `Your revive request has been sent to <#${config.requests_output_channel_id}>.`,
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`revive_cancel_request|${request.id}`)
+          .setLabel("Cancel Request")
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+    flags: MessageFlags.Ephemeral,
+  });
+}
 
-    if (hospitalSecondsLeft < (config.min_hospital_seconds_left || 0)) {
-      await sendTempEphemeralError(
-        interaction,
-        "Hospital Time Too Low",
-        `You need at least ${secondsToHuman(config.min_hospital_seconds_left)} hospital time left to request a revive.`,
-      );
-      return;
-    }
+async function processReviveRequest(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  options: { confirmedLowTime: boolean; targetPlayerId?: string },
+): Promise<void> {
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await sendTempEphemeralError(
+      interaction,
+      "Request Failed",
+      "This action can only be used in a server.",
+    );
+    return;
+  }
 
-    const expiresAt = new Date(
-      Date.now() + REVIVE_REQUEST_TTL_SECONDS * 1000,
-    ).toISOString();
+  await expireRequestsForGuild(guildId, interaction.client);
 
-    const { data: inserted, error: insertError } = await supabase
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .insert({
-        guild_id: guildId,
-        requester_discord_id: interaction.user.id,
-        request_channel_id: config.requests_output_channel_id,
-        requester_torn_id: profile.id,
-        requester_torn_name: profile.name,
-        revivable: profile.revivable,
-        status_description: profile.status?.description || null,
-        status_details: profile.status?.details || null,
-        status_state: profile.status?.state || null,
-        hospital_until: profile.status?.until || null,
-        hospital_seconds_left: hospitalSecondsLeft,
-        faction_id: profile.faction_id || null,
-        last_action_status: profile.last_action?.status || null,
-        last_action_relative: profile.last_action?.relative || null,
-        last_action_timestamp: profile.last_action?.timestamp || null,
-        state: "active",
-        expires_at: expiresAt,
-      })
-      .select("*")
-      .single();
+  const activeRequest = await getActiveRequestByUser(
+    guildId,
+    interaction.user.id,
+  );
+  if (activeRequest) {
+    await sendTempEphemeralError(
+      interaction,
+      "Active Request Found",
+      "You already have an active revive request.",
+    );
+    return;
+  }
 
-    if (insertError || !inserted) {
-      await sendTempEphemeralError(
-        interaction,
-        "Request Failed",
-        "I couldn't create your revive request. Please try again.",
-      );
-      return;
-    }
+  const config = await getReviveConfig(guildId);
+  const { data: guildConfig } = await supabase
+    .from(TABLE_NAMES.GUILD_CONFIG)
+    .select("enabled_modules")
+    .eq("guild_id", guildId)
+    .maybeSingle();
 
-    const request = inserted as ReviveRequest;
+  const enabledModules: string[] = guildConfig?.enabled_modules || [];
+  if (!enabledModules.includes("revive")) {
+    await sendTempEphemeralError(
+      interaction,
+      "Revive Module Disabled",
+      "Revive requests are currently disabled for this guild. Ask an admin to enable the revive module.",
+    );
+    return;
+  }
 
-    const postedMessage = await outputChannel
-      .send({
-        embeds: [buildReviveRequestEmbed(request)],
-        components: [buildActiveRequestRow(request.id)],
-      })
-      .catch(async () => {
-        await supabase
-          .from(TABLE_NAMES.REVIVE_REQUESTS)
-          .delete()
-          .eq("id", request.id);
-        return null;
-      });
+  if (!config.requests_output_channel_id) {
+    await logGuildError(
+      guildId,
+      interaction.client,
+      "Revive Request Failed",
+      "Revive requests output channel is not configured",
+      `User <@${interaction.user.id}> attempted to request a revive but no reviver channel is configured.`,
+    );
 
-    if (!postedMessage) {
-      await sendTempEphemeralError(
-        interaction,
-        "Request Failed",
-        "I couldn't post your request to the revive channel.",
-      );
-      return;
-    }
+    await sendTempEphemeralError(
+      interaction,
+      "Reviver Channel Not Configured",
+      "I can't send your request yet because the reviver channel is not configured. I've logged this for server admins.",
+    );
+    return;
+  }
 
-    await supabase
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .update({
-        request_message_id: postedMessage.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", request.id);
+  const outputChannel = await safeFetchTextChannel(
+    interaction.client,
+    config.requests_output_channel_id,
+  );
+
+  if (!outputChannel) {
+    await logGuildError(
+      guildId,
+      interaction.client,
+      "Revive Request Failed",
+      "Configured reviver channel is unavailable",
+      `Configured channel ID: ${config.requests_output_channel_id}`,
+    );
+
+    await sendTempEphemeralError(
+      interaction,
+      "Reviver Channel Unavailable",
+      "I can't access the configured reviver channel right now. I've logged this for server admins.",
+    );
+    return;
+  }
+
+  const apiKeys = await getGuildApiKeys(guildId);
+  const apiKey = apiKeys[0];
+
+  if (!apiKey) {
+    await sendTempEphemeralError(
+      interaction,
+      "API Key Missing",
+      "This guild has no active Torn API key configured for revive checks.",
+    );
+    return;
+  }
+
+  const playerIdForLookup = options.targetPlayerId || interaction.user.id;
+
+  const profileResponse = await tornApi.get("/user/{id}/profile", {
+    apiKey,
+    pathParams: { id: playerIdForLookup },
+  });
+
+  const profile = profileResponse.profile;
+
+  if (!profile?.id || !profile?.name) {
+    await sendTempEphemeralError(
+      interaction,
+      "Player Not Found",
+      "I couldn't find that player profile. Double-check the Torn player ID and try again.",
+    );
+    return;
+  }
+
+  const statusUntilMs = profile?.status?.until
+    ? profile.status.until * 1000
+    : 0;
+  const msLeft = Math.max(0, statusUntilMs - Date.now());
+  const hospitalSecondsLeft = Math.floor(msLeft / 1000);
+
+  if (profile?.status?.state !== "Hospital") {
+    await sendTempEphemeralError(
+      interaction,
+      "You Are Not In Hospital",
+      "You can only request a revive while you are currently hospitalized in Torn.",
+    );
+    return;
+  }
+
+  if (profile?.revivable === false) {
+    await sendTempEphemeralError(
+      interaction,
+      "You Are Not Revivable",
+      "Your profile currently shows that you are not revivable. Enable revives in Torn first, then try again.",
+    );
+    return;
+  }
+
+  if (!profile?.status?.description?.startsWith("In hospital for")) {
+    await sendTempEphemeralError(
+      interaction,
+      "Revive Request Rejected",
+      "Your status indicates you are not in Torn hospital right now (likely abroad), so I can't post a revive request.",
+    );
+    return;
+  }
+
+  const minHospSeconds = config.min_hospital_seconds_left || 0;
+  if (
+    minHospSeconds > 0 &&
+    hospitalSecondsLeft < minHospSeconds &&
+    !options.confirmedLowTime
+  ) {
+    const confirmCustomId = options.targetPlayerId
+      ? `revive_confirm_request|${options.targetPlayerId}`
+      : "revive_confirm_request";
 
     await interaction.reply({
       embeds: [
         new EmbedBuilder()
-          .setColor(0x22c55e)
-          .setTitle("Revive Request Posted")
+          .setColor(0xf59e0b)
+          .setTitle("Low Hospital Time Left")
           .setDescription(
-            `Your revive request was posted in <#${config.requests_output_channel_id}>.`,
+            `You have **${secondsToHuman(hospitalSecondsLeft)}** left in hospital, below the configured minimum of **${secondsToHuman(minHospSeconds)}**.\n\nPress **Confirm Request** if you still want to send the revive request.`,
           ),
       ],
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setCustomId(`revive_cancel_request|${request.id}`)
-            .setLabel("Cancel Request")
-            .setStyle(ButtonStyle.Secondary),
+            .setCustomId(confirmCustomId)
+            .setLabel("Confirm Request")
+            .setStyle(ButtonStyle.Primary),
         ),
       ],
       flags: MessageFlags.Ephemeral,
     });
+    return;
+  }
+
+  await createAndPostReviveRequest(
+    interaction,
+    guildId,
+    config,
+    outputChannel,
+    {
+      id: profile.id,
+      name: profile.name,
+      revivable: profile.revivable,
+      status: profile.status,
+      faction_id: profile.faction_id,
+      last_action: profile.last_action,
+    },
+    hospitalSecondsLeft,
+    options.targetPlayerId
+      ? `Revive request for **${profile.name} [${profile.id}]**`
+      : undefined,
+  );
+}
+
+export async function handleReviveRequestMe(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await processReviveRequest(interaction, { confirmedLowTime: false });
   } catch (error) {
     console.error("Error handling revive request button:", error);
     if (!interaction.replied && !interaction.deferred) {
@@ -950,6 +1102,96 @@ export async function handleReviveRequestMe(
         "Request Failed",
         "Something went wrong while creating your revive request.",
       );
+    }
+  }
+}
+
+export async function handleReviveConfirmRequest(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    const targetPlayerId = interaction.customId.includes("|")
+      ? interaction.customId.split("|")[1]
+      : undefined;
+
+    await processReviveRequest(interaction, {
+      confirmedLowTime: true,
+      targetPlayerId,
+    });
+  } catch (error) {
+    console.error("Error handling revive confirmation button:", error);
+    if (!interaction.replied && !interaction.deferred) {
+      await sendTempEphemeralError(
+        interaction,
+        "Request Failed",
+        "Something went wrong while confirming your revive request.",
+      );
+    }
+  }
+}
+
+export async function handleReviveRequestOther(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  const modal = new ModalBuilder()
+    .setCustomId("revive_request_other_modal")
+    .setTitle("Revive Someone Else");
+
+  const playerIdInput = new TextInputBuilder()
+    .setCustomId("revive_target_player_id")
+    .setLabel("Torn Player ID")
+    .setPlaceholder("e.g. 1234567")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(10);
+
+  const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
+    playerIdInput,
+  );
+
+  modal.addComponents(row);
+  await interaction.showModal(modal);
+}
+
+export async function handleReviveRequestOtherModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  try {
+    const rawPlayerId = interaction.fields
+      .getTextInputValue("revive_target_player_id")
+      .trim();
+
+    if (!/^\d+$/.test(rawPlayerId)) {
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0xef4444)
+            .setTitle("Invalid Player ID")
+            .setDescription("Please enter a numeric Torn player ID."),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await processReviveRequest(interaction, {
+      confirmedLowTime: false,
+      targetPlayerId: rawPlayerId,
+    });
+  } catch (error) {
+    console.error("Error in revive someone else modal:", error);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0xef4444)
+            .setTitle("Request Failed")
+            .setDescription(
+              "Something went wrong while creating the revive request.",
+            ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
     }
   }
 }

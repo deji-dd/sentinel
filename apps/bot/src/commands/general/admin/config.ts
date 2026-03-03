@@ -97,29 +97,51 @@ if (!botOwnerId) {
   throw new Error("Missing SENTINEL_DISCORD_USER_ID environment variable");
 }
 
-function buildConfigViewMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
-  const options = [
+function buildConfigViewMenuRow(
+  enabledModules: string[] = [],
+): ActionRowBuilder<StringSelectMenuBuilder> {
+  const options: StringSelectMenuOptionBuilder[] = [
     new StringSelectMenuOptionBuilder()
       .setLabel("Admin Settings")
       .setValue("admin")
       .setDescription("Manage administrative settings"),
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Verification Settings")
-      .setValue("verify")
-      .setDescription("Manage verification settings"),
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Territories Settings")
-      .setValue("territories")
-      .setDescription("Manage TT notifications and filters"),
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Reaction Roles")
-      .setValue("reaction_roles")
-      .setDescription("Self-assignable roles via emoji reactions"),
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Revive Settings")
-      .setValue("revive")
-      .setDescription("Revive request panel and request filters"),
   ];
+
+  if (enabledModules.includes("verify")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Verification Settings")
+        .setValue("verify")
+        .setDescription("Manage verification settings"),
+    );
+  }
+
+  if (enabledModules.includes("territories")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Territories Settings")
+        .setValue("territories")
+        .setDescription("Manage TT notifications and filters"),
+    );
+  }
+
+  if (enabledModules.includes("reaction_roles")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Reaction Roles")
+        .setValue("reaction_roles")
+        .setDescription("Self-assignable roles via emoji reactions"),
+    );
+  }
+
+  if (enabledModules.includes("revive")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Revive Settings")
+        .setValue("revive")
+        .setDescription("Revive request panel and request filters"),
+    );
+  }
 
   const selectMenu = new StringSelectMenuBuilder()
     .setCustomId("config_view_select")
@@ -207,7 +229,8 @@ export async function execute(
     }
 
     // Show view selection menu
-    const row = buildConfigViewMenuRow();
+    const enabledModules: string[] = guildConfig.enabled_modules || [];
+    const row = buildConfigViewMenuRow(enabledModules);
 
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -299,6 +322,32 @@ export async function handleViewSelect(
 
     // NOW defer after we have the data
     await interaction.deferUpdate();
+
+    const moduleForView: Record<string, string | null> = {
+      admin: null,
+      verify: "verify",
+      territories: "territories",
+      reaction_roles: "reaction_roles",
+      revive: "revive",
+    };
+
+    const requiredModule = moduleForView[selectedView];
+    const enabledModules: string[] = guildConfig.enabled_modules || [];
+
+    if (requiredModule && !enabledModules.includes(requiredModule)) {
+      const disabledEmbed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("Module Not Enabled")
+        .setDescription(
+          `The **${selectedView.replace(/_/g, " ")}** module is not enabled for this guild. Use personal admin module management to enable it first.`,
+        );
+
+      await interaction.editReply({
+        embeds: [disabledEmbed],
+        components: [],
+      });
+      return;
+    }
 
     if (selectedView === "admin") {
       await showAdminSettings(interaction, guildConfig);
@@ -565,7 +614,15 @@ export async function handleBackToMenu(
     const adminGuildId = process.env.ADMIN_GUILD_ID;
     const isAdminGuild = guildId === adminGuildId;
 
-    const row = buildConfigViewMenuRow();
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("enabled_modules")
+      .eq("guild_id", guildId)
+      .maybeSingle();
+
+    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+
+    const row = buildConfigViewMenuRow(enabledModules);
 
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -3765,6 +3822,24 @@ export async function handleReviveRequestMe(
   interaction: ButtonInteraction,
 ): Promise<void> {
   return reviveHandlers.handleReviveRequestMe(interaction);
+}
+
+export async function handleReviveRequestOther(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveRequestOther(interaction);
+}
+
+export async function handleReviveRequestOtherModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveRequestOtherModal(interaction);
+}
+
+export async function handleReviveConfirmRequest(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveConfirmRequest(interaction);
 }
 
 export async function handleReviveCancelRequest(

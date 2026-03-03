@@ -211,7 +211,8 @@ export async function handleGuildSelect(
     const availableModules = [
       { name: "Verification", value: "verify" },
       { name: "Territories", value: "territories" },
-      // Add more general modules as they're created
+      { name: "Reaction Roles", value: "reaction_roles" },
+      { name: "Revive", value: "revive" },
     ];
 
     const moduleOptions = availableModules.map((module) =>

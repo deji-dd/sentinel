@@ -123,6 +123,10 @@ export async function handleButtonInteraction(
     await configCommand.handleReviveRefreshPanel(interaction);
   } else if (customId === "revive_request_me") {
     await configCommand.handleReviveRequestMe(interaction);
+  } else if (customId === "revive_request_other") {
+    await configCommand.handleReviveRequestOther(interaction);
+  } else if (customId.startsWith("revive_confirm_request")) {
+    await configCommand.handleReviveConfirmRequest(interaction);
   } else if (customId.startsWith("revive_cancel_request|")) {
     await configCommand.handleReviveCancelRequest(interaction);
   } else if (customId.startsWith("revive_mark_revived|")) {
@@ -171,6 +175,8 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleCreateReactionRoleMappingModal(interaction);
   } else if (customId === "revive_min_hosp_modal") {
     await configCommand.handleReviveSetMinHospModal(interaction);
+  } else if (customId === "revive_request_other_modal") {
+    await configCommand.handleReviveRequestOtherModal(interaction);
   } else {
     return false;
   }
