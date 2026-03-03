@@ -85,6 +85,18 @@ export async function handleButtonInteraction(
     await configCommand.handleShowReactionRolesSettings(interaction);
   } else if (customId === "reaction_roles_edit_allowed") {
     await configCommand.handleEditReactionRolesAllowed(interaction);
+  } else if (customId === "reaction_roles_create_message") {
+    await configCommand.handleCreateReactionRoleMessage(interaction);
+  } else if (customId === "reaction_roles_view_messages") {
+    await configCommand.handleViewReactionRoleMessages(interaction);
+  } else if (customId === "reaction_roles_delete_message") {
+    await configCommand.handleDeleteReactionRoleMessage(interaction);
+  } else if (customId === "reaction_roles_cancel_create") {
+    await configCommand.handleCancelReactionRoleCreate(interaction);
+  } else if (customId.startsWith("reaction_role_add_mapping|")) {
+    await configCommand.handleAddReactionRoleMapping(interaction);
+  } else if (customId.startsWith("reaction_role_post_message|")) {
+    await configCommand.handlePostReactionRoleMessage(interaction);
   } else if (customId === "reaction_roles_create_mapping") {
     await configCommand.handleCreateReactionRoleMapping(interaction);
   } else if (customId === "reaction_roles_view_mappings") {
@@ -127,6 +139,10 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleTTEditFactionsModalSubmit(interaction);
   } else if (customId.startsWith("tt_war_track_away_modal")) {
     await configCommand.handleTTWarTrackAwayFilterSubmit(interaction);
+  } else if (customId.startsWith("reaction_roles_create_embed_modal|")) {
+    await configCommand.handleCreateReactionRoleEmbedModal(interaction);
+  } else if (customId.startsWith("reaction_role_mapping_modal|")) {
+    await configCommand.handleMappingModal(interaction);
   } else if (customId === "reaction_roles_create_modal") {
     await configCommand.handleCreateReactionRoleMappingModal(interaction);
   } else {
@@ -250,6 +266,8 @@ export async function handleChannelSelectMenuInteraction(
     await configCommand.handleTTFilteredChannelSelect(interaction);
   } else if (customId.startsWith("tt_war_track_channel_select")) {
     await configCommand.handleTTWarTrackChannelSelect(interaction);
+  } else if (customId === "reaction_roles_channel_select") {
+    await configCommand.handleChannelSelectForReactionRoles(interaction);
   } else {
     return false;
   }
