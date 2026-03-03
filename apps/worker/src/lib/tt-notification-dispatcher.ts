@@ -118,12 +118,50 @@ function formatWarDuration(hours: number): string {
   return `After ${days} ${days === 1 ? "day" : "days"} ${remainingHours} ${remainingHours === 1 ? "hour" : "hours"} at war`;
 }
 
+function formatFactionWithTerritoryCount(
+  factionId: number,
+  factionName: string,
+  territoryCountsByFaction: Map<number, number>,
+): string {
+  const territoryCount = territoryCountsByFaction.get(factionId) ?? 0;
+  return `${factionName} (${territoryCount})`;
+}
+
+async function getTerritoryCountsByFaction(): Promise<Map<number, number>> {
+  const counts = new Map<number, number>();
+
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.TERRITORY_STATE)
+    .select("faction_id")
+    .not("faction_id", "is", null);
+
+  if (error) {
+    logError(
+      "TT Dispatcher",
+      `Failed to fetch territory counts by faction: ${error.message}`,
+    );
+    return counts;
+  }
+
+  for (const row of data || []) {
+    const factionId = Number(row.faction_id);
+    if (!Number.isFinite(factionId)) {
+      continue;
+    }
+
+    counts.set(factionId, (counts.get(factionId) || 0) + 1);
+  }
+
+  return counts;
+}
+
 /**
  * Build embeds for a group of notifications by faction and event type
  */
 async function buildNotificationEmbeds(
   notifications: TTEventNotification[],
   apiKey: string | null,
+  territoryCountsByFaction: Map<number, number>,
 ): Promise<Record<string, unknown>[]> {
   const embeds: Record<string, unknown>[] = [];
 
@@ -194,9 +232,16 @@ async function buildNotificationEmbeds(
     }
 
     const factionName = factionData?.name || `Faction ${faction_id}`;
-    const factionNameLinked = faction_id
-      ? factionLink(factionName, faction_id)
+    const factionNameWithCount = faction_id
+      ? formatFactionWithTerritoryCount(
+          faction_id,
+          factionName,
+          territoryCountsByFaction,
+        )
       : factionName;
+    const factionNameLinked = faction_id
+      ? factionLink(factionNameWithCount, faction_id)
+      : factionNameWithCount;
 
     switch (firstEvent.event_type) {
       case "claimed": {
@@ -226,9 +271,16 @@ async function buildNotificationEmbeds(
         );
         const defenderName =
           defenderData?.name || `Faction ${firstEvent.defending_faction}`;
-        const defenderNameLinked = firstEvent.defending_faction
-          ? factionLink(defenderName, firstEvent.defending_faction)
+        const defenderNameWithCount = firstEvent.defending_faction
+          ? formatFactionWithTerritoryCount(
+              firstEvent.defending_faction,
+              defenderName,
+              territoryCountsByFaction,
+            )
           : defenderName;
+        const defenderNameLinked = firstEvent.defending_faction
+          ? factionLink(defenderNameWithCount, firstEvent.defending_faction)
+          : defenderNameWithCount;
 
         const embed: Record<string, unknown> = {
           title: "Assault Successful",
@@ -254,9 +306,16 @@ async function buildNotificationEmbeds(
         );
         const attackerName =
           attackerData?.name || `Faction ${firstEvent.assaulting_faction}`;
-        const attackerNameLinked = firstEvent.assaulting_faction
-          ? factionLink(attackerName, firstEvent.assaulting_faction)
+        const attackerNameWithCount = firstEvent.assaulting_faction
+          ? formatFactionWithTerritoryCount(
+              firstEvent.assaulting_faction,
+              attackerName,
+              territoryCountsByFaction,
+            )
           : attackerName;
+        const attackerNameLinked = firstEvent.assaulting_faction
+          ? factionLink(attackerNameWithCount, firstEvent.assaulting_faction)
+          : attackerNameWithCount;
 
         embeds.push({
           title: "Assault Failed",
@@ -274,9 +333,16 @@ async function buildNotificationEmbeds(
         );
         const defenderName =
           defenderData?.name || `Faction ${firstEvent.defending_faction}`;
-        const defenderNameLinked = firstEvent.defending_faction
-          ? factionLink(defenderName, firstEvent.defending_faction)
+        const defenderNameWithCount = firstEvent.defending_faction
+          ? formatFactionWithTerritoryCount(
+              firstEvent.defending_faction,
+              defenderName,
+              territoryCountsByFaction,
+            )
           : defenderName;
+        const defenderNameLinked = firstEvent.defending_faction
+          ? factionLink(defenderNameWithCount, firstEvent.defending_faction)
+          : defenderNameWithCount;
 
         embeds.push({
           title: "Assault Begun",
@@ -300,12 +366,26 @@ async function buildNotificationEmbeds(
           attackerData?.name || `Faction ${firstEvent.assaulting_faction}`;
         const defenderName =
           defenderData?.name || `Faction ${firstEvent.defending_faction}`;
-        const attackerNameLinked = firstEvent.assaulting_faction
-          ? factionLink(attackerName, firstEvent.assaulting_faction)
+        const attackerNameWithCount = firstEvent.assaulting_faction
+          ? formatFactionWithTerritoryCount(
+              firstEvent.assaulting_faction,
+              attackerName,
+              territoryCountsByFaction,
+            )
           : attackerName;
-        const defenderNameLinked = firstEvent.defending_faction
-          ? factionLink(defenderName, firstEvent.defending_faction)
+        const defenderNameWithCount = firstEvent.defending_faction
+          ? formatFactionWithTerritoryCount(
+              firstEvent.defending_faction,
+              defenderName,
+              territoryCountsByFaction,
+            )
           : defenderName;
+        const attackerNameLinked = firstEvent.assaulting_faction
+          ? factionLink(attackerNameWithCount, firstEvent.assaulting_faction)
+          : attackerNameWithCount;
+        const defenderNameLinked = firstEvent.defending_faction
+          ? factionLink(defenderNameWithCount, firstEvent.defending_faction)
+          : defenderNameWithCount;
 
         const embed: Record<string, unknown> = {
           title: "Peace Treaty",
@@ -453,7 +533,12 @@ export async function processAndDispatchNotifications(
     }
 
     // Build embeds for all notifications
-    const embeds = await buildNotificationEmbeds(notifications, apiKey);
+    const territoryCountsByFaction = await getTerritoryCountsByFaction();
+    const embeds = await buildNotificationEmbeds(
+      notifications,
+      apiKey,
+      territoryCountsByFaction,
+    );
 
     // Send to each guild
     for (const config of ttEnabledGuilds) {
