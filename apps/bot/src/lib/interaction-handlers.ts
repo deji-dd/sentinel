@@ -141,8 +141,8 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleTTWarTrackAwayFilterSubmit(interaction);
   } else if (customId.startsWith("reaction_roles_create_embed_modal|")) {
     await configCommand.handleCreateReactionRoleEmbedModal(interaction);
-  } else if (customId.startsWith("reaction_role_mapping_modal|")) {
-    await configCommand.handleMappingModal(interaction);
+  } else if (customId.startsWith("reaction_role_mapping_emoji_modal|")) {
+    await configCommand.handleMappingEmojiModal(interaction);
   } else if (customId === "reaction_roles_create_modal") {
     await configCommand.handleCreateReactionRoleMappingModal(interaction);
   } else {
@@ -239,6 +239,8 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleAdminRolesSelect(interaction);
   } else if (customId === "reaction_roles_allowed_select") {
     await configCommand.handleAllowedRolesSelect(interaction);
+  } else if (customId.startsWith("reaction_role_mapping_role_select|")) {
+    await configCommand.handleMappingRoleSelect(interaction);
   } else {
     return false;
   }

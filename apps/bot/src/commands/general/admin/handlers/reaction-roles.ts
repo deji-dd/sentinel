@@ -413,7 +413,7 @@ export async function handleAddMapping(
     }
 
     const modal = new ModalBuilder()
-      .setCustomId(`reaction_role_mapping_modal|${recordId}`)
+      .setCustomId(`reaction_role_mapping_emoji_modal|${recordId}`)
       .setTitle("Add Emoji-Role Mapping");
 
     const emojiInput = new TextInputBuilder()
@@ -424,21 +424,11 @@ export async function handleAddMapping(
       .setRequired(true)
       .setMaxLength(10);
 
-    const roleInput = new TextInputBuilder()
-      .setCustomId("role_id_input")
-      .setLabel("Role ID")
-      .setPlaceholder("e.g., 1234567890123456789")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
-
     const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(
       emojiInput,
     );
-    const row2 = new ActionRowBuilder<TextInputBuilder>().addComponents(
-      roleInput,
-    );
 
-    modal.addComponents(row1, row2);
+    modal.addComponents(row1);
 
     await interaction.showModal(modal);
   } catch (error) {
@@ -448,13 +438,13 @@ export async function handleAddMapping(
 }
 
 /**
- * Handle mapping modal submission
+ * Handle emoji modal submission - shows role selector
  */
-export async function handleMappingModal(
+export async function handleMappingEmojiModal(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    await interaction.deferReply({ ephemeral: true });
 
     const customIdParts = interaction.customId.split("|");
     const recordIdStr = customIdParts[1];
@@ -465,7 +455,60 @@ export async function handleMappingModal(
     }
 
     const emoji = interaction.fields.getTextInputValue("emoji_input");
-    const roleId = interaction.fields.getTextInputValue("role_id_input");
+
+    // Get the message record to ensure it exists
+    const { data: messageRecord } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select("*")
+      .eq("id", recordId)
+      .single();
+
+    if (!messageRecord) {
+      return;
+    }
+
+    // Show role selector with emoji context
+    const instructionEmbed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle("Select Role")
+      .setDescription(`Choose which role the ${emoji} emoji should assign:`);
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId(`reaction_role_mapping_role_select|${recordId}|${emoji}`)
+      .setPlaceholder("Choose a role");
+
+    const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      roleSelect,
+    );
+
+    await interaction.editReply({
+      embeds: [instructionEmbed],
+      components: [row],
+    });
+  } catch (error) {
+    console.error("Error in handleMappingEmojiModal:", error);
+  }
+}
+
+/**
+ * Handle mapping role selector submission
+ */
+export async function handleMappingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const customIdParts = interaction.customId.split("|");
+    const recordIdStr = customIdParts[1];
+    const emoji = customIdParts.slice(2).join("|"); // In case emoji contains |
+    const recordId = parseInt(recordIdStr, 10);
+
+    if (isNaN(recordId)) {
+      return;
+    }
+
+    const selectedRoleId = interaction.values[0];
 
     // Get the message record
     const { data: messageRecord } = await supabase
@@ -487,7 +530,7 @@ export async function handleMappingModal(
       .insert({
         message_id: currentMessageId,
         emoji,
-        role_id: roleId,
+        role_id: selectedRoleId,
       });
 
     if (error) {
@@ -500,6 +543,7 @@ export async function handleMappingModal(
 
         await interaction.editReply({
           embeds: [errorEmbed],
+          components: [],
         });
       } else {
         throw error;
@@ -510,7 +554,7 @@ export async function handleMappingModal(
     const confirmEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
       .setTitle("✅ Mapping Added")
-      .setDescription(`${emoji} → <@&${roleId}>`);
+      .setDescription(`${emoji} → <@&${selectedRoleId}>`);
 
     const continueBtn = new ButtonBuilder()
       .setCustomId(`reaction_role_add_mapping|${recordId}`)
@@ -533,7 +577,7 @@ export async function handleMappingModal(
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in mapping modal:", errorMsg);
+    console.error("Error in mapping role select:", errorMsg);
   }
 }
 

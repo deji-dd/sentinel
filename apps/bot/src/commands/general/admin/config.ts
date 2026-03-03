@@ -3584,7 +3584,7 @@ export async function handleCreateReactionRoleMapping(
 export async function handleCreateReactionRoleMappingModal(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleMappingModal(interaction);
+  return reactionRolesHandlers.handleMappingEmojiModal(interaction);
 }
 
 export async function handleViewReactionRoleMappings(
@@ -3654,8 +3654,14 @@ export async function handleChannelSelectForReactionRoles(
   return reactionRolesHandlers.handleChannelSelect(interaction);
 }
 
-export async function handleMappingModal(
+export async function handleMappingEmojiModal(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleMappingModal(interaction);
+  return reactionRolesHandlers.handleMappingEmojiModal(interaction);
+}
+
+export async function handleMappingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleMappingRoleSelect(interaction);
 }
