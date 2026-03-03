@@ -302,7 +302,7 @@ export async function handleViewSelect(
     } else if (selectedView === "territories") {
       await territoryHandlers.handleShowTTSettings(interaction);
     } else if (selectedView === "reaction_roles") {
-      await reactionRolesHandlers.handleShowReactionRolesSettings(interaction);
+      await reactionRolesHandlers.handleShowReactionRolesSettings(interaction, true);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -3552,8 +3552,9 @@ export async function handleFactionLeaderRolesSelect(
  */
 export async function handleShowReactionRolesSettings(
   interaction: ButtonInteraction,
+  isAlreadyDeferred: boolean = false,
 ): Promise<void> {
-  return reactionRolesHandlers.handleShowReactionRolesSettings(interaction);
+  return reactionRolesHandlers.handleShowReactionRolesSettings(interaction, isAlreadyDeferred);
 }
 
 export async function handleEditReactionRolesAllowed(
