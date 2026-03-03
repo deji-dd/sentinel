@@ -30,9 +30,12 @@ import { supabase } from "../../../../lib/supabase.js";
  */
 export async function handleShowReactionRolesSettings(
   interaction: ButtonInteraction | StringSelectMenuInteraction,
+  isAlreadyDeferred: boolean = false,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if (!isAlreadyDeferred) {
+      await interaction.deferUpdate();
+    }
 
     const guildId = interaction.guildId;
     if (!guildId) return;
@@ -680,7 +683,7 @@ export async function handleCancelCreate(
       .eq("message_id", "pending");
 
     await interaction.deferUpdate();
-    await handleShowReactionRolesSettings(interaction);
+    await handleShowReactionRolesSettings(interaction, true);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in cancel create:", errorMsg);
