@@ -3648,6 +3648,7 @@ export async function handleCreateReactionRoleEmbedModal(
 }
 
 export async function handleChannelSelectForReactionRoles(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   interaction: any,
 ): Promise<void> {
   return reactionRolesHandlers.handleChannelSelect(interaction);

@@ -48,11 +48,12 @@ export async function handleShowReactionRolesSettings(
       .eq("guild_id", guildId)
       .single();
 
-    // Fetch existing reaction role messages
+    // Fetch existing reaction role messages (only posted ones, exclude pending)
     const { data: messages } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
+      .filter("message_id", "not.ilike", "pending_%")
       .order("created_at", { ascending: false });
 
     const allowedRoleIds = config?.allowed_role_ids || [];
@@ -63,7 +64,7 @@ export async function handleShowReactionRolesSettings(
 
     const reactionEmbed = new EmbedBuilder()
       .setColor(0x8b5cf6)
-      .setTitle("⚙️ Reaction Roles Settings")
+      .setTitle("Reaction Roles Settings")
       .addFields(
         {
           name: "Allowed Roles",
