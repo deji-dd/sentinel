@@ -368,7 +368,7 @@ export async function handleCreateEmbedModal(
     // Show UI for adding mappings
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle("➕ Add Emoji-Role Pairs")
+      .setTitle("Add Emoji-Role Pairs")
       .setDescription(
         "Add emoji-role mapping pairs. Configure which emoji maps to which role.",
       );
@@ -467,7 +467,7 @@ export async function handleMappingEmojiModal(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferReply();
+    await interaction.deferUpdate();
 
     const customIdParts = interaction.customId.split("|");
     const recordIdStr = customIdParts[1];
@@ -483,7 +483,7 @@ export async function handleMappingEmojiModal(
     if (!isValidEmoji(emoji)) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
-        .setTitle("❌ Invalid Emoji")
+        .setTitle("Invalid Emoji")
         .setDescription(
           "Please enter a valid emoji (e.g., 🎮, 👍)\n\nCustom emojis and invalid characters are not supported.",
         );
@@ -739,7 +739,24 @@ export async function handlePostMessage(
       }
     }
 
-    // Update the message record with the actual message ID
+    // Update mappings FIRST using the old pending message_id (avoids FK violation)
+    if (mappings.length > 0) {
+      const mappingIds = mappings.map((m) => m.id);
+      const { error: updateMappingsError } = await supabase
+        .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+        .update({ message_id: postedMessage.id })
+        .eq("message_id", messageRecord.message_id);
+
+      if (updateMappingsError) {
+        console.error("Error updating mappings:", updateMappingsError);
+      } else {
+        console.log(
+          `[Reaction Roles] Updated ${mappingIds.length} mappings with message_id=${postedMessage.id}`,
+        );
+      }
+    }
+
+    // Then update the message record with the actual message ID
     const { error: updateMessageError } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .update({ message_id: postedMessage.id })
@@ -751,23 +768,6 @@ export async function handlePostMessage(
       console.log(
         `[Reaction Roles] Updated message record id=${recordId} with message_id=${postedMessage.id}`,
       );
-    }
-
-    // Update all mappings to use the actual message ID (batch update)
-    if (mappings.length > 0) {
-      const mappingIds = mappings.map((m) => m.id);
-      const { error: updateMappingsError } = await supabase
-        .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-        .update({ message_id: postedMessage.id })
-        .in("id", mappingIds);
-
-      if (updateMappingsError) {
-        console.error("Error updating mappings:", updateMappingsError);
-      } else {
-        console.log(
-          `[Reaction Roles] Updated ${mappingIds.length} mappings with message_id=${postedMessage.id}`,
-        );
-      }
     }
 
     let description = `Posted to <#${messageRecord.channel_id}> with ${mappings.length} emoji-role mapping${mappings.length !== 1 ? "s" : ""}`;
