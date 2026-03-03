@@ -259,16 +259,20 @@ async function attemptAutoVerification(
             });
 
             const members = membersResponse.members;
-            const factionMember = members.find((m) => m.id === response.profile.id);
+            const factionMember = members.find(
+              (m) => m.id === response.profile.id,
+            );
 
             if (
               factionMember &&
               (factionMember.position === "Leader" ||
                 factionMember.position === "Co-leader")
             ) {
-              currentFactionMapping.leader_role_ids.forEach((roleId: string) => {
-                rolesUserShouldHave.add(roleId);
-              });
+              currentFactionMapping.leader_role_ids.forEach(
+                (roleId: string) => {
+                  rolesUserShouldHave.add(roleId);
+                },
+              );
             }
           } catch (leaderCheckError) {
             console.error("Failed to check leader status:", leaderCheckError);
