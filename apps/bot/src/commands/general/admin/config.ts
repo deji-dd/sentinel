@@ -593,7 +593,7 @@ export async function handleBackToVerifySettings(
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
-      .single();
+      .maybeSingle();
 
     if (!guildConfig) return;
 
