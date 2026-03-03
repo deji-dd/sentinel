@@ -111,6 +111,22 @@ export async function handleButtonInteraction(
     await configCommand.handleViewReactionRoleMappings(interaction);
   } else if (customId === "reaction_roles_select_delete") {
     await configCommand.handleSelectDeleteReactionRoleMapping(interaction);
+  } else if (customId === "revive_settings_show") {
+    await configCommand.handleShowReviveSettings(interaction);
+  } else if (customId === "revive_set_request_channel") {
+    await configCommand.handleReviveSetRequestChannel(interaction);
+  } else if (customId === "revive_set_output_channel") {
+    await configCommand.handleReviveSetOutputChannel(interaction);
+  } else if (customId === "revive_set_min_hosp") {
+    await configCommand.handleReviveSetMinHospButton(interaction);
+  } else if (customId === "revive_refresh_panel") {
+    await configCommand.handleReviveRefreshPanel(interaction);
+  } else if (customId === "revive_request_me") {
+    await configCommand.handleReviveRequestMe(interaction);
+  } else if (customId.startsWith("revive_cancel_request|")) {
+    await configCommand.handleReviveCancelRequest(interaction);
+  } else if (customId.startsWith("revive_mark_revived|")) {
+    await configCommand.handleReviveMarkRevived(interaction);
   } else {
     return false;
   }
@@ -153,6 +169,8 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleMappingEmojiModal(interaction);
   } else if (customId === "reaction_roles_create_modal") {
     await configCommand.handleCreateReactionRoleMappingModal(interaction);
+  } else if (customId === "revive_min_hosp_modal") {
+    await configCommand.handleReviveSetMinHospModal(interaction);
   } else {
     return false;
   }
@@ -282,6 +300,10 @@ export async function handleChannelSelectMenuInteraction(
     await configCommand.handleTTWarTrackChannelSelect(interaction);
   } else if (customId === "reaction_roles_channel_select") {
     await configCommand.handleChannelSelectForReactionRoles(interaction);
+  } else if (customId === "revive_request_channel_select") {
+    await configCommand.handleReviveRequestChannelSelect(interaction);
+  } else if (customId === "revive_output_channel_select") {
+    await configCommand.handleReviveOutputChannelSelect(interaction);
   } else {
     return false;
   }

@@ -36,6 +36,7 @@ import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
 import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
+import * as reviveHandlers from "./handlers/revive.js";
 import { supabase } from "../../../lib/supabase.js";
 
 interface StoredGuildApiKey {
@@ -114,6 +115,10 @@ function buildConfigViewMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
       .setLabel("Reaction Roles")
       .setValue("reaction_roles")
       .setDescription("Self-assignable roles via emoji reactions"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Revive Settings")
+      .setValue("revive")
+      .setDescription("Revive request panel and request filters"),
   ];
 
   const selectMenu = new StringSelectMenuBuilder()
@@ -306,6 +311,8 @@ export async function handleViewSelect(
         interaction,
         true,
       );
+    } else if (selectedView === "revive") {
+      await reviveHandlers.handleShowReviveSettings(interaction, true);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -3700,4 +3707,74 @@ export async function handleMappingRoleSelect(
   interaction: RoleSelectMenuInteraction,
 ): Promise<void> {
   return reactionRolesHandlers.handleMappingRoleSelect(interaction);
+}
+
+export async function handleShowReviveSettings(
+  interaction: ButtonInteraction,
+  isAlreadyDeferred: boolean = false,
+): Promise<void> {
+  return reviveHandlers.handleShowReviveSettings(
+    interaction,
+    isAlreadyDeferred,
+  );
+}
+
+export async function handleReviveSetRequestChannel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveSetRequestChannel(interaction);
+}
+
+export async function handleReviveSetOutputChannel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveSetOutputChannel(interaction);
+}
+
+export async function handleReviveSetMinHospButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveSetMinHospButton(interaction);
+}
+
+export async function handleReviveSetMinHospModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveSetMinHospModal(interaction);
+}
+
+export async function handleReviveRefreshPanel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveRefreshPanel(interaction);
+}
+
+export async function handleReviveRequestChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveRequestChannelSelect(interaction);
+}
+
+export async function handleReviveOutputChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveOutputChannelSelect(interaction);
+}
+
+export async function handleReviveRequestMe(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveRequestMe(interaction);
+}
+
+export async function handleReviveCancelRequest(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveCancelRequest(interaction);
+}
+
+export async function handleReviveMarkRevived(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveMarkRevived(interaction);
 }
