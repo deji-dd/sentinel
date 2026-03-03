@@ -438,13 +438,30 @@ export async function handleAddMapping(
 }
 
 /**
+ * Validate if a string is a valid Discord emoji
+ */
+function isValidEmoji(emoji: string): boolean {
+  // Standard emoji regex pattern
+  const emojiRegex = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|[\x00-\x7F])+$/u;
+  if (!emojiRegex.test(emoji)) {
+    return false;
+  }
+  // Make sure it's not too long
+  if (emoji.length > 10) {
+    return false;
+  }
+  // Check if it contains only emoji-like characters
+  return true;
+}
+
+/**
  * Handle emoji modal submission - shows role selector
  */
 export async function handleMappingEmojiModal(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply();
 
     const customIdParts = interaction.customId.split("|");
     const recordIdStr = customIdParts[1];
@@ -454,7 +471,22 @@ export async function handleMappingEmojiModal(
       return;
     }
 
-    const emoji = interaction.fields.getTextInputValue("emoji_input");
+    const emoji = interaction.fields.getTextInputValue("emoji_input").trim();
+
+    // Validate emoji
+    if (!isValidEmoji(emoji)) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Invalid Emoji")
+        .setDescription(
+          "Please enter a valid emoji (e.g., 🎮, 👍)\n\nCustom emojis and invalid characters are not supported.",
+        );
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+      });
+      return;
+    }
 
     // Get the message record to ensure it exists
     const { data: messageRecord } = await supabase
@@ -566,9 +598,15 @@ export async function handleMappingRoleSelect(
       .setLabel("Post Message")
       .setStyle(ButtonStyle.Success);
 
+    const backBtn = new ButtonBuilder()
+      .setCustomId(`reaction_role_cancel_create|${recordId}`)
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       continueBtn,
       postBtn,
+      backBtn,
     );
 
     await interaction.editReply({
@@ -661,10 +699,19 @@ export async function handlePostMessage(
     const postedMessage = await channel.send({ embeds: [embed] });
 
     // Add reactions
+    const failedEmojis: string[] = [];
     for (const mapping of mappings) {
       try {
+        if (!isValidEmoji(mapping.emoji)) {
+          failedEmojis.push(mapping.emoji);
+          console.warn(
+            `Skipping invalid emoji ${mapping.emoji} for reaction roles`,
+          );
+          continue;
+        }
         await postedMessage.react(mapping.emoji);
       } catch (error) {
+        failedEmojis.push(mapping.emoji);
         console.error(`Failed to add reaction ${mapping.emoji}:`, error);
       }
     }
@@ -683,12 +730,19 @@ export async function handlePostMessage(
         .eq("id", mapping.id);
     }
 
+    let description = `Posted to <#${messageRecord.channel_id}> with ${mappings.length} emoji-role mapping${mappings.length !== 1 ? "s" : ""}`;
+    if (failedEmojis.length > 0) {
+      description += `\n\n⚠️ Failed to add reactions for: ${failedEmojis.join(", ")}`;
+    }
+
     const successEmbed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("✅ Message Posted")
-      .setDescription(
-        `Posted to <#${messageRecord.channel_id}> with ${mappings.length} emoji-role mapping${mappings.length !== 1 ? "s" : ""}`,
-      );
+      .setColor(failedEmojis.length > 0 ? 0xf59e0b : 0x22c55e)
+      .setTitle(
+        failedEmojis.length > 0
+          ? "⚠️ Message Posted (With Warnings)"
+          : "✅ Message Posted",
+      )
+      .setDescription(description);
 
     const backBtn = new ButtonBuilder()
       .setCustomId("reaction_roles_settings_show")
