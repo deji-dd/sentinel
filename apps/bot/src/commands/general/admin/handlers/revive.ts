@@ -15,7 +15,7 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
 import { supabase } from "../../../../lib/supabase.js";
 import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
 import { logGuildError } from "../../../../lib/guild-logger.js";
@@ -90,19 +90,14 @@ function getStateMeta(state: ReviveRequest["state"]): {
 }
 
 function buildRequestPanelEmbed(config: ReviveConfig): EmbedBuilder {
-  const minHosp = secondsToHuman(config.min_hospital_seconds_left);
+  const _minHosp = secondsToHuman(config.min_hospital_seconds_left);
 
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
     .setTitle("YABA Reviving Service")
     .setDescription(
-      "Use the buttons below to request a YABA revive for yourself or another player.\n\n**Payment:** 1.8m cash **or** 2x Xanax per successful revive.",
+      "Use the buttons below to request a revive for yourself or another player.\n\n**Payment:** 1.8m cash **or** 2x Xanax per successful revive.",
     )
-    .addFields({
-      name: "Minimum Hospital Time Left",
-      value: minHosp,
-      inline: true,
-    })
     .setFooter({
       text: "Only one active request per user. Requests auto-expire after 5 minutes.",
     });
@@ -125,10 +120,11 @@ function buildRequestPanelRow(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
-function buildReviveRequestEmbed(
+async function buildReviveRequestEmbed(
   request: ReviveRequest,
+  guildId: string,
   actorDiscordId?: string,
-): EmbedBuilder {
+): Promise<EmbedBuilder> {
   const stateMeta = getStateMeta(request.state);
   const profileLink = request.requester_torn_id
     ? `https://www.torn.com/profiles.php?XID=${request.requester_torn_id}`
@@ -137,6 +133,50 @@ function buildReviveRequestEmbed(
   const timeLeft = request.hospital_seconds_left
     ? secondsToHuman(request.hospital_seconds_left)
     : "Unknown";
+
+  // Get guild API keys for faction lookup
+  const apiKeys = await getGuildApiKeys(guildId);
+  const apiKey = apiKeys.length > 0 ? apiKeys[0] : null;
+
+  // Fetch faction name if faction_id exists
+  let factionDisplay = "None";
+  if (request.faction_id) {
+    const factionName = await getFactionNameCached(
+      supabase,
+      request.faction_id,
+      tornApi,
+      apiKey,
+    );
+    factionDisplay = factionName
+      ? `${factionName} (${request.faction_id})`
+      : String(request.faction_id);
+  }
+
+  // Check if user is in alliance (if guild has verification module enabled)
+  let allianceStatus: string | null = null;
+  if (request.faction_id) {
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("enabled_modules")
+      .eq("guild_id", guildId)
+      .maybeSingle();
+
+    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    if (enabledModules.includes("verify")) {
+      // Check if faction is registered in faction roles
+      const { data: factionRoles } = await supabase
+        .from(TABLE_NAMES.FACTION_ROLES)
+        .select("faction_id")
+        .eq("guild_id", guildId);
+
+      const registeredFactionIds =
+        factionRoles?.map((fr) => fr.faction_id) || [];
+      const isInAlliance = registeredFactionIds.includes(request.faction_id);
+      allianceStatus = isInAlliance
+        ? "User is in alliance"
+        : "User is NOT in alliance";
+    }
+  }
 
   const base = new EmbedBuilder()
     .setColor(stateMeta.color)
@@ -174,11 +214,20 @@ function buildReviveRequestEmbed(
       },
       {
         name: "Faction",
-        value: request.faction_id ? String(request.faction_id) : "None",
+        value: factionDisplay,
         inline: true,
       },
     )
     .setTimestamp();
+
+  // Add alliance status field if available
+  if (allianceStatus) {
+    base.addFields({
+      name: "Alliance Status",
+      value: allianceStatus,
+      inline: false,
+    });
+  }
 
   if (profileLink) {
     base.setDescription(`[Open Torn Profile](${profileLink})`);
@@ -351,7 +400,11 @@ async function syncReviveRequestMessage(
     return;
   }
 
-  const embed = buildReviveRequestEmbed(request, actorDiscordId);
+  const embed = await buildReviveRequestEmbed(
+    request,
+    request.guild_id,
+    actorDiscordId,
+  );
   const row =
     request.state === "active"
       ? buildActiveRequestRow(request.id)
@@ -838,7 +891,7 @@ async function createAndPostReviveRequest(
 
   const postedMessage = await outputChannel
     .send({
-      embeds: [buildReviveRequestEmbed(request)],
+      embeds: [await buildReviveRequestEmbed(request, guildId)],
       components: [buildActiveRequestRow(request.id)],
     })
     .catch(async () => {
@@ -873,8 +926,8 @@ async function createAndPostReviveRequest(
         .setTitle("Revive Request Sent")
         .setDescription(
           successLabel
-            ? `${successLabel} has been sent to <#${config.requests_output_channel_id}>.`
-            : `Your revive request has been sent to <#${config.requests_output_channel_id}>.`,
+            ? `${successLabel} has been sent.`
+            : `Your revive request has been sent.`,
         ),
     ],
     components: [
