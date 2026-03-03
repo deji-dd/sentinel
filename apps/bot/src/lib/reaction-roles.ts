@@ -3,7 +3,12 @@
  * Processes emoji reactions on messages to assign roles
  */
 
-import { type MessageReaction, type User, type PartialMessageReaction, type PartialUser } from "discord.js";
+import {
+  type MessageReaction,
+  type User,
+  type PartialMessageReaction,
+  type PartialUser,
+} from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "./supabase.js";
 
@@ -30,9 +35,8 @@ export async function handleReactionRoleAdd(
 
     // Find the role mapping for this emoji+message combo
     const { data: mapping } = await supabase
-      .from(TABLE_NAMES.REACTION_ROLES)
-      .select("role_id, guild_id")
-      .eq("guild_id", guildId)
+      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .select("role_id")
       .eq("message_id", messageId)
       .eq("emoji", emoji)
       .single();
@@ -107,15 +111,13 @@ export async function handleReactionRoleRemove(
     // Check if reaction is in a guild
     if (!fullReaction.message.guildId) return;
 
-    const guildId = fullReaction.message.guildId;
     const messageId = fullReaction.message.id;
     const emoji = fullReaction.emoji.toString();
 
     // Find the role mapping for this emoji+message combo
     const { data: mapping } = await supabase
-      .from(TABLE_NAMES.REACTION_ROLES)
-      .select("role_id, guild_id")
-      .eq("guild_id", guildId)
+      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .select("role_id")
       .eq("message_id", messageId)
       .eq("emoji", emoji)
       .single();

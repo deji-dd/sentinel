@@ -3571,29 +3571,29 @@ export async function handleAllowedRolesSelect(
 export async function handleCreateReactionRoleMapping(
   interaction: ButtonInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleCreateMapping(interaction);
+  return reactionRolesHandlers.handleAddMapping(interaction);
 }
 
 export async function handleCreateReactionRoleMappingModal(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleCreateMappingModal(interaction);
+  return reactionRolesHandlers.handleMappingModal(interaction);
 }
 
 export async function handleViewReactionRoleMappings(
   interaction: ButtonInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleViewMappings(interaction);
+  return reactionRolesHandlers.handleViewMessages(interaction);
 }
 
 export async function handleSelectDeleteReactionRoleMapping(
   interaction: ButtonInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleSelectDeleteMapping(interaction);
+  return reactionRolesHandlers.handleDeleteMessage(interaction);
 }
 
 export async function handleDeleteReactionRoleMapping(
   interaction: StringSelectMenuInteraction,
 ): Promise<void> {
-  return reactionRolesHandlers.handleDeleteMapping(interaction);
+  return reactionRolesHandlers.handleDeleteSelect(interaction);
 }
