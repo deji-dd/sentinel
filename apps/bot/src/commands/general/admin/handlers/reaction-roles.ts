@@ -269,11 +269,6 @@ export async function handleChannelSelect(
   interaction: ChannelSelectMenuInteraction,
 ): Promise<void> {
   try {
-    // Skip defer if already deferred
-    if (!interaction.deferred && !interaction.replied) {
-      await interaction.deferUpdate();
-    }
-
     const selectedChannelId = interaction.values[0];
     const guildId = interaction.guildId;
     if (!guildId) return;
