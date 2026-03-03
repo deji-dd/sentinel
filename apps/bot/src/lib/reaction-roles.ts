@@ -77,12 +77,20 @@ export async function handleReactionRoleAdd(
       }
     }
 
-    // Assign the role
+    // Toggle the role - add if user doesn't have it, remove if they do
     const roleId = mapping.role_id;
+    const hasRole = member.roles.cache.has(roleId);
+
     try {
-      await member.roles.add(roleId, `Reaction role assignment: ${emoji}`);
+      if (hasRole) {
+        // User already has the role - remove it
+        await member.roles.remove(roleId, `Reaction role removal: ${emoji}`);
+      } else {
+        // User doesn't have the role - add it
+        await member.roles.add(roleId, `Reaction role assignment: ${emoji}`);
+      }
     } catch (error) {
-      console.error("Failed to assign reaction role:", error);
+      console.error("Failed to toggle reaction role:", error);
       // Try to remove the reaction to indicate failure
       await fullReaction.remove().catch(() => {
         // Reaction might already be removed
