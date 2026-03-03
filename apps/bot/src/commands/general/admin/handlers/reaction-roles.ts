@@ -278,13 +278,16 @@ export async function handleChannelSelect(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    // Create the message record in database first (with placeholder message_id)
+    // Create the message record in database first (with unique temporary message_id)
+    // Use a combination of timestamp and user ID to ensure uniqueness
+    const tempMessageId = `pending_${Date.now()}_${interaction.user.id}`;
+
     const { data: messageRecord, error: insertError } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .insert({
         guild_id: guildId,
         channel_id: selectedChannelId,
-        message_id: "pending",
+        message_id: tempMessageId,
         title: "Loading...",
         description: null,
       })
@@ -479,17 +482,14 @@ export async function handleMappingModal(
       return;
     }
 
-    // Use a temporary message_id for mappings not yet posted
-    const tempMessageId =
-      messageRecord.message_id === "pending"
-        ? `pending_${recordId}`
-        : messageRecord.message_id;
+    // Use the actual message_id from the record (already unique)
+    const currentMessageId = messageRecord.message_id;
 
     // Insert the mapping
     const { error } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .insert({
-        message_id: tempMessageId,
+        message_id: currentMessageId,
         emoji,
         role_id: roleId,
       });
@@ -568,12 +568,11 @@ export async function handlePostMessage(
       return;
     }
 
-    // Get mappings that match either the final message_id or the pending version
-    const tempMessageId = `pending_${recordId}`;
+    // Get mappings for this message
     const { data: tempMappings } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .select("*")
-      .eq("message_id", tempMessageId)
+      .eq("message_id", messageRecord.message_id)
       .order("created_at", { ascending: true });
 
     const mappings = tempMappings || [];
@@ -678,12 +677,8 @@ export async function handleCancelCreate(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    // Clean up any pending message records
-    await supabase
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .delete()
-      .eq("guild_id", guildId)
-      .eq("message_id", "pending");
+    // Note: We don't delete pending records as they're automatically excluded from views
+    // A background job can periodically clean up abandoned pending messages
 
     await interaction.deferUpdate();
     await handleShowReactionRolesSettings(interaction, true);
@@ -709,7 +704,7 @@ export async function handleViewMessages(
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
-      .neq("message_id", "pending")
+      .filter("message_id", "not.ilike", "pending_%")
       .order("created_at", { ascending: false });
 
     if (!messages || messages.length === 0) {
@@ -785,7 +780,7 @@ export async function handleDeleteMessage(
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
-      .neq("message_id", "pending")
+      .filter("message_id", "not.ilike", "pending_%")
       .order("created_at", { ascending: false });
 
     if (!messages || messages.length === 0) {
