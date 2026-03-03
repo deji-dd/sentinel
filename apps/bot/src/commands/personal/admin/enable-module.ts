@@ -139,6 +139,8 @@ export async function handleGuildSelect(
     const allModules = [
       { name: "Verify", value: "verify" },
       { name: "Territories", value: "territories" },
+      { name: "Reaction Roles", value: "reaction_roles" },
+      { name: "Revive", value: "revive" },
     ];
 
     const moduleOptions = allModules.map((module) => {

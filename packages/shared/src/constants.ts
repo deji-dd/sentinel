@@ -41,6 +41,8 @@ export const TABLE_NAMES = {
   REACTION_ROLE_MESSAGES: "sentinel_reaction_role_messages",
   REACTION_ROLE_MAPPINGS: "sentinel_reaction_role_mappings",
   REACTION_ROLE_CONFIG: "sentinel_reaction_role_config",
+  REVIVE_CONFIG: "sentinel_revive_config",
+  REVIVE_REQUESTS: "sentinel_revive_requests",
 } as const;
 
 /** Alert module types */
