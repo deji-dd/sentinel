@@ -222,7 +222,6 @@ async function attemptAutoVerification(
 
   // Handle faction roles - WITH STRICT ROLE SECURITY
   // Treat faction roles as "master" - only people in that faction can have those roles
-  // Note: Auto-verify only assigns member roles, not leader roles (new members aren't leaders)
   const { data: allFactionMappings } = await supabase
     .from(TABLE_NAMES.FACTION_ROLES)
     .select("faction_id, member_role_ids, leader_role_ids, enabled")
@@ -243,10 +242,39 @@ async function attemptAutoVerification(
       );
 
       if (currentFactionMapping) {
-        // Add member roles only (new members won't be leaders)
+        // Add member roles
         currentFactionMapping.member_role_ids?.forEach((roleId: string) => {
           rolesUserShouldHave.add(roleId);
         });
+
+        // Check if user is a leader and add leader roles
+        if (
+          currentFactionMapping.leader_role_ids &&
+          currentFactionMapping.leader_role_ids.length > 0
+        ) {
+          try {
+            const membersResponse = await tornApi.get("/faction/{id}/members", {
+              apiKey,
+              pathParams: { id: response.faction.id },
+            });
+
+            const members = membersResponse.members;
+            const factionMember = members.find((m) => m.id === response.profile.id);
+
+            if (
+              factionMember &&
+              (factionMember.position === "Leader" ||
+                factionMember.position === "Co-leader")
+            ) {
+              currentFactionMapping.leader_role_ids.forEach((roleId: string) => {
+                rolesUserShouldHave.add(roleId);
+              });
+            }
+          } catch (leaderCheckError) {
+            console.error("Failed to check leader status:", leaderCheckError);
+            // Continue with member roles only
+          }
+        }
       }
     }
 
