@@ -15,6 +15,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ChannelSelectMenuBuilder,
+  RoleSelectMenuBuilder,
   ChannelType,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
@@ -139,15 +140,14 @@ export async function handleEditAllowedRoles(
         "Select the roles that can use reaction role self-assignment. Leave empty to allow all members.",
       );
 
-    const roleSelectMenu = new ActionRowBuilder<
-      import("discord.js").RoleSelectMenuBuilder
-    >().addComponents(
-      new (require("discord.js").RoleSelectMenuBuilder)()
-        .setCustomId("reaction_roles_allowed_select")
-        .setPlaceholder("Select roles...")
-        .setMinValues(0)
-        .setMaxValues(25),
-    );
+    const roleSelectMenu =
+      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId("reaction_roles_allowed_select")
+          .setPlaceholder("Select roles...")
+          .setMinValues(0)
+          .setMaxValues(25),
+      );
 
     const backBtn = new ButtonBuilder()
       .setCustomId("reaction_roles_settings_show")
