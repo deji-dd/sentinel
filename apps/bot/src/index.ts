@@ -16,6 +16,10 @@ import { handleRegularCommand } from "./lib/regular-commands.js";
 import { routeInteractionHandler } from "./lib/interaction-handlers.js";
 import { handleMemberJoin } from "./lib/auto-verify.js";
 import { registerClientReadyEvent } from "./lib/client-events.js";
+import {
+  handleReactionRoleAdd,
+  handleReactionRoleRemove,
+} from "./lib/reaction-roles.js";
 
 // Initialize configuration
 initializeSupabaseConfig();
@@ -97,6 +101,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
 // Handle new member joins - auto-verify if enabled
 client.on(Events.GuildMemberAdd, async (member) => {
   await handleMemberJoin(member, client);
+});
+
+// Handle message reactions for role assignment
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+  try {
+    await handleReactionRoleAdd(reaction, user);
+  } catch (error) {
+    console.error("Error handling message reaction add:", error);
+  }
+});
+
+client.on(Events.MessageReactionRemove, async (reaction, user) => {
+  try {
+    await handleReactionRoleRemove(reaction, user);
+  } catch (error) {
+    console.error("Error handling message reaction remove:", error);
+  }
 });
 
 await client.login(discordToken);

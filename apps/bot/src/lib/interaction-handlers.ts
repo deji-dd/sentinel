@@ -81,6 +81,16 @@ export async function handleButtonInteraction(
     customId.startsWith("config_faction_role_menu_next_")
   ) {
     await configCommand.handleFactionRoleMenuPage(interaction);
+  } else if (customId === "reaction_roles_settings_show") {
+    await configCommand.handleShowReactionRolesSettings(interaction);
+  } else if (customId === "reaction_roles_edit_allowed") {
+    await configCommand.handleEditReactionRolesAllowed(interaction);
+  } else if (customId === "reaction_roles_create_mapping") {
+    await configCommand.handleCreateReactionRoleMapping(interaction);
+  } else if (customId === "reaction_roles_view_mappings") {
+    await configCommand.handleViewReactionRoleMappings(interaction);
+  } else if (customId === "reaction_roles_select_delete") {
+    await configCommand.handleSelectDeleteReactionRoleMapping(interaction);
   } else {
     return false;
   }
@@ -117,6 +127,8 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleTTEditFactionsModalSubmit(interaction);
   } else if (customId.startsWith("tt_war_track_away_modal")) {
     await configCommand.handleTTWarTrackAwayFilterSubmit(interaction);
+  } else if (customId === "reaction_roles_create_modal") {
+    await configCommand.handleCreateReactionRoleMappingModal(interaction);
   } else {
     return false;
   }
@@ -178,6 +190,8 @@ export async function handleStringSelectMenuInteraction(
     await configCommand.handleTTWarTrackSelect(interaction);
   } else if (customId.startsWith("tt_war_track_enemy_side")) {
     await configCommand.handleTTWarTrackEnemySideSelect(interaction);
+  } else if (customId === "reaction_roles_delete_select") {
+    await configCommand.handleDeleteReactionRoleMapping(interaction);
   } else {
     return false;
   }
@@ -207,6 +221,8 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleVerifiedRoleSelect(interaction);
   } else if (customId === "config_admin_roles_select") {
     await configCommand.handleAdminRolesSelect(interaction);
+  } else if (customId === "reaction_roles_allowed_select") {
+    await configCommand.handleAllowedRolesSelect(interaction);
   } else {
     return false;
   }
