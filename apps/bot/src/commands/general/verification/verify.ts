@@ -171,7 +171,7 @@ export async function execute(
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
       .setTitle("✅ Verified")
-      .setDescription(`**${response.profile?.name}** is verified`)
+      .setDescription(`**${response.profile?.name}** is verified as **@${targetUser.username}**`)
       .addFields({
         name: "Torn ID",
         value: String(response.profile?.id || "Unknown"),
@@ -408,11 +408,7 @@ export async function execute(
       logFields,
     );
 
-    if (!successEmbed.data.footer) {
-      successEmbed.setFooter({
-        text: "Use /config to manage verification and faction role assignments",
-      });
-    }
+
 
     await interaction.editReply({
       embeds: [successEmbed],

@@ -246,6 +246,18 @@ export async function handleReactionRoleAdd(
     const feedbackChannel = fullReaction.message.channel;
     const sourceChannelId = fullReaction.message.channelId;
 
+    // Check if this message is registered as a reaction-role message
+    const { data: message } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select("id")
+      .eq("message_id", messageId)
+      .single();
+
+    // Silently ignore reactions on non-reaction-role messages
+    if (!message) {
+      return;
+    }
+
     // Find the role mapping for this emoji+message combo
     const { data: mapping } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
