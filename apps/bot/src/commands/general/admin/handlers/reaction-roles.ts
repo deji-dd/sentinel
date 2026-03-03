@@ -41,6 +41,8 @@ export async function handleShowReactionRolesSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
+    console.log(`[Reaction Roles] Loading settings for guild: ${guildId}`);
+
     // Fetch config
     const { data: config } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_CONFIG)
@@ -55,6 +57,10 @@ export async function handleShowReactionRolesSettings(
       .eq("guild_id", guildId)
       .filter("message_id", "not.ilike", "pending_%")
       .order("created_at", { ascending: false });
+
+    console.log(
+      `[Reaction Roles] Found ${messages?.length || 0} posted messages for guild ${guildId}`,
+    );
 
     const allowedRoleIds = config?.allowed_role_ids || [];
     const rolesDisplay =
@@ -302,19 +308,19 @@ export async function handleChannelSelect(
 
     const titleInput = new TextInputBuilder()
       .setCustomId("embed_title")
-      .setLabel("Message Title")
-      .setPlaceholder("e.g., Pick Your Roles")
+      .setLabel("Message Title (Optional)")
+      .setPlaceholder("Leave empty for default: 'Select Your Roles'")
       .setStyle(TextInputStyle.Short)
-      .setRequired(true)
+      .setRequired(false)
       .setMaxLength(256);
 
     const descriptionInput = new TextInputBuilder()
       .setCustomId("embed_description")
-      .setLabel("Message Description")
-      .setPlaceholder("e.g., React to get access to channels")
+      .setLabel("Custom Description (Optional)")
+      .setPlaceholder("Leave empty for auto-generated role list")
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(false)
-      .setMaxLength(4000);
+      .setMaxLength(2000);
 
     const row1 = new ActionRowBuilder<TextInputBuilder>().addComponents(
       titleInput,
@@ -349,9 +355,9 @@ export async function handleCreateEmbedModal(
       return;
     }
 
-    const title = interaction.fields.getTextInputValue("embed_title");
+    const title = interaction.fields.getTextInputValue("embed_title").trim() || "Select Your Roles";
     const description =
-      interaction.fields.getTextInputValue("embed_description") || null;
+      interaction.fields.getTextInputValue("embed_description").trim() || null;
 
     // Update the message record with details
     await supabase
@@ -441,8 +447,8 @@ export async function handleAddMapping(
  * Validate if a string is a valid Discord emoji
  */
 function isValidEmoji(emoji: string): boolean {
-  // Standard emoji regex pattern
-  const emojiRegex = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|[\x00-\x7F])+$/u;
+  // Standard emoji regex pattern (Unicode emoji only, no ASCII)
+  const emojiRegex = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)+$/u;
   if (!emojiRegex.test(emoji)) {
     return false;
   }
@@ -632,8 +638,11 @@ export async function handlePostMessage(
     const recordId = parseInt(messageIdStr, 10);
 
     if (isNaN(recordId)) {
+      console.error("Invalid recordId in handlePostMessage");
       return;
     }
+
+    console.log(`[Reaction Roles] Posting message for recordId: ${recordId}`);
 
     // Get message record and mappings
     const { data: messageRecord } = await supabase
@@ -643,8 +652,13 @@ export async function handlePostMessage(
       .single();
 
     if (!messageRecord) {
+      console.error(
+        `[Reaction Roles] Message record not found for id: ${recordId}`,
+      );
       return;
     }
+
+    console.log(`[Reaction Roles] Found message record:`, messageRecord);
 
     // Get mappings for this message
     const { data: tempMappings } = await supabase
@@ -654,6 +668,9 @@ export async function handlePostMessage(
       .order("created_at", { ascending: true });
 
     const mappings = tempMappings || [];
+    console.log(
+      `[Reaction Roles] Found ${mappings.length} mappings for message_id: ${messageRecord.message_id}`,
+    );
 
     if (mappings.length === 0) {
       const warningEmbed = new EmbedBuilder()
@@ -686,17 +703,23 @@ export async function handlePostMessage(
       return;
     }
 
-    // Build the embed
+    // Build the embed with auto-generated role mappings
+    let finalDescription = messageRecord.description || "React with the emojis below to assign yourself roles:";
+    
+    // Append emoji-role mapping list
+    finalDescription += "\n\n";
+    for (const mapping of mappings) {
+      finalDescription += `${mapping.emoji} → <@&${mapping.role_id}>\n`;
+    }
+
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle(messageRecord.title)
-      .setDescription(
-        messageRecord.description ||
-          "React with the emojis below to get roles!",
-      );
+      .setDescription(finalDescription);
 
     // Post the message
     const postedMessage = await channel.send({ embeds: [embed] });
+    console.log(`[Reaction Roles] Posted message with ID: ${postedMessage.id}`);
 
     // Add reactions
     const failedEmojis: string[] = [];
@@ -717,17 +740,34 @@ export async function handlePostMessage(
     }
 
     // Update the message record with the actual message ID
-    await supabase
+    const { error: updateMessageError } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .update({ message_id: postedMessage.id })
       .eq("id", recordId);
 
-    // Update mappings to use the actual message ID
-    for (const mapping of mappings) {
-      await supabase
+    if (updateMessageError) {
+      console.error("Error updating message record:", updateMessageError);
+    } else {
+      console.log(
+        `[Reaction Roles] Updated message record id=${recordId} with message_id=${postedMessage.id}`,
+      );
+    }
+
+    // Update all mappings to use the actual message ID (batch update)
+    if (mappings.length > 0) {
+      const mappingIds = mappings.map((m) => m.id);
+      const { error: updateMappingsError } = await supabase
         .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
         .update({ message_id: postedMessage.id })
-        .eq("id", mapping.id);
+        .in("id", mappingIds);
+
+      if (updateMappingsError) {
+        console.error("Error updating mappings:", updateMappingsError);
+      } else {
+        console.log(
+          `[Reaction Roles] Updated ${mappingIds.length} mappings with message_id=${postedMessage.id}`,
+        );
+      }
     }
 
     let description = `Posted to <#${messageRecord.channel_id}> with ${mappings.length} emoji-role mapping${mappings.length !== 1 ? "s" : ""}`;
