@@ -8,6 +8,7 @@ import { initHttpServer } from "./http-server.js";
 import { GuildSyncScheduler } from "./verification-sync.js";
 import { WarTrackerScheduler } from "./war-tracker-scheduler.js";
 import { getHttpPort } from "./bot-config.js";
+import { startReviveMaintenance } from "../commands/general/admin/handlers/revive.js";
 
 /**
  * Register client ready event handler
@@ -27,5 +28,8 @@ export function registerClientReadyEvent(client: Client): void {
     // Start war tracker scheduler
     const warTrackerScheduler = new WarTrackerScheduler(client);
     warTrackerScheduler.start();
+
+    // Start revive maintenance scheduler
+    startReviveMaintenance(client);
   });
 }

@@ -239,6 +239,17 @@ export async function handleReactionRoleAdd(
     const emoji = fullReaction.emoji.toString();
     const reactionKey = getReactionKey(messageId, user.id, emoji);
 
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("enabled_modules")
+      .eq("guild_id", guildId)
+      .maybeSingle();
+
+    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    if (!enabledModules.includes("reaction_roles")) {
+      return;
+    }
+
     if (!beginReactionProcessing(reactionKey)) {
       return;
     }
