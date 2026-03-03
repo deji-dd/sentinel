@@ -170,6 +170,15 @@ export function startWarLedgerSyncWorker() {
             const existingWarIds = new Set(
               (existingWars || []).map((w) => w.war_id),
             );
+
+            // Check if this is bootstrap mode (empty war ledger)
+            // If so, don't send notifications for "new" wars - just sync the data
+            const { count: totalWarCount } = await supabase
+              .from(TABLE_NAMES.WAR_LEDGER)
+              .select("*", { count: "exact", head: true });
+
+            const isBootstrapMode = (totalWarCount || 0) === 0;
+
             const newWars = validWars.filter(
               (w) => !existingWarIds.has(w.territory_war_id),
             );
@@ -206,17 +215,19 @@ export function startWarLedgerSyncWorker() {
               war_duration_hours?: number;
             }> = [];
 
-            // Add war started notifications
-            for (const war of newWars) {
-              notifications.push({
-                guild_id: "",
-                territory_id: war.territory_id,
-                event_type: "war_started",
-                assaulting_faction: war.assaulting_faction,
-                defending_faction: war.defending_faction,
-                occupying_faction: null,
-                war_id: war.territory_war_id,
-              });
+            // Add war started notifications (skip in bootstrap mode to prevent cascade)
+            if (!isBootstrapMode) {
+              for (const war of newWars) {
+                notifications.push({
+                  guild_id: "",
+                  territory_id: war.territory_id,
+                  event_type: "war_started",
+                  assaulting_faction: war.assaulting_faction,
+                  defending_faction: war.defending_faction,
+                  occupying_faction: null,
+                  war_id: war.territory_war_id,
+                });
+              }
             }
 
             // Add war ended notifications and update DB

@@ -342,15 +342,21 @@ export class GuildSyncScheduler {
 
           const isNewUser = !existingUser;
           const nameChanged = existingUser && name !== existingUser.torn_name;
+
+          // Normalize faction data: handle both undefined and null values
+          // When user has no faction, Torn API returns {} not null
+          const normalizedFactionId = factionData?.id || null;
+          const normalizedFactionTag = factionData?.tag || null;
+
           const factionChanged =
             existingUser &&
-            (factionData?.id !== existingUser.faction_id ||
-              factionData?.tag !== existingUser.faction_tag) &&
+            (normalizedFactionId !== existingUser.faction_id ||
+              normalizedFactionTag !== existingUser.faction_tag) &&
             // Prevent false positives: don't count leaving a faction as "changed" every sync
             // (when both old and new are null, it's truly unchanged)
             !(
-              factionData?.id === null &&
-              factionData?.tag === null &&
+              normalizedFactionId === null &&
+              normalizedFactionTag === null &&
               existingUser.faction_id === null &&
               existingUser.faction_tag === null
             );
@@ -360,8 +366,8 @@ export class GuildSyncScheduler {
             discord_id: member.id,
             torn_id: playerId,
             torn_name: name,
-            faction_id: factionData?.id || null,
-            faction_tag: factionData?.tag || null,
+            faction_id: normalizedFactionId,
+            faction_tag: normalizedFactionTag,
             updated_at: new Date().toISOString(),
           });
 
