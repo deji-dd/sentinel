@@ -26,6 +26,61 @@ import {
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "../../../../lib/supabase.js";
 
+async function buildRoleMappingDescription(
+  messageId: string,
+  baseDescription: string | null,
+): Promise<string> {
+  const { data: mappings } = await supabase
+    .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+    .select("emoji, role_id")
+    .eq("message_id", messageId)
+    .order("created_at", { ascending: true });
+
+  let finalDescription =
+    baseDescription || "React with the emojis below to assign yourself roles:";
+
+  if (mappings && mappings.length > 0) {
+    finalDescription += "\n\n";
+    for (const mapping of mappings) {
+      finalDescription += `${mapping.emoji} → <@&${mapping.role_id}>\n`;
+    }
+  }
+
+  return finalDescription;
+}
+
+async function syncPostedReactionRoleMessage(
+  client: ButtonInteraction["client"],
+  messageRecord: {
+    message_id: string;
+    channel_id: string;
+    title: string;
+    description: string | null;
+  },
+): Promise<void> {
+  if (messageRecord.message_id.startsWith("pending_")) {
+    return;
+  }
+
+  const channel = await client.channels.fetch(messageRecord.channel_id);
+  if (!channel || !channel.isTextBased() || channel.isDMBased()) {
+    return;
+  }
+
+  const message = await channel.messages.fetch(messageRecord.message_id);
+  const finalDescription = await buildRoleMappingDescription(
+    messageRecord.message_id,
+    messageRecord.description,
+  );
+
+  const embed = new EmbedBuilder()
+    .setColor(0x8b5cf6)
+    .setTitle(messageRecord.title)
+    .setDescription(finalDescription);
+
+  await message.edit({ embeds: [embed] });
+}
+
 /**
  * Show reaction roles settings UI
  */
@@ -473,6 +528,7 @@ export async function handleMappingEmojiModal(
 
     const customIdParts = interaction.customId.split("|");
     const recordIdStr = customIdParts[1];
+    const mode = customIdParts[2] === "edit" ? "edit" : "create";
     const recordId = parseInt(recordIdStr, 10);
 
     if (isNaN(recordId)) {
@@ -514,7 +570,9 @@ export async function handleMappingEmojiModal(
       .setDescription(`Choose which role the ${emoji} emoji should assign:`);
 
     const roleSelect = new RoleSelectMenuBuilder()
-      .setCustomId(`reaction_role_mapping_role_select|${recordId}|${emoji}`)
+      .setCustomId(
+        `reaction_role_mapping_role_select|${recordId}|${emoji}|${mode}`,
+      )
       .setPlaceholder("Choose a role");
 
     const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
@@ -541,7 +599,11 @@ export async function handleMappingRoleSelect(
 
     const customIdParts = interaction.customId.split("|");
     const recordIdStr = customIdParts[1];
-    const emoji = customIdParts.slice(2).join("|"); // In case emoji contains |
+    const isEditMode = customIdParts[customIdParts.length - 1] === "edit";
+    const emojiParts = isEditMode
+      ? customIdParts.slice(2, -1)
+      : customIdParts.slice(2);
+    const emoji = emojiParts.join("|");
     const recordId = parseInt(recordIdStr, 10);
 
     if (isNaN(recordId)) {
@@ -564,37 +626,79 @@ export async function handleMappingRoleSelect(
     // Use the actual message_id from the record (already unique)
     const currentMessageId = messageRecord.message_id;
 
-    // Insert the mapping
+    // Upsert mapping so existing emoji mappings can be edited
     const { error } = await supabase
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .insert({
-        message_id: currentMessageId,
-        emoji,
-        role_id: selectedRoleId,
-      });
+      .upsert(
+        {
+          message_id: currentMessageId,
+          emoji,
+          role_id: selectedRoleId,
+        },
+        { onConflict: "message_id,emoji" },
+      );
 
     if (error) {
-      if (error.code === "23505") {
-        // Unique constraint violation
-        const errorEmbed = new EmbedBuilder()
-          .setColor(0xef4444)
-          .setTitle("❌ Emoji Already Mapped")
-          .setDescription("This emoji is already mapped for this message.");
+      throw error;
+    }
 
-        await interaction.editReply({
-          embeds: [errorEmbed],
-          components: [],
-        });
-      } else {
-        throw error;
+    if (isEditMode && !currentMessageId.startsWith("pending_")) {
+      try {
+        const channel = await interaction.client.channels.fetch(
+          messageRecord.channel_id,
+        );
+        if (channel && channel.isTextBased() && !channel.isDMBased()) {
+          const postedMessage = await channel.messages.fetch(currentMessageId);
+          await postedMessage.react(emoji).catch((reactionError) => {
+            console.warn(
+              "Failed adding reaction while editing mapping:",
+              reactionError,
+            );
+          });
+        }
+
+        await syncPostedReactionRoleMessage(interaction.client, messageRecord);
+      } catch (reactionSyncError) {
+        console.warn(
+          "Could not sync reaction on existing message:",
+          reactionSyncError,
+        );
       }
-      return;
     }
 
     const confirmEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
-      .setTitle("✅ Mapping Added")
+      .setTitle(isEditMode ? "Mapping Saved" : "✅ Mapping Added")
       .setDescription(`${emoji} → <@&${selectedRoleId}>`);
+
+    if (isEditMode) {
+      const addAnotherBtn = new ButtonBuilder()
+        .setCustomId(`reaction_role_edit_add_mapping|${recordId}`)
+        .setLabel("Add/Update Mapping")
+        .setStyle(ButtonStyle.Primary);
+
+      const removeBtn = new ButtonBuilder()
+        .setCustomId(`reaction_role_edit_remove_mapping|${recordId}`)
+        .setLabel("Remove Mapping")
+        .setStyle(ButtonStyle.Danger);
+
+      const backBtn = new ButtonBuilder()
+        .setCustomId("reaction_roles_view_messages")
+        .setLabel("Back to Messages")
+        .setStyle(ButtonStyle.Secondary);
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        addAnotherBtn,
+        removeBtn,
+        backBtn,
+      );
+
+      await interaction.editReply({
+        embeds: [confirmEmbed],
+        components: [row],
+      });
+      return;
+    }
 
     const continueBtn = new ButtonBuilder()
       .setCustomId(`reaction_role_add_mapping|${recordId}`)
@@ -607,7 +711,7 @@ export async function handleMappingRoleSelect(
       .setStyle(ButtonStyle.Success);
 
     const backBtn = new ButtonBuilder()
-      .setCustomId(`reaction_role_cancel_create|${recordId}`)
+      .setCustomId("reaction_roles_cancel_create")
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
@@ -743,34 +847,56 @@ export async function handlePostMessage(
       }
     }
 
-    // Update mappings FIRST using the old pending message_id (avoids FK violation)
-    if (mappings.length > 0) {
-      const mappingIds = mappings.map((m) => m.id);
-      const { error: updateMappingsError } = await supabase
-        .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-        .update({ message_id: postedMessage.id })
-        .eq("message_id", messageRecord.message_id);
+    // Atomically finalize pending_* message_id -> real Discord message ID
+    const { data: finalizeData, error: finalizeError } = await supabase.rpc(
+      "sentinel_finalize_reaction_role_message",
+      {
+        p_record_id: recordId,
+        p_new_message_id: postedMessage.id,
+      },
+    );
 
-      if (updateMappingsError) {
-        console.error("Error updating mappings:", updateMappingsError);
-      } else {
-        console.log(
-          `[Reaction Roles] Updated ${mappingIds.length} mappings with message_id=${postedMessage.id}`,
+    if (finalizeError) {
+      console.error(
+        "Error finalizing reaction role message and mappings:",
+        finalizeError,
+      );
+
+      // Roll back the posted Discord message to avoid orphaned reaction-role posts
+      try {
+        await postedMessage.delete();
+      } catch (deleteError) {
+        console.error(
+          "Failed to delete posted message after finalize error:",
+          deleteError,
         );
       }
-    }
 
-    // Then update the message record with the actual message ID
-    const { error: updateMessageError } = await supabase
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .update({ message_id: postedMessage.id })
-      .eq("id", recordId);
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("Failed to Save Reaction Role Message")
+        .setDescription(
+          "The message was posted but could not be saved to the database, so it was deleted automatically. Please try posting again.",
+        );
 
-    if (updateMessageError) {
-      console.error("Error updating message record:", updateMessageError);
+      const backBtn = new ButtonBuilder()
+        .setCustomId("reaction_roles_settings_show")
+        .setLabel("Back to Settings")
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+      await interaction.editReply({
+        embeds: [errorEmbed],
+        components: [row],
+      });
+      return;
     } else {
+      const result = Array.isArray(finalizeData)
+        ? finalizeData[0]
+        : finalizeData;
       console.log(
-        `[Reaction Roles] Updated message record id=${recordId} with message_id=${postedMessage.id}`,
+        `[Reaction Roles] Finalized recordId=${recordId}, messageRows=${result?.updated_message_rows ?? 0}, mappingRows=${result?.updated_mapping_rows ?? 0}, discordMessageId=${postedMessage.id}`,
       );
     }
 
@@ -826,6 +952,358 @@ export async function handleCancelCreate(
   }
 }
 
+async function showEditMappingsForMessage(
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  recordId: number,
+): Promise<void> {
+  const { data: messageRecord } = await supabase
+    .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+    .select("*")
+    .eq("id", recordId)
+    .single();
+
+  if (!messageRecord) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("Message Not Found")
+      .setDescription("Could not load the selected reaction role message.");
+
+    await interaction.editReply({
+      embeds: [errorEmbed],
+      components: [],
+    });
+    return;
+  }
+
+  const { data: mappings } = await supabase
+    .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+    .select("*")
+    .eq("message_id", messageRecord.message_id)
+    .order("created_at", { ascending: true });
+
+  const mappingLines =
+    mappings && mappings.length > 0
+      ? mappings
+          .map((mapping) => `${mapping.emoji} → <@&${mapping.role_id}>`)
+          .join("\n")
+      : "No mappings configured yet.";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x8b5cf6)
+    .setTitle("Edit Emoji-Role Mappings")
+    .setDescription(
+      `Message: ${messageRecord.title}\nChannel: <#${messageRecord.channel_id}>`,
+    )
+    .addFields({
+      name: "Current Mappings",
+      value: mappingLines,
+      inline: false,
+    });
+
+  const addBtn = new ButtonBuilder()
+    .setCustomId(`reaction_role_edit_add_mapping|${recordId}`)
+    .setLabel("Add/Update Mapping")
+    .setStyle(ButtonStyle.Primary);
+
+  const removeBtn = new ButtonBuilder()
+    .setCustomId(`reaction_role_edit_remove_mapping|${recordId}`)
+    .setLabel("Remove Mapping")
+    .setStyle(ButtonStyle.Danger)
+    .setDisabled(!mappings || mappings.length === 0);
+
+  const backBtn = new ButtonBuilder()
+    .setCustomId("reaction_roles_view_messages")
+    .setLabel("Back")
+    .setStyle(ButtonStyle.Secondary);
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    addBtn,
+    removeBtn,
+    backBtn,
+  );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [row],
+  });
+}
+
+export async function handleEditMappings(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const { data: messages } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select("*")
+      .eq("guild_id", guildId)
+      .filter("message_id", "not.ilike", "pending_%")
+      .order("created_at", { ascending: false });
+
+    if (!messages || messages.length === 0) {
+      const emptyEmbed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("No Messages")
+        .setDescription("No reaction role messages have been posted yet.");
+
+      const backBtn = new ButtonBuilder()
+        .setCustomId("reaction_roles_view_messages")
+        .setLabel("Back")
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+      await interaction.editReply({ embeds: [emptyEmbed], components: [row] });
+      return;
+    }
+
+    const options = messages.slice(0, 25).map((msg) => {
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(msg.title)
+        .setValue(`edit_${msg.id}`)
+        .setDescription(`Channel: #${msg.channel_id}`);
+    });
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId("reaction_roles_edit_select")
+      .setPlaceholder("Select message to edit mappings...")
+      .addOptions(options);
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      selectMenu,
+    );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("reaction_roles_view_messages")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      backBtn,
+    );
+
+    await interaction.editReply({
+      components: [row, buttonRow],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit mappings:", errorMsg);
+  }
+}
+
+export async function handleEditMappingsSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const selectedValue = interaction.values[0];
+    const recordIdStr = selectedValue.replace("edit_", "");
+    const recordId = parseInt(recordIdStr, 10);
+
+    if (isNaN(recordId)) {
+      return;
+    }
+
+    await showEditMappingsForMessage(interaction, recordId);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit mappings select:", errorMsg);
+  }
+}
+
+export async function handleEditAddMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    const recordIdStr = interaction.customId.split("|")[1];
+    const recordId = parseInt(recordIdStr, 10);
+
+    if (isNaN(recordId)) {
+      return;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`reaction_role_mapping_emoji_modal|${recordId}|edit`)
+      .setTitle("Add Emoji-Role Mapping");
+
+    const emojiInput = new TextInputBuilder()
+      .setCustomId("emoji_input")
+      .setLabel("Emoji")
+      .setPlaceholder("e.g., 🎮 or 👍")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(10);
+
+    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
+      emojiInput,
+    );
+
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit add mapping:", errorMsg);
+  }
+}
+
+export async function handleEditRemoveMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const recordIdStr = interaction.customId.split("|")[1];
+    const recordId = parseInt(recordIdStr, 10);
+    if (isNaN(recordId)) return;
+
+    const { data: messageRecord } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select("*")
+      .eq("id", recordId)
+      .single();
+
+    if (!messageRecord) return;
+
+    const { data: mappings } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .select("*")
+      .eq("message_id", messageRecord.message_id)
+      .order("created_at", { ascending: true });
+
+    if (!mappings || mappings.length === 0) {
+      await showEditMappingsForMessage(interaction, recordId);
+      return;
+    }
+
+    const options = mappings.slice(0, 25).map((mapping) => {
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(`${mapping.emoji} → ${mapping.role_id}`)
+        .setValue(`remove_${mapping.id}`)
+        .setDescription(`Role: ${mapping.role_id}`);
+    });
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`reaction_role_edit_remove_select|${recordId}`)
+      .setPlaceholder("Select mapping to remove...")
+      .addOptions(options);
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      selectMenu,
+    );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId(`reaction_roles_edit_select_return|${recordId}`)
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      backBtn,
+    );
+
+    await interaction.editReply({
+      components: [row, buttonRow],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit remove mapping:", errorMsg);
+  }
+}
+
+export async function handleEditRemoveMappingSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const recordIdStr = interaction.customId.split("|")[1];
+    const recordId = parseInt(recordIdStr, 10);
+    if (isNaN(recordId)) return;
+
+    const selectedValue = interaction.values[0];
+    const mappingIdStr = selectedValue.replace("remove_", "");
+    const mappingId = parseInt(mappingIdStr, 10);
+
+    if (isNaN(mappingId)) {
+      return;
+    }
+
+    const { data: messageRecord } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select("*")
+      .eq("id", recordId)
+      .single();
+
+    const { data: mappingRecord } = await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .select("*")
+      .eq("id", mappingId)
+      .single();
+
+    await supabase
+      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .delete()
+      .eq("id", mappingId);
+
+    if (
+      messageRecord &&
+      mappingRecord &&
+      !messageRecord.message_id.startsWith("pending_")
+    ) {
+      try {
+        const channel = await interaction.client.channels.fetch(
+          messageRecord.channel_id,
+        );
+        if (channel && channel.isTextBased() && !channel.isDMBased()) {
+          const postedMessage = await channel.messages.fetch(
+            messageRecord.message_id,
+          );
+          const reaction = postedMessage.reactions.cache.find(
+            (item) => item.emoji.toString() === mappingRecord.emoji,
+          );
+          if (reaction) {
+            await reaction.remove();
+          }
+        }
+
+        await syncPostedReactionRoleMessage(interaction.client, messageRecord);
+      } catch (reactionSyncError) {
+        console.warn(
+          "Could not remove reaction from existing message:",
+          reactionSyncError,
+        );
+      }
+    }
+
+    await showEditMappingsForMessage(interaction, recordId);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit remove mapping select:", errorMsg);
+  }
+}
+
+export async function handleEditMappingsReturn(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const recordIdStr = interaction.customId.split("|")[1];
+    const recordId = parseInt(recordIdStr, 10);
+    if (isNaN(recordId)) return;
+
+    await showEditMappingsForMessage(interaction, recordId);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in edit mappings return:", errorMsg);
+  }
+}
+
 /**
  * View all reaction role messages
  */
@@ -867,7 +1345,7 @@ export async function handleViewMessages(
 
     const messagesEmbed = new EmbedBuilder()
       .setColor(0x8b5cf6)
-      .setTitle("📋 Reaction Role Messages");
+      .setTitle("Reaction Role Messages");
 
     for (const msg of messages) {
       messagesEmbed.addFields({
@@ -876,6 +1354,11 @@ export async function handleViewMessages(
         inline: false,
       });
     }
+
+    const editBtn = new ButtonBuilder()
+      .setCustomId("reaction_roles_edit_mappings")
+      .setLabel("Edit Mappings")
+      .setStyle(ButtonStyle.Primary);
 
     const deleteBtn = new ButtonBuilder()
       .setCustomId("reaction_roles_delete_message")
@@ -888,6 +1371,7 @@ export async function handleViewMessages(
       .setStyle(ButtonStyle.Secondary);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      editBtn,
       deleteBtn,
       backBtn,
     );

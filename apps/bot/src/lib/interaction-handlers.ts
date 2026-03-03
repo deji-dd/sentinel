@@ -89,12 +89,20 @@ export async function handleButtonInteraction(
     await configCommand.handleCreateReactionRoleMessage(interaction);
   } else if (customId === "reaction_roles_view_messages") {
     await configCommand.handleViewReactionRoleMessages(interaction);
+  } else if (customId === "reaction_roles_edit_mappings") {
+    await configCommand.handleEditReactionRoleMappings(interaction);
   } else if (customId === "reaction_roles_delete_message") {
     await configCommand.handleDeleteReactionRoleMessage(interaction);
+  } else if (customId.startsWith("reaction_roles_edit_select_return|")) {
+    await configCommand.handleEditReactionRoleMappingsReturn(interaction);
   } else if (customId === "reaction_roles_cancel_create") {
     await configCommand.handleCancelReactionRoleCreate(interaction);
   } else if (customId.startsWith("reaction_role_add_mapping|")) {
     await configCommand.handleAddReactionRoleMapping(interaction);
+  } else if (customId.startsWith("reaction_role_edit_add_mapping|")) {
+    await configCommand.handleEditReactionRoleAddMapping(interaction);
+  } else if (customId.startsWith("reaction_role_edit_remove_mapping|")) {
+    await configCommand.handleEditReactionRoleRemoveMapping(interaction);
   } else if (customId.startsWith("reaction_role_post_message|")) {
     await configCommand.handlePostReactionRoleMessage(interaction);
   } else if (customId === "reaction_roles_create_mapping") {
@@ -208,6 +216,10 @@ export async function handleStringSelectMenuInteraction(
     await configCommand.handleTTWarTrackEnemySideSelect(interaction);
   } else if (customId === "reaction_roles_delete_select") {
     await configCommand.handleDeleteReactionRoleMapping(interaction);
+  } else if (customId === "reaction_roles_edit_select") {
+    await configCommand.handleEditReactionRoleMappingSelect(interaction);
+  } else if (customId.startsWith("reaction_role_edit_remove_select|")) {
+    await configCommand.handleEditReactionRoleRemoveMappingSelect(interaction);
   } else {
     return false;
   }

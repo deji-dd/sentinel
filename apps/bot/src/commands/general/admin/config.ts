@@ -3617,6 +3617,42 @@ export async function handleViewReactionRoleMessages(
   return reactionRolesHandlers.handleViewMessages(interaction);
 }
 
+export async function handleEditReactionRoleMappings(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditMappings(interaction);
+}
+
+export async function handleEditReactionRoleMappingSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditMappingsSelect(interaction);
+}
+
+export async function handleEditReactionRoleAddMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditAddMapping(interaction);
+}
+
+export async function handleEditReactionRoleRemoveMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditRemoveMapping(interaction);
+}
+
+export async function handleEditReactionRoleRemoveMappingSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditRemoveMappingSelect(interaction);
+}
+
+export async function handleEditReactionRoleMappingsReturn(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditMappingsReturn(interaction);
+}
+
 export async function handleDeleteReactionRoleMessage(
   interaction: ButtonInteraction,
 ): Promise<void> {
