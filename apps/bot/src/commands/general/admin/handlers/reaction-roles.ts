@@ -355,7 +355,9 @@ export async function handleCreateEmbedModal(
       return;
     }
 
-    const title = interaction.fields.getTextInputValue("embed_title").trim() || "Select Your Roles";
+    const title =
+      interaction.fields.getTextInputValue("embed_title").trim() ||
+      "Select Your Roles";
     const description =
       interaction.fields.getTextInputValue("embed_description").trim() || null;
 
@@ -704,8 +706,10 @@ export async function handlePostMessage(
     }
 
     // Build the embed with auto-generated role mappings
-    let finalDescription = messageRecord.description || "React with the emojis below to assign yourself roles:";
-    
+    let finalDescription =
+      messageRecord.description ||
+      "React with the emojis below to assign yourself roles:";
+
     // Append emoji-role mapping list
     finalDescription += "\n\n";
     for (const mapping of mappings) {
