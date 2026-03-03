@@ -55,3 +55,7 @@ next-env.d.ts
 logs/
 .github/
 **/logs/
+
+# Supabase CLI generated files
+supabase/.branches/
+supabase/.temp/

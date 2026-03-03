@@ -35,6 +35,7 @@ import {
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
 import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
+import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import { supabase } from "../../../lib/supabase.js";
 
 interface StoredGuildApiKey {
@@ -109,6 +110,10 @@ function buildConfigViewMenuRow(): ActionRowBuilder<StringSelectMenuBuilder> {
       .setLabel("Territories Settings")
       .setValue("territories")
       .setDescription("Manage TT notifications and filters"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Reaction Roles")
+      .setValue("reaction_roles")
+      .setDescription("Self-assignable roles via emoji reactions"),
   ];
 
   const selectMenu = new StringSelectMenuBuilder()
@@ -296,6 +301,11 @@ export async function handleViewSelect(
       await showVerifySettings(interaction, guildConfig);
     } else if (selectedView === "territories") {
       await territoryHandlers.handleShowTTSettings(interaction);
+    } else if (selectedView === "reaction_roles") {
+      await reactionRolesHandlers.handleShowReactionRolesSettings(
+        interaction,
+        true,
+      );
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -583,7 +593,7 @@ export async function handleBackToVerifySettings(
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
-      .single();
+      .maybeSingle();
 
     if (!guildConfig) return;
 
@@ -3537,4 +3547,157 @@ export async function handleFactionLeaderRolesSelect(
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction leader roles select handler:", errorMsg);
   }
+}
+
+/**
+ * Reaction Roles module handlers - re-exported from reactionRolesHandlers module
+ * Enables clean dispatch from index.ts
+ */
+export async function handleShowReactionRolesSettings(
+  interaction: ButtonInteraction,
+  isAlreadyDeferred: boolean = false,
+): Promise<void> {
+  return reactionRolesHandlers.handleShowReactionRolesSettings(
+    interaction,
+    isAlreadyDeferred,
+  );
+}
+
+export async function handleEditReactionRolesAllowed(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditAllowedRoles(interaction);
+}
+
+export async function handleAllowedRolesSelect(
+  interaction: any,
+): Promise<void> {
+  return reactionRolesHandlers.handleAllowedRolesSelect(interaction);
+}
+
+export async function handleCreateReactionRoleMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleAddMapping(interaction);
+}
+
+export async function handleCreateReactionRoleMappingModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleMappingEmojiModal(interaction);
+}
+
+export async function handleViewReactionRoleMappings(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleViewMessages(interaction);
+}
+
+export async function handleSelectDeleteReactionRoleMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleDeleteMessage(interaction);
+}
+
+export async function handleDeleteReactionRoleMapping(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleDeleteSelect(interaction);
+}
+
+export async function handleCreateReactionRoleMessage(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleCreateMessage(interaction);
+}
+
+export async function handleViewReactionRoleMessages(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleViewMessages(interaction);
+}
+
+export async function handleEditReactionRoleMappings(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditMappings(interaction);
+}
+
+export async function handleEditReactionRoleMappingSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditMappingsSelect(interaction);
+}
+
+export async function handleEditReactionRoleAddMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditAddMapping(interaction);
+}
+
+export async function handleEditReactionRoleRemoveMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditRemoveMapping(interaction);
+}
+
+export async function handleEditReactionRoleRemoveMappingSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditRemoveMappingSelect(interaction);
+}
+
+export async function handleEditReactionRoleMappingsReturn(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleEditMappingsReturn(interaction);
+}
+
+export async function handleDeleteReactionRoleMessage(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleDeleteMessage(interaction);
+}
+
+export async function handleCancelReactionRoleCreate(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleCancelCreate(interaction);
+}
+
+export async function handleAddReactionRoleMapping(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleAddMapping(interaction);
+}
+
+export async function handlePostReactionRoleMessage(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handlePostMessage(interaction);
+}
+
+export async function handleCreateReactionRoleEmbedModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleCreateEmbedModal(interaction);
+}
+
+export async function handleChannelSelectForReactionRoles(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  interaction: any,
+): Promise<void> {
+  return reactionRolesHandlers.handleChannelSelect(interaction);
+}
+
+export async function handleMappingEmojiModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleMappingEmojiModal(interaction);
+}
+
+export async function handleMappingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return reactionRolesHandlers.handleMappingRoleSelect(interaction);
 }

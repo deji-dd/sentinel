@@ -38,6 +38,9 @@ export const TABLE_NAMES = {
   WAR_TRACKERS: "sentinel_war_trackers",
   TORN_FACTIONS: "sentinel_torn_factions",
   TT_CONFIG: "sentinel_tt_config",
+  REACTION_ROLE_MESSAGES: "sentinel_reaction_role_messages",
+  REACTION_ROLE_MAPPINGS: "sentinel_reaction_role_mappings",
+  REACTION_ROLE_CONFIG: "sentinel_reaction_role_config",
 } as const;
 
 /** Alert module types */

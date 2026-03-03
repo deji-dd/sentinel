@@ -81,6 +81,36 @@ export async function handleButtonInteraction(
     customId.startsWith("config_faction_role_menu_next_")
   ) {
     await configCommand.handleFactionRoleMenuPage(interaction);
+  } else if (customId === "reaction_roles_settings_show") {
+    await configCommand.handleShowReactionRolesSettings(interaction);
+  } else if (customId === "reaction_roles_edit_allowed") {
+    await configCommand.handleEditReactionRolesAllowed(interaction);
+  } else if (customId === "reaction_roles_create_message") {
+    await configCommand.handleCreateReactionRoleMessage(interaction);
+  } else if (customId === "reaction_roles_view_messages") {
+    await configCommand.handleViewReactionRoleMessages(interaction);
+  } else if (customId === "reaction_roles_edit_mappings") {
+    await configCommand.handleEditReactionRoleMappings(interaction);
+  } else if (customId === "reaction_roles_delete_message") {
+    await configCommand.handleDeleteReactionRoleMessage(interaction);
+  } else if (customId.startsWith("reaction_roles_edit_select_return|")) {
+    await configCommand.handleEditReactionRoleMappingsReturn(interaction);
+  } else if (customId === "reaction_roles_cancel_create") {
+    await configCommand.handleCancelReactionRoleCreate(interaction);
+  } else if (customId.startsWith("reaction_role_add_mapping|")) {
+    await configCommand.handleAddReactionRoleMapping(interaction);
+  } else if (customId.startsWith("reaction_role_edit_add_mapping|")) {
+    await configCommand.handleEditReactionRoleAddMapping(interaction);
+  } else if (customId.startsWith("reaction_role_edit_remove_mapping|")) {
+    await configCommand.handleEditReactionRoleRemoveMapping(interaction);
+  } else if (customId.startsWith("reaction_role_post_message|")) {
+    await configCommand.handlePostReactionRoleMessage(interaction);
+  } else if (customId === "reaction_roles_create_mapping") {
+    await configCommand.handleCreateReactionRoleMapping(interaction);
+  } else if (customId === "reaction_roles_view_mappings") {
+    await configCommand.handleViewReactionRoleMappings(interaction);
+  } else if (customId === "reaction_roles_select_delete") {
+    await configCommand.handleSelectDeleteReactionRoleMapping(interaction);
   } else {
     return false;
   }
@@ -117,6 +147,12 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleTTEditFactionsModalSubmit(interaction);
   } else if (customId.startsWith("tt_war_track_away_modal")) {
     await configCommand.handleTTWarTrackAwayFilterSubmit(interaction);
+  } else if (customId.startsWith("reaction_roles_create_embed_modal|")) {
+    await configCommand.handleCreateReactionRoleEmbedModal(interaction);
+  } else if (customId.startsWith("reaction_role_mapping_emoji_modal|")) {
+    await configCommand.handleMappingEmojiModal(interaction);
+  } else if (customId === "reaction_roles_create_modal") {
+    await configCommand.handleCreateReactionRoleMappingModal(interaction);
   } else {
     return false;
   }
@@ -178,6 +214,12 @@ export async function handleStringSelectMenuInteraction(
     await configCommand.handleTTWarTrackSelect(interaction);
   } else if (customId.startsWith("tt_war_track_enemy_side")) {
     await configCommand.handleTTWarTrackEnemySideSelect(interaction);
+  } else if (customId === "reaction_roles_delete_select") {
+    await configCommand.handleDeleteReactionRoleMapping(interaction);
+  } else if (customId === "reaction_roles_edit_select") {
+    await configCommand.handleEditReactionRoleMappingSelect(interaction);
+  } else if (customId.startsWith("reaction_role_edit_remove_select|")) {
+    await configCommand.handleEditReactionRoleRemoveMappingSelect(interaction);
   } else {
     return false;
   }
@@ -207,6 +249,10 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleVerifiedRoleSelect(interaction);
   } else if (customId === "config_admin_roles_select") {
     await configCommand.handleAdminRolesSelect(interaction);
+  } else if (customId === "reaction_roles_allowed_select") {
+    await configCommand.handleAllowedRolesSelect(interaction);
+  } else if (customId.startsWith("reaction_role_mapping_role_select|")) {
+    await configCommand.handleMappingRoleSelect(interaction);
   } else {
     return false;
   }
@@ -234,6 +280,8 @@ export async function handleChannelSelectMenuInteraction(
     await configCommand.handleTTFilteredChannelSelect(interaction);
   } else if (customId.startsWith("tt_war_track_channel_select")) {
     await configCommand.handleTTWarTrackChannelSelect(interaction);
+  } else if (customId === "reaction_roles_channel_select") {
+    await configCommand.handleChannelSelectForReactionRoles(interaction);
   } else {
     return false;
   }
