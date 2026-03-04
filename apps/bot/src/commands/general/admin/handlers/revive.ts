@@ -1130,6 +1130,7 @@ async function processReviveRequest(
   });
 
   const profile = profileResponse.profile;
+  const isRequestingForOther = Boolean(options.targetPlayerId);
 
   if (!profile?.id || !profile?.name) {
     await sendTempEphemeralError(
@@ -1149,8 +1150,12 @@ async function processReviveRequest(
   if (profile?.status?.state !== "Hospital") {
     await sendTempEphemeralError(
       interaction,
-      "You Are Not In Hospital",
-      "You can only request a revive while you are currently hospitalized in Torn.",
+      isRequestingForOther
+        ? "Target Is Not In Hospital"
+        : "You Are Not In Hospital",
+      isRequestingForOther
+        ? `**${profile.name} [${profile.id}]** is not currently hospitalized in Torn.`
+        : "You can only request a revive while you are currently hospitalized in Torn.",
     );
     return;
   }
@@ -1158,8 +1163,12 @@ async function processReviveRequest(
   if (profile?.revivable === false) {
     await sendTempEphemeralError(
       interaction,
-      "You Are Not Revivable",
-      "Your profile currently shows that you are not revivable. Enable revives in Torn first, then try again.",
+      isRequestingForOther
+        ? "Target Is Not Revivable"
+        : "You Are Not Revivable",
+      isRequestingForOther
+        ? `**${profile.name} [${profile.id}]** is currently not revivable in Torn.`
+        : "Your profile currently shows that you are not revivable. Enable revives in Torn first, then try again.",
     );
     return;
   }
@@ -1168,7 +1177,9 @@ async function processReviveRequest(
     await sendTempEphemeralError(
       interaction,
       "Revive Request Rejected",
-      "Your status indicates you are not in Torn hospital right now (likely abroad), so I can't post a revive request.",
+      isRequestingForOther
+        ? `**${profile.name} [${profile.id}]** is not in Torn hospital right now (likely abroad), so I can't post a revive request.`
+        : "Your status indicates you are not in Torn hospital right now (likely abroad), so I can't post a revive request.",
     );
     return;
   }
