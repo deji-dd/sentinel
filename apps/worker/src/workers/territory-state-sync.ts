@@ -50,6 +50,24 @@ interface TTOwnershipChange {
   new_faction_id: number | null;
 }
 
+function buildFactionTerritoryCountMap(
+  rows: Array<{ faction_id?: number | null; owned_by?: number | null }>,
+  key: "faction_id" | "owned_by",
+): Map<number, number> {
+  const counts = new Map<number, number>();
+
+  for (const row of rows) {
+    const factionId = normalizeFactionId(row[key]);
+    if (!factionId) {
+      continue;
+    }
+
+    counts.set(factionId, (counts.get(factionId) || 0) + 1);
+  }
+
+  return counts;
+}
+
 function normalizeFactionId(value: unknown): number | null {
   if (value === null || value === undefined) {
     return null;
@@ -557,6 +575,52 @@ export function startTerritoryStateSyncWorker() {
               }
             }
 
+            const oldTerritoryCounts = buildFactionTerritoryCountMap(
+              (allCurrentStates || []).map((row) => ({
+                faction_id: normalizeFactionId(row.faction_id),
+              })),
+              "faction_id",
+            );
+            const newTerritoryCounts = buildFactionTerritoryCountMap(
+              allOwnershipData.map((row) => ({
+                owned_by: normalizeFactionId(row.owned_by),
+              })),
+              "owned_by",
+            );
+
+            const factionsThatLostTerritory = Array.from(
+              new Set(
+                changes
+                  .map((change) => change.old_faction_id)
+                  .filter(
+                    (factionId): factionId is number => factionId !== null,
+                  ),
+              ),
+            );
+
+            for (const factionId of factionsThatLostTerritory) {
+              const oldCount = oldTerritoryCounts.get(factionId) || 0;
+              const newCount = newTerritoryCounts.get(factionId) || 0;
+
+              if (oldCount > 0 && newCount === 0) {
+                const finalLoss = changes
+                  .filter((change) => change.old_faction_id === factionId)
+                  .at(-1);
+
+                if (finalLoss) {
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: finalLoss.territory_id,
+                    event_type: "desectored",
+                    occupying_faction: finalLoss.new_faction_id,
+                    previous_faction: factionId,
+                    defending_faction: factionId,
+                    assaulting_faction: finalLoss.new_faction_id || undefined,
+                  });
+                }
+              }
+            }
+
             // OPTIMIZATION: Only upsert territories that actually changed
             // Instead of upserting all 4,108 territories, only update changed ones
             if (changedTerritories.size > 0) {
@@ -600,6 +664,7 @@ export function startTerritoryStateSyncWorker() {
                   "assault_failed",
                   "dropped",
                   "claimed",
+                  "desectored",
                 ].includes(n.event_type),
               );
               const racketNotifications = notifications.filter((n) =>
@@ -637,6 +702,7 @@ export function startTerritoryStateSyncWorker() {
                 "assault_failed",
                 "dropped",
                 "claimed",
+                "desectored",
               ].includes(n.event_type),
             ).length;
             const racketChanges = notifications.filter((n) =>

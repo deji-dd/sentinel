@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Client, Events, EmbedBuilder } from "discord.js";
+import { Events, EmbedBuilder } from "discord.js";
 import { logGuildError } from "./lib/guild-logger.js";
 import {
   initializeSupabaseConfig,

@@ -209,8 +209,18 @@ export async function handleModuleToggle(
     const guildName = client.guilds.cache.get(guildId)?.name ?? guildId;
     const selectedModules = interaction.values;
 
-    // Always include admin module
-    const modulesToEnable = ["admin", ...selectedModules];
+    const { data: guildConfig } = await supabase
+      .from(TABLE_NAMES.GUILD_CONFIG)
+      .select("enabled_modules")
+      .eq("guild_id", guildId)
+      .maybeSingle();
+
+    const existingModules: string[] = guildConfig?.enabled_modules || ["admin"];
+
+    // Add selected modules to existing modules (do not overwrite)
+    const modulesToEnable = Array.from(
+      new Set(["admin", ...existingModules, ...selectedModules]),
+    );
 
     // Update guild config
     const { error } = await supabase
