@@ -350,7 +350,7 @@ async function attemptAutoVerification(
     member.guild.id,
     member.client,
     "Auto-Verify: Success",
-    `${member.user} verified as **${response.profile.name}** (${response.profile.id}).`,
+    `${member.user}`,
     logFields,
   );
 

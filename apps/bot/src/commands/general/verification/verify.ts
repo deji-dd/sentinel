@@ -170,8 +170,8 @@ export async function execute(
     // Success - user is linked with faction info
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
-      .setTitle("✅ Verified")
-      .setDescription(`**${response.profile?.name}** is verified as **@${targetUser.username}**`)
+      .setTitle("Verified")
+      .setDescription(`${targetUser} is verified.`)
       .addFields({
         name: "Torn ID",
         value: String(response.profile?.id || "Unknown"),
@@ -407,8 +407,6 @@ export async function execute(
       `${targetUser} verified as **${response.profile?.name}**.`,
       logFields,
     );
-
-
 
     await interaction.editReply({
       embeds: [successEmbed],
