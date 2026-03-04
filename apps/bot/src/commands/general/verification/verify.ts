@@ -215,6 +215,7 @@ export async function execute(
           .replace("{tag}", response.faction?.tag || "");
 
         await member.setNickname(nickname);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (nicknameError) {
         // Silently ignore nickname errors (expected for admins with higher perms)
         // Don't fail verification if nickname update fails
