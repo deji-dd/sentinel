@@ -3788,6 +3788,12 @@ export async function handleReviveSetOutputChannel(
   return reviveHandlers.handleReviveSetOutputChannel(interaction);
 }
 
+export async function handleReviveSetPingRole(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return reviveHandlers.handleReviveSetPingRole(interaction);
+}
+
 export async function handleReviveSetMinHospButton(
   interaction: ButtonInteraction,
 ): Promise<void> {
@@ -3816,6 +3822,12 @@ export async function handleReviveOutputChannelSelect(
   interaction: ChannelSelectMenuInteraction,
 ): Promise<void> {
   return reviveHandlers.handleReviveOutputChannelSelect(interaction);
+}
+
+export async function handleRevivePingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return reviveHandlers.handleRevivePingRoleSelect(interaction);
 }
 
 export async function handleReviveRequestMe(

@@ -7,12 +7,14 @@ import {
   EmbedBuilder,
   MessageFlags,
   ModalBuilder,
+  RoleSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   type ButtonInteraction,
   type ChannelSelectMenuInteraction,
   type Client,
   type ModalSubmitInteraction,
+  type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
@@ -31,6 +33,7 @@ type ReviveConfig = {
   guild_id: string;
   request_channel_id: string | null;
   requests_output_channel_id: string | null;
+  ping_role_id: string | null;
   min_hospital_seconds_left: number;
   request_message_id: string | null;
 };
@@ -172,9 +175,11 @@ async function buildReviveRequestEmbed(
       const registeredFactionIds =
         factionRoles?.map((fr) => fr.faction_id) || [];
       const isInAlliance = registeredFactionIds.includes(request.faction_id);
+      const greenEmoji = "<:Green:1474607376140079104>";
+      const redEmoji = "<:Red:1474607810368114886>";
       allianceStatus = isInAlliance
-        ? "User is in alliance"
-        : "User is NOT in alliance";
+        ? `${greenEmoji} User is in alliance`
+        : `${redEmoji} User is NOT in alliance`;
     }
   }
 
@@ -315,6 +320,7 @@ async function getReviveConfig(guildId: string): Promise<ReviveConfig> {
     guild_id: guildId,
     request_channel_id: data?.request_channel_id ?? null,
     requests_output_channel_id: data?.requests_output_channel_id ?? null,
+    ping_role_id: data?.ping_role_id ?? null,
     min_hospital_seconds_left: data?.min_hospital_seconds_left ?? 0,
     request_message_id: data?.request_message_id ?? null,
   };
@@ -449,7 +455,8 @@ export async function handleShowReviveSettings(
   interaction:
     | ButtonInteraction
     | StringSelectMenuInteraction
-    | ChannelSelectMenuInteraction,
+    | ChannelSelectMenuInteraction
+    | RoleSelectMenuInteraction,
   isAlreadyDeferred: boolean = false,
 ): Promise<void> {
   try {
@@ -509,6 +516,13 @@ export async function handleShowReviveSettings(
           inline: false,
         },
         {
+          name: "Ping Role",
+          value: latestConfig.ping_role_id
+            ? `<@&${latestConfig.ping_role_id}>`
+            : "Not configured",
+          inline: false,
+        },
+        {
           name: "Minimum Hospital Time Left",
           value: secondsToHuman(latestConfig.min_hospital_seconds_left),
           inline: false,
@@ -532,6 +546,11 @@ export async function handleShowReviveSettings(
       .setLabel("Set Requests Output Channel")
       .setStyle(ButtonStyle.Primary);
 
+    const setPingRoleBtn = new ButtonBuilder()
+      .setCustomId("revive_set_ping_role")
+      .setLabel("Set Ping Role")
+      .setStyle(ButtonStyle.Primary);
+
     const setMinHospBtn = new ButtonBuilder()
       .setCustomId("revive_set_min_hosp")
       .setLabel("Set Min Hospital Time")
@@ -550,6 +569,7 @@ export async function handleShowReviveSettings(
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       setRequestChannelBtn,
       setOutputChannelBtn,
+      setPingRoleBtn,
     );
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       setMinHospBtn,
@@ -637,6 +657,44 @@ export async function handleReviveSetOutputChannel(
   }
 }
 
+export async function handleReviveSetPingRole(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8b5cf6)
+      .setTitle("Select Ping Role")
+      .setDescription(
+        "Pick the role to ping whenever a revive request is sent. Leave selection empty to clear.",
+      );
+
+    const roleSelect =
+      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId("revive_ping_role_select")
+          .setPlaceholder("Select an optional ping role")
+          .setMinValues(0)
+          .setMaxValues(1),
+      );
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("revive_settings_show")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [roleSelect, row],
+    });
+  } catch (error) {
+    console.error("Error in revive ping role button:", error);
+  }
+}
+
 export async function handleReviveRequestChannelSelect(
   interaction: ChannelSelectMenuInteraction,
 ): Promise<void> {
@@ -677,6 +735,27 @@ export async function handleReviveOutputChannelSelect(
     await handleShowReviveSettings(interaction, true);
   } catch (error) {
     console.error("Error in revive output channel select:", error);
+  }
+}
+
+export async function handleRevivePingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const roleId = interaction.values[0] ?? null;
+
+    await upsertReviveConfig(guildId, {
+      ping_role_id: roleId,
+    });
+
+    await handleShowReviveSettings(interaction, true);
+  } catch (error) {
+    console.error("Error in revive ping role select:", error);
   }
 }
 
@@ -891,6 +970,10 @@ async function createAndPostReviveRequest(
 
   const postedMessage = await outputChannel
     .send({
+      content: config.ping_role_id ? `<@&${config.ping_role_id}>` : undefined,
+      allowedMentions: config.ping_role_id
+        ? { roles: [config.ping_role_id] }
+        : undefined,
       embeds: [await buildReviveRequestEmbed(request, guildId)],
       components: [buildActiveRequestRow(request.id)],
     })
@@ -1047,6 +1130,7 @@ async function processReviveRequest(
   });
 
   const profile = profileResponse.profile;
+  const isRequestingForOther = Boolean(options.targetPlayerId);
 
   if (!profile?.id || !profile?.name) {
     await sendTempEphemeralError(
@@ -1066,8 +1150,12 @@ async function processReviveRequest(
   if (profile?.status?.state !== "Hospital") {
     await sendTempEphemeralError(
       interaction,
-      "You Are Not In Hospital",
-      "You can only request a revive while you are currently hospitalized in Torn.",
+      isRequestingForOther
+        ? "Target Is Not In Hospital"
+        : "You Are Not In Hospital",
+      isRequestingForOther
+        ? `**${profile.name} [${profile.id}]** is not currently hospitalized in Torn.`
+        : "You can only request a revive while you are currently hospitalized in Torn.",
     );
     return;
   }
@@ -1075,8 +1163,12 @@ async function processReviveRequest(
   if (profile?.revivable === false) {
     await sendTempEphemeralError(
       interaction,
-      "You Are Not Revivable",
-      "Your profile currently shows that you are not revivable. Enable revives in Torn first, then try again.",
+      isRequestingForOther
+        ? "Target Is Not Revivable"
+        : "You Are Not Revivable",
+      isRequestingForOther
+        ? `**${profile.name} [${profile.id}]** is currently not revivable in Torn.`
+        : "Your profile currently shows that you are not revivable. Enable revives in Torn first, then try again.",
     );
     return;
   }
@@ -1085,7 +1177,9 @@ async function processReviveRequest(
     await sendTempEphemeralError(
       interaction,
       "Revive Request Rejected",
-      "Your status indicates you are not in Torn hospital right now (likely abroad), so I can't post a revive request.",
+      isRequestingForOther
+        ? `**${profile.name} [${profile.id}]** is not in Torn hospital right now (likely abroad), so I can't post a revive request.`
+        : "Your status indicates you are not in Torn hospital right now (likely abroad), so I can't post a revive request.",
     );
     return;
   }

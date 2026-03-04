@@ -117,6 +117,8 @@ export async function handleButtonInteraction(
     await configCommand.handleReviveSetRequestChannel(interaction);
   } else if (customId === "revive_set_output_channel") {
     await configCommand.handleReviveSetOutputChannel(interaction);
+  } else if (customId === "revive_set_ping_role") {
+    await configCommand.handleReviveSetPingRole(interaction);
   } else if (customId === "revive_set_min_hosp") {
     await configCommand.handleReviveSetMinHospButton(interaction);
   } else if (customId === "revive_refresh_panel") {
@@ -277,6 +279,8 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleAllowedRolesSelect(interaction);
   } else if (customId.startsWith("reaction_role_mapping_role_select|")) {
     await configCommand.handleMappingRoleSelect(interaction);
+  } else if (customId === "revive_ping_role_select") {
+    await configCommand.handleRevivePingRoleSelect(interaction);
   } else {
     return false;
   }

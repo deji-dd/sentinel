@@ -23,6 +23,7 @@ export interface TTEventNotification {
     | "assault_failed"
     | "dropped"
     | "claimed"
+    | "desectored"
     | "war_started"
     | "war_ended"
     | "peace_treaty"
@@ -188,6 +189,10 @@ async function buildNotificationEmbeds(
         groupKey = `${notif.event_type}:${notif.assaulting_faction}:${notif.defending_faction}`;
         factionId = notif.assaulting_faction ?? null;
         break;
+      case "desectored":
+        groupKey = `${notif.event_type}:${notif.previous_faction}`;
+        factionId = notif.previous_faction ?? null;
+        break;
       case "assault_failed":
         groupKey = `${notif.event_type}:${notif.assaulting_faction}:${notif.defending_faction}`;
         factionId = notif.defending_faction ?? null;
@@ -296,6 +301,39 @@ async function buildNotificationEmbeds(
         }
 
         embeds.push(embed);
+        break;
+      }
+
+      case "desectored": {
+        for (const notif of events) {
+          let details = `${factionNameLinked} has become desectored after losing their last territory (${territoryLink(notif.territory_id)})`;
+
+          if (notif.occupying_faction) {
+            const newOwnerData = await getFactionData(
+              notif.occupying_faction,
+              apiKey,
+            );
+            const newOwnerName =
+              newOwnerData?.name || `Faction ${notif.occupying_faction}`;
+            const newOwnerNameWithCount = formatFactionWithTerritoryCount(
+              notif.occupying_faction,
+              newOwnerName,
+              territoryCountsByFaction,
+            );
+            const newOwnerLinked = factionLink(
+              newOwnerNameWithCount,
+              notif.occupying_faction,
+            );
+            details = `${factionNameLinked} has become desectored after losing their last territory (${territoryLink(notif.territory_id)}) to ${newOwnerLinked}`;
+          }
+
+          embeds.push({
+            title: "Faction Desectored",
+            description: details,
+            color: 0xc0392b,
+            timestamp: new Date().toISOString(),
+          });
+        }
         break;
       }
 
@@ -447,9 +485,16 @@ async function buildNotificationEmbeds(
 
       case "racket_level_changed": {
         for (const notif of events) {
+          const isLevelUp =
+            (notif.racket_new_level ?? 0) > (notif.racket_old_level ?? 0);
+          const title = isLevelUp
+            ? `Racket Upgraded • ${notif.territory_id}`
+            : `Racket Downgraded • ${notif.territory_id}`;
+          const changeText = isLevelUp ? "leveled up" : "leveled down";
+
           embeds.push({
-            title: `Racket Upgraded • ${notif.territory_id}`,
-            description: `**${notif.racket_name}** leveled up from **Level ${notif.racket_old_level}** to **Level ${notif.racket_new_level}** • ${territoryLink(notif.territory_id)}`,
+            title,
+            description: `**${notif.racket_name}** ${changeText} from **Level ${notif.racket_old_level}** to **Level ${notif.racket_new_level}** • ${territoryLink(notif.territory_id)}`,
             fields: [
               {
                 name: "Occupied by",
@@ -457,7 +502,7 @@ async function buildNotificationEmbeds(
                 inline: true,
               },
             ],
-            color: 0xf39c12, // Gold
+            color: isLevelUp ? 0xf39c12 : 0xe67e22,
             timestamp: new Date().toISOString(),
           });
         }
