@@ -874,15 +874,26 @@ async function sendTempEphemeralError(
   title: string,
   description: string,
 ): Promise<void> {
-  await interaction.reply({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle(title)
-        .setDescription(description),
-    ],
-    flags: MessageFlags.Ephemeral,
-  });
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle(title)
+          .setDescription(description),
+      ],
+    });
+  } else {
+    await interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle(title)
+          .setDescription(description),
+      ],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 
   setTimeout(() => {
     void interaction.deleteReply().catch(() => {
@@ -1002,7 +1013,7 @@ async function createAndPostReviveRequest(
     })
     .eq("id", request.id);
 
-  await interaction.reply({
+  await interaction.editReply({
     embeds: [
       new EmbedBuilder()
         .setColor(0x22c55e)
@@ -1021,7 +1032,6 @@ async function createAndPostReviveRequest(
           .setStyle(ButtonStyle.Secondary),
       ),
     ],
-    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -1029,6 +1039,10 @@ async function processReviveRequest(
   interaction: ButtonInteraction | ModalSubmitInteraction,
   options: { confirmedLowTime: boolean; targetPlayerId?: string },
 ): Promise<void> {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
+
   const guildId = interaction.guildId;
   if (!guildId) {
     await sendTempEphemeralError(
@@ -1194,7 +1208,7 @@ async function processReviveRequest(
       ? `revive_confirm_request|${options.targetPlayerId}`
       : "revive_confirm_request";
 
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [
         new EmbedBuilder()
           .setColor(0xf59e0b)
@@ -1211,7 +1225,6 @@ async function processReviveRequest(
             .setStyle(ButtonStyle.Primary),
         ),
       ],
-      flags: MessageFlags.Ephemeral,
     });
     return;
   }

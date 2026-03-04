@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Events, EmbedBuilder } from "discord.js";
+import { Events, EmbedBuilder, DiscordAPIError } from "discord.js";
 import { logGuildError } from "./lib/guild-logger.js";
 import {
   initializeSupabaseConfig,
@@ -69,6 +69,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const message =
       error instanceof Error ? error.message : "Unexpected bot error";
 
+    // Gracefully handle expired/unknown interaction errors (10062)
+    // These occur when handlers take too long and Discord expires the interaction token
+    if (error instanceof DiscordAPIError && error.code === 10062) {
+      console.warn(
+        `[Interaction] Unknown interaction ${interaction.id} - likely expired. This is expected for slow operations.`,
+      );
+      return;
+    }
+
     console.error("Bot interaction error:", error);
 
     if (interaction.guildId) {
@@ -91,9 +100,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .setDescription(message);
 
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ embeds: [errorEmbed] });
+      await interaction.editReply({ embeds: [errorEmbed] }).catch(() => {
+        // Silently ignore if we can't even edit (e.g., interaction expired)
+      });
     } else {
-      await interaction.reply({ embeds: [errorEmbed] });
+      await interaction.reply({ embeds: [errorEmbed] }).catch(() => {
+        // Silently ignore if we can't reply (e.g., interaction expired)
+      });
     }
   }
 });
