@@ -11,4 +11,5 @@ export * from "./territory-burn-logic.js";
 export type {
   paths as TornApiPaths,
   components as TornApiComponents,
+  operations as TornApiOperations,
 } from "./generated/torn-api.js";

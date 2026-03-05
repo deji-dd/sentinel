@@ -4,6 +4,7 @@ import { logDuration, logError } from "../lib/logger.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { supabase } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 const WORKER_NAME = "torn_gyms_worker";
 const DAILY_CADENCE_SECONDS = 86400; // 24h
@@ -130,9 +131,9 @@ async function syncTornGyms(): Promise<void> {
       throw new Error("No gyms data in response");
     }
 
-    // Fetch user stats from most recent snapshot in database
+    // Fetch user stats from most recent battlestats snapshot
     const { data: snapshotData, error: snapshotError } = await supabase
-      .from("sentinel_user_snapshots")
+      .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
       .select("strength, speed, defense, dexterity")
       .order("created_at", { ascending: false })
       .limit(1)
@@ -188,7 +189,7 @@ async function syncTornGyms(): Promise<void> {
 
     // Upsert gyms (replace existing)
     const { error } = await supabase
-      .from("sentinel_torn_gyms")
+      .from(TABLE_NAMES.TORN_GYMS)
       .upsert(gyms, { onConflict: "id" });
 
     if (error) {
