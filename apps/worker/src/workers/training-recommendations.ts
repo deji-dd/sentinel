@@ -62,26 +62,59 @@ async function getLatestSnapshot(): Promise<{
   liquid_cash: number;
   can_boost_energy_perk: number;
 }> {
-  const { data, error } = await supabase
+  // Fetch latest battlestats snapshot (for stat values)
+  const { data: battlestatsData, error: battlestatsError } = await supabase
+    .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+    .select("strength, speed, defense, dexterity")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (battlestatsError) {
+    throw new Error(
+      `Failed to fetch latest battlestats: ${battlestatsError.message}`,
+    );
+  }
+
+  // Fetch latest user snapshot (for other data)
+  const { data: userSnapshotData, error: userSnapshotError } = await supabase
     .from(TABLE_NAMES.USER_SNAPSHOTS)
     .select(
-      "stat_breakdown, active_gym, happy_current, perk_gains, liquid_cash, can_boost_energy_perk",
+      "active_gym, happy_current, strength_perk_gains, speed_perk_gains, dexterity_perk_gains, defense_perk_gains, liquid_cash",
     )
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
-  if (error) {
-    throw new Error(`Failed to fetch latest snapshot: ${error.message}`);
+  if (userSnapshotError) {
+    throw new Error(
+      `Failed to fetch latest user snapshot: ${userSnapshotError.message}`,
+    );
   }
 
+  // Construct stat_breakdown from battlestats
+  const stat_breakdown: Record<string, number> = {
+    strength: battlestatsData?.strength || 0,
+    speed: battlestatsData?.speed || 0,
+    defense: battlestatsData?.defense || 0,
+    dexterity: battlestatsData?.dexterity || 0,
+  };
+
+  // Construct perk_gains from individual perk columns
+  const perk_gains: Record<string, number> = {
+    strength_gym_gains: (userSnapshotData?.strength_perk_gains || 0) / 100, // Convert from percentage to decimal
+    speed_gym_gains: (userSnapshotData?.speed_perk_gains || 0) / 100,
+    dexterity_gym_gains: (userSnapshotData?.dexterity_perk_gains || 0) / 100,
+    defense_gym_gains: (userSnapshotData?.defense_perk_gains || 0) / 100,
+  };
+
   return {
-    stat_breakdown: data.stat_breakdown || {},
-    active_gym_id: data.active_gym,
-    happy_current: data.happy_current || 0,
-    perk_gains: data.perk_gains || {},
-    liquid_cash: data.liquid_cash || 0,
-    can_boost_energy_perk: data.can_boost_energy_perk || 0,
+    stat_breakdown,
+    active_gym_id: userSnapshotData?.active_gym || null,
+    happy_current: userSnapshotData?.happy_current || 0,
+    perk_gains,
+    liquid_cash: userSnapshotData?.liquid_cash || 0,
+    can_boost_energy_perk: 0, // Column may not exist, default to 0
   };
 }
 
@@ -463,7 +496,7 @@ function calculateTrainingCosts(
 /**
  * Get booster cooldown from sentinel_user_cooldowns
  */
-async function getBoosterCooldown(): Promise<number> {
+async function _getBoosterCooldown(): Promise<number> {
   const { data, error } = await supabase
     .from("sentinel_user_cooldowns")
     .select("booster")
@@ -506,125 +539,146 @@ async function getUserBuildPreference(): Promise<{
  */
 async function computeTrainingRecommendations(): Promise<void> {
   const startTime = Date.now();
-  // Fetch latest snapshot
-  const snapshot = await getLatestSnapshot();
 
-  // Get the user's API key
-  const apiKey = await getSystemApiKey("personal");
+  try {
+    // Fetch latest snapshot
+    const snapshot = await getLatestSnapshot();
 
-  // Get booster cooldown
-  const boosterCooldown = await getBoosterCooldown();
+    // Get the user's API key
+    const apiKey = await getSystemApiKey("personal");
 
-  // Get user's build preference
-  const buildPref = await getUserBuildPreference();
+    // Get user's build preference
+    const buildPref = await getUserBuildPreference();
 
-  // Get gym details
-  const { activeGym, stage4Gyms } = await getGymDetails(snapshot.active_gym_id);
+    // Get gym details
+    const { activeGym, stage4Gyms } = await getGymDetails(
+      snapshot.active_gym_id,
+    );
 
-  // Get energy gain items
-  let items = await getEnergyGainItems();
+    // Get energy gain items
+    let items = await getEnergyGainItems();
 
-  // Enrich with market prices
-  items = await enrichItemsWithMarketPrices(items, apiKey);
+    // Enrich with market prices
+    items = await enrichItemsWithMarketPrices(items, apiKey);
 
-  // Get training budget
-  const trainingBudget = await getTrainingBudget({
-    liquid_cash: snapshot.liquid_cash,
-  });
+    // Get training budget
+    const trainingBudget = await getTrainingBudget({
+      liquid_cash: snapshot.liquid_cash,
+    });
 
-  // Check for sub-optimal gyms
-  const gymOptimality = checkSubOptimalGym(activeGym, stage4Gyms);
+    // Check for sub-optimal gyms
+    const gymOptimality = checkSubOptimalGym(activeGym, stage4Gyms);
 
-  // Calculate gym gains for each stat
-  const gymGains = calculateGymGains(
-    snapshot.stat_breakdown,
-    snapshot.happy_current,
-    activeGym,
-    snapshot.perk_gains,
-  );
+    // Calculate gym gains for each stat
+    const gymGains = calculateGymGains(
+      snapshot.stat_breakdown,
+      snapshot.happy_current,
+      activeGym,
+      snapshot.perk_gains,
+    );
 
-  // Calculate cost per stat for each training method
-  const trainingCosts = calculateTrainingCosts(
-    items,
-    snapshot.stat_breakdown,
-    gymGains,
-  );
+    // Calculate cost per stat for each training method
+    const trainingCosts = calculateTrainingCosts(
+      items,
+      snapshot.stat_breakdown,
+      gymGains,
+    );
 
-  // Calculate quantity affordable for each method
-  for (const stat of Object.keys(trainingCosts) as StatKey[]) {
-    for (const method of trainingCosts[stat]) {
-      method.quantityAffordable = Math.floor(trainingBudget / method.itemCost);
+    // Calculate quantity affordable for each method
+    for (const stat of Object.keys(trainingCosts) as StatKey[]) {
+      for (const method of trainingCosts[stat]) {
+        method.quantityAffordable = Math.floor(
+          trainingBudget / method.itemCost,
+        );
+      }
     }
-  }
 
-  // Save recommendations for each stat
-  const recommendations = [];
-  for (const stat of Object.keys(trainingCosts) as StatKey[]) {
-    const costs = trainingCosts[stat];
-    if (costs.length === 0) continue;
+    // Save recommendations for each stat
+    const recommendations = [];
+    for (const stat of Object.keys(trainingCosts) as StatKey[]) {
+      const costs = trainingCosts[stat];
+      if (costs.length === 0) continue;
 
-    // Get the cheapest method
-    const cheapest = costs[0];
+      // Get the cheapest method
+      const cheapest = costs[0];
 
-    const gymInfo = gymOptimality[stat];
+      const gymInfo = gymOptimality[stat];
 
-    // Determine if this stat is the user's main focus
-    const isMainStatFocus = buildPref.mainStat === stat;
+      // Determine if this stat is the user's main focus
+      const isMainStatFocus = buildPref.mainStat === stat;
 
-    // Priority score: lower = higher priority
-    // Main stat focus gets priority 0, others get 1
-    // This helps sort recommendations
-    const priorityScore = isMainStatFocus ? 0 : 1;
+      // Priority score: lower = higher priority
+      // Main stat focus gets priority 0, others get 1
+      // This helps sort recommendations
+      const priorityScore = isMainStatFocus ? 0 : 1;
 
-    // Build recommendation object
-    const recommendation: Record<string, unknown> = {
-      stat,
-      best_method_type: cheapest.method,
-      best_method_id: cheapest.itemId,
-      cost_per_stat: Math.ceil(cheapest.costPerStat),
-      estimated_gains_per_train: Math.ceil(cheapest.estimatedGain),
-      max_quantity_affordable: cheapest.quantityAffordable,
-      training_budget: trainingBudget,
-      current_gym_sub_optimal: gymInfo.isSubOptimal,
-      better_gym_name: gymInfo.betterGymName,
-      better_gym_bonus: gymInfo.betterBonus,
-      current_gym_bonus: gymInfo.currentBonus,
-      is_main_stat_focus: isMainStatFocus,
-      priority_score: priorityScore,
-    };
+      // Build recommendation object
+      const recommendation: Record<string, unknown> = {
+        stat,
+        best_method_type: cheapest.method,
+        best_method_id: cheapest.itemId,
+        cost_per_stat: Math.ceil(cheapest.costPerStat),
+        estimated_gains_per_train: Math.ceil(cheapest.estimatedGain),
+        max_quantity_affordable: cheapest.quantityAffordable,
+        training_budget: trainingBudget,
+        current_gym_sub_optimal: gymInfo.isSubOptimal,
+        better_gym_name: gymInfo.betterGymName,
+        better_gym_bonus: gymInfo.betterBonus,
+        current_gym_bonus: gymInfo.currentBonus,
+        is_main_stat_focus: isMainStatFocus,
+        priority_score: priorityScore,
+      };
 
-    recommendations.push(recommendation);
-  }
+      recommendations.push(recommendation);
+    }
 
-  // Clear old recommendations (no player_id filter, single user) and insert new ones
-  if (recommendations.length > 0) {
-    // Delete old recommendations
-    await supabase.from(TABLE_NAMES.TRAINING_RECOMMENDATIONS).delete();
+    // Clear old recommendations (no player_id filter, single user) and insert new ones
+    if (recommendations.length > 0) {
+      // Delete old recommendations
+      await supabase.from(TABLE_NAMES.TRAINING_RECOMMENDATIONS).delete();
 
-    // Insert new recommendations
-    const { error: insertError } = await supabase
-      .from(TABLE_NAMES.TRAINING_RECOMMENDATIONS)
-      .insert(recommendations);
+      // Insert new recommendations
+      const { error: insertError } = await supabase
+        .from(TABLE_NAMES.TRAINING_RECOMMENDATIONS)
+        .insert(recommendations);
 
-    if (insertError) {
-      throw new Error(
-        `Failed to save training recommendations: ${insertError.message}`,
+      if (insertError) {
+        throw new Error(
+          `Failed to save training recommendations: ${insertError.message}`,
+        );
+      }
+
+      const duration = Date.now() - startTime;
+      logDuration(
+        TRAINING_RECOMMENDATIONS_WORKER_NAME,
+        `Sync completed (${recommendations.length} recommendations, main focus: ${buildPref.mainStat || "not set"})`,
+        duration,
+      );
+    } else {
+      const duration = Date.now() - startTime;
+      logDuration(
+        TRAINING_RECOMMENDATIONS_WORKER_NAME,
+        "Sync completed (no recommendations)",
+        duration,
       );
     }
-
-    const duration = Date.now() - startTime;
-    logDuration(
+  } catch (error) {
+    const elapsed = Date.now() - startTime;
+    let errorMessage = "Unknown error";
+    if (typeof error === "object" && error !== null && "message" in error) {
+      errorMessage = (error as { message: string }).message;
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    } else {
+      errorMessage = String(error);
+    }
+    const duration =
+      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
+    logError(
       TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      `Sync completed (${recommendations.length} recommendations, main focus: ${buildPref.mainStat || "not set"})`,
-      duration,
+      `Sync failed: ${errorMessage} (${duration})`,
     );
-  } else {
-    const duration = Date.now() - startTime;
-    logDuration(
-      TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      "Sync completed (no recommendations)",
-      duration,
-    );
+    throw error;
   }
 }
 
