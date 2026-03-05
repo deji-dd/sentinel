@@ -99,6 +99,26 @@ async function getSnapshotBefore(
 }
 
 /**
+ * Get the latest battlestats snapshot
+ */
+async function getLatestSnapshot(): Promise<DailyStatsSnapshot | null> {
+  const { data, error } = await supabase
+    .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+    .select("strength, speed, defense, dexterity, total_stats")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Failed to fetch latest battlestats snapshot: ${error.message}`,
+    );
+  }
+
+  return data as DailyStatsSnapshot | null;
+}
+
+/**
  * Calculate daily stats summary
  * @returns {DailyStatsSummary} Summary of stats gains and distribution
  */
@@ -173,6 +193,86 @@ export async function calculateDailyStatsSummary(): Promise<DailyStatsSummary> {
   };
 
   const tctDateStr = todayTct.toISOString().split("T")[0];
+
+  return {
+    date: tctDateStr,
+    gains,
+    currentStats: {
+      strength: snapshotA.strength,
+      speed: snapshotA.speed,
+      defense: snapshotA.defense,
+      dexterity: snapshotA.dexterity,
+      total: snapshotA.total_stats,
+    },
+    distribution,
+    needsAttention,
+  };
+}
+
+/**
+ * Calculate stats summary for a custom timeframe
+ * @param startDate - The start date/time for the timeframe
+ * @returns {Promise<DailyStatsSummary>} Summary of stats gains and distribution
+ */
+export async function calculateStatsSummaryForTimeframe(
+  startDate: Date,
+): Promise<DailyStatsSummary> {
+  // Get latest snapshot
+  const snapshotA = await getLatestSnapshot();
+  if (!snapshotA) {
+    throw new Error("No battlestats snapshots available");
+  }
+
+  // Get snapshot closest to start date
+  const snapshotB = await getSnapshotBefore(startDate);
+  if (!snapshotB) {
+    throw new Error(
+      `No battlestats snapshot found before ${startDate.toISOString()}`,
+    );
+  }
+
+  // Calculate gains
+  const gains = {
+    strength: snapshotA.strength - snapshotB.strength,
+    speed: snapshotA.speed - snapshotB.speed,
+    defense: snapshotA.defense - snapshotB.defense,
+    dexterity: snapshotA.dexterity - snapshotB.dexterity,
+    total: snapshotA.total_stats - snapshotB.total_stats,
+  };
+
+  // Calculate distribution based on current stats
+  const total = snapshotA.total_stats;
+  const needsAttention: string[] = [];
+
+  const distribution = {
+    strength: calculateStatDistribution(
+      snapshotA.strength,
+      total,
+      "strength",
+      needsAttention,
+    ),
+    speed: calculateStatDistribution(
+      snapshotA.speed,
+      total,
+      "speed",
+      needsAttention,
+    ),
+    defense: calculateStatDistribution(
+      snapshotA.defense,
+      total,
+      "defense",
+      needsAttention,
+    ),
+    dexterity: calculateStatDistribution(
+      snapshotA.dexterity,
+      total,
+      "dexterity",
+      needsAttention,
+    ),
+  };
+
+  const nowTct = new Date();
+  const tctDateStr = nowTct.toISOString().split("T")[0];
 
   return {
     date: tctDateStr,

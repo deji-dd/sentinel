@@ -6,6 +6,7 @@
 import { EmbedBuilder } from "discord.js";
 import {
   calculateDailyStatsSummary,
+  calculateStatsSummaryForTimeframe,
   type DailyStatsSummary,
 } from "./daily-summary.js";
 
@@ -21,12 +22,34 @@ const COLORS = {
  */
 export async function buildDailySummaryEmbed(): Promise<EmbedBuilder> {
   const summary = await calculateDailyStatsSummary();
+  return buildStatsSummaryEmbed(
+    summary,
+    `📊 Daily Stats Summary - ${formatTctDate(summary.date)}`,
+  );
+}
 
+/**
+ * Build a Discord embed for stats summary with custom timeframe
+ */
+export function buildStatsSummaryEmbedForTimeframe(
+  summary: DailyStatsSummary,
+  title: string,
+): EmbedBuilder {
+  return buildStatsSummaryEmbed(summary, title);
+}
+
+/**
+ * Internal helper to build the embed
+ */
+function buildStatsSummaryEmbed(
+  summary: DailyStatsSummary,
+  title: string,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(
       summary.needsAttention.length > 0 ? COLORS.warning : COLORS.positive,
     )
-    .setTitle(`📊 Daily Stats Summary - ${formatTctDate(summary.date)}`)
+    .setTitle(title)
     .setTimestamp();
 
   // Raw Gains Field
@@ -39,7 +62,7 @@ export async function buildDailySummaryEmbed(): Promise<EmbedBuilder> {
   ].join("\n");
 
   embed.addFields({
-    name: "📍 Raw Gains (24h)",
+    name: "📍 Raw Gains",
     value: gainsValue,
     inline: false,
   });
@@ -159,3 +182,8 @@ function formatTctDate(dateStr: string): string {
 function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+/**
+ * Export helper for stats command to calculate and build embed with custom timeframe
+ */
+export { calculateStatsSummaryForTimeframe, type DailyStatsSummary };

@@ -6,6 +6,7 @@
 import { ChatInputCommandInteraction } from "discord.js";
 import * as financeCommand from "../commands/personal/finance/finance.js";
 import * as financeSettingsCommand from "../commands/personal/finance/finance-settings.js";
+import * as statsCommand from "../commands/personal/stats.js";
 import * as verifyCommand from "../commands/general/verification/verify.js";
 import * as verifyallCommand from "../commands/general/verification/verifyall.js";
 import * as configCommand from "../commands/general/admin/config.js";
@@ -19,6 +20,7 @@ import * as burnMapSimulatorCommand from "../commands/general/territories/burn-m
 const REGULAR_COMMAND_NAMES = [
   "finance",
   "finance-settings",
+  "stats",
   "verify",
   "verifyall",
   "config",
@@ -52,6 +54,9 @@ export async function handleRegularCommand(
       break;
     case "finance-settings":
       await financeSettingsCommand.execute(interaction);
+      break;
+    case "stats":
+      await statsCommand.execute(interaction);
       break;
     case "verify":
       await verifyCommand.execute(interaction);
