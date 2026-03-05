@@ -5,3 +5,4 @@ export {
   startUserSnapshotPruningWorker,
 } from "../user-snapshot.js";
 export { startTrainingRecommendationsWorker } from "../training-recommendations.js";
+export { startBattlestatsSyncWorker } from "../battlestats-sync.js";

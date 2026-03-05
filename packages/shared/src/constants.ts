@@ -28,6 +28,7 @@ export const TABLE_NAMES = {
   STAT_BUILD_CONFIGURATIONS: "sentinel_stat_build_configurations",
   STAT_BUILD_PREFERENCES: "sentinel_user_build_preferences",
   VERIFIED_USERS: "sentinel_verified_users",
+  BATTLESTATS_SNAPSHOTS: "sentinel_battlestats_snapshots",
   GUILD_CONFIG: "sentinel_guild_config",
   GUILD_SYNC_JOBS: "sentinel_guild_sync_jobs",
   GUILD_AUDIT: "sentinel_guild_audit",

@@ -32,109 +32,12 @@ interface V1CompanyResponse {
 type NetworthSelectionResponse = {
   networth?: { bookie?: number; timestamp?: number };
 };
-type PersonalStatsSelectionResponse = {
-  personalstats?: Record<string, number>;
-};
 type GymSelectionResponse = {
   gym?: { id?: number };
 };
 
 function hasNetworth(response: unknown): response is NetworthSelectionResponse {
   return !!response && typeof response === "object" && "networth" in response;
-}
-
-function hasPersonalStats(
-  response: unknown,
-): response is PersonalStatsSelectionResponse {
-  return (
-    !!response && typeof response === "object" && "personalstats" in response
-  );
-}
-
-interface PerkGains {
-  strength: number;
-  speed: number;
-  dexterity: number;
-  defense: number;
-}
-
-/**
- * Parse gym perk multipliers from perks response
- * Perks are multiplicative, not additive. Each percentage is converted to a multiplier (1 + percentage/100)
- * and multiplied together across all perk sources.
- * Example: +2% * +15% * +1% = 1.02 * 1.15 * 1.01 = 1.1773 multiplier
- * Searches all perk categories for gym gain entries.
- * Expected formats: "+ 15% strength gym gains", "+ 2% gym gains", "+ 1% strength gym gains"
- */
-function parseGymPerkGains(perks: Record<string, unknown>): PerkGains {
-  const multipliers: PerkGains = {
-    strength: 1,
-    speed: 1,
-    dexterity: 1,
-    defense: 1,
-  };
-
-  if (!perks || typeof perks !== "object") {
-    return multipliers;
-  }
-
-  // Iterate through all perk categories
-  for (const perkCategory of Object.values(perks)) {
-    // Each category is an array of perk strings
-    if (!Array.isArray(perkCategory)) continue;
-
-    for (const perkValue of perkCategory) {
-      if (typeof perkValue !== "string") continue;
-
-      // Parse specific stat gym gains (e.g., "+ 15% strength gym gains")
-      const strengthMatch = perkValue.match(
-        /\+\s*(\d+(?:\.\d+)?)\s*%\s*strength\s+gym\s+gains/i,
-      );
-      if (strengthMatch) {
-        const percentage = parseFloat(strengthMatch[1]);
-        multipliers.strength *= 1 + percentage / 100;
-      }
-
-      const speedMatch = perkValue.match(
-        /\+\s*(\d+(?:\.\d+)?)\s*%\s*speed\s+gym\s+gains/i,
-      );
-      if (speedMatch) {
-        const percentage = parseFloat(speedMatch[1]);
-        multipliers.speed *= 1 + percentage / 100;
-      }
-
-      const dexterityMatch = perkValue.match(
-        /\+\s*(\d+(?:\.\d+)?)\s*%\s*dexterity\s+gym\s+gains/i,
-      );
-      if (dexterityMatch) {
-        const percentage = parseFloat(dexterityMatch[1]);
-        multipliers.dexterity *= 1 + percentage / 100;
-      }
-
-      const defenseMatch = perkValue.match(
-        /\+\s*(\d+(?:\.\d+)?)\s*%\s*defense\s+gym\s+gains/i,
-      );
-      if (defenseMatch) {
-        const percentage = parseFloat(defenseMatch[1]);
-        multipliers.defense *= 1 + percentage / 100;
-      }
-
-      // Parse general gym gains (e.g., "+ 2% gym gains") - applies to all stats
-      const generalMatch = perkValue.match(
-        /\+\s*(\d+(?:\.\d+)?)\s*%\s*gym\s+gains(?!\s+\w+)/i,
-      );
-      if (generalMatch) {
-        const percentage = parseFloat(generalMatch[1]);
-        const multiplier = 1 + percentage / 100;
-        multipliers.strength *= multiplier;
-        multipliers.speed *= multiplier;
-        multipliers.dexterity *= multiplier;
-        multipliers.defense *= multiplier;
-      }
-    }
-  }
-
-  return multipliers;
 }
 
 /**
@@ -178,15 +81,7 @@ async function takeSnapshot(): Promise<void> {
       tornApi.get("/user", {
         apiKey,
         queryParams: {
-          selections: [
-            "money",
-            "networth",
-            "personalstats",
-            "gym",
-            "bars",
-            "cooldowns",
-            "perks",
-          ],
+          selections: ["money", "networth", "gym", "bars", "cooldowns"],
           cat: "all",
         },
       }),
@@ -214,16 +109,6 @@ async function takeSnapshot(): Promise<void> {
     const bookieUpdatedAt = bookieTimestamp
       ? new Date(bookieTimestamp * 1000).toISOString()
       : null;
-
-    // Extract stats from v2 personalstats selection
-    const personalStats = hasPersonalStats(userResponse)
-      ? userResponse.personalstats || {}
-      : {};
-    const strength = personalStats.strength || 0;
-    const speed = personalStats.speed || 0;
-    const defense = personalStats.defense || 0;
-    const dexterity = personalStats.dexterity || 0;
-    const statsTotal = personalStats.totalstats || 0;
 
     // Extract gym from v2 gym selection
     const gymData = (userResponse as GymSelectionResponse).gym || {};
@@ -266,11 +151,6 @@ async function takeSnapshot(): Promise<void> {
     const medicalCooldown = cooldowns.medical || 0;
     const boosterCooldown = cooldowns.booster || 0;
 
-    // Extract and parse perk gains from user response
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const perks = (userResponse as any).perks || {};
-    const perkGains = parseGymPerkGains(perks);
-
     // Calculate liquid cash
     const companyFunds = companyResponse.company_detailed?.company_funds || 0;
     const advertisingBudget =
@@ -291,11 +171,6 @@ async function takeSnapshot(): Promise<void> {
       bookie_value: bookieValue,
       bookie_updated_at: bookieUpdatedAt,
       net_worth: netWorth,
-      stats_total: statsTotal,
-      strength,
-      speed,
-      defense,
-      dexterity,
       active_gym: activeGym,
       energy_current: energyCurrent,
       energy_maximum: energyMaximum,
@@ -314,10 +189,6 @@ async function takeSnapshot(): Promise<void> {
       drug_cooldown: drugCooldown,
       medical_cooldown: medicalCooldown,
       booster_cooldown: boosterCooldown,
-      strength_perk_gains: perkGains.strength,
-      speed_perk_gains: perkGains.speed,
-      dexterity_perk_gains: perkGains.dexterity,
-      defense_perk_gains: perkGains.defense,
     });
 
     if (error) {
