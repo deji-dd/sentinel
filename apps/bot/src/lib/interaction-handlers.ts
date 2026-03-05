@@ -9,6 +9,7 @@ import * as teardownGuildCommand from "../commands/personal/admin/teardown-guild
 import * as enableModuleCommand from "../commands/personal/admin/enable-module.js";
 import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as configCommand from "../commands/general/admin/config.js";
+import * as statsCommand from "../commands/personal/stats.js";
 
 /**
  * Handle all button interactions
@@ -246,7 +247,13 @@ export async function handleStringSelectMenuInteraction(
     await configCommand.handleEditReactionRoleMappingSelect(interaction);
   } else if (customId.startsWith("reaction_role_edit_remove_select|")) {
     await configCommand.handleEditReactionRoleRemoveMappingSelect(interaction);
-  } else {
+  }
+  // Stats command
+  else if (customId === "stats_timeframe_select") {
+    await statsCommand.handleTimeframeSelect(interaction);
+  }
+  // Unknown
+  else {
     return false;
   }
 

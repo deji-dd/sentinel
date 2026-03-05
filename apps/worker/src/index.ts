@@ -8,6 +8,8 @@ import {
   startUserSnapshotWorker,
   startUserSnapshotPruningWorker,
   startTrainingRecommendationsWorker,
+  startBattlestatsSyncWorker,
+  startBattlestatsPruningWorker,
 } from "./workers/private/index.js";
 import {
   startTornItemsWorker,
@@ -59,6 +61,12 @@ async function startAllWorkers(): Promise<void> {
 
       // Training recommendations worker (every 10 minutes)
       startTrainingRecommendationsWorker();
+
+      // Battlestats sync worker (every minute)
+      startBattlestatsSyncWorker();
+
+      // Battlestats pruning worker (weekly on Sundays, removes intra-day bloat)
+      startBattlestatsPruningWorker();
     }
 
     if (scope !== "private") {
