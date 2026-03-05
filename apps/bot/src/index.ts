@@ -20,6 +20,7 @@ import {
   handleReactionRoleAdd,
   handleReactionRoleRemove,
 } from "./lib/reaction-roles.js";
+import { startDailySummaryTask } from "./tasks/daily-summary-task.js";
 
 // Initialize configuration
 initializeSupabaseConfig();
@@ -132,5 +133,8 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
     console.error("Error handling message reaction remove:", error);
   }
 });
+
+// Start scheduled tasks
+startDailySummaryTask(client);
 
 await client.login(discordToken);
