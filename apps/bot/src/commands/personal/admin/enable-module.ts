@@ -141,6 +141,7 @@ export async function handleGuildSelect(
       { name: "Territories", value: "territories" },
       { name: "Reaction Roles", value: "reaction_roles" },
       { name: "Revive", value: "revive" },
+      { name: "Assist", value: "assist" },
     ];
 
     const moduleOptions = allModules.map((module) => {

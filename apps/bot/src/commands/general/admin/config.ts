@@ -37,6 +37,7 @@ import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
+import * as assistHandlers from "./handlers/assist.js";
 import { supabase } from "../../../lib/supabase.js";
 
 interface StoredGuildApiKey {
@@ -140,6 +141,15 @@ function buildConfigViewMenuRow(
         .setLabel("Revive Settings")
         .setValue("revive")
         .setDescription("Revive request panel and request filters"),
+    );
+  }
+
+  if (enabledModules.includes("assist")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Assist Settings")
+        .setValue("assist")
+        .setDescription("Configure combat assist alert routing"),
     );
   }
 
@@ -329,6 +339,7 @@ export async function handleViewSelect(
       territories: "territories",
       reaction_roles: "reaction_roles",
       revive: "revive",
+      assist: "assist",
     };
 
     const requiredModule = moduleForView[selectedView];
@@ -362,6 +373,8 @@ export async function handleViewSelect(
       );
     } else if (selectedView === "revive") {
       await reviveHandlers.handleShowReviveSettings(interaction, true);
+    } else if (selectedView === "assist") {
+      await assistHandlers.handleShowAssistSettings(interaction, true);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -3715,4 +3728,35 @@ export async function handleReviveMarkRevived(
   interaction: ButtonInteraction,
 ): Promise<void> {
   return reviveHandlers.handleReviveMarkRevived(interaction);
+}
+
+export async function handleShowAssistSettings(
+  interaction: ButtonInteraction,
+  isAlreadyDeferred: boolean = false,
+): Promise<void> {
+  return assistHandlers.handleShowAssistSettings(interaction, isAlreadyDeferred);
+}
+
+export async function handleAssistSetChannel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistSetChannel(interaction);
+}
+
+export async function handleAssistSetPingRole(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistSetPingRole(interaction);
+}
+
+export async function handleAssistChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistChannelSelect(interaction);
+}
+
+export async function handleAssistPingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistPingRoleSelect(interaction);
 }

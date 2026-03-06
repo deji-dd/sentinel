@@ -134,6 +134,12 @@ export async function handleButtonInteraction(
     await configCommand.handleReviveCancelRequest(interaction);
   } else if (customId.startsWith("revive_mark_revived|")) {
     await configCommand.handleReviveMarkRevived(interaction);
+  } else if (customId === "assist_settings_show") {
+    await configCommand.handleShowAssistSettings(interaction);
+  } else if (customId === "assist_set_channel") {
+    await configCommand.handleAssistSetChannel(interaction);
+  } else if (customId === "assist_set_ping_role") {
+    await configCommand.handleAssistSetPingRole(interaction);
   } else {
     return false;
   }
@@ -286,6 +292,8 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleMappingRoleSelect(interaction);
   } else if (customId === "revive_ping_role_select") {
     await configCommand.handleRevivePingRoleSelect(interaction);
+  } else if (customId === "assist_ping_role_select") {
+    await configCommand.handleAssistPingRoleSelect(interaction);
   } else {
     return false;
   }
@@ -319,6 +327,8 @@ export async function handleChannelSelectMenuInteraction(
     await configCommand.handleReviveRequestChannelSelect(interaction);
   } else if (customId === "revive_output_channel_select") {
     await configCommand.handleReviveOutputChannelSelect(interaction);
+  } else if (customId === "assist_channel_select") {
+    await configCommand.handleAssistChannelSelect(interaction);
   } else {
     return false;
   }
