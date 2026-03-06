@@ -37,10 +37,20 @@ async function verifyInstallLinkSignature(
       ["sign"],
     );
 
-    const signature = Uint8Array.from(atob(providedSignature), (c) =>
-      c.charCodeAt(0),
+    // Bot signs with base64url; compute and compare the same representation.
+    const expectedSignatureBuffer = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      message,
     );
-    const isValid = await crypto.subtle.verify("HMAC", key, signature, message);
+    const expectedSignature = btoa(
+      String.fromCharCode(...new Uint8Array(expectedSignatureBuffer)),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    const isValid = expectedSignature === providedSignature;
 
     if (!isValid) {
       return { valid: false, reason: "Invalid signature" };
@@ -114,9 +124,12 @@ async function proxyInstall(
   }
 
   // Forward to bot server after signature validation
-  const upstreamUrl = `${normalizeBotOrigin(env.BOT_ORIGIN)}/internal/assist-install/${uuid}.user.js`;
+  const upstreamUrl = new URL(
+    `${normalizeBotOrigin(env.BOT_ORIGIN)}/internal/assist-install/${uuid}.user.js`,
+  );
+  upstreamUrl.search = url.search;
 
-  const upstream = await fetch(upstreamUrl, {
+  const upstream = await fetch(upstreamUrl.toString(), {
     method: "GET",
     headers: {
       "User-Agent": request.headers.get("User-Agent") || "sentinel-edge-proxy",

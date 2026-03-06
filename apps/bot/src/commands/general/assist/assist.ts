@@ -6,6 +6,7 @@
 import {
   SlashCommandBuilder,
   EmbedBuilder,
+  MessageFlags,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -137,13 +138,12 @@ async function isAdmin(
  * Get user's Torn ID from verified users table
  */
 async function getUserTornId(
-  guildId: string,
+  _guildId: string,
   discordId: string,
 ): Promise<number | null> {
   const { data } = await supabase
     .from(TABLE_NAMES.VERIFIED_USERS)
     .select("torn_id")
-    .eq("guild_id", guildId)
     .eq("discord_id", discordId)
     .maybeSingle();
 
@@ -271,13 +271,8 @@ async function handleGenerateSubcommand(
           value: interaction.guild?.name ?? "Unknown",
           inline: true,
         },
-        {
-          name: "Token UUID",
-          value: `\`${tokenUuid}\``,
-          inline: false,
-        },
       )
-      .setFooter({ text: "Sentinel Combat Assist" })
+      .setFooter({ text: "Sentinel Assist" })
       .setTimestamp();
 
     await interaction.user.send({ embeds: [dmEmbed] });
@@ -433,7 +428,7 @@ export async function execute(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const subcommand = interaction.options.getSubcommand();
 
@@ -470,7 +465,7 @@ export async function execute(
     } else {
       await interaction.reply({
         embeds: [errorEmbed],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   }
