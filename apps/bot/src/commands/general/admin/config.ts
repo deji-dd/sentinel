@@ -3760,3 +3760,15 @@ export async function handleAssistPingRoleSelect(
 ): Promise<void> {
   return assistHandlers.handleAssistPingRoleSelect(interaction);
 }
+
+  export async function handleAssistSetScriptRoles(
+    interaction: ButtonInteraction,
+  ): Promise<void> {
+    return assistHandlers.handleAssistSetScriptRoles(interaction);
+  }
+
+  export async function handleAssistScriptRolesSelect(
+    interaction: RoleSelectMenuInteraction,
+  ): Promise<void> {
+    return assistHandlers.handleAssistScriptRolesSelect(interaction);
+  }

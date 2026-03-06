@@ -140,6 +140,8 @@ export async function handleButtonInteraction(
     await configCommand.handleAssistSetChannel(interaction);
   } else if (customId === "assist_set_ping_role") {
     await configCommand.handleAssistSetPingRole(interaction);
+   } else if (customId === "assist_set_script_roles") {
+     await configCommand.handleAssistSetScriptRoles(interaction);
   } else {
     return false;
   }
@@ -255,7 +257,7 @@ export async function handleStringSelectMenuInteraction(
   // Stats command
   else if (customId === "stats_timeframe_select") {
     await statsCommand.handleTimeframeSelect(interaction);
-  }
+   }
   // Unknown
   else {
     return false;
@@ -294,6 +296,8 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleRevivePingRoleSelect(interaction);
   } else if (customId === "assist_ping_role_select") {
     await configCommand.handleAssistPingRoleSelect(interaction);
+   } else if (customId === "assist_script_roles_select") {
+     await configCommand.handleAssistScriptRolesSelect(interaction);
   } else {
     return false;
   }

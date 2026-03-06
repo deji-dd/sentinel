@@ -18,6 +18,7 @@ type AssistConfig = {
   guild_id: string;
   assist_channel_id: string | null;
   ping_role_id: string | null;
+   script_generation_role_ids: string[];
   is_active: boolean;
 };
 
@@ -32,6 +33,7 @@ async function getAssistConfig(guildId: string): Promise<AssistConfig> {
     guild_id: guildId,
     assist_channel_id: data?.assist_channel_id ?? null,
     ping_role_id: data?.ping_role_id ?? null,
+     script_generation_role_ids: data?.script_generation_role_ids ?? [],
     is_active: data?.is_active ?? true,
   };
 }
@@ -111,6 +113,16 @@ export async function handleShowAssistSettings(
           value: config.ping_role_id ? `<@&${config.ping_role_id}>` : "None",
           inline: false,
         },
+         {
+           name: "Script Generation Roles",
+           value:
+             config.script_generation_role_ids.length > 0
+               ? config.script_generation_role_ids
+                   .map((id) => `<@&${id}>`)
+                   .join(", ")
+               : "None (Admins only)",
+           inline: false,
+         },
         {
           name: "Module Active",
           value: config.is_active ? "Yes" : "No",
@@ -128,20 +140,29 @@ export async function handleShowAssistSettings(
       .setLabel("Set Ping Role")
       .setStyle(ButtonStyle.Primary);
 
+     const setScriptRolesBtn = new ButtonBuilder()
+       .setCustomId("assist_set_script_roles")
+       .setLabel("Set Script Roles")
+       .setStyle(ButtonStyle.Primary);
+
     const backBtn = new ButtonBuilder()
       .setCustomId("config_back_to_menu")
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       setChannelBtn,
       setRoleBtn,
+       setScriptRolesBtn,
+     );
+
+     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       backBtn,
     );
 
     await interaction.editReply({
       embeds: [embed],
-      components: [row],
+       components: [row1, row2],
     });
   } catch (error) {
     console.error("Error showing assist settings:", error);
@@ -269,3 +290,65 @@ export async function handleAssistPingRoleSelect(
     console.error("Error in assist ping role select:", error);
   }
 }
+
+  export async function handleAssistSetScriptRoles(
+    interaction: ButtonInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferUpdate();
+
+      const embed = new EmbedBuilder()
+        .setColor(0x2563eb)
+        .setTitle("Select Script Generation Roles")
+        .setDescription(
+          "Choose roles that can generate assist script installation URLs. Leave empty for admins only.",
+        );
+
+      const roleSelect =
+        new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+          new RoleSelectMenuBuilder()
+            .setCustomId("assist_script_roles_select")
+            .setPlaceholder("Select roles (optional)")
+            .setMinValues(0)
+            .setMaxValues(10),
+        );
+
+      const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId("assist_settings_show")
+          .setLabel("Back")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      await interaction.editReply({
+        embeds: [embed],
+        components: [roleSelect, backRow],
+      });
+    } catch (error) {
+      console.error("Error in assist set script roles:", error);
+    }
+  }
+
+  export async function handleAssistScriptRolesSelect(
+    interaction: RoleSelectMenuInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferUpdate();
+
+      const guildId = interaction.guildId;
+      if (!guildId) {
+        return;
+      }
+
+      const roleIds = interaction.values;
+
+      await upsertAssistConfig(guildId, {
+        script_generation_role_ids: roleIds,
+        is_active: true,
+      });
+
+      await handleShowAssistSettings(interaction, true);
+    } catch (error) {
+      console.error("Error in assist script roles select:", error);
+    }
+  }

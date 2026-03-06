@@ -75,6 +75,7 @@ export async function execute(
     const burnMapSimulatorCommand =
       await import("../../general/territories/burn-map-simulator.js");
     const statsCommand = await import("../stats.js");
+     const assistCommand = await import("../../general/assist/assist.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
@@ -94,6 +95,7 @@ export async function execute(
         burnMapCommand.data.toJSON(),
         burnMapSimulatorCommand.data.toJSON(),
       ],
+       assist: [assistCommand.data.toJSON()],
     };
 
     let successCount = 0;
@@ -127,6 +129,7 @@ export async function execute(
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
         statsCommand.data.toJSON(),
+         assistCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
