@@ -1,6 +1,13 @@
 import express, { type Request, type Response } from "express";
-import { EmbedBuilder, type Client } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type Client,
+  type Message,
+} from "discord.js";
+import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { supabase } from "./supabase.js";
 import { buildAssistUserscript } from "./assist-userscript.js";
 import { verifyLinkSignature } from "./assist-link-signing.js";
@@ -9,6 +16,8 @@ import {
   logPayloadTooLarge,
   logRateLimitHit,
 } from "./assist-monitoring.js";
+import { fetchTornProfileData } from "./torn-api.js";
+import { getGuildApiKeys } from "./guild-api-keys.js";
 
 const app = express();
 app.use(express.json());
@@ -30,6 +39,12 @@ const ASSIST_MAX_PAYLOAD_BYTES =
     : 16384;
 
 const assistUuidLastSeen = new Map<string, number>();
+const assistMessageTracking = new Map<
+  string,
+  { message: Message; createdAt: number; attackerCount: number | null }
+>();
+
+const ASSIST_EMBED_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 type AssistTokenRecord = {
   id: number;
@@ -111,38 +126,84 @@ function getAssistPayloadSizeBytes(req: Request): number {
   return Buffer.byteLength(JSON.stringify(req.body || {}), "utf8");
 }
 
-function buildAssistEmbed(payload: AssistPayload): EmbedBuilder {
-  const action = payload.action || "assist_event";
-  const source = payload.source || "assist-script";
-  const attacker = payload.attacker_name
-    ? payload.attacker_torn_id
-      ? `${payload.attacker_name} [${payload.attacker_torn_id}]`
-      : payload.attacker_name
-    : "Unknown";
-  const target = payload.target_name
-    ? payload.target_torn_id
-      ? `${payload.target_name} [${payload.target_torn_id}]`
-      : payload.target_name
-    : "Unknown";
-
+function buildInitialAssistEmbed(
+  targetTornId: number | undefined,
+): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
-    .setTitle("Combat Assist Alert")
-    .setDescription(payload.details || "A new assist event was received.")
+    .setTitle("Assist Alert")
     .addFields(
-      { name: "Action", value: action, inline: true },
-      { name: "Source", value: source, inline: true },
-      { name: "Result", value: payload.result || "Unknown", inline: true },
-      { name: "Attacker", value: attacker, inline: false },
-      { name: "Target", value: target, inline: false },
+      { name: "Source", value: "Userscript", inline: true },
+      {
+        name: "Target",
+        value: targetTornId ? `Loading...` : "Unknown",
+        inline: true,
+      },
+      { name: "Attackers", value: "Monitoring...", inline: true },
     )
     .setTimestamp();
 
-  if (payload.occurred_at) {
-    embed.setFooter({ text: `Occurred at ${payload.occurred_at}` });
+  return embed;
+}
+
+async function enrichAssistEmbed(
+  embed: EmbedBuilder,
+  targetTornId: number,
+  apiKey: string,
+): Promise<void> {
+  try {
+    const profileData = await fetchTornProfileData(targetTornId, apiKey);
+
+    if (profileData?.profile) {
+      const targetDisplay = `[${profileData.profile.name} [${targetTornId}]](https://www.torn.com/profiles.php?XID=${targetTornId})`;
+      embed.spliceFields(1, 1, {
+        name: "Target",
+        value: targetDisplay,
+        inline: true,
+      });
+
+      if (profileData.faction?.name) {
+        embed.addFields({
+          name: "Faction",
+          value: profileData.faction.name,
+          inline: true,
+        });
+      }
+    } else {
+      embed.spliceFields(1, 1, {
+        name: "Target",
+        value: `[${targetTornId}]`,
+        inline: true,
+      });
+    }
+  } catch (error) {
+    console.error(
+      `[ASSIST] Failed to enrich embed for ${targetTornId}:`,
+      error,
+    );
+    embed.spliceFields(1, 1, {
+      name: "Target",
+      value: `[${targetTornId}]`,
+      inline: true,
+    });
+  }
+}
+
+function buildAssistButton(
+  targetTornId: number | undefined,
+): ActionRowBuilder<ButtonBuilder> | null {
+  if (!targetTornId) {
+    return null;
   }
 
-  return embed;
+  const assistButton = new ButtonBuilder()
+    .setLabel("Assist")
+    .setStyle(ButtonStyle.Link)
+    .setURL(
+      `https://www.torn.com/loader.php?sid=attack&user2ID=${targetTornId}`,
+    );
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(assistButton);
 }
 
 async function incrementAssistStrikeByUuid(
@@ -565,15 +626,118 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .json({ error: "Configured assist channel not found" });
       }
 
+      // Handle PATCH method for attacker count updates
+      if (req.method === "PATCH") {
+        const tracked = assistMessageTracking.get(payload.uuid);
+        if (!tracked) {
+          return res
+            .status(404)
+            .json({ error: "No active assist message for this UUID" });
+        }
+
+        const now = Date.now();
+        if (now - tracked.createdAt > ASSIST_EMBED_TIMEOUT_MS) {
+          assistMessageTracking.delete(payload.uuid);
+          return res.status(410).json({ error: "Assist message expired" });
+        }
+
+        // Extract attacker count from details
+        const details = payload.details || "";
+        const match = details.match(/(\d+)\s*->\s*(\d+)/);
+        if (match) {
+          const newCount = Number.parseInt(match[2], 10);
+          if (Number.isFinite(newCount) && newCount !== tracked.attackerCount) {
+            const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
+            updatedEmbed.spliceFields(2, 1, {
+              name: "Attackers",
+              value: String(newCount),
+              inline: true,
+            });
+
+            await tracked.message.edit({ embeds: [updatedEmbed] });
+            tracked.attackerCount = newCount;
+
+            return res.json({ success: true, updated: "attacker_count" });
+          }
+        }
+
+        return res.json({ success: true, updated: "none" });
+      }
+
+      // Handle DELETE method for session end
+      if (req.method === "DELETE") {
+        assistMessageTracking.delete(payload.uuid);
+        return res.json({ success: true, deleted: true });
+      }
+
+      // Handle POST method for new assist alerts
       const mention = assistConfig.ping_role_id
         ? `<@&${assistConfig.ping_role_id}>`
-        : "#combat-assists";
-      const embed = buildAssistEmbed(payload);
+        : "";
+      const embed = buildInitialAssistEmbed(payload.target_torn_id);
+      const button = buildAssistButton(payload.target_torn_id);
 
-      await channel.send({
-        content: mention,
+      const components = button ? [button] : [];
+      const sentMessage = await channel.send({
+        content: mention || undefined,
         embeds: [embed],
+        components,
       });
+
+      // Track message for updates and timeout
+      assistMessageTracking.set(payload.uuid, {
+        message: sentMessage,
+        createdAt: Date.now(),
+        attackerCount: null,
+      });
+
+      // Set timeout to expire the embed after 5 minutes
+      setTimeout(async () => {
+        const tracked = assistMessageTracking.get(payload.uuid);
+        if (tracked) {
+          try {
+            const expiredEmbed = EmbedBuilder.from(tracked.message.embeds[0])
+              .setColor(0x6b7280)
+              .setFooter({ text: "This assist alert has expired" });
+            await tracked.message.edit({
+              embeds: [expiredEmbed],
+              components: [],
+            });
+          } catch (error) {
+            console.error(
+              `[ASSIST] Failed to expire embed for ${payload.uuid}:`,
+              error,
+            );
+          }
+          assistMessageTracking.delete(payload.uuid);
+        }
+      }, ASSIST_EMBED_TIMEOUT_MS);
+
+      // Enrich embed asynchronously if target_torn_id is present
+      const targetTornId = payload.target_torn_id;
+      if (targetTornId) {
+        (async () => {
+          try {
+            const apiKeys = await getGuildApiKeys(token.guild_id);
+            if (apiKeys.length === 0) {
+              console.warn(
+                `[ASSIST] No API keys configured for guild ${token.guild_id}`,
+              );
+              return;
+            }
+
+            const apiKey = getNextApiKey(token.guild_id, apiKeys);
+            const embed = EmbedBuilder.from(sentMessage.embeds[0]);
+            await enrichAssistEmbed(embed, targetTornId, apiKey);
+            await sentMessage.edit({ embeds: [embed] });
+          } catch (error) {
+            console.error(
+              `[ASSIST] Failed to enrich embed for ${payload.uuid}:`,
+              error,
+            );
+          }
+        })();
+      }
 
       await supabase
         .from(TABLE_NAMES.ASSIST_TOKENS)

@@ -3,8 +3,6 @@
  * Tracks abuse patterns and security metrics for assist proxy endpoints
  */
 
-import { supabase } from "./supabase.js";
-
 type SecurityEvent = {
   event_type: "proxy_auth_failure" | "payload_too_large" | "rate_limit_hit";
   severity: "low" | "medium" | "high";
