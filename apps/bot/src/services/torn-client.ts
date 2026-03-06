@@ -8,7 +8,7 @@
  * - Auto-marks invalid keys (error code 2) after multiple failures to prevent IP blocking
  */
 
-import { createTornApiClient } from "@sentinel/shared";
+import { createTornApiClient, TornApiClient } from "@sentinel/shared";
 import { markGuildApiKeyInvalid } from "../lib/guild-api-keys.js";
 import { supabase } from "../lib/supabase.js";
 
@@ -40,6 +40,10 @@ export const tornApi = createTornApiClient({
   },
 });
 
+// Validation must not require existing API key mapping because brand-new keys
+// are validated before they are stored and mapped.
+const validationApi = new TornApiClient();
+
 /**
  * Validates a Torn API key and returns key info.
  * Uses the TornApiClient for consistency.
@@ -54,7 +58,7 @@ export async function validateTornApiKey(
   }
 
   // Fetch key info from Torn API
-  const keyData = await tornApi.get("/key/info", { apiKey });
+  const keyData = await validationApi.get("/key/info", { apiKey });
 
   // Validate response structure
   if (!keyData.info?.user?.id || keyData.info.access === undefined) {
@@ -69,7 +73,7 @@ export async function validateTornApiKey(
   }
 
   // Fetch user profile to get name and donator status
-  const userData = await tornApi.get("/user/profile", { apiKey });
+  const userData = await validationApi.get("/user/profile", { apiKey });
 
   if (!userData.profile?.name || !userData.profile?.id) {
     throw new Error("Invalid user profile response from Torn API");

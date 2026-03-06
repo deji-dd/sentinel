@@ -307,6 +307,11 @@ export async function handleModuleToggle(
       commands.push(burnMapSimulatorCommand.data.toJSON());
     }
 
+    if (modulesToEnable.includes("assist")) {
+      const assistCommand = await import("../../general/assist/assist.js");
+      commands.push(assistCommand.data.toJSON());
+    }
+
     try {
       await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
         body: commands,
