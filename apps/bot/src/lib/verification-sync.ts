@@ -32,7 +32,6 @@ interface GuildSyncJob {
 interface GuildConfigRecord {
   guild_id: string;
   nickname_template: string;
-  sync_interval_seconds: number;
   enabled_modules: string[];
   admin_role_ids: string[];
   verified_role_ids: string[];
@@ -44,9 +43,10 @@ interface GuildConfigRecord {
 /**
  * Database-driven guild sync scheduler
  * - Polls database every 60s for guilds needing sync
+ * - Spreads member verification incrementally throughout 60-min cycle
+ * - Uses deterministic member ordering for consistent behavior
  * - Syncs each guild independently with its own API key
  * - Respects per-user rate limits via PerUserRateLimiter
- * - Allows guilds to customize sync interval
  */
 export class GuildSyncScheduler {
   private client: Client;
@@ -572,15 +572,8 @@ export class GuildSyncScheduler {
         );
       }
     } finally {
-      // Unlock job and update next sync time
-      const config = (await supabase
-        .from(TABLE_NAMES.GUILD_CONFIG)
-        .select("sync_interval_seconds")
-        .eq("guild_id", job.guild_id)
-        .single()) as { data: { sync_interval_seconds: number } | null };
-
-      const interval = config.data?.sync_interval_seconds || 3600;
-      const nextSync = new Date(Date.now() + interval * 1000);
+      // Unlock job and schedule next sync (fixed 60-minute cycle)
+      const nextSync = new Date(Date.now() + 3600 * 1000); // 60 minutes
 
       await supabase
         .from(TABLE_NAMES.GUILD_SYNC_JOBS)

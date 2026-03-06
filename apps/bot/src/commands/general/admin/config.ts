@@ -514,15 +514,6 @@ async function showVerifySettings(
       },
     );
 
-  // Only show sync interval if auto verification is enabled
-  if (guildConfig.auto_verify) {
-    verifyEmbed.addFields({
-      name: "Sync Interval",
-      value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
-      inline: false,
-    });
-  }
-
   verifyEmbed.addFields(
     {
       name: "Verification Role",
@@ -557,16 +548,6 @@ async function showVerifySettings(
       .setValue("edit_nickname")
       .setDescription("e.g., {name}#{id}"),
   ];
-
-  // Only show sync interval option if auto verification is enabled
-  if (guildConfig.auto_verify) {
-    settingOptions.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Sync Interval")
-        .setValue("edit_sync")
-        .setDescription("How often to resync data"),
-    );
-  }
 
   settingOptions.push(
     new StringSelectMenuOptionBuilder()
@@ -748,15 +729,6 @@ export async function handleBackToVerifySettings(
         },
       );
 
-    // Only show sync interval if auto verification is enabled
-    if (guildConfig.auto_verify) {
-      verifyEmbed.addFields({
-        name: "Sync Interval",
-        value: `${guildConfig.sync_interval_seconds || 3600} seconds (${Math.round((guildConfig.sync_interval_seconds || 3600) / 60)} min)`,
-        inline: false,
-      });
-    }
-
     verifyEmbed.addFields(
       {
         name: "Verification Role",
@@ -790,16 +762,6 @@ export async function handleBackToVerifySettings(
         .setValue("edit_nickname")
         .setDescription("e.g., {name}#{id}"),
     ];
-
-    // Only show sync interval option if auto verification is enabled
-    if (guildConfig.auto_verify) {
-      settingOptions.push(
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Sync Interval")
-          .setValue("edit_sync")
-          .setDescription("How often to resync data"),
-      );
-    }
 
     settingOptions.push(
       new StringSelectMenuOptionBuilder()
@@ -1002,7 +964,7 @@ export async function handleVerifySettingsEdit(
         .setColor(0xf59e0b)
         .setTitle("Confirm Change")
         .setDescription(
-          `Turn auto-verification **${newStatus ? "on" : "off"}**?\n\n${newStatus ? "New members will be automatically verified on join and during sync intervals" : "Members will need to manually run /verify"}`,
+          `Turn auto-verification **${newStatus ? "on" : "off"}**?\n\n${newStatus ? "New members will be automatically verified on join" : "Members will need to manually run /verify"}`,
         );
 
       const confirmBtn = new ButtonBuilder()
@@ -1055,26 +1017,6 @@ export async function handleVerifySettingsEdit(
         descriptionInput,
       );
       modal.addComponents(row1, row2);
-
-      await interaction.showModal(modal);
-    } else if (selectedSetting === "edit_sync") {
-      // Show modal for sync interval
-      const modal = new ModalBuilder()
-        .setCustomId("config_sync_interval_modal")
-        .setTitle("Edit Sync Interval");
-
-      const intervalInput = new TextInputBuilder()
-        .setCustomId("sync_interval_input")
-        .setLabel("Sync Interval (seconds)")
-        .setPlaceholder("e.g., 3600 for 1 hour")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setValue(String(guildConfig.sync_interval_seconds || 3600));
-
-      const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
-        intervalInput,
-      );
-      modal.addComponents(row);
 
       await interaction.showModal(modal);
     } else if (selectedSetting === "edit_faction") {
@@ -2656,96 +2598,6 @@ export async function handleNicknameTemplateModalSubmit(
   }
 }
 
-export async function handleSyncIntervalModalSubmit(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const guildId = interaction.guildId;
-    if (!guildId) {
-      throw new Error("Guild ID not found");
-    }
-
-    const intervalStr = interaction.fields.getTextInputValue(
-      "sync_interval_input",
-    );
-    const interval = parseInt(intervalStr, 10);
-
-    if (isNaN(interval) || interval < 60 || interval > 86400) {
-      throw new Error(
-        "Sync interval must be between 60 and 86400 seconds (1 minute to 24 hours)",
-      );
-    }
-
-    const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ sync_interval_seconds: interval })
-      .eq("guild_id", guildId);
-
-    if (error) {
-      throw error;
-    }
-
-    const nextSync = new Date(Date.now() + interval * 1000);
-    await supabase.from(TABLE_NAMES.GUILD_SYNC_JOBS).upsert(
-      {
-        guild_id: guildId,
-        next_sync_at: nextSync.toISOString(),
-      },
-      { onConflict: "guild_id" },
-    );
-
-    await logGuildAudit({
-      guildId,
-      actorId: interaction.user.id,
-      action: "sync_interval_updated",
-      details: {
-        intervalSeconds: interval,
-      },
-    });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x10b981)
-      .setTitle("Sync Interval Updated")
-      .setDescription(
-        `Guild sync interval set to **${interval} seconds** (${Math.round(interval / 60)} minutes)`,
-      );
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("config_back_verify_settings")
-      .setLabel("Back to Verification Settings")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in sync interval modal handler:", errorMsg);
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("Error")
-      .setDescription(errorMsg);
-
-    if (interaction.replied || interaction.deferred) {
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-    } else {
-      await interaction.reply({
-        embeds: [errorEmbed],
-        components: [],
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-  }
-}
-
 export async function handleConfirmAutoVerifyToggle(
   interaction: ButtonInteraction,
 ): Promise<void> {
@@ -2805,7 +2657,7 @@ export async function handleConfirmAutoVerifyToggle(
       )
       .setFooter({
         text: newValue
-          ? "New members will be automatically verified on join and during sync intervals"
+          ? "New members will be automatically verified on join"
           : "New members will not be automatically verified",
       });
 
@@ -3634,7 +3486,7 @@ export async function handleEditReactionRolesAllowed(
 }
 
 export async function handleAllowedRolesSelect(
-  interaction: any,
+  interaction: RoleSelectMenuInteraction,
 ): Promise<void> {
   return reactionRolesHandlers.handleAllowedRolesSelect(interaction);
 }
@@ -3748,8 +3600,7 @@ export async function handleCreateReactionRoleEmbedModal(
 }
 
 export async function handleChannelSelectForReactionRoles(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  interaction: any,
+  interaction: ChannelSelectMenuInteraction,
 ): Promise<void> {
   return reactionRolesHandlers.handleChannelSelect(interaction);
 }

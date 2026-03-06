@@ -158,8 +158,6 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleAddApiKeyModalSubmit(interaction);
   } else if (customId === "config_nickname_template_modal") {
     await configCommand.handleNicknameTemplateModalSubmit(interaction);
-  } else if (customId === "config_sync_interval_modal") {
-    await configCommand.handleSyncIntervalModalSubmit(interaction);
   } else if (customId === "config_add_faction_role_modal") {
     await configCommand.handleAddFactionRoleModalSubmit(interaction);
   } else if (customId === "config_remove_faction_role_modal") {
