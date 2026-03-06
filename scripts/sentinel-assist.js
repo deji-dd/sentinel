@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Torn Attack Webhook Button
+// @name         Sentinel Assist
 // @namespace    http://tampermonkey.net/
 // @version      2.0
-// @description  Legacy local template. Production script is now generated dynamically by UUID.
-// @author       Sentinel
+// @description  Yabba Dabba Doo!
+// @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
 // @grant        GM_xmlhttpRequest
 // @connect      *
@@ -13,11 +13,9 @@
 (function () {
   "use strict";
 
-  // Placeholder only. Real install flow returns a per-user script with UUID and API URL injected.
   const WEBHOOK_URL = "__DYNAMIC_ASSIST_API_URL__";
   let buttonInjected = false;
 
-  // Function to show a toast notification
   function showToast(message, isSuccess = true) {
     const toast = document.createElement("div");
     toast.style.cssText = `
@@ -38,7 +36,6 @@
     `;
     toast.textContent = message;
 
-    // Add animation keyframes
     const style = document.createElement("style");
     style.textContent = `
       @keyframes slideIn {
@@ -54,20 +51,17 @@
 
     document.body.appendChild(toast);
 
-    // Auto-remove after 3 seconds
     setTimeout(() => {
       toast.style.animation = "slideOut 0.3s ease";
       setTimeout(() => toast.remove(), 300);
     }, 3000);
   }
 
-  // Function to extract opponent ID from URL
   function getOpponentId() {
     const urlParams = new URLSearchParams(window.location.search);
     return urlParams.get("user2ID");
   }
 
-  // Function to send data to webhook
   async function sendToWebhook(opponentId) {
     try {
       GM_xmlhttpRequest({
@@ -101,7 +95,6 @@
     }
   }
 
-  // Function to send PATCH request with attacker count
   function sendAttackerCountPatch(count) {
     try {
       GM_xmlhttpRequest({
@@ -132,12 +125,10 @@
     }
   }
 
-  // Function to monitor attacker count
   function startAttackerCountMonitor() {
     let previousCount = null;
 
     const monitorAttackers = () => {
-      // Try to find the attacker count element
       const statsHeader = document.getElementById("stats-header");
       if (!statsHeader) {
         console.log("Stats header not found yet...");
@@ -150,7 +141,6 @@
         return false;
       }
 
-      // Get current count
       const currentCount = parseInt(titleNumber.textContent.trim(), 10);
 
       if (isNaN(currentCount)) {
@@ -158,7 +148,6 @@
         return false;
       }
 
-      // Send PATCH if count changed
       if (previousCount !== null && previousCount !== currentCount) {
         console.log(
           `Attacker count changed: ${previousCount} -> ${currentCount}`,
@@ -170,9 +159,7 @@
       return true;
     };
 
-    // Try initial detection
     if (!monitorAttackers()) {
-      // If not found initially, use MutationObserver
       const attacker = new MutationObserver(() => {
         monitorAttackers();
       });
@@ -187,7 +174,6 @@
       return;
     }
 
-    // Also observe for count changes after first detection
     const statsHeader = document.getElementById("stats-header");
     if (statsHeader) {
       const attacker = new MutationObserver(() => {
@@ -204,11 +190,9 @@
     }
   }
 
-  // Function to inject the button
   function injectButton() {
     if (buttonInjected) return;
 
-    // Look for the topSection container
     const topSection = document.querySelector('[class*="topSection"]');
 
     if (!topSection) {
@@ -216,13 +200,11 @@
       return;
     }
 
-    // Check if button already exists
     if (document.getElementById("sentinel-yabba-dabba-button")) {
       buttonInjected = true;
       return;
     }
 
-    // Create a container div for our button
     const buttonContainer = document.createElement("div");
     buttonContainer.id = "sentinel-button-container";
     buttonContainer.style.cssText = `
@@ -231,7 +213,6 @@
             text-align: right;
         `;
 
-    // Create the button
     const button = document.createElement("button");
     button.id = "sentinel-yabba-dabba-button";
     button.innerHTML = `<span style="margin-right: 5px;">🎯</span>Yabba Dabba Doo!`;
@@ -256,7 +237,6 @@
             user-select: none;
         `;
 
-    // Hover/Active effects (desktop and mobile)
     button.onmouseover = () => {
       button.style.background =
         "linear-gradient(135deg, #357abd 0%, #2a5f8f 100%)";
@@ -270,7 +250,6 @@
       button.style.boxShadow = "0 1px 2px rgba(0,0,0,0.1)";
     };
 
-    // Touch feedback for mobile
     button.ontouchstart = () => {
       button.style.background =
         "linear-gradient(135deg, #2a5f8f 0%, #1e4a6f 100%)";
@@ -282,7 +261,6 @@
       button.style.transform = "scale(1)";
     };
 
-    // Click handler
     button.onclick = () => {
       const opponentId = getOpponentId();
       if (opponentId) {
@@ -292,30 +270,25 @@
       }
     };
 
-    // Assemble and insert
     buttonContainer.appendChild(button);
 
-    // Insert after topSection (as a sibling, not a child)
     topSection.parentNode.insertBefore(buttonContainer, topSection.nextSibling);
 
     buttonInjected = true;
     console.log("Yabba Dabba Doo button injected successfully!");
   }
 
-  // Method 1: MutationObserver (more efficient)
   const observer = new MutationObserver((mutations) => {
     if (!buttonInjected) {
       injectButton();
     }
   });
 
-  // Start observing the document
   observer.observe(document.body, {
     childList: true,
     subtree: true,
   });
 
-  // Method 2: Fallback setInterval (runs every 500ms)
   const intervalId = setInterval(() => {
     if (buttonInjected) {
       clearInterval(intervalId);
@@ -325,7 +298,6 @@
     }
   }, 500);
 
-  // Initial attempt
   if (document.readyState === "complete") {
     setTimeout(injectButton, 100);
     setTimeout(startAttackerCountMonitor, 100);

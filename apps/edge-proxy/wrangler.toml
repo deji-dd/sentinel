@@ -1,9 +1,9 @@
-name = "sentinel-assist-proxy"
+name = "sentinel-assist"
 main = "src/index.ts"
 compatibility_date = "2026-03-06"
 
 [vars]
-BOT_ORIGIN = "https://bot.example.com"
+BOT_ORIGIN = "https://sentinel-bot.ayodejib.dev"
 ASSIST_MAX_JSON_BYTES = "16384"
 
 [env.dev.vars]

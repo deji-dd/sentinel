@@ -3,6 +3,12 @@ import { EmbedBuilder, type Client } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "./supabase.js";
 import { buildAssistUserscript } from "./assist-userscript.js";
+import { verifyLinkSignature } from "./assist-link-signing.js";
+import {
+  logProxyAuthFailure,
+  logPayloadTooLarge,
+  logRateLimitHit,
+} from "./assist-monitoring.js";
 
 const app = express();
 app.use(express.json());
@@ -81,9 +87,19 @@ function hasValidProxySecret(req: Request): boolean {
     return false;
   }
 
-  return Boolean(
+  const isValid = Boolean(
     providedProxySecret && providedProxySecret === expectedProxySecret,
   );
+
+  if (!isValid) {
+    logProxyAuthFailure(
+      req.path,
+      req.header("X-Assist-Client-IP") || req.ip || null,
+      req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
+    );
+  }
+
+  return isValid;
 }
 
 function getAssistPayloadSizeBytes(req: Request): number {
@@ -334,6 +350,31 @@ export function initHttpServer(client: Client, port: number = 3001) {
           return res.status(400).json({ error: "Invalid UUID in script path" });
         }
 
+        // Verify signed link
+        const expParam = req.query.exp;
+        const sigParam = req.query.sig;
+
+        if (!expParam || !sigParam) {
+          return res.status(400).json({
+            error: "Missing signature parameters",
+            hint: "Install links must include exp and sig query params",
+          });
+        }
+
+        const expiresAt = Number.parseInt(String(expParam), 10);
+        const signature = String(sigParam);
+
+        if (!Number.isFinite(expiresAt)) {
+          return res.status(400).json({ error: "Invalid expiry timestamp" });
+        }
+
+        const verification = verifyLinkSignature(uuid, expiresAt, signature);
+        if (!verification.valid) {
+          return res.status(403).json({
+            error: verification.reason || "Invalid install link",
+          });
+        }
+
         const { data: rawToken } = await supabase
           .from(TABLE_NAMES.ASSIST_TOKENS)
           .select(
@@ -425,6 +466,13 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       const payloadSize = getAssistPayloadSizeBytes(req);
       if (payloadSize > ASSIST_MAX_PAYLOAD_BYTES) {
+        logPayloadTooLarge(
+          req.path,
+          req.header("X-Assist-Client-IP") || req.ip || null,
+          req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
+          payloadSize,
+          ASSIST_MAX_PAYLOAD_BYTES,
+        );
         return res.status(413).json({
           error: "Payload too large",
           max_bytes: ASSIST_MAX_PAYLOAD_BYTES,
@@ -446,6 +494,12 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       if (isAssistRateLimited(payload.uuid)) {
         await incrementAssistStrikeByUuid(payload.uuid, "rate_limit_30s");
+        logRateLimitHit(
+          req.path,
+          req.header("X-Assist-Client-IP") || req.ip || null,
+          req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
+          payload.uuid,
+        );
         return res.status(429).json({
           error: "Rate limited",
           retry_after_seconds: ASSIST_UUID_WINDOW_MS / 1000,

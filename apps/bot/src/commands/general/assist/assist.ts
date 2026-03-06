@@ -12,6 +12,10 @@ import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "../../../lib/supabase.js";
 import { randomUUID } from "crypto";
 import { isDev } from "../../../lib/bot-config.js";
+import {
+  createSignedInstallUrl,
+  getLinkValidityDescription,
+} from "../../../lib/assist-link-signing.js";
 
 function getScriptUrlBase(): string {
   const configuredProd = process.env.ASSIST_INSTALL_BASE_URL;
@@ -235,7 +239,8 @@ async function handleGenerateSubcommand(
     return;
   }
 
-  const installUrl = `${SCRIPT_URL_BASE}/${tokenUuid}.user.js`;
+  const installUrl = createSignedInstallUrl(SCRIPT_URL_BASE, tokenUuid);
+  const linkValidity = getLinkValidityDescription();
 
   try {
     const dmEmbed = new EmbedBuilder()
@@ -254,6 +259,11 @@ async function handleGenerateSubcommand(
           name: "⚠️ Important",
           value:
             "Keep this URL private! Do not share it with anyone. If compromised, ask an admin to run `/assist revoke` for your user.",
+          inline: false,
+        },
+        {
+          name: "Link Validity",
+          value: `This download link expires in ${linkValidity}. Once installed, the script works forever.`,
           inline: false,
         },
         {
