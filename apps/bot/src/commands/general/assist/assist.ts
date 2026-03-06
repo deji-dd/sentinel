@@ -206,7 +206,7 @@ async function handleGenerateSubcommand(
   if (!tornId) {
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
-      .setTitle("❌ Not Verified")
+      .setTitle("Not Verified")
       .setDescription(
         "You must be verified to generate an assist script. Use `/verify` first.",
       );
