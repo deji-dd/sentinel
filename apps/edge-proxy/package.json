@@ -1,0 +1,19 @@
+{
+  "name": "edge-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker proxy for Sentinel assist install and webhook traffic",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --env dev",
+    "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env dev",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260218.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.5.0"
+  },
+  "packageManager": "pnpm@10.30.3"
+}

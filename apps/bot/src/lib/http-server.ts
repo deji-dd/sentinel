@@ -2,6 +2,7 @@ import express, { type Request, type Response } from "express";
 import { EmbedBuilder, type Client } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "./supabase.js";
+import { buildAssistUserscript } from "./assist-userscript.js";
 
 const app = express();
 app.use(express.json());
@@ -11,6 +12,16 @@ let discordClient: Client;
 const ASSIST_PROXY_SECRET_HEADER = "Proxy-Secret-Header";
 const ASSIST_UUID_WINDOW_MS = 30000;
 const ASSIST_STRIKE_BLACKLIST_THRESHOLD = 5;
+const ASSIST_ALLOWED_PROXY_METHODS = new Set(["POST", "PATCH", "DELETE"]);
+const parsedAssistMaxPayloadBytes = Number.parseInt(
+  process.env.ASSIST_MAX_PAYLOAD_BYTES || "16384",
+  10,
+);
+const ASSIST_MAX_PAYLOAD_BYTES =
+  Number.isFinite(parsedAssistMaxPayloadBytes) &&
+  parsedAssistMaxPayloadBytes > 0
+    ? parsedAssistMaxPayloadBytes
+    : 16384;
 
 const assistUuidLastSeen = new Map<string, number>();
 
@@ -60,6 +71,28 @@ function isAssistRateLimited(uuid: string): boolean {
 
   assistUuidLastSeen.set(uuid, now);
   return false;
+}
+
+function hasValidProxySecret(req: Request): boolean {
+  const expectedProxySecret = process.env.ASSIST_PROXY_SECRET;
+  const providedProxySecret = req.header(ASSIST_PROXY_SECRET_HEADER);
+
+  if (!expectedProxySecret) {
+    return false;
+  }
+
+  return Boolean(
+    providedProxySecret && providedProxySecret === expectedProxySecret,
+  );
+}
+
+function getAssistPayloadSizeBytes(req: Request): number {
+  const fromHeader = Number.parseInt(req.header("content-length") || "0", 10);
+  if (Number.isFinite(fromHeader) && fromHeader > 0) {
+    return fromHeader;
+  }
+
+  return Buffer.byteLength(JSON.stringify(req.body || {}), "utf8");
 }
 
 function buildAssistEmbed(payload: AssistPayload): EmbedBuilder {
@@ -273,23 +306,138 @@ export function initHttpServer(client: Client, port: number = 3001) {
     }
   });
 
-  // Internal assist ingestion endpoint. Traffic should arrive via Cloudflare worker.
-  app.post("/internal/assist-events", async (req: Request, res: Response) => {
-    try {
-      const expectedProxySecret = process.env.ASSIST_PROXY_SECRET;
-      const providedProxySecret = req.header(ASSIST_PROXY_SECRET_HEADER);
+  // Internal userscript installation endpoint. Traffic should arrive via Cloudflare worker.
+  app.get(
+    "/internal/assist-install/:fileName",
+    async (req: Request, res: Response) => {
+      try {
+        if (!process.env.ASSIST_PROXY_SECRET) {
+          return res.status(500).json({
+            error: "Server misconfigured: ASSIST_PROXY_SECRET is not set",
+          });
+        }
 
-      if (!expectedProxySecret) {
+        if (!hasValidProxySecret(req)) {
+          return res.status(401).json({ error: "Unauthorized proxy" });
+        }
+
+        const fileParam = req.params.fileName;
+        const fileName = Array.isArray(fileParam)
+          ? fileParam[0] || ""
+          : fileParam || "";
+        if (!fileName.endsWith(".user.js")) {
+          return res.status(400).json({ error: "Invalid script path" });
+        }
+
+        const uuid = fileName.replace(/\.user\.js$/i, "");
+        if (!isValidUuid(uuid)) {
+          return res.status(400).json({ error: "Invalid UUID in script path" });
+        }
+
+        const { data: rawToken } = await supabase
+          .from(TABLE_NAMES.ASSIST_TOKENS)
+          .select(
+            "id, guild_id, discord_id, torn_id, strike_count, is_active, blacklisted_at, expires_at",
+          )
+          .eq("token_uuid", uuid)
+          .maybeSingle();
+
+        const token = rawToken as AssistTokenRecord | null;
+
+        if (!token) {
+          return res.status(404).json({ error: "Assist token not found" });
+        }
+
+        if (!token.is_active || token.blacklisted_at) {
+          return res.status(403).json({ error: "Assist token is inactive" });
+        }
+
+        if (
+          token.expires_at &&
+          new Date(token.expires_at).getTime() <= Date.now()
+        ) {
+          return res.status(403).json({ error: "Assist token expired" });
+        }
+
+        const proxyOrigin = req.header("X-Assist-Proxy-Origin");
+        const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
+
+        let apiBaseUrl = fallbackOrigin;
+        if (proxyOrigin) {
+          try {
+            apiBaseUrl = new URL(proxyOrigin).origin;
+          } catch {
+            apiBaseUrl = fallbackOrigin;
+          }
+        }
+
+        const script = buildAssistUserscript({
+          uuid,
+          apiBaseUrl,
+        });
+
+        await supabase
+          .from(TABLE_NAMES.ASSIST_TOKENS)
+          .update({
+            last_used_at: new Date().toISOString(),
+            last_seen_ip: req.header("X-Assist-Client-IP") || req.ip || null,
+            last_seen_user_agent:
+              req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", token.id);
+
+        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+
+        return res.status(200).send(script);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error("[HTTP] Error generating assist userscript:", error);
+        return res
+          .status(500)
+          .json({ error: "Failed to generate assist script", message });
+      }
+    },
+  );
+
+  // Internal assist ingestion endpoint. Traffic should arrive via Cloudflare worker.
+  app.all("/internal/assist-events", async (req: Request, res: Response) => {
+    try {
+      if (!process.env.ASSIST_PROXY_SECRET) {
         return res.status(500).json({
           error: "Server misconfigured: ASSIST_PROXY_SECRET is not set",
         });
       }
 
-      if (!providedProxySecret || providedProxySecret !== expectedProxySecret) {
+      if (!ASSIST_ALLOWED_PROXY_METHODS.has(req.method)) {
+        return res.status(405).json({
+          error: "Method not allowed",
+          allowed_methods: Array.from(ASSIST_ALLOWED_PROXY_METHODS),
+        });
+      }
+
+      if (!hasValidProxySecret(req)) {
         return res.status(401).json({ error: "Unauthorized proxy" });
       }
 
+      const payloadSize = getAssistPayloadSizeBytes(req);
+      if (payloadSize > ASSIST_MAX_PAYLOAD_BYTES) {
+        return res.status(413).json({
+          error: "Payload too large",
+          max_bytes: ASSIST_MAX_PAYLOAD_BYTES,
+        });
+      }
+
       const payload = req.body as AssistPayload;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return res
+          .status(400)
+          .json({ error: "JSON payload must be an object" });
+      }
+
       if (!payload?.uuid || !isValidUuid(payload.uuid)) {
         return res.status(400).json({
           error: "Missing or invalid uuid in payload",

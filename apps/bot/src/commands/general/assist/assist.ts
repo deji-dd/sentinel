@@ -11,8 +11,31 @@ import {
 import { TABLE_NAMES } from "@sentinel/shared";
 import { supabase } from "../../../lib/supabase.js";
 import { randomUUID } from "crypto";
+import { isDev } from "../../../lib/bot-config.js";
 
-const SCRIPT_URL_BASE = "https://yaba-assist.blasted.workers.dev/install";
+function getScriptUrlBase(): string {
+  const configuredProd = process.env.ASSIST_INSTALL_BASE_URL;
+  const configuredLocal = process.env.ASSIST_INSTALL_BASE_URL_LOCAL;
+
+  if (!isDev && !configuredProd) {
+    throw new Error(
+      "Missing ASSIST_INSTALL_BASE_URL for production environment",
+    );
+  }
+
+  const rawValue = isDev
+    ? configuredLocal || configuredProd || "http://127.0.0.1:8787/install"
+    : configuredProd!;
+
+  try {
+    const parsed = new URL(rawValue);
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+  } catch {
+    throw new Error(`Invalid assist install base URL configured: ${rawValue}`);
+  }
+}
+
+const SCRIPT_URL_BASE = getScriptUrlBase();
 const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
 
 if (!botOwnerId) {
@@ -32,7 +55,9 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName("revoke")
-      .setDescription("Revoke compromised assist token(s) for a user (admins only)")
+      .setDescription(
+        "Revoke compromised assist token(s) for a user (admins only)",
+      )
       .addUserOption((option) =>
         option
           .setName("user")
@@ -158,9 +183,7 @@ async function handleGenerateSubcommand(
 
   const userRoles = interaction.member?.roles;
   const userRoleIds =
-    userRoles && "cache" in userRoles
-      ? Array.from(userRoles.cache.keys())
-      : [];
+    userRoles && "cache" in userRoles ? Array.from(userRoles.cache.keys()) : [];
 
   const hasPermission = await canGenerateScript(guildId, userId, userRoleIds);
   if (!hasPermission) {
@@ -322,9 +345,7 @@ async function handleRevokeSubcommand(
 
   const userRoles = interaction.member?.roles;
   const userRoleIds =
-    userRoles && "cache" in userRoles
-      ? Array.from(userRoles.cache.keys())
-      : [];
+    userRoles && "cache" in userRoles ? Array.from(userRoles.cache.keys()) : [];
 
   const userIsAdmin = await isAdmin(guildId, userId, userRoleIds);
   if (!userIsAdmin) {

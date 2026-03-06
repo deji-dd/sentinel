@@ -28,7 +28,7 @@ const REGULAR_COMMAND_NAMES = [
   "assault-check",
   "burn-map",
   "burn-map-simulator",
-   "assist",
+  "assist",
 ];
 
 /**
@@ -78,9 +78,9 @@ export async function handleRegularCommand(
     case "burn-map-simulator":
       await burnMapSimulatorCommand.execute(interaction);
       break;
-     case "assist":
-       await assistCommand.execute(interaction);
-       break;
+    case "assist":
+      await assistCommand.execute(interaction);
+      break;
   }
 
   return true;

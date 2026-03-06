@@ -1,20 +1,20 @@
 // ==UserScript==
 // @name         Torn Attack Webhook Button
 // @namespace    http://tampermonkey.net/
-// @version      1.5
-// @description  Inject a button on Torn attack page to send opponent ID to webhook + monitor attacker count
+// @version      2.0
+// @description  Legacy local template. Production script is now generated dynamically by UUID.
 // @author       Sentinel
 // @match        https://www.torn.com/loader.php?sid=attack*
 // @grant        GM_xmlhttpRequest
-// @connect      webhook.site
+// @connect      *
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
   "use strict";
 
-  const WEBHOOK_URL =
-    "https://webhook.site/20fff8eb-cd00-480a-8fb1-6666f2bc0545";
+  // Placeholder only. Real install flow returns a per-user script with UUID and API URL injected.
+  const WEBHOOK_URL = "__DYNAMIC_ASSIST_API_URL__";
   let buttonInjected = false;
 
   // Function to show a toast notification
