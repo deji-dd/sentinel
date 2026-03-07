@@ -5,6 +5,7 @@ import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const TRAINING_RECOMMENDATIONS_WORKER_NAME = "training_recommendations_worker";
 const TRAINING_RECOMMENDATIONS_CADENCE_SECONDS = 600; // 10 minutes
@@ -634,19 +635,41 @@ async function computeTrainingRecommendations(): Promise<void> {
 
     // Clear old recommendations (no player_id filter, single user) and insert new ones
     if (recommendations.length > 0) {
-      // Delete old recommendations
-      await supabase.from(TABLE_NAMES.TRAINING_RECOMMENDATIONS).delete();
+      const db = getDB();
+      const rows = recommendations as Array<Record<string, unknown>>;
+      const columns = Object.keys(rows[0]);
+      const quotedColumns = columns.map((column) => `"${column}"`).join(", ");
+      const placeholders = columns.map(() => "?").join(", ");
 
-      // Insert new recommendations
-      const { error: insertError } = await supabase
-        .from(TABLE_NAMES.TRAINING_RECOMMENDATIONS)
-        .insert(recommendations);
+      const tx = db.transaction(() => {
+        db.prepare(
+          `DELETE FROM "${TABLE_NAMES.TRAINING_RECOMMENDATIONS}"`,
+        ).run();
 
-      if (insertError) {
-        throw new Error(
-          `Failed to save training recommendations: ${insertError.message}`,
+        const insertStmt = db.prepare(
+          `INSERT INTO "${TABLE_NAMES.TRAINING_RECOMMENDATIONS}" (${quotedColumns}) VALUES (${placeholders})`,
         );
-      }
+
+        for (const row of rows) {
+          const values = columns.map((column) => {
+            const value = row[column];
+            if (Array.isArray(value)) {
+              return JSON.stringify(value);
+            }
+            if (
+              value &&
+              typeof value === "object" &&
+              !(value instanceof Date)
+            ) {
+              return JSON.stringify(value);
+            }
+            return value;
+          });
+          insertStmt.run(...values);
+        }
+      });
+
+      tx();
 
       const duration = Date.now() - startTime;
       logDuration(

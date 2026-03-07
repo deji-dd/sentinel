@@ -12,6 +12,14 @@
     "./torn": {
       "types": "./dist/torn.d.ts",
       "import": "./dist/torn.js"
+    },
+    "./db/sqlite": {
+      "types": "./dist/db/sqlite.d.ts",
+      "import": "./dist/db/sqlite.js"
+    },
+    "./db/sqlite.js": {
+      "types": "./dist/db/sqlite.d.ts",
+      "import": "./dist/db/sqlite.js"
     }
   },
   "scripts": {

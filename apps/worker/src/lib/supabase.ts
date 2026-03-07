@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./encryption.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -525,7 +524,7 @@ export async function upsertTravelRecommendations(
 
     for (const row of rows) {
       const values = columns.map((column) =>
-        toSQLiteValue((row as Record<string, unknown>)[column]),
+        toSQLiteValue((row as unknown as Record<string, unknown>)[column]),
       );
       insertStmt.run(...values);
     }

@@ -1,8 +1,8 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { logDuration } from "../lib/logger.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "war_ledger_pruning_worker";
 const PRUNE_CADENCE_SECONDS = 86400; // Prune once daily
@@ -18,17 +18,10 @@ async function pruneWarLedger(): Promise<void> {
     Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { count, error } = await supabase
-    .from(TABLE_NAMES.WAR_LEDGER)
-    .delete()
-    .lt("start_time", cutoffTime.toISOString());
-
-  if (error) {
-    const errorMsg =
-      error instanceof Error ? error.message : JSON.stringify(error);
-    throw new Error(`Failed to prune wars: ${errorMsg}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `DELETE FROM "${TABLE_NAMES.WAR_LEDGER}" WHERE start_time < ?`,
+  ).run(cutoffTime.toISOString());
 
   const duration = Date.now() - startTime;
   logDuration(WORKER_NAME, "Sync completed", duration);
