@@ -45,7 +45,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.5.0
+// @version      2.5.1
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -67,6 +67,7 @@ ${connectMetadata}
   const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
   const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
   const HEALTH_UPDATE_INTERVAL_MS = 5000;
+  const LOG_PREFIX = "[Sentinel Assist]";
 
   let buttonMounted = false;
   let lastAttackerCount = null;
@@ -78,6 +79,15 @@ ${connectMetadata}
   let lastFightStatus = null;
   let lastAttackerSnapshot = null;
   let lastHealthSnapshot = null;
+  let mountTargetMissingLogged = false;
+
+  function logInfo(...args) {
+    console.log(LOG_PREFIX, ...args);
+  }
+
+  function logWarn(...args) {
+    console.warn(LOG_PREFIX, ...args);
+  }
 
   function showToast(message, isSuccess = true) {
     const existing = document.getElementById(TOAST_ID);
@@ -161,7 +171,7 @@ ${connectMetadata}
       '[class*="entry"] [class*="iconHealth"] + span',
     );
     const healthText = (healthValueNode?.textContent || "").trim();
-    const match = healthText.match(/([\d,]+)\s*\/\s*([\d,]+)/);
+    const match = healthText.match(/([\\d,]+)\\s*\\/\\s*([\\d,]+)/);
     if (!match) {
       return null;
     }
@@ -182,7 +192,7 @@ ${connectMetadata}
 
   function readFightTimer() {
     const normalizeTimer = (raw) => {
-      const match = String(raw || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+      const match = String(raw || "").trim().match(/^(\\d{1,2}):(\\d{2})$/);
       if (!match) {
         return null;
       }
@@ -402,6 +412,7 @@ ${connectMetadata}
           });
         },
         onerror: () => {
+          logWarn("Request failed before receiving a response", method);
           resolve({
             ok: false,
             status: 0,
@@ -420,8 +431,14 @@ ${connectMetadata}
 
     const topSection = document.querySelector('[class*="topSection"]');
     if (!topSection || !topSection.parentNode) {
+      if (!mountTargetMissingLogged) {
+        mountTargetMissingLogged = true;
+        logWarn("Mount target not ready yet; waiting for topSection node.");
+      }
       return;
     }
+
+    mountTargetMissingLogged = false;
 
     const buttonContainer = document.createElement("div");
     buttonContainer.style.cssText = [
@@ -498,6 +515,7 @@ ${connectMetadata}
       });
 
       if (response.ok) {
+        logInfo("Assist alert sent successfully");
         showToast("Assist alert sent", true);
         setActiveAssistSessionUntil(Date.now() + ACTIVE_SESSION_WINDOW_MS);
         lastFightStatus = detectFightState();

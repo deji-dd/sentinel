@@ -14,7 +14,6 @@ import { verifyLinkSignature } from "./assist-link-signing.js";
 import {
   logProxyAuthFailure,
   logPayloadTooLarge,
-  logRateLimitHit,
 } from "./assist-monitoring.js";
 import { fetchTornProfileData } from "./torn-api.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
@@ -25,7 +24,6 @@ app.use(express.json());
 let discordClient: Client;
 
 const ASSIST_PROXY_SECRET_HEADER = "Proxy-Secret-Header";
-const ASSIST_UUID_WINDOW_MS = 30000;
 const ASSIST_STRIKE_BLACKLIST_THRESHOLD = 5;
 const ASSIST_ALLOWED_PROXY_METHODS = new Set(["POST", "PATCH", "DELETE"]);
 const parsedAssistMaxPayloadBytes = Number.parseInt(
@@ -38,7 +36,6 @@ const ASSIST_MAX_PAYLOAD_BYTES =
     ? parsedAssistMaxPayloadBytes
     : 16384;
 
-const assistUuidLastSeen = new Map<string, number>();
 const assistMessageTracking = new Map<
   string,
   {
@@ -109,22 +106,21 @@ function isValidUuid(value: string): boolean {
   );
 }
 
-function isAssistRateLimited(uuid: string): boolean {
-  const now = Date.now();
-  const previous = assistUuidLastSeen.get(uuid);
-
-  for (const [key, ts] of assistUuidLastSeen) {
-    if (now - ts > ASSIST_UUID_WINDOW_MS) {
-      assistUuidLastSeen.delete(key);
-    }
+function getRemainingWindowSeconds(
+  timestamp: string | null | undefined,
+  windowMs: number,
+): number {
+  if (!timestamp) {
+    return 0;
   }
 
-  if (previous && now - previous < ASSIST_UUID_WINDOW_MS) {
-    return true;
+  const parsed = new Date(timestamp).getTime();
+  if (!Number.isFinite(parsed)) {
+    return 0;
   }
 
-  assistUuidLastSeen.set(uuid, now);
-  return false;
+  const remainingMs = windowMs - (Date.now() - parsed);
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
 }
 
 function hasValidProxySecret(req: Request): boolean {
@@ -179,7 +175,11 @@ function buildInitialAssistEmbed(
       },
       { name: "Attackers", value: "Monitoring...", inline: true },
       { name: "Enemy HP", value: "Unavailable", inline: true },
-      { name: "Time Left", value: initialFightTimer || "Unavailable", inline: true },
+      {
+        name: "Time Left",
+        value: initialFightTimer || "Unavailable",
+        inline: true,
+      },
     )
     .setTimestamp();
 
@@ -666,20 +666,6 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
-      if (req.method === "POST" && isAssistRateLimited(payload.uuid)) {
-        await incrementAssistStrikeByUuid(payload.uuid, "rate_limit_30s");
-        logRateLimitHit(
-          req.path,
-          req.header("X-Assist-Client-IP") || req.ip || null,
-          req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
-          payload.uuid,
-        );
-        return res.status(429).json({
-          error: "Rate limited",
-          retry_after_seconds: ASSIST_UUID_WINDOW_MS / 1000,
-        });
-      }
-
       const token = await db
         .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
         .select([
@@ -691,6 +677,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
           "is_active",
           "blacklisted_at",
           "expires_at",
+          "last_used_at",
         ])
         .where("token_uuid", "=", payload.uuid)
         .executeTakeFirst();
@@ -708,6 +695,20 @@ export function initHttpServer(client: Client, port: number = 3001) {
         new Date(token.expires_at).getTime() <= Date.now()
       ) {
         return res.status(403).json({ error: "Assist token expired" });
+      }
+
+      if (req.method === "POST") {
+        const activeLockSeconds = getRemainingWindowSeconds(
+          token.last_used_at,
+          ASSIST_EMBED_TIMEOUT_MS,
+        );
+        if (activeLockSeconds > 0) {
+          return res.status(409).json({
+            error:
+              "You already have an active assist alert. Wait for it to end before sending another one.",
+            retry_after_seconds: activeLockSeconds,
+          });
+        }
       }
 
       const guildConfig = await db
@@ -823,6 +824,14 @@ export function initHttpServer(client: Client, port: number = 3001) {
             upsertEmbedField(updatedEmbed, "Enemy HP", enemyHpValue, true);
             hasChanges = true;
           }
+        } else if (payload.action === "enemy_health_updated") {
+          const hpField = updatedEmbed.data.fields?.find(
+            (field) => field.name === "Enemy HP",
+          );
+          if (hpField?.value !== "Unavailable") {
+            upsertEmbedField(updatedEmbed, "Enemy HP", "Unavailable", true);
+            hasChanges = true;
+          }
         }
 
         if (isValidFightTimer(payload.fight_timer)) {
@@ -846,6 +855,20 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
         if (hasChanges) {
           await tracked.message.edit({ embeds: [updatedEmbed] });
+        }
+
+        await db
+          .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+          .set({
+            last_used_at: new Date().toISOString(),
+            last_seen_ip: req.ip,
+            last_seen_user_agent: req.get("user-agent") || null,
+            updated_at: new Date().toISOString(),
+          })
+          .where("id", "=", token.id)
+          .execute();
+
+        if (hasChanges) {
           return res.json({ success: true, updated: "message" });
         }
 
@@ -883,6 +906,18 @@ export function initHttpServer(client: Client, port: number = 3001) {
         }
 
         assistMessageTracking.delete(payload.uuid);
+
+        await db
+          .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+          .set({
+            last_used_at: null,
+            last_seen_ip: req.ip,
+            last_seen_user_agent: req.get("user-agent") || null,
+            updated_at: new Date().toISOString(),
+          })
+          .where("id", "=", token.id)
+          .execute();
+
         return res.json({ success: true, deleted: true, status: "ended" });
       }
 
@@ -907,7 +942,9 @@ export function initHttpServer(client: Client, port: number = 3001) {
         payload.target_torn_id,
         token.discord_id,
         initialFightStatus,
-        isValidFightTimer(payload.fight_timer) ? payload.fight_timer?.trim() : undefined,
+        isValidFightTimer(payload.fight_timer)
+          ? payload.fight_timer?.trim()
+          : undefined,
       );
       const button = buildAssistButton(payload.target_torn_id);
 
