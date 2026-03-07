@@ -7,8 +7,8 @@
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
     "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build",
-    "supabase:push": "pnpm dlx supabase db push --local && pnpm dlx supabase db push",
-    "sqlite:migrate": "cd apps/worker && pnpm migrate",
+    "sqlite:migrate": "pnpm --filter worker migrate:sqlite",
+    "sqlite:new-migration": "node scripts/new-sqlite-migration.js",
     "sqlite:regenerate-schema": "node scripts/convert-schema-to-sqlite.js"
   },
   "devDependencies": {

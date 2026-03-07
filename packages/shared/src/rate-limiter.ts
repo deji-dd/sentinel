@@ -5,14 +5,14 @@
  */
 
 import { createHash } from "crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DatabaseClient } from "./database-client.js";
 import type { RateLimitTracker } from "./torn.js";
 
 const WINDOW_MS = 60000; // 1 minute window
 const MAX_REQUESTS_PER_WINDOW = 50; // Safety buffer: Torn allows 100 req/min, we use 50
 
 export interface DatabaseRateLimiterConfig {
-  supabase: SupabaseClient;
+  db: DatabaseClient;
   tableName: string;
   hashPepper: string;
   maxRequestsPerWindow?: number;
@@ -24,14 +24,14 @@ export interface DatabaseRateLimiterConfig {
  * Use this to coordinate rate limiting across bot and worker instances.
  */
 export class DatabaseRateLimiter implements RateLimitTracker {
-  private supabase: SupabaseClient;
+  private db: DatabaseClient;
   private tableName: string;
   private hashPepper: string;
   private maxRequests: number;
   private windowMs: number;
 
   constructor(config: DatabaseRateLimiterConfig) {
-    this.supabase = config.supabase;
+    this.db = config.db;
     this.tableName = config.tableName;
     this.hashPepper = config.hashPepper;
     this.maxRequests = config.maxRequestsPerWindow ?? MAX_REQUESTS_PER_WINDOW;
@@ -61,7 +61,7 @@ export class DatabaseRateLimiter implements RateLimitTracker {
     const now = new Date();
 
     try {
-      await this.supabase.from(this.tableName).insert({
+      await this.db.from(this.tableName).insert({
         api_key_hash: keyHash,
         requested_at: now.toISOString(),
       });
@@ -79,7 +79,7 @@ export class DatabaseRateLimiter implements RateLimitTracker {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
-      const { count, error } = await this.supabase
+      const { count, error } = await this.db
         .from(this.tableName)
         .select("*", { count: "exact", head: true })
         .eq("api_key_hash", keyHash)
@@ -112,7 +112,7 @@ export class DatabaseRateLimiter implements RateLimitTracker {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await this.db
         .from(this.tableName)
         .select("requested_at")
         .eq("api_key_hash", keyHash)
@@ -138,7 +138,7 @@ export class DatabaseRateLimiter implements RateLimitTracker {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
-      await this.supabase
+      await this.db
         .from(this.tableName)
         .delete()
         .lt("requested_at", windowStart.toISOString());

@@ -18,7 +18,7 @@ import {
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
-import { supabase } from "../../../../lib/supabase.js";
+import { db } from "../../../../lib/db-client.js";
 import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
 import { logGuildError } from "../../../../lib/guild-logger.js";
 import { tornApi } from "../../../../services/torn-client.js";
@@ -157,7 +157,7 @@ async function buildReviveRequestEmbed(
   // Check if user is in alliance (if guild has verification module enabled)
   let allianceStatus: string | null = null;
   if (request.faction_id) {
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("enabled_modules")
       .eq("guild_id", guildId)
@@ -166,7 +166,7 @@ async function buildReviveRequestEmbed(
     const enabledModules: string[] = guildConfig?.enabled_modules || [];
     if (enabledModules.includes("verify")) {
       // Check if faction is registered in faction roles
-      const { data: factionRoles } = await supabase
+      const { data: factionRoles } = await db
         .from(TABLE_NAMES.FACTION_ROLES)
         .select("faction_id")
         .eq("guild_id", guildId);
@@ -309,7 +309,7 @@ function buildResolvedRequestRow(
 }
 
 async function getReviveConfig(guildId: string): Promise<ReviveConfig> {
-  const { data } = await supabase
+  const { data } = await db
     .from(TABLE_NAMES.REVIVE_CONFIG)
     .select("*")
     .eq("guild_id", guildId)
@@ -329,7 +329,7 @@ async function upsertReviveConfig(
   guildId: string,
   values: Partial<Omit<ReviveConfig, "guild_id">>,
 ): Promise<void> {
-  await supabase.from(TABLE_NAMES.REVIVE_CONFIG).upsert(
+  await db.from(TABLE_NAMES.REVIVE_CONFIG).upsert(
     {
       guild_id: guildId,
       ...values,
@@ -424,7 +424,7 @@ async function expireRequestsForGuild(
 ): Promise<void> {
   const nowIso = new Date().toISOString();
 
-  const { data: expiredRows } = await supabase
+  const { data: expiredRows } = await db
     .from(TABLE_NAMES.REVIVE_REQUESTS)
     .select("*")
     .eq("guild_id", guildId)
@@ -436,7 +436,7 @@ async function expireRequestsForGuild(
   }
 
   for (const row of expiredRows) {
-    await supabase
+    await db
       .from(TABLE_NAMES.REVIVE_REQUESTS)
       .update({ state: "expired", updated_at: new Date().toISOString() })
       .eq("id", row.id)
@@ -466,7 +466,7 @@ export async function handleShowReviveSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("enabled_modules")
       .eq("guild_id", guildId)
@@ -857,7 +857,7 @@ async function getActiveRequestByUser(
   guildId: string,
   discordId: string,
 ): Promise<ReviveRequest | null> {
-  const { data } = await supabase
+  const { data } = await db
     .from(TABLE_NAMES.REVIVE_REQUESTS)
     .select("*")
     .eq("guild_id", guildId)
@@ -943,7 +943,7 @@ async function createAndPostReviveRequest(
     Date.now() + REVIVE_REQUEST_TTL_SECONDS * 1000,
   ).toISOString();
 
-  const { data: inserted, error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await db
     .from(TABLE_NAMES.REVIVE_REQUESTS)
     .insert({
       guild_id: guildId,
@@ -988,7 +988,7 @@ async function createAndPostReviveRequest(
       components: [buildActiveRequestRow(request.id)],
     })
     .catch(async () => {
-      await supabase
+      await db
         .from(TABLE_NAMES.REVIVE_REQUESTS)
         .delete()
         .eq("id", request.id);
@@ -1004,7 +1004,7 @@ async function createAndPostReviveRequest(
     return;
   }
 
-  await supabase
+  await db
     .from(TABLE_NAMES.REVIVE_REQUESTS)
     .update({
       request_message_id: postedMessage.id,
@@ -1068,7 +1068,7 @@ async function processReviveRequest(
   }
 
   const config = await getReviveConfig(guildId);
-  const { data: guildConfig } = await supabase
+  const { data: guildConfig } = await db
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("enabled_modules")
     .eq("guild_id", guildId)
@@ -1378,7 +1378,7 @@ export async function handleReviveCancelRequest(
       return;
     }
 
-    const { data: requestRow } = await supabase
+    const { data: requestRow } = await db
       .from(TABLE_NAMES.REVIVE_REQUESTS)
       .select("*")
       .eq("id", requestId)
@@ -1414,7 +1414,7 @@ export async function handleReviveCancelRequest(
       return;
     }
 
-    await supabase
+    await db
       .from(TABLE_NAMES.REVIVE_REQUESTS)
       .update({
         state: "cancelled",
@@ -1468,7 +1468,7 @@ export async function handleReviveMarkRevived(
       return;
     }
 
-    const { data: requestRow } = await supabase
+    const { data: requestRow } = await db
       .from(TABLE_NAMES.REVIVE_REQUESTS)
       .select("*")
       .eq("id", requestId)
@@ -1489,7 +1489,7 @@ export async function handleReviveMarkRevived(
       return;
     }
 
-    await supabase
+    await db
       .from(TABLE_NAMES.REVIVE_REQUESTS)
       .update({
         state: "completed",
@@ -1524,7 +1524,7 @@ export async function handleReviveMarkRevived(
 async function expireRequestsGlobal(client: Client): Promise<void> {
   const nowIso = new Date().toISOString();
 
-  const { data: expiredRows } = await supabase
+  const { data: expiredRows } = await db
     .from(TABLE_NAMES.REVIVE_REQUESTS)
     .select("*")
     .eq("state", "active")
@@ -1535,7 +1535,7 @@ async function expireRequestsGlobal(client: Client): Promise<void> {
   }
 
   for (const row of expiredRows) {
-    await supabase
+    await db
       .from(TABLE_NAMES.REVIVE_REQUESTS)
       .update({
         state: "expired",
@@ -1553,7 +1553,7 @@ async function expireRequestsGlobal(client: Client): Promise<void> {
 }
 
 async function ensureAllRequestPanels(client: Client): Promise<void> {
-  const { data: configs } = await supabase
+  const { data: configs } = await db
     .from(TABLE_NAMES.REVIVE_CONFIG)
     .select("guild_id, request_channel_id")
     .not("request_channel_id", "is", null);

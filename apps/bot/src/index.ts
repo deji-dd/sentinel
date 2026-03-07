@@ -2,7 +2,7 @@ import "dotenv/config";
 import { Events, EmbedBuilder, DiscordAPIError } from "discord.js";
 import { logGuildError } from "./lib/guild-logger.js";
 import {
-  initializeSupabaseConfig,
+  initializeDatabaseConfig,
   initializeDiscordToken,
   initializeAuthorizedUserId,
   createDiscordClient,
@@ -23,7 +23,7 @@ import {
 import { startDailySummaryTask } from "./tasks/daily-summary-task.js";
 
 // Initialize configuration
-initializeSupabaseConfig();
+initializeDatabaseConfig();
 const discordToken = initializeDiscordToken();
 const authorizedDiscordUserId = initializeAuthorizedUserId();
 

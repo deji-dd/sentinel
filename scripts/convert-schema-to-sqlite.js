@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Converts Supabase PostgreSQL schema dump to SQLite schema
+ * Converts PostgreSQL schema dump to SQLite schema
  * Only extracts tables defined in TABLE_NAMES constant
  */
 
@@ -216,17 +216,17 @@ function extractTableStatements(dumpContent, tableName) {
 }
 
 async function main() {
-  const dumpPath = path.join(__dirname, "..", "supabase-schema-dump.sql");
+  const dumpPath = path.join(__dirname, "..", "postgres-schema-dump.sql");
   const outputPath = path.join(__dirname, "..", "sqlite-schema.sql");
 
-  console.log("Reading Supabase schema dump...");
+  console.log("Reading PostgreSQL schema dump...");
   const dumpContent = fs.readFileSync(dumpPath, "utf-8");
 
   console.log("Extracting and converting tables...");
   const sqliteStatements = [];
 
   sqliteStatements.push(
-    "-- SQLite schema converted from Supabase PostgreSQL dump",
+    "-- SQLite schema converted from PostgreSQL dump",
   );
   sqliteStatements.push("-- Generated: " + new Date().toISOString());
   sqliteStatements.push("");
