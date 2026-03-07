@@ -3,18 +3,18 @@
 /**
  * Supabase to SQLite Migration Script
  *
- * Connects to Supabase PRODUCTION database and migrates all data to SQLite.
+ * Connects to Supabase database matching NODE_ENV and migrates all data to SQLite.
  * Run with: tsx --env-file=apps/worker/.env scripts/migrate-supabase-to-sqlite.ts
  *
  * Requirements:
- * - SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env (production credentials)
- * - SQLITE_DB_PATH or SQLITE_DB_PATH_LOCAL in .env (optional, defaults to ./data/sentinel.db)
- * - NODE_ENV set to 'production' to connect to prod Supabase and prod SQLite
+ * - NODE_ENV=development: uses SUPABASE_URL_LOCAL + SUPABASE_SERVICE_ROLE_KEY_LOCAL and SQLITE_DB_PATH_LOCAL
+ * - NODE_ENV=production: uses SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY and SQLITE_DB_PATH
+ * - SQLite path vars are optional (defaults to ./data/sentinel-local.db or ./data/sentinel.db)
  */
 
 import { createClient } from "@supabase/supabase-js";
 import Database from "better-sqlite3";
-import { readFileSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { TABLE_NAMES } from "../packages/shared/src/constants.js";
 
@@ -28,6 +28,13 @@ interface MigrationStats {
   success: boolean;
   error?: string;
   duration: number;
+}
+
+interface MigrationEnv {
+  nodeEnv: string;
+  supabaseUrl: string;
+  supabaseKey: string;
+  sqlitePath: string;
 }
 
 function quoteIdentifier(name: string): string {
@@ -52,10 +59,8 @@ function resolveSupabaseCredentials(nodeEnv: string): {
 } {
   if (nodeEnv === "development") {
     return {
-      url: process.env.SUPABASE_URL_LOCAL ?? process.env.SUPABASE_URL,
-      key:
-        process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL ??
-        process.env.SUPABASE_SERVICE_ROLE_KEY,
+      url: process.env.SUPABASE_URL_LOCAL,
+      key: process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL,
     };
   }
 
@@ -76,6 +81,40 @@ function resolveSQLitePath(nodeEnv: string): string {
   return (
     process.env.SQLITE_DB_PATH || join(process.cwd(), "data", "sentinel.db")
   );
+}
+
+function resolveMigrationEnv(): MigrationEnv {
+  const nodeEnv = process.env.NODE_ENV || "development";
+  const { url, key } = resolveSupabaseCredentials(nodeEnv);
+  const sqlitePath = resolveSQLitePath(nodeEnv);
+
+  if (!url || !key) {
+    const requiredVars =
+      nodeEnv === "development"
+        ? "SUPABASE_URL_LOCAL and SUPABASE_SERVICE_ROLE_KEY_LOCAL"
+        : "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY";
+
+    throw new Error(
+      `Missing Supabase credentials for NODE_ENV=${nodeEnv}. Required: ${requiredVars}`,
+    );
+  }
+
+  return {
+    nodeEnv,
+    supabaseUrl: url,
+    supabaseKey: key,
+    sqlitePath,
+  };
+}
+
+function getSQLiteTableNames(db: Database.Database): Set<string> {
+  const rows = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .all() as Array<{ name: string }>;
+
+  return new Set(rows.map((row) => row.name));
 }
 
 function initializeSchemaIfEmpty(db: Database.Database): void {
@@ -101,30 +140,11 @@ async function main() {
   console.log();
 
   // Validate environment
-  const nodeEnv = process.env.NODE_ENV || "development";
-  const { url: supabaseUrl, key: supabaseKey } =
-    resolveSupabaseCredentials(nodeEnv);
-
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("ERROR: Missing Supabase credentials");
-    if (nodeEnv === "development") {
-      console.error(
-        "Required: SUPABASE_URL_LOCAL/SUPABASE_SERVICE_ROLE_KEY_LOCAL (or SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fallback)",
-      );
-    } else {
-      console.error("Required: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
-    }
-    console.error(
-      "Run with: pnpm --filter worker exec tsx --env-file=.env ../../scripts/migrate-supabase-to-sqlite.ts",
-    );
-    process.exit(1);
-  }
+  const { nodeEnv, supabaseUrl, supabaseKey, sqlitePath } =
+    resolveMigrationEnv();
 
   console.log(`Environment: ${nodeEnv}`);
   console.log(`Supabase URL: ${supabaseUrl}`);
-
-  // Determine SQLite path based on environment
-  const sqlitePath = resolveSQLitePath(nodeEnv);
   console.log(`SQLite path: ${sqlitePath}`);
   console.log();
 
@@ -136,6 +156,7 @@ async function main() {
 
   // Connect to SQLite
   console.log("Connecting to SQLite...");
+  mkdirSync(join(process.cwd(), "data"), { recursive: true });
   const db = new Database(sqlitePath);
 
   // Enable WAL mode
@@ -145,6 +166,7 @@ async function main() {
   db.pragma("foreign_keys = OFF");
 
   initializeSchemaIfEmpty(db);
+  const sqliteTables = getSQLiteTableNames(db);
 
   console.log("Database connections established");
   console.log();
@@ -160,6 +182,25 @@ async function main() {
     const startTime = Date.now();
 
     try {
+      if (!sqliteTables.has(tableName)) {
+        const duration = Date.now() - startTime;
+        const message = `Table ${tableName} does not exist in sqlite-schema.sql`;
+
+        console.log(`\nSkipping table: ${tableName}`);
+        console.log(`  ${message}`);
+
+        stats.push({
+          table: tableName,
+          rowCount: 0,
+          success: false,
+          error: message,
+          duration,
+        });
+
+        failCount++;
+        continue;
+      }
+
       console.log(`\nMigrating table: ${tableName}`);
       console.log("-".repeat(80));
 
