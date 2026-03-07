@@ -10,7 +10,33 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
+
+type GuildConfigRow = {
+  guild_id: string;
+  enabled_modules: string | string[] | null;
+};
+
+function parseEnabledModules(value: string | string[] | null): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("setup-guild")
@@ -60,9 +86,10 @@ export async function execute(
     }
 
     // Get list of already configured guilds
-    const { data: configuredGuilds } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id");
+    const db = getDB();
+    const configuredGuilds = db
+      .prepare(`SELECT guild_id FROM "${TABLE_NAMES.GUILD_CONFIG}"`)
+      .all() as Array<{ guild_id: string }>;
 
     const configuredGuildIds = new Set(
       configuredGuilds?.map((config) => config.guild_id) || [],
@@ -141,11 +168,12 @@ export async function handleGuildSelect(
     const selectedGuildId = interaction.values[0];
 
     // Check if guild is already configured
-    const { data: existingConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", selectedGuildId)
-      .single();
+    const db = getDB();
+    const existingConfig = db
+      .prepare(
+        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+      )
+      .get(selectedGuildId) as GuildConfigRow | undefined;
 
     if (existingConfig) {
       // Guild already configured, show current modules
@@ -156,8 +184,8 @@ export async function handleGuildSelect(
         .addFields({
           name: "Enabled Modules",
           value:
-            existingConfig.enabled_modules.length > 0
-              ? existingConfig.enabled_modules.join(", ")
+            parseEnabledModules(existingConfig.enabled_modules).length > 0
+              ? parseEnabledModules(existingConfig.enabled_modules).join(", ")
               : "None",
         });
 
@@ -169,20 +197,25 @@ export async function handleGuildSelect(
     }
 
     // Initialize new guild with empty modules
-    const { error: insertError } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .insert({
-        guild_id: selectedGuildId,
-        enabled_modules: [],
-        admin_role_ids: [],
-        verified_role_ids: [],
-      });
-
-    if (insertError) {
+    try {
+      db.prepare(
+        `INSERT INTO "${TABLE_NAMES.GUILD_CONFIG}" (guild_id, enabled_modules, admin_role_ids, verified_role_ids)
+         VALUES (?, ?, ?, ?)`,
+      ).run(
+        selectedGuildId,
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify([]),
+      );
+    } catch (insertError) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Initialization Failed")
-        .setDescription(insertError.message);
+        .setDescription(
+          insertError instanceof Error
+            ? insertError.message
+            : String(insertError),
+        );
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -192,17 +225,15 @@ export async function handleGuildSelect(
     }
 
     // Initialize sync job for this guild
-    const { error: syncJobError } = await supabase
-      .from(TABLE_NAMES.GUILD_SYNC_JOBS)
-      .insert({
-        guild_id: selectedGuildId,
-        next_sync_at: new Date().toISOString(),
-      });
-
-    if (syncJobError) {
+    try {
+      db.prepare(
+        `INSERT INTO "${TABLE_NAMES.GUILD_SYNC_JOBS}" (guild_id, next_sync_at)
+         VALUES (?, ?)`,
+      ).run(selectedGuildId, new Date().toISOString());
+    } catch (syncJobError) {
       console.error(
         `Warning: Failed to create sync job for guild ${selectedGuildId}:`,
-        syncJobError.message,
+        syncJobError instanceof Error ? syncJobError.message : syncJobError,
       );
       // Don't fail the entire setup, just log the warning
     }
@@ -273,18 +304,16 @@ export async function handleModulesSelect(
     const modulesToEnable = ["admin", ...selectedModules];
 
     // Update guild config with selected modules
-    const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({
-        enabled_modules: modulesToEnable,
-      })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    const db = getDB();
+    try {
+      db.prepare(
+        `UPDATE "${TABLE_NAMES.GUILD_CONFIG}" SET enabled_modules = ? WHERE guild_id = ?`,
+      ).run(JSON.stringify(modulesToEnable), guildId);
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Failed to Update Modules")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],

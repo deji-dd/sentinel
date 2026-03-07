@@ -4,9 +4,9 @@
  * Synced daily via faction-sync worker
  */
 
-import { TABLE_NAMES, getFactionDataCached } from "@sentinel/shared";
+import { TABLE_NAMES } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
-import { supabase } from "./supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 /**
  * Validate and fetch faction details from Torn API (with caching)
@@ -22,12 +22,61 @@ export async function validateAndFetchFactionDetails(
   }
 
   try {
-    const factionData = await getFactionDataCached(
-      supabase,
-      factionId,
-      tornApi,
-      apiKey,
-    );
+    const db = getDB();
+    let factionData = db
+      .prepare(
+        `SELECT * FROM "${TABLE_NAMES.TORN_FACTIONS}" WHERE id = ? LIMIT 1`,
+      )
+      .get(factionId) as { name?: string | null } | undefined;
+
+    if (!factionData) {
+      const response = await tornApi.get("/faction/{id}/basic", {
+        apiKey,
+        pathParams: { id: String(factionId) },
+      });
+      const basic = response.basic;
+
+      if (basic?.id && basic?.name) {
+        db.prepare(
+          `INSERT INTO "${TABLE_NAMES.TORN_FACTIONS}"
+           (id, name, tag, tag_image, leader_id, co_leader_id, respect, days_old, capacity, members, is_enlisted, rank, best_chain, note, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             name = excluded.name,
+             tag = excluded.tag,
+             tag_image = excluded.tag_image,
+             leader_id = excluded.leader_id,
+             co_leader_id = excluded.co_leader_id,
+             respect = excluded.respect,
+             days_old = excluded.days_old,
+             capacity = excluded.capacity,
+             members = excluded.members,
+             is_enlisted = excluded.is_enlisted,
+             rank = excluded.rank,
+             best_chain = excluded.best_chain,
+             note = excluded.note,
+             updated_at = excluded.updated_at`,
+        ).run(
+          basic.id,
+          basic.name,
+          basic.tag,
+          basic.tag_image,
+          basic.leader_id,
+          basic.co_leader_id,
+          basic.respect,
+          basic.days_old,
+          basic.capacity,
+          basic.members,
+          basic.is_enlisted ? 1 : 0,
+          basic.rank?.name || null,
+          basic.best_chain,
+          basic.note || null,
+          new Date().toISOString(),
+        );
+
+        factionData = { name: basic.name };
+      }
+    }
 
     if (!factionData || !factionData.name) {
       return null;
@@ -51,23 +100,21 @@ export async function storeFactionDetails(
   factionName: string,
 ): Promise<boolean> {
   try {
-    const { error } = await supabase.from(TABLE_NAMES.FACTION_ROLES).upsert(
-      {
-        guild_id: guildId,
-        faction_id: factionId,
-        member_role_ids: roleIds,
-        faction_name: factionName,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "guild_id,faction_id",
-      },
+    const db = getDB();
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.FACTION_ROLES}" (guild_id, faction_id, member_role_ids, faction_name, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(guild_id, faction_id) DO UPDATE SET
+         member_role_ids = excluded.member_role_ids,
+         faction_name = excluded.faction_name,
+         updated_at = excluded.updated_at`,
+    ).run(
+      guildId,
+      factionId,
+      JSON.stringify(roleIds),
+      factionName,
+      new Date().toISOString(),
     );
-
-    if (error) {
-      console.error("Error storing faction details:", error);
-      return false;
-    }
 
     return true;
   } catch (error) {
@@ -121,16 +168,13 @@ export async function fetchAndStoreFactionNames(
     // Batch update database with new names
     const successfulResults = results.filter((r) => r.name !== null);
     if (successfulResults.length > 0) {
+      const db = getDB();
       for (const { id, name } of successfulResults) {
         try {
           // Update all rows with this faction_id across all guilds
-          await supabase
-            .from(TABLE_NAMES.FACTION_ROLES)
-            .update({
-              faction_name: name!,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("faction_id", id);
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.FACTION_ROLES}" SET faction_name = ?, updated_at = ? WHERE faction_id = ?`,
+          ).run(name!, new Date().toISOString(), id);
 
           names.set(id, name!);
         } catch (dbError) {

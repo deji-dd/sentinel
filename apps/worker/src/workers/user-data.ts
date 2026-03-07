@@ -3,8 +3,8 @@ import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
@@ -29,19 +29,15 @@ async function syncUserDataHandler(): Promise<void> {
       (profile.donator_status || "").toLowerCase() === "donator";
 
     // Personalized mode: upsert using player_id as primary key
-    const { error } = await supabase.from(TABLE_NAMES.USER_DATA).upsert(
-      {
-        player_id: profile.id,
-        name: profile.name,
-        is_donator: isDonator,
-        profile_image: profile.image || null,
-      },
-      { onConflict: "player_id" },
-    );
-
-    if (error) {
-      throw error;
-    }
+    const db = getDB();
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.USER_DATA}" (player_id, name, is_donator, profile_image)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(player_id) DO UPDATE SET
+         name = excluded.name,
+         is_donator = excluded.is_donator,
+         profile_image = excluded.profile_image`,
+    ).run(profile.id, profile.name, isDonator ? 1 : 0, profile.image || null);
 
     // Success - log completion
     const duration = Date.now() - startTime;
@@ -49,7 +45,7 @@ async function syncUserDataHandler(): Promise<void> {
   } catch (error) {
     const elapsed = Date.now() - startTime;
     if (error instanceof Object && "message" in error && "code" in error) {
-      // PostgreSQL/Supabase error object
+      // Database error object
       logError(
         WORKER_NAME,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

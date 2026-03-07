@@ -236,7 +236,7 @@ async function incrementAssistStrikeByUuid(
 }
 
 /**
- * Initialize the HTTP server with Discord and Supabase clients
+ * Initialize the HTTP server with Discord and database clients
  */
 export function initHttpServer(client: Client, port: number = 3001) {
   discordClient = client;

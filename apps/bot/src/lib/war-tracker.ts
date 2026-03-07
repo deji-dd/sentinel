@@ -4,7 +4,7 @@
  */
 
 import { EmbedBuilder } from "discord.js";
-import { supabase } from "./supabase.js";
+import { db } from "./db-client.js";
 import { getFactionNameCached, type TornApiComponents } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
@@ -241,19 +241,11 @@ export async function fetchTrackerData(
   }
 
   const assaultingName =
-    (await getFactionNameCached(
-      supabase,
-      war.assaulting_faction,
-      tornApi,
-      apiKey,
-    )) || `Faction ${war.assaulting_faction}`;
+    (await getFactionNameCached(war.assaulting_faction, tornApi, apiKey)) ||
+    `Faction ${war.assaulting_faction}`;
   const defendingName =
-    (await getFactionNameCached(
-      supabase,
-      war.defending_faction,
-      tornApi,
-      apiKey,
-    )) || `Faction ${war.defending_faction}`;
+    (await getFactionNameCached(war.defending_faction, tornApi, apiKey)) ||
+    `Faction ${war.defending_faction}`;
 
   const enemyFactionId =
     tracker.enemy_side === "assaulting"

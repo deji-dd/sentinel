@@ -43,21 +43,25 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/apps/ui/.next
-/apps/ui/out
-/apps/ui/next-env.d.ts
 /apps/worker/node_modules
 /apps/worker/dist
 /apps/bot/dist
 /apps/bot/node_modules
 
-.archive/
+# SQLite databases
+/data/
+*.db
+*.db-shm
+*.db-wal
 
 # PM2 logs
 logs/
 .github/
 **/logs/
 
-# Supabase CLI generated files
-supabase/.branches/
-supabase/.temp/
+# Archived DB tooling generated files
+.archive/postgres-migrations/.branches/
+.archive/postgres-migrations/.temp/*.db*
+.dev.vars
+
+.archive/

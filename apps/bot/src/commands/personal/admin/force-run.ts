@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 export const data = new SlashCommandBuilder()
   .setName("force-run")
@@ -38,13 +38,12 @@ export async function execute(
     const workerName = interaction.options.getString("worker", true);
 
     // Look up worker ID by name
-    const { data: worker, error: lookupError } = await supabase
-      .from(TABLE_NAMES.WORKERS)
-      .select("id")
-      .eq("name", workerName)
-      .single();
+    const db = getDB();
+    const worker = db
+      .prepare(`SELECT id FROM "${TABLE_NAMES.WORKERS}" WHERE name = ? LIMIT 1`)
+      .get(workerName) as { id: number } | undefined;
 
-    if (lookupError || !worker) {
+    if (!worker) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Worker Not Found")
@@ -57,16 +56,19 @@ export async function execute(
     }
 
     // Trigger the worker by setting force_run flag
-    const { error: triggerError } = await supabase
-      .from(TABLE_NAMES.WORKER_SCHEDULES)
-      .update({ force_run: true })
-      .eq("worker_id", worker.id);
+    const updateResult = db
+      .prepare(
+        `UPDATE "${TABLE_NAMES.WORKER_SCHEDULES}" SET force_run = 1 WHERE worker_id = ?`,
+      )
+      .run(worker.id);
 
-    if (triggerError) {
+    if (updateResult.changes === 0) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Failed to Trigger Worker")
-        .setDescription(triggerError.message);
+        .setDescription(
+          "No worker schedule found for this worker. Ensure it is registered first.",
+        );
 
       await interaction.editReply({
         embeds: [errorEmbed],

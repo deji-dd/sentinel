@@ -22,7 +22,7 @@ import {
 } from "discord.js";
 import { TABLE_NAMES, getFactionDataBatchCached } from "@sentinel/shared";
 import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
-import { supabase } from "../../../../lib/supabase.js";
+import { db } from "../../../../lib/db-client.js";
 import { tornApi } from "../../../../services/torn-client.js";
 
 interface TTConfig {
@@ -55,7 +55,7 @@ interface WarTrackerRow {
 const WAR_PAGE_SIZE = 10;
 
 async function getTTConfig(guildId: string): Promise<TTConfig> {
-  const { data: ttConfig } = await supabase
+  const { data: ttConfig } = await db
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select(
       "guild_id, tt_full_channel_id, tt_filtered_channel_id, tt_territory_ids, tt_faction_ids",
@@ -78,7 +78,7 @@ async function upsertTTConfig(
   guildId: string,
   updates: Partial<TTConfig>,
 ): Promise<void> {
-  await supabase.from(TABLE_NAMES.GUILD_CONFIG).upsert(
+  await db.from(TABLE_NAMES.GUILD_CONFIG).upsert(
     {
       guild_id: guildId,
       ...updates,
@@ -102,7 +102,7 @@ async function getFactionNameMap(
     return nameMap;
   }
 
-  const { data: cached } = await supabase
+  const { data: cached } = await db
     .from(TABLE_NAMES.TORN_FACTIONS)
     .select("id, name")
     .in("id", factionIds);
@@ -122,12 +122,7 @@ async function getFactionNameMap(
     return nameMap;
   }
 
-  const fetched = await getFactionDataBatchCached(
-    supabase,
-    missingIds,
-    tornApi,
-    apiKey,
-  );
+  const fetched = await getFactionDataBatchCached(missingIds, tornApi, apiKey);
 
   for (const [id, data] of fetched.entries()) {
     nameMap.set(id, data.name);
@@ -266,7 +261,7 @@ export async function handleTTSettingsEdit(
 }
 
 async function getActiveWars(): Promise<WarLedgerRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE_NAMES.WAR_LEDGER)
     .select(
       "war_id, territory_id, assaulting_faction, defending_faction, start_time, end_time",
@@ -300,7 +295,7 @@ async function getOrCreateWarTracker(
   war: WarLedgerRow,
 ): Promise<WarTrackerRow> {
   // First, try to fetch existing tracker
-  const { data: existingTracker, error: _fetchError } = await supabase
+  const { data: existingTracker, error: _fetchError } = await db
     .from(TABLE_NAMES.WAR_TRACKERS)
     .select(
       "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
@@ -315,7 +310,7 @@ async function getOrCreateWarTracker(
   }
 
   // Only create if it doesn't exist
-  const { data: newTracker, error: createError } = await supabase
+  const { data: newTracker, error: createError } = await db
     .from(TABLE_NAMES.WAR_TRACKERS)
     .insert({
       guild_id: guildId,
@@ -342,7 +337,7 @@ async function updateWarTrackerRow(
   warId: number,
   updates: Partial<WarTrackerRow>,
 ): Promise<void> {
-  await supabase
+  await db
     .from(TABLE_NAMES.WAR_TRACKERS)
     .update({
       ...updates,
@@ -409,7 +404,7 @@ async function showTTWarList(
   const trackerMap = new Map<number, WarTrackerRow>();
   if (guildId && pageWars.length > 0) {
     const warIds = pageWars.map((war) => war.war_id);
-    const { data: trackers } = await supabase
+    const { data: trackers } = await db
       .from(TABLE_NAMES.WAR_TRACKERS)
       .select(
         "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
@@ -768,7 +763,7 @@ export async function handleTTWarTrackChannelClear(
   if (!guildId) return;
 
   // Fetch current tracker to get message_id
-  const { data: currentTracker } = await supabase
+  const { data: currentTracker } = await db
     .from(TABLE_NAMES.WAR_TRACKERS)
     .select("channel_id, message_id")
     .eq("guild_id", guildId)

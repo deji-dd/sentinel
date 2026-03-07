@@ -2,7 +2,33 @@ import { SlashCommandBuilder, EmbedBuilder, REST, Routes } from "discord.js";
 import type { ChatInputCommandInteraction, Client } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
+
+type GuildConfigRow = {
+  guild_id: string;
+  enabled_modules: string | string[] | null;
+};
+
+function parseEnabledModules(value: string | string[] | null): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("deploy-commands")
@@ -154,15 +180,20 @@ export async function execute(
     }
 
     // Deploy to configured guilds based on enabled modules
-    const { data: guildConfigs } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*");
+    const db = getDB();
+    const guildConfigs = db
+      .prepare(
+        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
+      )
+      .all() as GuildConfigRow[];
 
     if (guildConfigs && guildConfigs.length > 0) {
       for (const guildConfig of guildConfigs) {
         try {
           const guildId = guildConfig.guild_id;
-          const enabledModules: string[] = guildConfig.enabled_modules || [];
+          const enabledModules = parseEnabledModules(
+            guildConfig.enabled_modules,
+          );
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let guildCommands: any[] = [];

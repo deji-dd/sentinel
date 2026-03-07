@@ -37,8 +37,7 @@ import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
-import * as assistHandlers from "./handlers/assist.js";
-import { supabase } from "../../../lib/supabase.js";
+import { db } from "../../../lib/db-client.js";
 
 interface StoredGuildApiKey {
   id: number;
@@ -50,7 +49,7 @@ interface StoredGuildApiKey {
 async function getStoredGuildApiKeys(
   guildId: string,
 ): Promise<StoredGuildApiKey[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE_NAMES.GUILD_API_KEYS)
     .select("id, api_key_encrypted, is_primary, created_at")
     .eq("guild_id", guildId)
@@ -190,7 +189,7 @@ export async function execute(
     }
 
     // Check if guild is configured
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -310,7 +309,7 @@ export async function handleViewSelect(
     }
 
     // Get guild config BEFORE deferring
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -487,7 +486,7 @@ async function showVerifySettings(
   guildConfig: any,
 ): Promise<void> {
   // Fetch faction role mappings
-  const { data: factionRoles } = await supabase
+  const { data: factionRoles } = await db
     .from(TABLE_NAMES.FACTION_ROLES)
     .select("*")
     .eq("guild_id", interaction.guildId)
@@ -608,7 +607,7 @@ export async function handleBackToMenu(
     const adminGuildId = process.env.ADMIN_GUILD_ID;
     const isAdminGuild = guildId === adminGuildId;
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("enabled_modules")
       .eq("guild_id", guildId)
@@ -647,7 +646,7 @@ export async function handleBackToVerifySettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -658,7 +657,7 @@ export async function handleBackToVerifySettings(
     // Create a mock StringSelectMenuInteraction to reuse showVerifySettings
     // Since we can't directly pass ButtonInteraction to showVerifySettings,
     // we'll inline the display logic here
-    const { data: factionRoles } = await supabase
+    const { data: factionRoles } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("*")
       .eq("guild_id", guildId)
@@ -825,7 +824,7 @@ export async function handleBackToAdminSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -944,7 +943,7 @@ export async function handleVerifySettingsEdit(
     }
 
     // Get guild config
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -1097,7 +1096,7 @@ async function showFactionRoleMenu(
   page: number = 1,
 ): Promise<void> {
   try {
-    const { data: factionRoles, error: factionError } = await supabase
+    const { data: factionRoles, error: factionError } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("*")
       .eq("guild_id", guildId)
@@ -1135,7 +1134,7 @@ async function showFactionRoleMenu(
           await fetchAndStoreFactionNames(factionIds, apiKey);
 
           // Re-fetch the page's faction roles to get updated names
-          const { data: updatedRoles } = await supabase
+          const { data: updatedRoles } = await db
             .from(TABLE_NAMES.FACTION_ROLES)
             .select("*")
             .eq("guild_id", guildId)
@@ -1361,7 +1360,7 @@ async function showFactionManagePage(
   if (!guildId) return;
 
   // Fetch faction mapping
-  const { data: factionMapping } = await supabase
+  const { data: factionMapping } = await db
     .from(TABLE_NAMES.FACTION_ROLES)
     .select("*")
     .eq("guild_id", guildId)
@@ -1464,7 +1463,7 @@ export async function handleVerifySettingsEditCancel(
       return;
     }
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -1513,7 +1512,7 @@ export async function handleEditApiKeysButton(
       return;
     }
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
@@ -1811,7 +1810,7 @@ export async function handleRotateApiKeyButton(
       apiKeys[nextInactiveIdx].api_key_encrypted,
     );
 
-    const { error: clearPrimaryError } = await supabase
+    const { error: clearPrimaryError } = await db
       .from(TABLE_NAMES.GUILD_API_KEYS)
       .update({ is_primary: false })
       .eq("guild_id", guildId)
@@ -1830,7 +1829,7 @@ export async function handleRotateApiKeyButton(
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_API_KEYS)
       .update({ is_primary: true })
       .eq("id", apiKeys[nextInactiveIdx].id)
@@ -1989,7 +1988,7 @@ export async function handleRemoveApiKeySelect(
     if (removedWasActive) {
       const remainingKeys = await getStoredGuildApiKeys(guildId);
       if (remainingKeys.length > 0) {
-        await supabase
+        await db
           .from(TABLE_NAMES.GUILD_API_KEYS)
           .update({ is_primary: true })
           .eq("id", remainingKeys[0].id)
@@ -2156,7 +2155,7 @@ export async function handleAddFactionRoleModalSubmit(
     }
 
     // Check if this faction is already mapped
-    const { data: existingMapping } = await supabase
+    const { data: existingMapping } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("*")
       .eq("guild_id", guildId)
@@ -2165,7 +2164,7 @@ export async function handleAddFactionRoleModalSubmit(
 
     // If not exists, create it with empty roles
     if (!existingMapping) {
-      await supabase.from(TABLE_NAMES.FACTION_ROLES).insert({
+      await db.from(TABLE_NAMES.FACTION_ROLES).insert({
         guild_id: guildId,
         faction_id: factionId,
         faction_name: factionDetails.name,
@@ -2283,7 +2282,7 @@ export async function handleRemoveFactionRoleModalSubmit(
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .delete()
       .eq("guild_id", guildId)
@@ -2471,7 +2470,7 @@ export async function handleVerifiedRoleSelect(
 
     const roleId = interaction.values[0];
 
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({ verified_role_id: roleId })
       .eq("guild_id", guildId);
@@ -2543,7 +2542,7 @@ export async function handleNicknameTemplateModalSubmit(
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({ nickname_template: template })
       .eq("guild_id", guildId);
@@ -2623,7 +2622,7 @@ export async function handleConfirmAutoVerifyToggle(
       return;
     }
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("auto_verify")
       .eq("guild_id", guildId)
@@ -2635,7 +2634,7 @@ export async function handleConfirmAutoVerifyToggle(
 
     const newValue = !guildConfig.auto_verify;
 
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({ auto_verify: newValue })
       .eq("guild_id", guildId);
@@ -2700,7 +2699,7 @@ export async function handleEditLogChannelButton(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("log_channel_id")
       .eq("guild_id", guildId)
@@ -2773,7 +2772,7 @@ export async function handleLogChannelSelect(
     }
 
     // Update guild config with log channel
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({ log_channel_id: selectedChannel.id })
       .eq("guild_id", guildId);
@@ -2848,7 +2847,7 @@ export async function handleClearLogChannel(
     if (!guildId) return;
 
     // Clear log channel
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({ log_channel_id: null })
       .eq("guild_id", guildId);
@@ -2969,7 +2968,7 @@ export async function handleAdminRolesSelect(
     }
 
     // Update guild config with selected admin roles
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .update({
         admin_role_ids: selectedRoleIds,
@@ -3045,7 +3044,7 @@ async function logGuildAudit(entry: {
   details?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    await supabase.from(TABLE_NAMES.GUILD_AUDIT).insert({
+    await db.from(TABLE_NAMES.GUILD_AUDIT).insert({
       guild_id: entry.guildId,
       actor_discord_id: entry.actorId,
       action: entry.action,
@@ -3233,7 +3232,7 @@ export async function handleFactionToggle(
     if (!guildId) return;
 
     // Get current mapping
-    const { data: currentMapping } = await supabase
+    const { data: currentMapping } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("enabled")
       .eq("guild_id", guildId)
@@ -3245,7 +3244,7 @@ export async function handleFactionToggle(
     const newEnabled = !(currentMapping.enabled !== false); // Toggle
 
     // Update in database
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .update({ enabled: newEnabled })
       .eq("guild_id", guildId)
@@ -3291,7 +3290,7 @@ export async function handleFactionMemberRolesButton(
     if (!guildId) return;
 
     // Fetch faction name
-    const { data: factionMapping } = await supabase
+    const { data: factionMapping } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("faction_name")
       .eq("guild_id", guildId)
@@ -3346,7 +3345,7 @@ export async function handleFactionLeaderRolesButton(
     if (!guildId) return;
 
     // Fetch faction name
-    const { data: factionMapping } = await supabase
+    const { data: factionMapping } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("faction_name")
       .eq("guild_id", guildId)
@@ -3403,7 +3402,7 @@ export async function handleFactionMemberRolesSelect(
     const roleIds = interaction.values;
 
     // Update in database
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .update({ member_role_ids: roleIds })
       .eq("guild_id", guildId)
@@ -3451,7 +3450,7 @@ export async function handleFactionLeaderRolesSelect(
     const roleIds = interaction.values;
 
     // Update in database
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .update({ leader_role_ids: roleIds })
       .eq("guild_id", guildId)

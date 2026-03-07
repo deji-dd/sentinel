@@ -10,8 +10,8 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
-import { supabase } from "../../../lib/supabase.js";
 
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
 
@@ -37,14 +37,11 @@ export async function execute(
   try {
     await interaction.deferReply();
 
+    const db = getDB();
     // Get all territories
-    const { data: allTerritories, error: allTerritoriesError } = await supabase
-      .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-      .select("id");
-
-    if (allTerritoriesError || !allTerritories) {
-      throw new Error("Failed to fetch territory list");
-    }
+    const allTerritories = db
+      .prepare(`SELECT id FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}"`)
+      .all() as any[];
 
     const allTerritoryIds = allTerritories.map((t) => t.id);
     const totalTerritories = allTerritoryIds.length;

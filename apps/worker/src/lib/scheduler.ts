@@ -6,7 +6,7 @@ import {
   ensureWorkerRegistered,
   insertWorkerLog,
   updateWorkerCadence,
-} from "./supabase-helpers.js";
+} from "./scheduler-db-helpers.js";
 import { logError, logWarn } from "./logger.js";
 
 export interface RunConfig {

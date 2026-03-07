@@ -3,8 +3,8 @@
  * Calculates stat gains over the previous 24 hours and generates summary data
  */
 
-import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const TCT_OFFSET_MS = 0; // TCT = UTC (no offset needed)
 
@@ -83,39 +83,35 @@ export interface DailyStatsSummary {
 async function getSnapshotBefore(
   beforeUtcTime: Date,
 ): Promise<DailyStatsSnapshot | null> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-    .select("strength, speed, defense, dexterity, total_stats")
-    .lt("created_at", beforeUtcTime.toISOString())
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const db = getDB();
+  const snapshot = db
+    .prepare(
+      `SELECT strength, speed, defense, dexterity, total_stats
+       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
+       WHERE created_at < ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get(beforeUtcTime.toISOString()) as DailyStatsSnapshot | undefined;
 
-  if (error) {
-    throw new Error(`Failed to fetch battlestats snapshot: ${error.message}`);
-  }
-
-  return data as DailyStatsSnapshot | null;
+  return snapshot ?? null;
 }
 
 /**
  * Get the latest battlestats snapshot
  */
 async function getLatestSnapshot(): Promise<DailyStatsSnapshot | null> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-    .select("strength, speed, defense, dexterity, total_stats")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const db = getDB();
+  const snapshot = db
+    .prepare(
+      `SELECT strength, speed, defense, dexterity, total_stats
+       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get() as DailyStatsSnapshot | undefined;
 
-  if (error) {
-    throw new Error(
-      `Failed to fetch latest battlestats snapshot: ${error.message}`,
-    );
-  }
-
-  return data as DailyStatsSnapshot | null;
+  return snapshot ?? null;
 }
 
 /**
