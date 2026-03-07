@@ -58,4 +58,5 @@ logs/
 
 # Supabase CLI generated files
 supabase/.branches/
-supabase/.temp/
+supabase/.temp/*.db*
+.dev.vars
