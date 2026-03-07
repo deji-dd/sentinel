@@ -75,6 +75,7 @@ ${connectMetadata}
   let assistRequestInFlight = false;
   let assistSessionActiveUntil = 0;
   let lastFightStatus = null;
+  let lastAttackerSnapshot = null;
 
   function showToast(message, isSuccess = true) {
     const existing = document.getElementById(TOAST_ID);
@@ -464,54 +465,98 @@ ${connectMetadata}
   }
 
   function monitorAttackerCount() {
-    const statsHeader = document.getElementById("stats-header");
-    if (!statsHeader) {
-      return;
-    }
+    const notifyAttackerPatch = (payload) => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
 
-    const readCount = () => {
+      sendAssistEvent("PATCH", payload).then((response) => {
+        if (response.status === 404 || response.status === 410) {
+          clearActiveAssistSession();
+        }
+      });
+    };
+
+    const readCountFrom = (statsHeader) => {
       const node = statsHeader.querySelector('[class*="titleNumber"]');
       if (!node) {
+        if (lastAttackerSnapshot !== "unavailable") {
+          lastAttackerSnapshot = "unavailable";
+          notifyAttackerPatch({
+            action: "attacker_count_unavailable",
+            details: "Attacker count unavailable",
+            result: "count_unavailable",
+          });
+        }
         return;
       }
 
       const current = Number.parseInt((node.textContent || "").trim(), 10);
       if (!Number.isFinite(current)) {
+        if (lastAttackerSnapshot !== "unavailable") {
+          lastAttackerSnapshot = "unavailable";
+          notifyAttackerPatch({
+            action: "attacker_count_unavailable",
+            details: "Attacker count unavailable",
+            result: "count_unavailable",
+          });
+        }
         return;
       }
 
-      if (lastAttackerCount !== null && current !== lastAttackerCount) {
-        if (!hasActiveAssistSession()) {
-          lastAttackerCount = current;
-          return;
-        }
+      const currentSnapshot = "count:" + String(current);
+      if (lastAttackerSnapshot !== null && currentSnapshot !== lastAttackerSnapshot) {
+        const previousValue =
+          lastAttackerSnapshot === "unavailable"
+            ? "unavailable"
+            : String(lastAttackerCount);
 
-        sendAssistEvent("PATCH", {
+        notifyAttackerPatch({
           action: "attacker_count_changed",
           details:
             "Attacker count changed: " +
-            String(lastAttackerCount) +
+            previousValue +
             " -> " +
             String(current),
           result: "count_changed",
-        }).then((response) => {
-          if (response.status === 404 || response.status === 410) {
-            clearActiveAssistSession();
-          }
         });
       }
 
       lastAttackerCount = current;
+      lastAttackerSnapshot = currentSnapshot;
     };
 
-    const observer = new MutationObserver(readCount);
-    observer.observe(statsHeader, {
+    let attackerObserverAttached = false;
+
+    const tryAttach = () => {
+      const statsHeader = document.getElementById("stats-header");
+      if (!statsHeader) {
+        return;
+      }
+
+      if (!attackerObserverAttached) {
+        const observer = new MutationObserver(() => {
+          readCountFrom(statsHeader);
+        });
+        observer.observe(statsHeader, {
+          subtree: true,
+          childList: true,
+          characterData: true,
+        });
+        attackerObserverAttached = true;
+      }
+
+      readCountFrom(statsHeader);
+    };
+
+    const bodyObserver = new MutationObserver(tryAttach);
+    bodyObserver.observe(document.body, {
       subtree: true,
       childList: true,
       characterData: true,
     });
 
-    readCount();
+    tryAttach();
   }
 
   function monitorFightLifecycle() {

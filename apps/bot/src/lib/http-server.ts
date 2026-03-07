@@ -730,6 +730,17 @@ export function initHttpServer(client: Client, port: number = 3001) {
           }
         }
 
+        if (payload.action === "attacker_count_unavailable") {
+          const attackersField = updatedEmbed.data.fields?.find(
+            (field) => field.name === "Attackers",
+          );
+          if (attackersField?.value !== "Unavailable") {
+            upsertEmbedField(updatedEmbed, "Attackers", "Unavailable", true);
+            tracked.attackerCount = null;
+            hasChanges = true;
+          }
+        }
+
         if (hasChanges) {
           await tracked.message.edit({ embeds: [updatedEmbed] });
           return res.json({ success: true, updated: "message" });
