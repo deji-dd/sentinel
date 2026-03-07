@@ -14,7 +14,7 @@ export interface GuildLogOptions {
  * Send a log message to the guild's configured log channel
  * @param guildId Discord guild ID
  * @param client Discord client for fetching channel
- * @param supabase Supabase client for fetching config
+ * @param db database client for fetching config
  * @param options Log message options
  */
 export async function logGuildAction(

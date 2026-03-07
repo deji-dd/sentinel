@@ -45,7 +45,7 @@ async function syncUserDataHandler(): Promise<void> {
   } catch (error) {
     const elapsed = Date.now() - startTime;
     if (error instanceof Object && "message" in error && "code" in error) {
-      // PostgreSQL/Supabase error object
+      // Database error object
       logError(
         WORKER_NAME,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

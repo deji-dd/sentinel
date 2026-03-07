@@ -16,7 +16,7 @@ import {
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
 import { tornApi } from "../../../services/torn-client.js";
-import { supabase } from "../../../lib/supabase.js";
+import { db } from "../../../lib/db-client.js";
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
@@ -58,7 +58,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
     }
 
     // Get guild config with settings
-    const { data: guildConfig, error: configError } = await supabase
+    const { data: guildConfig, error: configError } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("nickname_template, verified_role_id")
       .eq("guild_id", guildId)
@@ -158,7 +158,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
     await interaction.editReply({ embeds: [progressEmbed] });
 
     // Fetch faction role mappings and cache faction leaders
-    const { data: factionMappings } = await supabase
+    const { data: factionMappings } = await db
       .from(TABLE_NAMES.FACTION_ROLES)
       .select("*")
       .eq("guild_id", guildId);
@@ -243,7 +243,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
           });
 
           // Store in database
-          await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
+          await db.from(TABLE_NAMES.VERIFIED_USERS).upsert({
             discord_id: member.id,
             torn_id: response.profile?.id,
             torn_name: response.profile?.name,
@@ -284,7 +284,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
           // Handle faction roles - WITH STRICT ROLE SECURITY
           // Treat faction roles as "master" - only people in that faction can have those roles
-          const { data: allFactionMappings } = await supabase
+          const { data: allFactionMappings } = await db
             .from(TABLE_NAMES.FACTION_ROLES)
             .select("faction_id, member_role_ids, leader_role_ids, enabled")
             .eq("guild_id", guildId);

@@ -90,7 +90,7 @@ WHERE rowid NOT IN (
 function main(): void {
   const db = getDB();
   const repoRoot = findRepoRootFromScript();
-  const schemaDumpPath = join(repoRoot, "supabase-schema-dump.sql");
+  const schemaDumpPath = join(repoRoot, "postgres-schema-dump.sql");
   const schemaDump = readFileSync(schemaDumpPath, "utf-8");
   const allowedTables = new Set(unique(Object.values(TABLE_NAMES)));
 

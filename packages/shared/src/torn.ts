@@ -1,5 +1,5 @@
 import type { components, operations, paths } from "./generated/torn-api.js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DatabaseClient } from "./database-client.js";
 import { createHash } from "crypto";
 import { PerUserRateLimiter } from "./per-user-rate-limiter.js";
 import { getApiKeyCooldownRemainingMs } from "./api-key-cooldown.js";
@@ -533,14 +533,14 @@ export function getNextApiKey(guildId: string, keys: string[]): string {
  * Other errors (rate limits, temporary issues, etc.) do NOT trigger soft-delete
  *
  * @param config Configuration for rate limiting
- * @param config.supabase Supabase client for database operations
+ * @param config.db database client for persistence operations
  * @param config.hashPepper Pepper for hashing API keys (from API_KEY_HASH_PEPPER env)
  * @param config.onInvalidKey Callback when error code 2 (invalid key) occurs
  *
  * @example
  * // Worker setup
  * export const tornApi = createTornApiClient({
- *   supabase,
+ *   db,
  *   hashPepper: API_KEY_HASH_PEPPER,
  *   onInvalidKey: async (apiKey) => {
  *     await markSystemApiKeyInvalid(apiKey, 3); // Soft-delete
@@ -549,20 +549,20 @@ export function getNextApiKey(guildId: string, keys: string[]): string {
  *
  * // Bot setup
  * export const tornApi = createTornApiClient({
- *   supabase,
+ *   db,
  *   hashPepper: API_KEY_HASH_PEPPER,
  *   onInvalidKey: async (apiKey) => {
- *     await markGuildApiKeyInvalid(supabase, apiKey, 3);
+ *     await markGuildApiKeyInvalid(db, apiKey, 3);
  *   },
  * });
  */
 export function createTornApiClient(config: {
-  supabase: SupabaseClient;
+  db: DatabaseClient;
   hashPepper: string;
   onInvalidKey?: (apiKey: string) => Promise<void>;
 }): TornApiClient {
   const rateLimiter = new PerUserRateLimiter({
-    supabase: config.supabase,
+    db: config.db,
     tableName: TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER,
     apiKeyMappingTableName: TABLE_NAMES.API_KEY_USER_MAPPING,
     hashPepper: config.hashPepper,

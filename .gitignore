@@ -41,9 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/apps/ui/.next
-/apps/ui/out
-/apps/ui/next-env.d.ts
 /apps/worker/node_modules
 /apps/worker/dist
 /apps/bot/dist
@@ -55,14 +52,14 @@ next-env.d.ts
 *.db-shm
 *.db-wal
 
-.archive/
-
 # PM2 logs
 logs/
 .github/
 **/logs/
 
-# Supabase CLI generated files
-supabase/.branches/
-supabase/.temp/*.db*
+# Archived DB tooling generated files
+.archive/postgres-migrations/.branches/
+.archive/postgres-migrations/.temp/*.db*
 .dev.vars
+
+.archive/
