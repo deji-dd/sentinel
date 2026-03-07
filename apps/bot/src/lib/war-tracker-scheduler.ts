@@ -4,8 +4,8 @@
  */
 
 import { EmbedBuilder, type Client } from "discord.js";
-import { supabase } from "./supabase.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import {
   buildWarTrackerEmbed,
@@ -71,14 +71,14 @@ export class WarTrackerScheduler {
   }
 
   private async pollAndUpdate(): Promise<void> {
-    const { data: trackers, error } = await supabase
-      .from(TABLE_NAMES.WAR_TRACKERS)
-      .select(
-        "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
+    const db = getDB();
+    const trackers = db
+      .prepare(
+        `SELECT guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes FROM "${TABLE_NAMES.WAR_TRACKERS}" WHERE channel_id IS NOT NULL`,
       )
-      .not("channel_id", "is", null);
+      .all() as WarTrackerRow[];
 
-    if (error || !trackers || trackers.length === 0) {
+    if (trackers.length === 0) {
       return;
     }
 
@@ -107,14 +107,12 @@ export class WarTrackerScheduler {
 
         const assaultingName =
           (await getFactionNameCached(
-            supabase,
             war.assaulting_faction,
             tornApi,
             apiKey,
           )) || `Faction ${war.assaulting_faction}`;
         const defendingName =
           (await getFactionNameCached(
-            supabase,
             war.defending_faction,
             tornApi,
             apiKey,
@@ -193,28 +191,24 @@ export class WarTrackerScheduler {
       .send({ embeds: [embed] })
       .catch(() => null);
     if (newMessage) {
-      await supabase
-        .from(TABLE_NAMES.WAR_TRACKERS)
-        .update({
-          message_id: newMessage.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("guild_id", tracker.guild_id)
-        .eq("war_id", tracker.war_id);
+      const db = getDB();
+      db.prepare(
+        `UPDATE "${TABLE_NAMES.WAR_TRACKERS}" SET message_id = ?, updated_at = ? WHERE guild_id = ? AND war_id = ?`,
+      ).run(
+        newMessage.id,
+        new Date().toISOString(),
+        tracker.guild_id,
+        tracker.war_id,
+      );
     }
   }
 
   private async handleWarEnded(tracker: WarTrackerRow): Promise<void> {
+    const db = getDB();
     if (!tracker.channel_id || !tracker.message_id) {
-      await supabase
-        .from(TABLE_NAMES.WAR_TRACKERS)
-        .update({
-          channel_id: null,
-          message_id: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("guild_id", tracker.guild_id)
-        .eq("war_id", tracker.war_id);
+      db.prepare(
+        `UPDATE "${TABLE_NAMES.WAR_TRACKERS}" SET channel_id = NULL, message_id = NULL, updated_at = ? WHERE guild_id = ? AND war_id = ?`,
+      ).run(new Date().toISOString(), tracker.guild_id, tracker.war_id);
       return;
     }
 
@@ -232,14 +226,8 @@ export class WarTrackerScheduler {
       }
     }
 
-    await supabase
-      .from(TABLE_NAMES.WAR_TRACKERS)
-      .update({
-        channel_id: null,
-        message_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("guild_id", tracker.guild_id)
-      .eq("war_id", tracker.war_id);
+    db.prepare(
+      `UPDATE "${TABLE_NAMES.WAR_TRACKERS}" SET channel_id = NULL, message_id = NULL, updated_at = ? WHERE guild_id = ? AND war_id = ?`,
+    ).run(new Date().toISOString(), tracker.guild_id, tracker.war_id);
   }
 }
