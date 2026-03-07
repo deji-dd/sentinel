@@ -3,8 +3,21 @@ import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
+const API_KEY_USER_MAPPING_TABLE = TABLE_NAMES.API_KEY_USER_MAPPING;
 const WINDOW_MS = 60000;
 const MAX_REQUESTS_PER_WINDOW = 50;
+
+function getMappedUserIdByApiKeyHash(keyHash: string): number {
+  const db = getDB();
+  const row = db
+    .prepare(
+      `SELECT user_id FROM "${API_KEY_USER_MAPPING_TABLE}" WHERE api_key_hash = ? LIMIT 1`,
+    )
+    .get(keyHash) as { user_id?: number | string } | undefined;
+
+  const parsed = Number(row?.user_id);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
 
 function hashApiKey(apiKey: string): string {
   const pepper = process.env.API_KEY_HASH_PEPPER;
@@ -22,11 +35,18 @@ function hashApiKey(apiKey: string): string {
 export async function recordRequestPerUser(apiKey: string): Promise<void> {
   const keyHash = hashApiKey(apiKey);
   const now = new Date().toISOString();
+  const userId = getMappedUserIdByApiKeyHash(keyHash);
 
   const db = getDB();
   db.prepare(
-    `INSERT INTO "${TRACKER_TABLE}" (api_key_hash, requested_at) VALUES (?, ?)`,
-  ).run(keyHash, now);
+    `INSERT INTO "${TRACKER_TABLE}" (id, api_key_hash, requested_at, user_id)
+     VALUES (
+       (CAST(strftime('%s','now') AS INTEGER) * 1000) + (ABS(RANDOM()) % 1000),
+       ?,
+       ?,
+       ?
+     )`,
+  ).run(keyHash, now, userId);
 }
 
 export async function getRequestCountPerUser(apiKey: string): Promise<number> {

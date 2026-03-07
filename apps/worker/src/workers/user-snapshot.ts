@@ -5,6 +5,7 @@ import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { randomUUID } from "crypto";
 
 const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
 const PRUNING_WORKER_NAME = "user_snapshot_pruning_worker";
@@ -173,6 +174,7 @@ async function takeSnapshot(): Promise<void> {
     const db = getDB();
     db.prepare(
       `INSERT INTO "${TABLE_NAMES.USER_SNAPSHOTS}" (
+        id,
         liquid_cash,
         bookie_value,
         bookie_updated_at,
@@ -195,8 +197,9 @@ async function takeSnapshot(): Promise<void> {
         drug_cooldown,
         medical_cooldown,
         booster_cooldown
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
+      randomUUID(),
       liquidCash,
       bookieValue,
       bookieUpdatedAt,

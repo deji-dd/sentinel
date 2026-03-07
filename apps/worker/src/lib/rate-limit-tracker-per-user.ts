@@ -10,8 +10,21 @@ import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
+const API_KEY_USER_MAPPING_TABLE = TABLE_NAMES.API_KEY_USER_MAPPING;
 const WINDOW_MS = 60000; // 1 minute window
 const MAX_REQUESTS_PER_WINDOW = 50; // Per-user limit: 50 req/min (Torn allows 100 per key, use 50 for safety)
+
+function getMappedUserIdByApiKeyHash(keyHash: string): number {
+  const db = getDB();
+  const row = db
+    .prepare(
+      `SELECT user_id FROM "${API_KEY_USER_MAPPING_TABLE}" WHERE api_key_hash = ? LIMIT 1`,
+    )
+    .get(keyHash) as { user_id?: number | string } | undefined;
+
+  const parsed = Number(row?.user_id);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
 
 /**
  * Hash API key for storage (don't store raw keys)
@@ -38,9 +51,16 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
 
   try {
     const db = getDB();
+    const userId = getMappedUserIdByApiKeyHash(keyHash);
     db.prepare(
-      `INSERT INTO "${TRACKER_TABLE}" (api_key_hash, requested_at) VALUES (?, ?)`,
-    ).run(keyHash, now.toISOString());
+      `INSERT INTO "${TRACKER_TABLE}" (id, api_key_hash, requested_at, user_id)
+       VALUES (
+         (CAST(strftime('%s','now') AS INTEGER) * 1000) + (ABS(RANDOM()) % 1000),
+         ?,
+         ?,
+         ?
+       )`,
+    ).run(keyHash, now.toISOString(), userId);
   } catch (error) {
     console.error("Failed to record per-user request:", error);
   }

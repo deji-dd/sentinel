@@ -1,5 +1,6 @@
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { randomUUID } from "crypto";
 
 function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -40,9 +41,9 @@ export async function ensureWorkerRegistered(
   const workersTable = quoteIdentifier(TABLE_NAMES.WORKERS);
   const schedulesTable = quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES);
 
-  db.prepare(`INSERT OR IGNORE INTO ${workersTable} (name) VALUES (?)`).run(
-    name,
-  );
+  db.prepare(
+    `INSERT OR IGNORE INTO ${workersTable} (id, name) VALUES (?, ?)`,
+  ).run(randomUUID(), name);
 
   const workerRow = db
     .prepare(`SELECT id, name FROM ${workersTable} WHERE name = ? LIMIT 1`)
@@ -145,8 +146,17 @@ export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
   const db = getDB();
   db.prepare(
     `INSERT INTO ${quoteIdentifier(TABLE_NAMES.WORKER_LOGS)}
-      (worker_id, run_started_at, run_finished_at, duration_ms, status, message, error_message)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (id, worker_id, run_started_at, run_finished_at, duration_ms, status, message, error_message)
+     VALUES (
+       (CAST(strftime('%s','now') AS INTEGER) * 1000) + (ABS(RANDOM()) % 1000),
+       ?,
+       ?,
+       ?,
+       ?,
+       ?,
+       ?,
+       ?
+     )`,
   ).run(
     row.worker_id,
     row.run_started_at ?? null,
