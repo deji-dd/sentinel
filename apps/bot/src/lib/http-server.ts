@@ -41,7 +41,12 @@ const ASSIST_MAX_PAYLOAD_BYTES =
 const assistUuidLastSeen = new Map<string, number>();
 const assistMessageTracking = new Map<
   string,
-  { message: Message; createdAt: number; attackerCount: number | null }
+  {
+    message: Message;
+    createdAt: number;
+    lastActivityAt: number;
+    attackerCount: number | null;
+  }
 >();
 
 const ASSIST_EMBED_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -69,6 +74,10 @@ type AssistPayload = {
   details?: string;
   occurred_at?: string;
   fight_status?: string;
+  enemy_health_current?: number;
+  enemy_health_max?: number;
+  enemy_health_percent?: number;
+  fight_timer?: string;
 };
 
 function normalizeFightStatus(
@@ -154,6 +163,7 @@ function buildInitialAssistEmbed(
   targetTornId: number | undefined,
   requesterDiscordId: string,
   fightStatus: "Not Started" | "Ongoing" | "Ended",
+  initialFightTimer?: string,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
@@ -168,6 +178,8 @@ function buildInitialAssistEmbed(
         inline: true,
       },
       { name: "Attackers", value: "Monitoring...", inline: true },
+      { name: "Enemy HP", value: "Unavailable", inline: true },
+      { name: "Time Left", value: initialFightTimer || "Unavailable", inline: true },
     )
     .setTimestamp();
 
@@ -194,6 +206,7 @@ function upsertEmbedField(
 function getActiveTrackedAssist(uuid: string): {
   message: Message;
   createdAt: number;
+  lastActivityAt: number;
   attackerCount: number | null;
 } | null {
   const tracked = assistMessageTracking.get(uuid);
@@ -201,12 +214,58 @@ function getActiveTrackedAssist(uuid: string): {
     return null;
   }
 
-  if (Date.now() - tracked.createdAt > ASSIST_EMBED_TIMEOUT_MS) {
+  if (Date.now() - tracked.lastActivityAt > ASSIST_EMBED_TIMEOUT_MS) {
     assistMessageTracking.delete(uuid);
     return null;
   }
 
   return tracked;
+}
+
+function isValidFightTimer(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return /^\d{2}:\d{2}$/.test(value.trim());
+}
+
+function scheduleAssistExpiry(uuid: string): void {
+  const tracked = assistMessageTracking.get(uuid);
+  if (!tracked) {
+    return;
+  }
+
+  const idleMs = Date.now() - tracked.lastActivityAt;
+  const remainingMs = Math.max(1, ASSIST_EMBED_TIMEOUT_MS - idleMs);
+
+  setTimeout(async () => {
+    const current = assistMessageTracking.get(uuid);
+    if (!current) {
+      return;
+    }
+
+    const currentIdleMs = Date.now() - current.lastActivityAt;
+    if (currentIdleMs < ASSIST_EMBED_TIMEOUT_MS) {
+      scheduleAssistExpiry(uuid);
+      return;
+    }
+
+    try {
+      const expiredEmbed = EmbedBuilder.from(current.message.embeds[0])
+        .setColor(0x6b7280)
+        .setFooter({ text: "This assist alert has expired" });
+      upsertEmbedField(expiredEmbed, "Status", "Ended (Expired)", true);
+      await current.message.edit({
+        embeds: [expiredEmbed],
+        components: [],
+      });
+    } catch (error) {
+      console.error(`[ASSIST] Failed to expire embed for ${uuid}:`, error);
+    }
+
+    assistMessageTracking.delete(uuid);
+  }, remainingMs);
 }
 
 async function enrichAssistEmbed(
@@ -704,6 +763,8 @@ export function initHttpServer(client: Client, port: number = 3001) {
           });
         }
 
+        tracked.lastActivityAt = Date.now();
+
         // Extract attacker count from details
         const details = payload.details || "";
         const match = details.match(/(\d+)\s*->\s*(\d+)/);
@@ -737,6 +798,48 @@ export function initHttpServer(client: Client, port: number = 3001) {
           if (attackersField?.value !== "Unavailable") {
             upsertEmbedField(updatedEmbed, "Attackers", "Unavailable", true);
             tracked.attackerCount = null;
+            hasChanges = true;
+          }
+        }
+
+        const healthCurrent = payload.enemy_health_current;
+        const healthMax = payload.enemy_health_max;
+        const healthPercent = payload.enemy_health_percent;
+        if (
+          Number.isFinite(healthCurrent) &&
+          Number.isFinite(healthMax) &&
+          healthMax &&
+          healthMax > 0
+        ) {
+          const roundedPercent = Number.isFinite(healthPercent)
+            ? Math.max(0, Math.min(100, Math.round(healthPercent)))
+            : Math.round((healthCurrent / healthMax) * 100);
+
+          const enemyHpValue = `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${roundedPercent}%)`;
+          const hpField = updatedEmbed.data.fields?.find(
+            (field) => field.name === "Enemy HP",
+          );
+          if (hpField?.value !== enemyHpValue) {
+            upsertEmbedField(updatedEmbed, "Enemy HP", enemyHpValue, true);
+            hasChanges = true;
+          }
+        }
+
+        if (isValidFightTimer(payload.fight_timer)) {
+          const normalizedTimer = payload.fight_timer!.trim();
+          const timerField = updatedEmbed.data.fields?.find(
+            (field) => field.name === "Time Left",
+          );
+          if (timerField?.value !== normalizedTimer) {
+            upsertEmbedField(updatedEmbed, "Time Left", normalizedTimer, true);
+            hasChanges = true;
+          }
+        } else if (payload.action === "enemy_health_updated") {
+          const timerField = updatedEmbed.data.fields?.find(
+            (field) => field.name === "Time Left",
+          );
+          if (timerField?.value !== "Unavailable") {
+            upsertEmbedField(updatedEmbed, "Time Left", "Unavailable", true);
             hasChanges = true;
           }
         }
@@ -787,7 +890,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
       const activeTracked = getActiveTrackedAssist(payload.uuid);
       if (activeTracked) {
         const remainingMs =
-          ASSIST_EMBED_TIMEOUT_MS - (Date.now() - activeTracked.createdAt);
+          ASSIST_EMBED_TIMEOUT_MS - (Date.now() - activeTracked.lastActivityAt);
         return res.status(409).json({
           error:
             "You already have an active assist alert. Wait for it to end before sending another one.",
@@ -804,6 +907,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         payload.target_torn_id,
         token.discord_id,
         initialFightStatus,
+        isValidFightTimer(payload.fight_timer) ? payload.fight_timer?.trim() : undefined,
       );
       const button = buildAssistButton(payload.target_torn_id);
 
@@ -818,31 +922,11 @@ export function initHttpServer(client: Client, port: number = 3001) {
       assistMessageTracking.set(payload.uuid, {
         message: sentMessage,
         createdAt: Date.now(),
+        lastActivityAt: Date.now(),
         attackerCount: null,
       });
 
-      // Set timeout to expire the embed after 5 minutes
-      setTimeout(async () => {
-        const tracked = assistMessageTracking.get(payload.uuid);
-        if (tracked) {
-          try {
-            const expiredEmbed = EmbedBuilder.from(tracked.message.embeds[0])
-              .setColor(0x6b7280)
-              .setFooter({ text: "This assist alert has expired" });
-            upsertEmbedField(expiredEmbed, "Status", "Ended (Expired)", true);
-            await tracked.message.edit({
-              embeds: [expiredEmbed],
-              components: [],
-            });
-          } catch (error) {
-            console.error(
-              `[ASSIST] Failed to expire embed for ${payload.uuid}:`,
-              error,
-            );
-          }
-          assistMessageTracking.delete(payload.uuid);
-        }
-      }, ASSIST_EMBED_TIMEOUT_MS);
+      scheduleAssistExpiry(payload.uuid);
 
       // Enrich embed asynchronously if target_torn_id is present
       const targetTornId = payload.target_torn_id;

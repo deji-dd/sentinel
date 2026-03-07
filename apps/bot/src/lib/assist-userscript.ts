@@ -45,7 +45,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.3.0
+// @version      2.5.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -66,6 +66,7 @@ ${connectMetadata}
   const DEFAULT_COOLDOWN_MS = 30000;
   const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
   const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
+  const HEALTH_UPDATE_INTERVAL_MS = 5000;
 
   let buttonMounted = false;
   let lastAttackerCount = null;
@@ -76,6 +77,7 @@ ${connectMetadata}
   let assistSessionActiveUntil = 0;
   let lastFightStatus = null;
   let lastAttackerSnapshot = null;
+  let lastHealthSnapshot = null;
 
   function showToast(message, isSuccess = true) {
     const existing = document.getElementById(TOAST_ID);
@@ -141,6 +143,72 @@ ${connectMetadata}
     }
 
     return "Ongoing";
+  }
+
+  function parseIntText(value) {
+    const cleaned = String(value || "").replace(/[^0-9-]/g, "");
+    const parsed = Number.parseInt(cleaned, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function readEnemyHealth() {
+    const enemyHeader = document.querySelector('[class*="headerWrapper"][class*="rose"]');
+    if (!enemyHeader) {
+      return null;
+    }
+
+    const healthValueNode = enemyHeader.querySelector(
+      '[class*="entry"] [class*="iconHealth"] + span',
+    );
+    const healthText = (healthValueNode?.textContent || "").trim();
+    const match = healthText.match(/([\d,]+)\s*\/\s*([\d,]+)/);
+    if (!match) {
+      return null;
+    }
+
+    const current = parseIntText(match[1]);
+    const max = parseIntText(match[2]);
+    if (!Number.isFinite(current) || !Number.isFinite(max) || !max || max <= 0) {
+      return null;
+    }
+
+    const percent = Math.max(0, Math.min(100, (current / max) * 100));
+    return {
+      current,
+      max,
+      percent,
+    };
+  }
+
+  function readFightTimer() {
+    const normalizeTimer = (raw) => {
+      const match = String(raw || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+      if (!match) {
+        return null;
+      }
+
+      const minutes = Number.parseInt(match[1], 10);
+      const seconds = Number.parseInt(match[2], 10);
+      if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+        return null;
+      }
+
+      if (minutes < 0 || minutes > 99 || seconds < 0 || seconds > 59) {
+        return null;
+      }
+
+      return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    };
+
+    const timerCandidates = document.querySelectorAll('[class*="labelTitle"] span');
+    for (const node of timerCandidates) {
+      const normalized = normalizeTimer(node.textContent || "");
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
   }
 
   function setButtonState(disabled, label) {
@@ -620,6 +688,44 @@ ${connectMetadata}
     evaluateStatus();
   }
 
+  function monitorEnemyHealth() {
+    window.setInterval(() => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      const health = readEnemyHealth();
+      const timer = readFightTimer();
+
+      if (!health && !timer) {
+        return;
+      }
+
+      const healthSnapshot = health
+        ? String(Math.round(health.current)) + "/" + String(Math.round(health.max))
+        : "no-health";
+      const timerSnapshot = timer || "no-timer";
+      const snapshot = healthSnapshot + "|" + timerSnapshot;
+      if (snapshot === lastHealthSnapshot) {
+        return;
+      }
+      lastHealthSnapshot = snapshot;
+
+      sendAssistEvent("PATCH", {
+        action: "enemy_health_updated",
+        result: "health_update",
+        enemy_health_current: health ? Math.round(health.current) : undefined,
+        enemy_health_max: health ? Math.round(health.max) : undefined,
+        enemy_health_percent: health ? Math.round(health.percent) : undefined,
+        fight_timer: timer || undefined,
+      }).then((response) => {
+        if (response.status === 404 || response.status === 410) {
+          clearActiveAssistSession();
+        }
+      });
+    }, HEALTH_UPDATE_INTERVAL_MS);
+  }
+
   window.addEventListener("beforeunload", () => {
     if (!hasActiveAssistSession()) {
       return;
@@ -643,11 +749,13 @@ ${connectMetadata}
     injectButton();
     monitorAttackerCount();
     monitorFightLifecycle();
+    monitorEnemyHealth();
   } else {
     window.addEventListener("load", () => {
       injectButton();
       monitorAttackerCount();
       monitorFightLifecycle();
+      monitorEnemyHealth();
     });
   }
 })();
