@@ -36,6 +36,31 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     return this;
   }
 
+  neq(column: string, value: any): this {
+    this.whereConditions.push({ column, operator: "!=", value });
+    return this;
+  }
+
+  gt(column: string, value: any): this {
+    this.whereConditions.push({ column, operator: ">", value });
+    return this;
+  }
+
+  gte(column: string, value: any): this {
+    this.whereConditions.push({ column, operator: ">=", value });
+    return this;
+  }
+
+  lt(column: string, value: any): this {
+    this.whereConditions.push({ column, operator: "<", value });
+    return this;
+  }
+
+  lte(column: string, value: any): this {
+    this.whereConditions.push({ column, operator: "<=", value });
+    return this;
+  }
+
   is(column: string, value: null): this {
     if (value === null) {
       this.whereConditions.push({ column, operator: "IS NULL", value: null });
