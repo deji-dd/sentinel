@@ -95,7 +95,9 @@ function main(): void {
     appliedCount++;
   }
 
-  console.log(`[sqlite:migrate] Completed. Applied ${appliedCount} new migration(s).`);
+  console.log(
+    `[sqlite:migrate] Completed. Applied ${appliedCount} new migration(s).`,
+  );
 }
 
 main();

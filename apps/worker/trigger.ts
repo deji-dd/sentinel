@@ -36,7 +36,9 @@ async function main() {
 
   // Trigger the worker
   const result = db
-    .prepare(`UPDATE sentinel_worker_schedules SET force_run = 1 WHERE worker_id = ?`)
+    .prepare(
+      `UPDATE sentinel_worker_schedules SET force_run = 1 WHERE worker_id = ?`,
+    )
     .run(worker.id);
 
   if (result.changes === 0) {

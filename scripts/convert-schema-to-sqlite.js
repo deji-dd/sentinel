@@ -225,9 +225,7 @@ async function main() {
   console.log("Extracting and converting tables...");
   const sqliteStatements = [];
 
-  sqliteStatements.push(
-    "-- SQLite schema converted from PostgreSQL dump",
-  );
+  sqliteStatements.push("-- SQLite schema converted from PostgreSQL dump");
   sqliteStatements.push("-- Generated: " + new Date().toISOString());
   sqliteStatements.push("");
   sqliteStatements.push("PRAGMA foreign_keys = OFF;");

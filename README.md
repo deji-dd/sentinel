@@ -1,6 +1,7 @@
 # Sentinel
 
 Sentinel is a SQLite-first Torn City integration monorepo with two active apps:
+
 - `apps/worker`: background sync workers
 - `apps/bot`: Discord bot
 
@@ -58,5 +59,6 @@ pnpm sqlite:new-migration add_new_table
 ## Archive
 
 Legacy assets are preserved in `.archive/`, including:
+
 - `.archive/ui`
 - `.archive/postgres-migrations`
