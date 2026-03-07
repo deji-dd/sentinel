@@ -1,10 +1,6 @@
 import Database from "better-sqlite3";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 
-/**
- * Builder for fluent query API that mimics Supabase's interface
- * Implements Thenable to allow  chaining and awaiting  in a single expression
- */
 class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   private sqliteDb: Database.Database;
   private tableName: string;
@@ -13,7 +9,9 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   private inConditions: Array<{ column: string; values: any[] }> = [];
   private updates: Record<string, any> = {};
   private isUpdate = false;
+  private isDelete = false;
   private isSingle = false;
+  private isMaybeSingle = false;
 
   constructor(sqliteDb: Database.Database, tableName: string) {
     this.sqliteDb = sqliteDb;
@@ -34,6 +32,15 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     return this;
   }
 
+  is(column: string, value: null): this {
+    if (value === null) {
+      this.whereConditions.push({ column, operator: "IS NULL", value: null });
+    } else {
+      this.whereConditions.push({ column, operator: "IS NOT NULL", value: null });
+    }
+    return this;
+  }
+
   in(column: string, values: any[]): this {
     this.inConditions.push({ column, values });
     return this;
@@ -45,8 +52,18 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     return this;
   }
 
+  delete(): this {
+    this.isDelete = true;
+    return this;
+  }
+
   single(): this {
     this.isSingle = true;
+    return this;
+  }
+
+  maybeSingle(): this {
+    this.isMaybeSingle = true;
     return this;
   }
 
@@ -56,6 +73,9 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
         if (this.isUpdate) {
           return this.executeUpdate();
         }
+        if (this.isDelete) {
+          return this.executeDelete();
+        }
         return this.executeSelect();
       } catch (error) {
         return { data: null, error };
@@ -64,16 +84,20 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 
   private executeSelect(): { data: any; error: any } {
-    let query = `SELECT ${this.selectFields.length > 0 ? this.selectFields.join(", ") : "*"} FROM ${this.tableName}`;
+    const fields = this.selectFields.length > 0 ? this.selectFields.join(", ") : "*";
+    let query = `SELECT ${fields} FROM ${this.tableName}`;
     const params: any[] = [];
 
-    // Add WHERE conditions
     if (this.whereConditions.length > 0 || this.inConditions.length > 0) {
       const conditions: string[] = [];
 
       for (const cond of this.whereConditions) {
-        conditions.push(`${cond.column} ${cond.operator} ?`);
-        params.push(cond.value);
+        if (cond.operator.includes("NULL")) {
+          conditions.push(`${cond.column} ${cond.operator}`);
+        } else {
+          conditions.push(`${cond.column} ${cond.operator} ?`);
+          params.push(cond.value);
+        }
       }
 
       for (const inCond of this.inConditions) {
@@ -89,6 +113,13 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     const results = stmt.all(...params) as any[];
 
     if (this.isSingle) {
+      if (results.length === 0) {
+        throw new Error("No rows found and .single() was called");
+      }
+      return { data: results[0], error: null };
+    }
+
+    if (this.isMaybeSingle) {
       return { data: results.length > 0 ? results[0] : null, error: null };
     }
 
@@ -102,13 +133,16 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
 
     let query = `UPDATE ${this.tableName} SET ${setClause}`;
 
-    // Add WHERE conditions
     if (this.whereConditions.length > 0 || this.inConditions.length > 0) {
       const conditions: string[] = [];
 
       for (const cond of this.whereConditions) {
-        conditions.push(`${cond.column} ${cond.operator} ?`);
-        params.push(cond.value);
+        if (cond.operator.includes("NULL")) {
+          conditions.push(`${cond.column} ${cond.operator}`);
+        } else {
+          conditions.push(`${cond.column} ${cond.operator} ?`);
+          params.push(cond.value);
+        }
       }
 
       for (const inCond of this.inConditions) {
@@ -123,7 +157,6 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     const stmt = this.sqliteDb.prepare(query);
     stmt.run(...params);
 
-    // If select was also called, return the updated rows
     if (this.selectFields.length > 0) {
       return this.executeSelect();
     }
@@ -131,7 +164,37 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     return { data: null, error: null };
   }
 
-  // Implement PromiseLike to allow await and .then()
+  private executeDelete(): { data: any; error: any } {
+    let query = `DELETE FROM ${this.tableName}`;
+    const params: any[] = [];
+
+    if (this.whereConditions.length > 0 || this.inConditions.length > 0) {
+      const conditions: string[] = [];
+
+      for (const cond of this.whereConditions) {
+        if (cond.operator.includes("NULL")) {
+          conditions.push(`${cond.column} ${cond.operator}`);
+        } else {
+          conditions.push(`${cond.column} ${cond.operator} ?`);
+          params.push(cond.value);
+        }
+      }
+
+      for (const inCond of this.inConditions) {
+        const placeholders = inCond.values.map(() => "?").join(",");
+        conditions.push(`${inCond.column} IN (${placeholders})`);
+        params.push(...inCond.values);
+      }
+
+      query += ` WHERE ${conditions.join(" AND ")}`;
+    }
+
+    const stmt = this.sqliteDb.prepare(query);
+    stmt.run(...params);
+
+    return { data: null, error: null };
+  }
+
   then<TResult1, TResult2 = any>(
     onFulfilled?: ((value: { data: any; error: any }) => TResult1 | PromiseLike<TResult1>) | null,
     onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
@@ -140,10 +203,6 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 }
 
-/**
- * Supabase-compatible database API wrapper for SQLite
- * Provides .from() and .rpc() methods that work with SQLite
- */
 class SQLiteSupabaseCompat {
   private sqliteDb: Database.Database;
 
@@ -151,14 +210,10 @@ class SQLiteSupabaseCompat {
     this.sqliteDb = getDB();
   }
 
-  /**
-   * Provide Supabase-compatible .from() interface
-   * Returns a QueryBuilder with insert/upsert/select/update methods
-   */
   from(tableName: string) {
     const builder = new QueryBuilder(this.sqliteDb, tableName);
 
-    return {
+    const wrapBuilder = (): any => ({
       insert: async (records: Record<string, any> | Record<string, any>[]) => {
         const recordsArray = Array.isArray(records) ? records : [records];
         try {
@@ -169,7 +224,7 @@ class SQLiteSupabaseCompat {
             const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders})`;
             this.sqliteDb.prepare(sql).run(...values);
           }
-          return builder as any;  // Return builder for method chaining (.select().single())
+          return wrapBuilder();
         } catch (error) {
           return { data: null, error } as any;
         }
@@ -183,8 +238,7 @@ class SQLiteSupabaseCompat {
             const placeholders = columns.map(() => "?").join(", ");
             const setClause = columns.map((col) => `${col} = excluded.${col}`).join(", ");
             const values = columns.map((col) => record[col]);
-            const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders})
-              ON CONFLICT DO UPDATE SET ${setClause}`;
+            const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders}) ON CONFLICT DO UPDATE SET ${setClause}`;
             this.sqliteDb.prepare(sql).run(...values);
           }
           return { data: recordsArray, error: null };
@@ -195,102 +249,50 @@ class SQLiteSupabaseCompat {
 
       select: (fields?: string | string[]) => {
         builder.select(fields || "*");
-        return {
-          eq: (column: string, value: any) => {
-            builder.eq(column, value);
-            return {
-              eq: (col: string, val: any) => {
-                builder.eq(col, val);
-                return builder as any;
-              },
-              in: (col: string, vals: any[]) => {
-                builder.in(col, vals);
-                return builder as any;
-              },
-              single: () => {
-                builder.single();
-                return builder as any;
-              },
-            };
-          },
-          in: (column: string, values: any[]) => {
-            builder.in(column, values);
-            return builder as any;
-          },
-          single: () => {
-            builder.single();
-            return builder as any;
-          },
-          then: builder.then.bind(builder),
-        };
+        return wrapBuilder();
       },
 
       update: (values: Record<string, any>) => {
         builder.update(values);
-        return {
-          eq: (column: string, value: any) => {
-            builder.eq(column, value);
-            return {
-              eq: (col: string, val: any) => {
-                builder.eq(col, val);
-                return {
-                  select: (fields?: string | string[]) => {
-                    if (fields) builder.select(fields);
-                    return builder as any;
-                  },
-                  then: builder.then.bind(builder),
-                };
-              },
-              then: builder.then.bind(builder),
-            };
-          },
-          then: builder.then.bind(builder),
-        };
+        return wrapBuilder();
+      },
+
+      delete: () => {
+        builder.delete();
+        return wrapBuilder();
       },
 
       eq: (column: string, value: any) => {
         builder.eq(column, value);
-        return {
-          eq: (col: string, val: any) => {
-            builder.eq(col, val);
-            return {
-              select: (fields?: string | string[]) => {
-                if (fields) builder.select(fields);
-                return builder as any;
-              },
-              then: builder.then.bind(builder),
-            };
-          },
-          in: (col: string, vals: any[]) => {
-            builder.in(col, vals);
-            return {
-              select: (fields?: string | string[]) => {
-                if (fields) builder.select(fields);
-                return builder as any;
-              },
-              then: builder.then.bind(builder),
-            };
-          },
-          select: (fields?: string | string[]) => {
-            if (fields) builder.select(fields);
-            return {
-              single: () => {
-                builder.single();
-                return builder as any;
-              },
-              then: builder.then.bind(builder),
-            };
-          },
-          then: builder.then.bind(builder),
-        };
+        return wrapBuilder();
       },
-    };
+
+      is: (column: string, value: null) => {
+        builder.is(column, value);
+        return wrapBuilder();
+      },
+
+      in: (column: string, values: any[]) => {
+        builder.in(column, values);
+        return wrapBuilder();
+      },
+
+      single: () => {
+        builder.single();
+        return wrapBuilder();
+      },
+
+      maybeSingle: () => {
+        builder.maybeSingle();
+        return wrapBuilder();
+      },
+
+      then: builder.then.bind(builder),
+    });
+
+    return wrapBuilder();
   }
 
-  /**
-   * Execute stored procedures or complex SQL operations
-   * For reaction role finalization, provides atomic transaction
-   */
   async rpc(
     functionName: string,
     params: Record<string, any> = {},
@@ -302,54 +304,35 @@ class SQLiteSupabaseCompat {
           params.p_new_message_id,
         );
       }
-      // Other RPC functions can be added here as needed
       throw new Error(`Unknown RPC function: ${functionName}`);
     } catch (error) {
       return { data: null, error };
     }
   }
 
-  /**
-   * Atomic reaction role message finalization
-   * Mimics the Postgres stored procedure behavior
-   */
-  private finalizeReactionRoleMessage(
-    recordId: number,
-    newMessageId: string,
-  ) {
+  private finalizeReactionRoleMessage(recordId: number, newMessageId: string) {
     const transaction = this.sqliteDb.transaction(() => {
-      // Get the old message ID with a lock (sqlite doesn't have SELECT FOR UPDATE, but transactions provide isolation)
       const messageRecord = this.sqliteDb
         .prepare("SELECT message_id FROM sentinel_reaction_role_messages WHERE id = ?")
         .get(recordId) as { message_id: string } | undefined;
 
       if (!messageRecord) {
-        throw new Error(
-          `Reaction role message record not found for id=${recordId}`,
-        );
+        throw new Error(`Reaction role message record not found for id=${recordId}`);
       }
 
       const oldMessageId = messageRecord.message_id;
 
-      // Update reaction role mappings
       const updateMappingsStmt = this.sqliteDb
-        .prepare(
-          "UPDATE sentinel_reaction_role_mappings SET message_id = ? WHERE message_id = ?",
-        )
+        .prepare("UPDATE sentinel_reaction_role_mappings SET message_id = ? WHERE message_id = ?")
         .run(newMessageId, oldMessageId);
-      const updatedMappingRows = updateMappingsStmt.changes;
 
-      //Update message record
       const updateMessageStmt = this.sqliteDb
-        .prepare(
-          "UPDATE sentinel_reaction_role_messages SET message_id = ?, updated_at = ? WHERE id = ?",
-        )
+        .prepare("UPDATE sentinel_reaction_role_messages SET message_id = ?, updated_at = ? WHERE id = ?")
         .run(newMessageId, new Date().toISOString(), recordId);
-      const updatedMessageRows = updateMessageStmt.changes;
 
       return {
-        updated_message_rows: updatedMessageRows,
-        updated_mapping_rows: updatedMappingRows,
+        updated_message_rows: updateMessageStmt.changes,
+        updated_mapping_rows: updateMappingsStmt.changes,
       };
     });
 
@@ -359,9 +342,6 @@ class SQLiteSupabaseCompat {
 }
 
 const isDev = process.env.NODE_ENV === "development";
-
-console.log(
-  `[DB] Connected to ${isDev ? "local" : "production"} SQLite database`,
-);
+console.log(`[DB] Connected to ${isDev ? "local" : "production"} SQLite database`);
 
 export const db = new SQLiteSupabaseCompat();
