@@ -68,7 +68,31 @@ type AssistPayload = {
   result?: string;
   details?: string;
   occurred_at?: string;
+  fight_status?: string;
 };
+
+function normalizeFightStatus(
+  value: string | undefined,
+): "Not Started" | "Ongoing" | "Ended" | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "not started" || normalized === "not_started") {
+    return "Not Started";
+  }
+
+  if (normalized === "ongoing" || normalized === "started") {
+    return "Ongoing";
+  }
+
+  if (normalized === "ended" || normalized === "finished") {
+    return "Ended";
+  }
+
+  return null;
+}
 
 function isValidUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -129,6 +153,7 @@ function getAssistPayloadSizeBytes(req: Request): number {
 function buildInitialAssistEmbed(
   targetTornId: number | undefined,
   requesterDiscordId: string,
+  fightStatus: "Not Started" | "Ongoing" | "Ended",
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
@@ -136,7 +161,7 @@ function buildInitialAssistEmbed(
     .addFields(
       { name: "Source", value: "Userscript", inline: true },
       { name: "Requester", value: `<@${requesterDiscordId}>`, inline: true },
-      { name: "Status", value: "Started", inline: true },
+      { name: "Status", value: fightStatus, inline: true },
       {
         name: "Target",
         value: targetTornId ? `Loading...` : "Unknown",
@@ -680,12 +705,15 @@ export function initHttpServer(client: Client, port: number = 3001) {
         const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
         let hasChanges = false;
 
-        const statusField = updatedEmbed.data.fields?.find(
-          (field) => field.name === "Status",
-        );
-        if (statusField?.value !== "Ongoing") {
-          upsertEmbedField(updatedEmbed, "Status", "Ongoing", true);
-          hasChanges = true;
+        const normalizedStatus = normalizeFightStatus(payload.fight_status);
+        if (normalizedStatus) {
+          const statusField = updatedEmbed.data.fields?.find(
+            (field) => field.name === "Status",
+          );
+          if (statusField?.value !== normalizedStatus) {
+            upsertEmbedField(updatedEmbed, "Status", normalizedStatus, true);
+            hasChanges = true;
+          }
         }
 
         if (match) {
@@ -745,9 +773,12 @@ export function initHttpServer(client: Client, port: number = 3001) {
       const mention = assistConfig.ping_role_id
         ? `<@&${assistConfig.ping_role_id}>`
         : "";
+      const initialFightStatus =
+        normalizeFightStatus(payload.fight_status) || "Not Started";
       const embed = buildInitialAssistEmbed(
         payload.target_torn_id,
         token.discord_id,
+        initialFightStatus,
       );
       const button = buildAssistButton(payload.target_torn_id);
 

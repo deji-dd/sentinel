@@ -45,7 +45,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.2.0
+// @version      2.3.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -74,6 +74,7 @@ ${connectMetadata}
   let cooldownUntil = 0;
   let assistRequestInFlight = false;
   let assistSessionActiveUntil = 0;
+  let lastFightStatus = null;
 
   function showToast(message, isSuccess = true) {
     const existing = document.getElementById(TOAST_ID);
@@ -124,6 +125,21 @@ ${connectMetadata}
   function getTargetId() {
     const params = new URLSearchParams(window.location.search);
     return params.get("user2ID");
+  }
+
+  function detectFightState() {
+    const startButton = document.querySelector(
+      '[class*="dialogWrapper"] [class*="dialogButtons"] button[type="submit"]',
+    );
+
+    if (startButton) {
+      const buttonText = (startButton.textContent || "").trim().toLowerCase();
+      if (buttonText.includes("start fight")) {
+        return "Not Started";
+      }
+    }
+
+    return "Ongoing";
   }
 
   function setButtonState(disabled, label) {
@@ -285,6 +301,8 @@ ${connectMetadata}
   }
 
   function sendAssistEvent(method, payload) {
+    const detectedFightStatus = detectFightState();
+
     return new Promise((resolve) => {
       GM_xmlhttpRequest({
         method,
@@ -296,6 +314,7 @@ ${connectMetadata}
           uuid: ASSIST_UUID,
           source: "tampermonkey",
           occurred_at: new Date().toISOString(),
+          fight_status: detectedFightStatus,
           target_torn_id: Number.parseInt(getTargetId() || "0", 10) || undefined,
           ...payload,
         }),
@@ -412,6 +431,7 @@ ${connectMetadata}
       if (response.ok) {
         showToast("Assist alert sent", true);
         setActiveAssistSessionUntil(Date.now() + ACTIVE_SESSION_WINDOW_MS);
+        lastFightStatus = detectFightState();
         setCooldownUntil(Date.now() + DEFAULT_COOLDOWN_MS);
       } else if (response.status === 429 || response.status === 409) {
         const retryAfter = Number.parseInt(
@@ -494,6 +514,67 @@ ${connectMetadata}
     readCount();
   }
 
+  function monitorFightLifecycle() {
+    const evaluateStatus = () => {
+      const currentStatus = detectFightState();
+
+      if (lastFightStatus === null) {
+        lastFightStatus = currentStatus;
+        return;
+      }
+
+      if (currentStatus === lastFightStatus) {
+        return;
+      }
+
+      const previousStatus = lastFightStatus;
+      lastFightStatus = currentStatus;
+
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      if (currentStatus === "Ended") {
+        clearActiveAssistSession();
+        sendAssistEvent("DELETE", {
+          action: "session_end",
+          details:
+            "Fight status changed: " +
+            String(previousStatus) +
+            " -> " +
+            String(currentStatus),
+          result: "fight_ended",
+          fight_status: currentStatus,
+        });
+        return;
+      }
+
+      sendAssistEvent("PATCH", {
+        action: "fight_status_changed",
+        details:
+          "Fight status changed: " +
+          String(previousStatus) +
+          " -> " +
+          String(currentStatus),
+        result: "status_changed",
+        fight_status: currentStatus,
+      }).then((response) => {
+        if (response.status === 404 || response.status === 410) {
+          clearActiveAssistSession();
+        }
+      });
+    };
+
+    const statusObserver = new MutationObserver(evaluateStatus);
+    statusObserver.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+
+    evaluateStatus();
+  }
+
   window.addEventListener("beforeunload", () => {
     if (!hasActiveAssistSession()) {
       return;
@@ -516,10 +597,12 @@ ${connectMetadata}
   if (document.readyState === "complete") {
     injectButton();
     monitorAttackerCount();
+    monitorFightLifecycle();
   } else {
     window.addEventListener("load", () => {
       injectButton();
       monitorAttackerCount();
+      monitorFightLifecycle();
     });
   }
 })();
