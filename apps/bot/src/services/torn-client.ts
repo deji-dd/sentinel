@@ -104,7 +104,7 @@ export async function validateTornApiKey(
   }
 
   // Fetch key info from Torn API
-  const keyData = await validationApi.get("/key/info", { apiKey });
+  const keyData = await tornApi.get("/key/info", { apiKey });
 
   // Validate response structure
   if (!keyData.info?.user?.id || keyData.info.access === undefined) {
@@ -119,7 +119,7 @@ export async function validateTornApiKey(
   }
 
   // Fetch user profile to get name and donator status
-  const userData = await validationApi.get("/user/profile", { apiKey });
+  const userData = await tornApi.get("/user/profile", { apiKey });
 
   if (!userData.profile?.name || !userData.profile?.id) {
     throw new Error("Invalid user profile response from Torn API");

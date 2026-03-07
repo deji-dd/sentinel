@@ -37,6 +37,7 @@ import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
+import * as assistHandlers from "./handlers/assist.js";
 import { db } from "../../../lib/db-client.js";
 
 interface StoredGuildApiKey {
@@ -3733,7 +3734,10 @@ export async function handleShowAssistSettings(
   interaction: ButtonInteraction,
   isAlreadyDeferred: boolean = false,
 ): Promise<void> {
-  return assistHandlers.handleShowAssistSettings(interaction, isAlreadyDeferred);
+  return assistHandlers.handleShowAssistSettings(
+    interaction,
+    isAlreadyDeferred,
+  );
 }
 
 export async function handleAssistSetChannel(
@@ -3760,14 +3764,14 @@ export async function handleAssistPingRoleSelect(
   return assistHandlers.handleAssistPingRoleSelect(interaction);
 }
 
-  export async function handleAssistSetScriptRoles(
-    interaction: ButtonInteraction,
-  ): Promise<void> {
-    return assistHandlers.handleAssistSetScriptRoles(interaction);
-  }
+export async function handleAssistSetScriptRoles(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistSetScriptRoles(interaction);
+}
 
-  export async function handleAssistScriptRolesSelect(
-    interaction: RoleSelectMenuInteraction,
-  ): Promise<void> {
-    return assistHandlers.handleAssistScriptRolesSelect(interaction);
-  }
+export async function handleAssistScriptRolesSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistScriptRolesSelect(interaction);
+}

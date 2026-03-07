@@ -12,7 +12,7 @@ import {
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../../lib/supabase.js";
+import { db } from "../../../../lib/db-client.js";
 
 type AssistConfig = {
   guild_id: string;
@@ -23,7 +23,7 @@ type AssistConfig = {
 };
 
 async function getAssistConfig(guildId: string): Promise<AssistConfig> {
-  const { data } = await supabase
+  const { data } = await db
     .from(TABLE_NAMES.ASSIST_CONFIG)
     .select("*")
     .eq("guild_id", guildId)
@@ -42,7 +42,7 @@ async function upsertAssistConfig(
   guildId: string,
   values: Partial<Omit<AssistConfig, "guild_id">>,
 ): Promise<void> {
-  await supabase.from(TABLE_NAMES.ASSIST_CONFIG).upsert(
+  await db.from(TABLE_NAMES.ASSIST_CONFIG).upsert(
     {
       guild_id: guildId,
       ...values,
@@ -70,7 +70,7 @@ export async function handleShowAssistSettings(
       return;
     }
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("enabled_modules")
       .eq("guild_id", guildId)

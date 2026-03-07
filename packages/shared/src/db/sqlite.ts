@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { readFileSync, existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve } from "path";
 
@@ -115,7 +115,8 @@ class SQLiteDB {
   }
 
   /**
-   * Check if database is empty and execute schema creation if needed
+   * Check if database is empty and log status
+   * Schema initialization is now handled by migration system
    */
   private initializeSchemaIfEmpty(): void {
     if (!this.db) {
@@ -130,17 +131,9 @@ class SQLiteDB {
       .get() as { count: number };
 
     if (tableCount.count === 0) {
-      console.log("[SQLite] Database is empty, executing schema creation...");
-
-      // Read and execute schema file from workspace root
-      const workspaceRoot = findWorkspaceRoot();
-      const schemaPath = join(workspaceRoot, "sqlite-schema.sql");
-      const schema = readFileSync(schemaPath, "utf-8");
-
-      // Execute schema in a transaction for atomicity
-      this.db.exec(schema);
-
-      console.log("[SQLite] Schema created successfully");
+      console.log(
+        "[SQLite] Database is empty. Run migrations with 'pnpm sqlite:migrate' to initialize schema.",
+      );
     } else {
       console.log(
         `[SQLite] Database already initialized with ${tableCount.count} tables`,

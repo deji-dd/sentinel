@@ -10,7 +10,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { db } from "../../../lib/db-client.js";
 import { randomUUID } from "crypto";
 import { isDev } from "../../../lib/bot-config.js";
 import {
@@ -83,7 +83,7 @@ async function canGenerateScript(
     return true;
   }
 
-  const { data: guildConfig } = await supabase
+  const { data: guildConfig } = await db
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("admin_role_ids")
     .eq("guild_id", guildId)
@@ -96,7 +96,7 @@ async function canGenerateScript(
     return true;
   }
 
-  const { data: assistConfig } = await supabase
+  const { data: assistConfig } = await db
     .from(TABLE_NAMES.ASSIST_CONFIG)
     .select("script_generation_role_ids")
     .eq("guild_id", guildId)
@@ -124,7 +124,7 @@ async function isAdmin(
     return true;
   }
 
-  const { data: guildConfig } = await supabase
+  const { data: guildConfig } = await db
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("admin_role_ids")
     .eq("guild_id", guildId)
@@ -141,7 +141,7 @@ async function getUserTornId(
   _guildId: string,
   discordId: string,
 ): Promise<number | null> {
-  const { data } = await supabase
+  const { data } = await db
     .from(TABLE_NAMES.VERIFIED_USERS)
     .select("torn_id")
     .eq("discord_id", discordId)
@@ -166,7 +166,7 @@ async function handleGenerateSubcommand(
     return;
   }
 
-  const { data: guildConfig } = await supabase
+  const { data: guildConfig } = await db
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("enabled_modules")
     .eq("guild_id", guildId)
@@ -217,7 +217,7 @@ async function handleGenerateSubcommand(
 
   const tokenUuid = randomUUID();
 
-  const { error: insertError } = await supabase
+  const { error: insertError } = await db
     .from(TABLE_NAMES.ASSIST_TOKENS)
     .insert({
       guild_id: guildId,
@@ -329,7 +329,7 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  const { data: guildConfig } = await supabase
+  const { data: guildConfig } = await db
     .from(TABLE_NAMES.GUILD_CONFIG)
     .select("enabled_modules")
     .eq("guild_id", guildId)
@@ -365,7 +365,7 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  const { data: tokens, error: tokensError } = await supabase
+  const { data: tokens, error: tokensError } = await db
     .from(TABLE_NAMES.ASSIST_TOKENS)
     .select("token_uuid")
     .eq("guild_id", guildId)
@@ -396,7 +396,7 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  const { error: revokeError } = await supabase
+  const { error: revokeError } = await db
     .from(TABLE_NAMES.ASSIST_TOKENS)
     .delete()
     .eq("guild_id", guildId)

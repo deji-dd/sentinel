@@ -8,7 +8,7 @@ import {
   type Message,
 } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
-import { supabase } from "./supabase.js";
+import { db } from "./db-client.js";
 import { buildAssistUserscript } from "./assist-userscript.js";
 import { verifyLinkSignature } from "./assist-link-signing.js";
 import {
@@ -210,7 +210,7 @@ async function incrementAssistStrikeByUuid(
   uuid: string,
   reason: string,
 ): Promise<void> {
-  const { data: token } = await supabase
+  const { data: token } = await db
     .from(TABLE_NAMES.ASSIST_TOKENS)
     .select("id, strike_count, is_active")
     .eq("token_uuid", uuid)
@@ -223,7 +223,7 @@ async function incrementAssistStrikeByUuid(
   const nextStrike = (token.strike_count || 0) + 1;
   const shouldBlacklist = nextStrike >= ASSIST_STRIKE_BLACKLIST_THRESHOLD;
 
-  await supabase
+  await db
     .from(TABLE_NAMES.ASSIST_TOKENS)
     .update({
       strike_count: nextStrike,
@@ -436,7 +436,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
           });
         }
 
-        const { data: rawToken } = await supabase
+        const { data: rawToken } = await db
           .from(TABLE_NAMES.ASSIST_TOKENS)
           .select(
             "id, guild_id, discord_id, torn_id, strike_count, is_active, blacklisted_at, expires_at",
@@ -478,7 +478,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
           apiBaseUrl,
         });
 
-        await supabase
+        await db
           .from(TABLE_NAMES.ASSIST_TOKENS)
           .update({
             last_used_at: new Date().toISOString(),
@@ -567,7 +567,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
-      const { data: rawToken } = await supabase
+      const { data: rawToken } = await db
         .from(TABLE_NAMES.ASSIST_TOKENS)
         .select(
           "id, guild_id, discord_id, torn_id, strike_count, is_active, blacklisted_at, expires_at",
@@ -592,7 +592,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         return res.status(403).json({ error: "Assist token expired" });
       }
 
-      const { data: guildConfig } = await supabase
+      const { data: guildConfig } = await db
         .from(TABLE_NAMES.GUILD_CONFIG)
         .select("enabled_modules")
         .eq("guild_id", token.guild_id)
@@ -603,7 +603,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         return res.status(403).json({ error: "Assist module disabled" });
       }
 
-      const { data: assistConfig } = await supabase
+      const { data: assistConfig } = await db
         .from(TABLE_NAMES.ASSIST_CONFIG)
         .select("assist_channel_id, ping_role_id, is_active")
         .eq("guild_id", token.guild_id)
@@ -739,7 +739,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         })();
       }
 
-      await supabase
+      await db
         .from(TABLE_NAMES.ASSIST_TOKENS)
         .update({
           last_used_at: new Date().toISOString(),
