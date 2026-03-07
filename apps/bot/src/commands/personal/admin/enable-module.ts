@@ -10,7 +10,7 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 type GuildConfigRow = {
   guild_id: string;
@@ -68,12 +68,10 @@ export async function execute(
     }
 
     // Get list of all configured guilds
-    const db = getDB();
-    const configuredGuilds = db
-      .prepare(
-        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
-      )
-      .all() as GuildConfigRow[];
+    const configuredGuilds = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["guild_id", "enabled_modules"])
+      .execute()) as GuildConfigRow[];
 
     if (!configuredGuilds || configuredGuilds.length === 0) {
       const errorEmbed = new EmbedBuilder()
@@ -144,12 +142,12 @@ export async function handleGuildSelect(
     const selectedGuildId = interaction.values[0];
 
     // Get current config for this guild
-    const db = getDB();
-    const guildConfig = db
-      .prepare(
-        `SELECT enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(selectedGuildId) as
+    const guildConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["enabled_modules"])
+      .where("guild_id", "=", selectedGuildId)
+      .limit(1)
+      .executeTakeFirst()) as
       | Pick<GuildConfigRow, "enabled_modules">
       | undefined;
 
@@ -242,12 +240,14 @@ export async function handleModuleToggle(
     const guildName = client.guilds.cache.get(guildId)?.name ?? guildId;
     const selectedModules = interaction.values;
 
-    const db = getDB();
-    const guildConfig = db
-      .prepare(
-        `SELECT enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(guildId) as Pick<GuildConfigRow, "enabled_modules"> | undefined;
+    const guildConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["enabled_modules"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as
+      | Pick<GuildConfigRow, "enabled_modules">
+      | undefined;
 
     const existingModules: string[] = guildConfig
       ? parseEnabledModules(guildConfig.enabled_modules)
@@ -260,9 +260,11 @@ export async function handleModuleToggle(
 
     // Update guild config
     try {
-      db.prepare(
-        `UPDATE "${TABLE_NAMES.GUILD_CONFIG}" SET enabled_modules = ? WHERE guild_id = ?`,
-      ).run(JSON.stringify(modulesToEnable), guildId);
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ enabled_modules: JSON.stringify(modulesToEnable) })
+        .where("guild_id", "=", guildId)
+        .execute();
     } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)

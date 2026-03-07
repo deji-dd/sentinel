@@ -6,7 +6,7 @@
 
 import { TABLE_NAMES } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 
 /**
  * Validate and fetch faction details from Torn API (with caching)
@@ -22,12 +22,12 @@ export async function validateAndFetchFactionDetails(
   }
 
   try {
-    const db = getDB();
-    let factionData = db
-      .prepare(
-        `SELECT * FROM "${TABLE_NAMES.TORN_FACTIONS}" WHERE id = ? LIMIT 1`,
-      )
-      .get(factionId) as { name?: string | null } | undefined;
+    let factionData = (await db
+      .selectFrom(TABLE_NAMES.TORN_FACTIONS)
+      .selectAll()
+      .where("id", "=", factionId)
+      .limit(1)
+      .executeTakeFirst()) as { name?: string | null } | undefined;
 
     if (!factionData) {
       const response = await tornApi.get("/faction/{id}/basic", {
@@ -37,42 +37,45 @@ export async function validateAndFetchFactionDetails(
       const basic = response.basic;
 
       if (basic?.id && basic?.name) {
-        db.prepare(
-          `INSERT INTO "${TABLE_NAMES.TORN_FACTIONS}"
-           (id, name, tag, tag_image, leader_id, co_leader_id, respect, days_old, capacity, members, is_enlisted, rank, best_chain, note, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             name = excluded.name,
-             tag = excluded.tag,
-             tag_image = excluded.tag_image,
-             leader_id = excluded.leader_id,
-             co_leader_id = excluded.co_leader_id,
-             respect = excluded.respect,
-             days_old = excluded.days_old,
-             capacity = excluded.capacity,
-             members = excluded.members,
-             is_enlisted = excluded.is_enlisted,
-             rank = excluded.rank,
-             best_chain = excluded.best_chain,
-             note = excluded.note,
-             updated_at = excluded.updated_at`,
-        ).run(
-          basic.id,
-          basic.name,
-          basic.tag,
-          basic.tag_image,
-          basic.leader_id,
-          basic.co_leader_id,
-          basic.respect,
-          basic.days_old,
-          basic.capacity,
-          basic.members,
-          basic.is_enlisted ? 1 : 0,
-          basic.rank?.name || null,
-          basic.best_chain,
-          basic.note || null,
-          new Date().toISOString(),
-        );
+        const updatedAt = new Date().toISOString();
+        await db
+          .insertInto(TABLE_NAMES.TORN_FACTIONS)
+          .values({
+            id: basic.id,
+            name: basic.name,
+            tag: basic.tag,
+            tag_image: basic.tag_image,
+            leader_id: basic.leader_id,
+            co_leader_id: basic.co_leader_id,
+            respect: basic.respect,
+            days_old: basic.days_old,
+            capacity: basic.capacity,
+            members: basic.members,
+            is_enlisted: basic.is_enlisted ? 1 : 0,
+            rank: basic.rank?.name || null,
+            best_chain: basic.best_chain,
+            note: basic.note || null,
+            updated_at: updatedAt,
+          })
+          .onConflict((oc) =>
+            oc.column("id").doUpdateSet({
+              name: basic.name,
+              tag: basic.tag,
+              tag_image: basic.tag_image,
+              leader_id: basic.leader_id,
+              co_leader_id: basic.co_leader_id,
+              respect: basic.respect,
+              days_old: basic.days_old,
+              capacity: basic.capacity,
+              members: basic.members,
+              is_enlisted: basic.is_enlisted ? 1 : 0,
+              rank: basic.rank?.name || null,
+              best_chain: basic.best_chain,
+              note: basic.note || null,
+              updated_at: updatedAt,
+            }),
+          )
+          .execute();
 
         factionData = { name: basic.name };
       }
@@ -100,21 +103,24 @@ export async function storeFactionDetails(
   factionName: string,
 ): Promise<boolean> {
   try {
-    const db = getDB();
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.FACTION_ROLES}" (guild_id, faction_id, member_role_ids, faction_name, updated_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(guild_id, faction_id) DO UPDATE SET
-         member_role_ids = excluded.member_role_ids,
-         faction_name = excluded.faction_name,
-         updated_at = excluded.updated_at`,
-    ).run(
-      guildId,
-      factionId,
-      JSON.stringify(roleIds),
-      factionName,
-      new Date().toISOString(),
-    );
+    const updatedAt = new Date().toISOString();
+    await db
+      .insertInto(TABLE_NAMES.FACTION_ROLES)
+      .values({
+        guild_id: guildId,
+        faction_id: factionId,
+        member_role_ids: JSON.stringify(roleIds),
+        faction_name: factionName,
+        updated_at: updatedAt,
+      })
+      .onConflict((oc) =>
+        oc.columns(["guild_id", "faction_id"]).doUpdateSet({
+          member_role_ids: JSON.stringify(roleIds),
+          faction_name: factionName,
+          updated_at: updatedAt,
+        }),
+      )
+      .execute();
 
     return true;
   } catch (error) {
@@ -168,13 +174,14 @@ export async function fetchAndStoreFactionNames(
     // Batch update database with new names
     const successfulResults = results.filter((r) => r.name !== null);
     if (successfulResults.length > 0) {
-      const db = getDB();
       for (const { id, name } of successfulResults) {
         try {
           // Update all rows with this faction_id across all guilds
-          db.prepare(
-            `UPDATE "${TABLE_NAMES.FACTION_ROLES}" SET faction_name = ?, updated_at = ? WHERE faction_id = ?`,
-          ).run(name!, new Date().toISOString(), id);
+          await db
+            .updateTable(TABLE_NAMES.FACTION_ROLES)
+            .set({ faction_name: name!, updated_at: new Date().toISOString() })
+            .where("faction_id", "=", id)
+            .execute();
 
           names.set(id, name!);
         } catch (dbError) {

@@ -1,19 +1,19 @@
 import { createHash } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
 const API_KEY_USER_MAPPING_TABLE = TABLE_NAMES.API_KEY_USER_MAPPING;
 const WINDOW_MS = 60000;
 const MAX_REQUESTS_PER_WINDOW = 50;
 
-function getMappedUserIdByApiKeyHash(keyHash: string): number {
-  const db = getDB();
-  const row = db
-    .prepare(
-      `SELECT user_id FROM "${API_KEY_USER_MAPPING_TABLE}" WHERE api_key_hash = ? LIMIT 1`,
-    )
-    .get(keyHash) as { user_id?: number | string } | undefined;
+async function getMappedUserIdByApiKeyHash(keyHash: string): Promise<number> {
+  const row = await db
+    .selectFrom(API_KEY_USER_MAPPING_TABLE)
+    .select(["user_id"])
+    .where("api_key_hash", "=", keyHash)
+    .limit(1)
+    .executeTakeFirst();
 
   const parsed = Number(row?.user_id);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -35,27 +35,26 @@ function hashApiKey(apiKey: string): string {
 export async function recordRequestPerUser(apiKey: string): Promise<void> {
   const keyHash = hashApiKey(apiKey);
   const now = new Date().toISOString();
-  const userId = getMappedUserIdByApiKeyHash(keyHash);
+  const userId = await getMappedUserIdByApiKeyHash(keyHash);
 
-  const db = getDB();
-  db.prepare(
-    `INSERT INTO "${TRACKER_TABLE}" (api_key_hash, requested_at, user_id)
-     VALUES (?, ?, ?)`,
-  ).run(keyHash, now, userId);
+  await db
+    .insertInto(TRACKER_TABLE)
+    .values({ api_key_hash: keyHash, requested_at: now, user_id: userId })
+    .execute();
 }
 
 export async function getRequestCountPerUser(apiKey: string): Promise<number> {
   const keyHash = hashApiKey(apiKey);
   const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
-  const db = getDB();
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) as count FROM "${TRACKER_TABLE}" WHERE api_key_hash = ? AND requested_at >= ?`,
-    )
-    .get(keyHash, windowStart) as { count: number };
+  const row = await db
+    .selectFrom(TRACKER_TABLE)
+    .select((eb) => eb.fn.count("id").as("count"))
+    .where("api_key_hash", "=", keyHash)
+    .where("requested_at", ">=", windowStart)
+    .executeTakeFirst();
 
-  return row.count || 0;
+  return Number(row?.count ?? 0);
 }
 
 export async function getOldestRequestPerUser(
@@ -64,12 +63,14 @@ export async function getOldestRequestPerUser(
   const keyHash = hashApiKey(apiKey);
   const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
-  const db = getDB();
-  const row = db
-    .prepare(
-      `SELECT requested_at FROM "${TRACKER_TABLE}" WHERE api_key_hash = ? AND requested_at >= ? ORDER BY requested_at ASC LIMIT 1`,
-    )
-    .get(keyHash, windowStart) as { requested_at: string } | undefined;
+  const row = await db
+    .selectFrom(TRACKER_TABLE)
+    .select(["requested_at"])
+    .where("api_key_hash", "=", keyHash)
+    .where("requested_at", ">=", windowStart)
+    .orderBy("requested_at", "asc")
+    .limit(1)
+    .executeTakeFirst();
 
   if (!row) {
     return null;
@@ -81,10 +82,10 @@ export async function getOldestRequestPerUser(
 export async function cleanupOldRequestsPerUser(): Promise<void> {
   const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
-  const db = getDB();
-  db.prepare(`DELETE FROM "${TRACKER_TABLE}" WHERE requested_at < ?`).run(
-    windowStart,
-  );
+  await db
+    .deleteFrom(TRACKER_TABLE)
+    .where("requested_at", "<", windowStart)
+    .execute();
 }
 
 export async function isRateLimitedPerUser(apiKey: string): Promise<boolean> {

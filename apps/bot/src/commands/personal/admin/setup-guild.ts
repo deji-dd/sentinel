@@ -10,7 +10,7 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 type GuildConfigRow = {
   guild_id: string;
@@ -86,10 +86,10 @@ export async function execute(
     }
 
     // Get list of already configured guilds
-    const db = getDB();
-    const configuredGuilds = db
-      .prepare(`SELECT guild_id FROM "${TABLE_NAMES.GUILD_CONFIG}"`)
-      .all() as Array<{ guild_id: string }>;
+    const configuredGuilds = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["guild_id"])
+      .execute()) as Array<{ guild_id: string }>;
 
     const configuredGuildIds = new Set(
       configuredGuilds?.map((config) => config.guild_id) || [],
@@ -168,12 +168,12 @@ export async function handleGuildSelect(
     const selectedGuildId = interaction.values[0];
 
     // Check if guild is already configured
-    const db = getDB();
-    const existingConfig = db
-      .prepare(
-        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(selectedGuildId) as GuildConfigRow | undefined;
+    const existingConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["guild_id", "enabled_modules"])
+      .where("guild_id", "=", selectedGuildId)
+      .limit(1)
+      .executeTakeFirst()) as GuildConfigRow | undefined;
 
     if (existingConfig) {
       // Guild already configured, show current modules
@@ -198,15 +198,15 @@ export async function handleGuildSelect(
 
     // Initialize new guild with empty modules
     try {
-      db.prepare(
-        `INSERT INTO "${TABLE_NAMES.GUILD_CONFIG}" (guild_id, enabled_modules, admin_role_ids, verified_role_ids)
-         VALUES (?, ?, ?, ?)`,
-      ).run(
-        selectedGuildId,
-        JSON.stringify([]),
-        JSON.stringify([]),
-        JSON.stringify([]),
-      );
+      await db
+        .insertInto(TABLE_NAMES.GUILD_CONFIG)
+        .values({
+          guild_id: selectedGuildId,
+          enabled_modules: JSON.stringify([]),
+          admin_role_ids: JSON.stringify([]),
+          verified_role_ids: JSON.stringify([]),
+        })
+        .execute();
     } catch (insertError) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
@@ -226,10 +226,13 @@ export async function handleGuildSelect(
 
     // Initialize sync job for this guild
     try {
-      db.prepare(
-        `INSERT INTO "${TABLE_NAMES.GUILD_SYNC_JOBS}" (guild_id, next_sync_at)
-         VALUES (?, ?)`,
-      ).run(selectedGuildId, new Date().toISOString());
+      await db
+        .insertInto(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .values({
+          guild_id: selectedGuildId,
+          next_sync_at: new Date().toISOString(),
+        })
+        .execute();
     } catch (syncJobError) {
       console.error(
         `Warning: Failed to create sync job for guild ${selectedGuildId}:`,
@@ -304,11 +307,12 @@ export async function handleModulesSelect(
     const modulesToEnable = ["admin", ...selectedModules];
 
     // Update guild config with selected modules
-    const db = getDB();
     try {
-      db.prepare(
-        `UPDATE "${TABLE_NAMES.GUILD_CONFIG}" SET enabled_modules = ? WHERE guild_id = ?`,
-      ).run(JSON.stringify(modulesToEnable), guildId);
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ enabled_modules: JSON.stringify(modulesToEnable) })
+        .where("guild_id", "=", guildId)
+        .execute();
     } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)

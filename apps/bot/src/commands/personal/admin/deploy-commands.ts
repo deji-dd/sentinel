@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, REST, Routes } from "discord.js";
 import type { ChatInputCommandInteraction, Client } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 type GuildConfigRow = {
   guild_id: string;
@@ -180,12 +180,10 @@ export async function execute(
     }
 
     // Deploy to configured guilds based on enabled modules
-    const db = getDB();
-    const guildConfigs = db
-      .prepare(
-        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
-      )
-      .all() as GuildConfigRow[];
+    const guildConfigs = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["guild_id", "enabled_modules"])
+      .execute()) as GuildConfigRow[];
 
     if (guildConfigs && guildConfigs.length > 0) {
       for (const guildConfig of guildConfigs) {

@@ -9,6 +9,7 @@
 
 import { getKysely, getDB } from "@sentinel/shared/db/sqlite.js";
 import type { DB } from "@sentinel/shared";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 const isDev = process.env.NODE_ENV === "development";
 console.log(
@@ -29,12 +30,12 @@ export async function finalizeReactionRoleMessage(
   recordId: number,
   newMessageId: string,
 ): Promise<{ updated_message_rows: number; updated_mapping_rows: number }> {
-  const transaction = rawDb.transaction(() => {
-    const messageRecord = rawDb
-      .prepare(
-        "SELECT message_id FROM sentinel_reaction_role_messages WHERE id = ?",
-      )
-      .get(recordId) as { message_id: string } | undefined;
+  return db.transaction().execute(async (trx) => {
+    const messageRecord = await trx
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select(["message_id"])
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     if (!messageRecord) {
       throw new Error(
@@ -44,23 +45,21 @@ export async function finalizeReactionRoleMessage(
 
     const oldMessageId = messageRecord.message_id;
 
-    const updateMappingsStmt = rawDb
-      .prepare(
-        "UPDATE sentinel_reaction_role_mappings SET message_id = ? WHERE message_id = ?",
-      )
-      .run(newMessageId, oldMessageId);
+    const updateMappingsResult = await trx
+      .updateTable(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .set({ message_id: newMessageId })
+      .where("message_id", "=", oldMessageId)
+      .executeTakeFirst();
 
-    const updateMessageStmt = rawDb
-      .prepare(
-        "UPDATE sentinel_reaction_role_messages SET message_id = ?, updated_at = ? WHERE id = ?",
-      )
-      .run(newMessageId, new Date().toISOString(), recordId);
+    const updateMessageResult = await trx
+      .updateTable(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .set({ message_id: newMessageId, updated_at: new Date().toISOString() })
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     return {
-      updated_message_rows: updateMessageStmt.changes,
-      updated_mapping_rows: updateMappingsStmt.changes,
+      updated_message_rows: Number(updateMessageResult.numUpdatedRows),
+      updated_mapping_rows: Number(updateMappingsResult.numUpdatedRows),
     };
   });
-
-  return transaction();
 }

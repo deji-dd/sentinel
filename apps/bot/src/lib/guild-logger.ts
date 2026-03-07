@@ -1,6 +1,6 @@
 import { EmbedBuilder, ChannelType, type Client } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 
 export interface GuildLogOptions {
   title: string;
@@ -24,13 +24,13 @@ export async function logGuildAction(
   options: GuildLogOptions,
 ): Promise<void> {
   try {
-    const db = getDB();
     // Fetch guild config to get log channel ID
-    const guildConfig = db
-      .prepare(
-        `SELECT log_channel_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(guildId) as { log_channel_id: string | null } | undefined;
+    const guildConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["log_channel_id"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as { log_channel_id: string | null } | undefined;
 
     if (!guildConfig?.log_channel_id) {
       // Guild doesn't have logging enabled, skip silently

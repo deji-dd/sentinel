@@ -10,7 +10,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
 
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
@@ -37,11 +37,11 @@ export async function execute(
   try {
     await interaction.deferReply();
 
-    const db = getDB();
     // Get all territories
-    const allTerritories = db
-      .prepare(`SELECT id FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}"`)
-      .all() as any[];
+    const allTerritories = (await db
+      .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
+      .select(["id"])
+      .execute()) as any[];
 
     const allTerritoryIds = allTerritories.map((t) => t.id);
     const totalTerritories = allTerritoryIds.length;
