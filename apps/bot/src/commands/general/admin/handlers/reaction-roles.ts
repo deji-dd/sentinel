@@ -24,7 +24,7 @@ import {
   type ChannelSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../../lib/db-client.js";
+import { db, finalizeReactionRoleMessage } from "../../../../lib/db-client.js";
 
 async function buildRoleMappingDescription(
   messageId: string,
@@ -848,13 +848,16 @@ export async function handlePostMessage(
     }
 
     // Atomically finalize pending_* message_id -> real Discord message ID
-    const { data: finalizeData, error: finalizeError } = await db.rpc(
-      "sentinel_finalize_reaction_role_message",
-      {
-        p_record_id: recordId,
-        p_new_message_id: postedMessage.id,
-      },
-    );
+    let finalizeData;
+    let finalizeError;
+    try {
+      finalizeData = await finalizeReactionRoleMessage(
+        recordId,
+        postedMessage.id,
+      );
+    } catch (error) {
+      finalizeError = error;
+    }
 
     if (finalizeError) {
       console.error(

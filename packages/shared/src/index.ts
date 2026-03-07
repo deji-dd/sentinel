@@ -15,3 +15,4 @@ export type {
   components as TornApiComponents,
   operations as TornApiOperations,
 } from "./generated/torn-api.js";
+export type { DB } from "./db/kysely-types.js";

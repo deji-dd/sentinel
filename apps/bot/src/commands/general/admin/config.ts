@@ -50,31 +50,26 @@ interface StoredGuildApiKey {
 async function getStoredGuildApiKeys(
   guildId: string,
 ): Promise<StoredGuildApiKey[]> {
-  const { data, error } = await db
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("id, api_key_encrypted, is_primary, created_at")
-    .eq("guild_id", guildId)
-    .is("deleted_at", null)
-    .order("is_primary", { ascending: false })
-    .order("created_at", { ascending: true });
+  try {
+    const rows = await db
+      .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+      .select(["id", "api_key_encrypted", "is_primary", "created_at"])
+      .where("guild_id", "=", guildId)
+      .where("deleted_at", "is", null)
+      .orderBy("is_primary", "desc")
+      .orderBy("created_at", "asc")
+      .execute();
 
-  if (error || !data) {
+    return rows.map((row) => ({
+      id: row.id as number,
+      api_key_encrypted: row.api_key_encrypted,
+      is_primary: Boolean(row.is_primary),
+      createdAt: row.created_at as string,
+    }));
+  } catch (error) {
+    console.error("Error fetching guild API keys:", error);
     return [];
   }
-
-  return data.map(
-    (row) =>
-      ({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        id: (row as any).id,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        api_key_encrypted: (row as any).api_key_encrypted,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        is_primary: Boolean((row as any).is_primary),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        createdAt: (row as any).created_at,
-      }) as StoredGuildApiKey,
-  );
 }
 
 async function getActiveGuildApiKey(
