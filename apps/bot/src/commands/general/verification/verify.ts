@@ -5,6 +5,7 @@ import {
 } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { type TornApiComponents } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   logGuildError,
@@ -12,11 +13,31 @@ import {
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
 import { tornApi } from "../../../services/torn-client.js";
-import { supabase } from "../../../lib/supabase.js";
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
   TornApiComponents["schemas"]["UserProfileResponse"];
+
+function parseTextArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("verify")
@@ -51,18 +72,21 @@ export async function execute(
     }
 
     // Get guild config for settings (nickname template, verified role)
-    const { data: guildConfig, error: configError } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("nickname_template, verified_role_id")
-      .eq("guild_id", guildId)
-      .single();
+    const db = getDB();
+    const guildConfig = db
+      .prepare(
+        `SELECT nickname_template, verified_role_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+      )
+      .get(guildId) as
+      | { nickname_template: string | null; verified_role_id: string | null }
+      | undefined;
 
-    if (configError || !guildConfig) {
+    if (!guildConfig) {
       await logGuildError(
         guildId,
         interaction.client,
         "Verify Failed: Not Configured",
-        configError?.message || "Missing guild config",
+        "Missing guild config",
         `${interaction.user} attempted /verify but guild is not configured.`,
       );
       const errorEmbed = new EmbedBuilder()
@@ -196,20 +220,38 @@ export async function execute(
     }
 
     // Store verification in database
-    await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
-      discord_id: targetUser.id,
-      torn_id: response.profile?.id,
-      torn_name: response.profile?.name,
-      faction_id: response.faction?.id || null,
-      faction_tag: response.faction?.tag || null,
-      updated_at: new Date().toISOString(),
-    });
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.VERIFIED_USERS}" (
+        discord_id,
+        torn_id,
+        torn_name,
+        faction_id,
+        faction_tag,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(discord_id) DO UPDATE SET
+        torn_id = excluded.torn_id,
+        torn_name = excluded.torn_name,
+        faction_id = excluded.faction_id,
+        faction_tag = excluded.faction_tag,
+        updated_at = excluded.updated_at`,
+    ).run(
+      targetUser.id,
+      response.profile?.id,
+      response.profile?.name,
+      response.faction?.id || null,
+      response.faction?.tag || null,
+      now,
+      now,
+    );
 
     // Apply nickname template
     if (interaction.guild) {
       try {
         const member = await interaction.guild.members.fetch(targetUser.id);
-        const nickname = guildConfig.nickname_template
+        const nickname = (guildConfig.nickname_template || "{name} [{id}]")
           .replace("{name}", response.profile?.name || "")
           .replace("{id}", (response.profile?.id || "").toString())
           .replace("{tag}", response.faction?.tag || "");
@@ -247,10 +289,31 @@ export async function execute(
       const member = await interaction.guild.members.fetch(targetUser.id);
 
       // Fetch ALL faction role mappings for this guild
-      const { data: allFactionMappings } = await supabase
-        .from(TABLE_NAMES.FACTION_ROLES)
-        .select("faction_id, member_role_ids, leader_role_ids, enabled")
-        .eq("guild_id", interaction.guildId);
+      const allFactionMappings = db
+        .prepare(
+          `SELECT faction_id, member_role_ids, leader_role_ids, enabled
+           FROM "${TABLE_NAMES.FACTION_ROLES}"
+           WHERE guild_id = ?`,
+        )
+        .all(interaction.guildId)
+        .map((row) => {
+          const typed = row as {
+            faction_id: number;
+            member_role_ids: unknown;
+            leader_role_ids: unknown;
+            enabled: unknown;
+          };
+
+          return {
+            faction_id: typed.faction_id,
+            member_role_ids: parseTextArray(typed.member_role_ids),
+            leader_role_ids: parseTextArray(typed.leader_role_ids),
+            enabled:
+              typed.enabled !== false &&
+              typed.enabled !== 0 &&
+              typed.enabled !== "0",
+          };
+        });
 
       if (allFactionMappings && allFactionMappings.length > 0) {
         const enabledMappings = allFactionMappings.filter(

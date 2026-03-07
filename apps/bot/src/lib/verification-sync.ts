@@ -5,10 +5,10 @@ import {
   getNextApiKey,
   type TornApiComponents,
 } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
 import { tornApi } from "../services/torn-client.js";
-import { supabase } from "./supabase.js";
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
@@ -38,6 +38,31 @@ interface GuildConfigRecord {
   auto_verify?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+function parseTextArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function isTruthyBoolean(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
 }
 
 /**
@@ -100,39 +125,38 @@ export class GuildSyncScheduler {
    */
   private async pollAndSync(): Promise<void> {
     try {
-      // Get all sync jobs that need to run
-      const { data: jobs, error } = await supabase
-        .from(TABLE_NAMES.GUILD_SYNC_JOBS)
-        .select("*")
-        .eq("in_progress", false)
-        .lte("next_sync_at", new Date().toISOString())
-        .order("next_sync_at", { ascending: true });
+      const db = getDB();
 
-      if (error) {
-        console.error(`[Guild Sync] Failed to fetch jobs: ${error.message}`);
-        return;
-      }
+      // Get all sync jobs that need to run
+      const jobs = db
+        .prepare(
+          `SELECT guild_id, last_sync_at, next_sync_at, in_progress
+           FROM "${TABLE_NAMES.GUILD_SYNC_JOBS}"
+           WHERE in_progress = 0 AND next_sync_at <= ?
+           ORDER BY next_sync_at ASC`,
+        )
+        .all(new Date().toISOString()) as GuildSyncJob[];
 
       if (!jobs || jobs.length === 0) {
         return;
       }
 
       const jobGuildIds = jobs.map((job: GuildSyncJob) => job.guild_id);
-      const { data: guildConfigs, error: guildConfigError } = await supabase
-        .from(TABLE_NAMES.GUILD_CONFIG)
-        .select("guild_id, auto_verify")
-        .in("guild_id", jobGuildIds);
-
-      if (guildConfigError) {
-        console.error(
-          `[Guild Sync] Failed to fetch guild configs: ${guildConfigError.message}`,
-        );
-        return;
-      }
+      const placeholders = jobGuildIds.map(() => "?").join(", ");
+      const guildConfigs = db
+        .prepare(
+          `SELECT guild_id, auto_verify
+           FROM "${TABLE_NAMES.GUILD_CONFIG}"
+           WHERE guild_id IN (${placeholders})`,
+        )
+        .all(...jobGuildIds) as Array<{
+        guild_id: string;
+        auto_verify: unknown;
+      }>;
 
       const autoVerifyGuilds = new Set(
         (guildConfigs || [])
-          .filter((config) => config.auto_verify)
+          .filter((config) => isTruthyBoolean(config.auto_verify))
           .map((config) => config.guild_id),
       );
 
@@ -162,46 +186,56 @@ export class GuildSyncScheduler {
    * Sync a single guild
    */
   private async syncGuild(job: GuildSyncJob): Promise<void> {
-    // Lock the job
-    const { error: lockError } = await supabase
-      .from(TABLE_NAMES.GUILD_SYNC_JOBS)
-      .update({ in_progress: true })
-      .eq("guild_id", job.guild_id);
+    const db = getDB();
 
-    if (lockError) {
+    // Lock the job
+    const lockResult = db
+      .prepare(
+        `UPDATE "${TABLE_NAMES.GUILD_SYNC_JOBS}" SET in_progress = 1 WHERE guild_id = ? AND in_progress = 0`,
+      )
+      .run(job.guild_id);
+
+    if (lockResult.changes === 0) {
+      const lockErrorMessage = "Job is already in progress or missing";
       console.error(
-        `[Guild Sync] Failed to lock job for guild ${job.guild_id}: ${lockError.message}`,
+        `[Guild Sync] Failed to lock job for guild ${job.guild_id}: ${lockErrorMessage}`,
       );
       await logGuildError(
         job.guild_id,
         this.client,
         "Guild Sync Lock Failed",
-        lockError.message,
+        lockErrorMessage,
         `Unable to lock sync job for guild ${job.guild_id}.`,
       );
       return;
     }
 
     try {
-      const { data: guildConfig, error: configError } = await supabase
-        .from(TABLE_NAMES.GUILD_CONFIG)
-        .select("*")
-        .eq("guild_id", job.guild_id)
-        .single();
+      const guildConfig = db
+        .prepare(
+          `SELECT * FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+        )
+        .get(job.guild_id) as
+        | (Partial<GuildConfigRecord> & {
+            auto_verify?: unknown;
+            nickname_template?: string | null;
+            verified_role_id?: string | null;
+          })
+        | undefined;
 
-      if (configError || !guildConfig) {
+      if (!guildConfig) {
         console.error(`[Guild Sync] Guild ${job.guild_id} config not found`);
         await logGuildError(
           job.guild_id,
           this.client,
           "Guild Auto Verification Failed",
-          configError?.message || "Missing guild config",
+          "Missing guild config",
           `Guild config not found for ${job.guild_id}.`,
         );
         return;
       }
 
-      if (!guildConfig.auto_verify) {
+      if (!isTruthyBoolean(guildConfig.auto_verify)) {
         console.log(
           `[Guild Sync] Auto verification disabled for guild ${job.guild_id}. Skipping sync.`,
         );
@@ -244,10 +278,33 @@ export class GuildSyncScheduler {
       const allMembers = discord.members.cache;
 
       // Get faction role mappings for this guild
-      const { data: factionMappings } = await supabase
-        .from(TABLE_NAMES.FACTION_ROLES)
-        .select("*")
-        .eq("guild_id", job.guild_id);
+      const factionMappings = db
+        .prepare(
+          `SELECT guild_id, faction_id, member_role_ids, leader_role_ids, enabled
+           FROM "${TABLE_NAMES.FACTION_ROLES}"
+           WHERE guild_id = ?`,
+        )
+        .all(job.guild_id)
+        .map((row) => {
+          const typed = row as {
+            guild_id: string;
+            faction_id: number;
+            member_role_ids: unknown;
+            leader_role_ids: unknown;
+            enabled: unknown;
+          };
+
+          return {
+            guild_id: typed.guild_id,
+            faction_id: typed.faction_id,
+            member_role_ids: parseTextArray(typed.member_role_ids),
+            leader_role_ids: parseTextArray(typed.leader_role_ids),
+            enabled:
+              typed.enabled !== false &&
+              typed.enabled !== 0 &&
+              typed.enabled !== "0",
+          } as FactionRoleMapping;
+        });
 
       // Cache faction members for leader detection
       // Map: factionId -> Set of leader player IDs
@@ -334,11 +391,21 @@ export class GuildSyncScheduler {
           }
 
           // Check if user exists in database
-          const { data: existingUser } = await supabase
-            .from(TABLE_NAMES.VERIFIED_USERS)
-            .select("*")
-            .eq("discord_id", member.id)
-            .maybeSingle();
+          const existingUser = db
+            .prepare(
+              `SELECT discord_id, torn_name, faction_id, faction_tag
+               FROM "${TABLE_NAMES.VERIFIED_USERS}"
+               WHERE discord_id = ?
+               LIMIT 1`,
+            )
+            .get(member.id) as
+            | {
+                discord_id: string;
+                torn_name: string;
+                faction_id: number | null;
+                faction_tag: string | null;
+              }
+            | undefined;
 
           const isNewUser = !existingUser;
           const nameChanged = existingUser && name !== existingUser.torn_name;
@@ -362,21 +429,39 @@ export class GuildSyncScheduler {
             );
 
           // Upsert to database
-          await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
-            discord_id: member.id,
-            torn_id: playerId,
-            torn_name: name,
-            faction_id: normalizedFactionId,
-            faction_tag: normalizedFactionTag,
-            updated_at: new Date().toISOString(),
-          });
+          const now = new Date().toISOString();
+          db.prepare(
+            `INSERT INTO "${TABLE_NAMES.VERIFIED_USERS}" (
+              discord_id,
+              torn_id,
+              torn_name,
+              faction_id,
+              faction_tag,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(discord_id) DO UPDATE SET
+              torn_id = excluded.torn_id,
+              torn_name = excluded.torn_name,
+              faction_id = excluded.faction_id,
+              faction_tag = excluded.faction_tag,
+              updated_at = excluded.updated_at`,
+          ).run(
+            member.id,
+            playerId,
+            name,
+            normalizedFactionId,
+            normalizedFactionTag,
+            now,
+            now,
+          );
 
           const rolesAdded: string[] = [];
           const rolesRemoved: string[] = [];
 
           // Always update nickname to apply current template
           const nickname = this.applyNicknameTemplate(
-            (guildConfig as GuildConfigRecord).nickname_template,
+            guildConfig.nickname_template || "{name} [{id}]",
             name,
             playerId,
             factionData?.tag,
@@ -384,9 +469,7 @@ export class GuildSyncScheduler {
           await member.setNickname(nickname).catch(() => {});
 
           // Ensure verification role is assigned if configured
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const config = guildConfig as any;
-          const verifiedRoleId = config.verified_role_id;
+          const verifiedRoleId = guildConfig.verified_role_id;
           if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
             const addVerifiedRoleResult = await member.roles
               .add(verifiedRoleId)
@@ -546,10 +629,14 @@ export class GuildSyncScheduler {
           // Check if user has no linked Torn account or disconnected
           if (/Incorrect ID/i.test(msg) || /User not found/i.test(msg)) {
             // Remove from verified_users if they were previously verified
-            await supabase
-              .from(TABLE_NAMES.VERIFIED_USERS)
-              .delete()
-              .eq("discord_id", member.id);
+            const removeResult = db
+              .prepare(
+                `DELETE FROM "${TABLE_NAMES.VERIFIED_USERS}" WHERE discord_id = ?`,
+              )
+              .run(member.id);
+            if (removeResult.changes > 0) {
+              removedCount++;
+            }
             continue;
           }
 
@@ -575,14 +662,11 @@ export class GuildSyncScheduler {
       // Unlock job and schedule next sync (fixed 60-minute cycle)
       const nextSync = new Date(Date.now() + 3600 * 1000); // 60 minutes
 
-      await supabase
-        .from(TABLE_NAMES.GUILD_SYNC_JOBS)
-        .update({
-          in_progress: false,
-          last_sync_at: new Date().toISOString(),
-          next_sync_at: nextSync.toISOString(),
-        })
-        .eq("guild_id", job.guild_id);
+      db.prepare(
+        `UPDATE "${TABLE_NAMES.GUILD_SYNC_JOBS}"
+         SET in_progress = 0, last_sync_at = ?, next_sync_at = ?
+         WHERE guild_id = ?`,
+      ).run(new Date().toISOString(), nextSync.toISOString(), job.guild_id);
     }
   }
 
