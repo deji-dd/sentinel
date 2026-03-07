@@ -5,7 +5,7 @@
  * Persists across restarts and coordinates across multiple instances.
  */
 
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 
@@ -54,13 +54,8 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
     const userId = getMappedUserIdByApiKeyHash(keyHash);
     db.prepare(
       `INSERT INTO "${TRACKER_TABLE}" (id, api_key_hash, requested_at, user_id)
-       VALUES (
-         (CAST(strftime('%s','now') AS INTEGER) * 1000) + (ABS(RANDOM()) % 1000),
-         ?,
-         ?,
-         ?
-       )`,
-    ).run(keyHash, now.toISOString(), userId);
+       VALUES (?, ?, ?, ?)`,
+    ).run(randomUUID(), keyHash, now.toISOString(), userId);
   } catch (error) {
     console.error("Failed to record per-user request:", error);
   }

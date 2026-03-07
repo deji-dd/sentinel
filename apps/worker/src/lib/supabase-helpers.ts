@@ -147,17 +147,9 @@ export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
   db.prepare(
     `INSERT INTO ${quoteIdentifier(TABLE_NAMES.WORKER_LOGS)}
       (id, worker_id, run_started_at, run_finished_at, duration_ms, status, message, error_message)
-     VALUES (
-       (CAST(strftime('%s','now') AS INTEGER) * 1000) + (ABS(RANDOM()) % 1000),
-       ?,
-       ?,
-       ?,
-       ?,
-       ?,
-       ?,
-       ?
-     )`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
+    randomUUID(),
     row.worker_id,
     row.run_started_at ?? null,
     row.run_finished_at ?? null,

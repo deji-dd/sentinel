@@ -118,7 +118,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS sentinel_worker_schedules_pkey ON sentinel_wor
 
 -- Table: sentinel_worker_logs
 CREATE TABLE IF NOT EXISTS sentinel_worker_logs (
-    id INTEGER NOT NULL,
+    id TEXT NOT NULL,
     worker_id TEXT NOT NULL,
     run_started_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     run_finished_at TEXT,
@@ -208,7 +208,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS sentinel_destination_travel_times_pkey ON sent
 
 -- Table: sentinel_rate_limit_requests_per_user
 CREATE TABLE IF NOT EXISTS sentinel_rate_limit_requests_per_user (
-    id INTEGER NOT NULL,
+    id TEXT NOT NULL,
     api_key_hash TEXT NOT NULL,
     requested_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     user_id INTEGER NOT NULL
