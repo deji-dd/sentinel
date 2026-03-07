@@ -7,7 +7,9 @@
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
     "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build",
-    "supabase:push": "pnpm dlx supabase db push --local && pnpm dlx supabase db push"
+    "supabase:push": "pnpm dlx supabase db push --local && pnpm dlx supabase db push",
+    "sqlite:migrate": "pnpm --filter worker exec tsx --env-file=.env ../../scripts/migrate-supabase-to-sqlite.ts",
+    "sqlite:regenerate-schema": "node scripts/convert-schema-to-sqlite.js"
   },
   "devDependencies": {
     "openapi-typescript": "^7.10.1"

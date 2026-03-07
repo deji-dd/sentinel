@@ -9,15 +9,29 @@ const __dirname = dirname(__filename);
 /**
  * SQLite database connection singleton
  * Replaces Supabase to avoid egress limits
+ *
+ * Environment-aware configuration:
+ * - Development (NODE_ENV=development): Uses SQLITE_DB_PATH_LOCAL or ./data/sentinel-local.db
+ * - Production (NODE_ENV=production): Uses SQLITE_DB_PATH or ./data/sentinel.db
  */
 class SQLiteDB {
   private db: Database.Database | null = null;
   private readonly dbPath: string;
+  private readonly environment: string;
 
   constructor() {
-    // Get database path from environment or use default
-    this.dbPath =
-      process.env.SQLITE_DB_PATH || join(process.cwd(), "data", "sentinel.db");
+    this.environment = process.env.NODE_ENV || "development";
+
+    // Determine database path based on environment (similar to Supabase pattern)
+    if (this.environment === "development") {
+      this.dbPath =
+        process.env.SQLITE_DB_PATH_LOCAL ||
+        join(process.cwd(), "data", "sentinel-local.db");
+    } else {
+      this.dbPath =
+        process.env.SQLITE_DB_PATH ||
+        join(process.cwd(), "data", "sentinel.db");
+    }
   }
 
   /**
@@ -29,7 +43,9 @@ class SQLiteDB {
       return this.db;
     }
 
-    console.log(`[SQLite] Initializing database at: ${this.dbPath}`);
+    console.log(
+      `[SQLite] Initializing database (${this.environment}) at: ${this.dbPath}`,
+    );
 
     // Create database connection
     this.db = new Database(this.dbPath);
