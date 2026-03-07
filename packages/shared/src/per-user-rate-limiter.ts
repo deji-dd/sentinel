@@ -5,7 +5,7 @@
  */
 
 import { createHash } from "crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DatabaseClient } from "./database-client.js";
 import type { RateLimitTracker } from "./torn.js";
 import { hashApiKey } from "./api-key-manager.js";
 import {
@@ -16,7 +16,7 @@ import {
 import { RATE_LIMITING } from "./constants.js";
 
 export interface PerUserRateLimiterConfig {
-  supabase: SupabaseClient;
+  db: DatabaseClient;
   tableName: string;
   apiKeyMappingTableName: string;
   hashPepper: string;
@@ -32,7 +32,7 @@ export interface PerUserRateLimiterConfig {
  * allowed multiple keys to have independent 50 req/min limits.
  */
 export class PerUserRateLimiter implements RateLimitTracker {
-  private supabase: SupabaseClient;
+  private db: DatabaseClient;
   private tableName: string;
   private apiKeyMappingTableName: string;
   private hashPepper: string;
@@ -46,7 +46,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
   private startupGracePeriodMs: number = 30000; // 30-second grace period after startup to allow entries to settle
 
   constructor(config: PerUserRateLimiterConfig) {
-    this.supabase = config.supabase;
+    this.db = config.db;
     this.tableName = config.tableName;
     this.apiKeyMappingTableName = config.apiKeyMappingTableName;
     this.hashPepper = config.hashPepper;
@@ -80,7 +80,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
-      const { count, error } = await this.supabase
+      const { count, error } = await this.db
         .from(this.tableName)
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId)
@@ -114,7 +114,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await this.db
         .from(this.tableName)
         .select("requested_at")
         .eq("user_id", userId)
@@ -147,7 +147,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     }
 
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await this.db
         .from(this.apiKeyMappingTableName)
         .select("user_id")
         .eq("api_key_hash", keyHash)
@@ -187,7 +187,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     const keyHash = hashApiKey(apiKey, this.hashPepper);
 
     try {
-      await this.supabase.from(this.tableName).insert({
+      await this.db.from(this.tableName).insert({
         user_id: userId,
         api_key_hash: keyHash,
         requested_at: now.toISOString(),
@@ -241,7 +241,7 @@ export class PerUserRateLimiter implements RateLimitTracker {
     const windowStart = new Date(Date.now() - this.windowMs);
 
     try {
-      await this.supabase
+      await this.db
         .from(this.tableName)
         .delete()
         .lt("requested_at", windowStart.toISOString());

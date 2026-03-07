@@ -4,7 +4,7 @@
  */
 
 import { EmbedBuilder } from "discord.js";
-import { supabase } from "./supabase.js";
+import { db } from "./db-client.js";
 import { getFactionNameCached, type TornApiComponents } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 

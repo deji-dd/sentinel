@@ -104,7 +104,7 @@ export async function getPrimaryGuildApiKey(
 
 /**
  * Store an API key for a guild
- * @param supabase Supabase client (will use RLS to ensure guild access)
+ * @param db database client (will use RLS to ensure guild access)
  * @param guildId The guild this key belongs to
  * @param apiKey The raw API key
  * @param userId The auth user who owns this key (extracted from auth.users)
@@ -152,7 +152,7 @@ export async function storeGuildApiKey(
 
 /**
  * Delete a guild API key
- * @param supabase Supabase client (RLS enforces guild access)
+ * @param db database client (RLS enforces guild access)
  * @param guildId The guild ID
  * @param apiKey The raw API key to delete
  */
@@ -201,7 +201,7 @@ export async function deleteGuildApiKey(
 /**
  * Mark guild API key as invalid (increment counter, soft-delete after threshold)
  * Called when Torn API returns "Incorrect Key" error to prevent IP blocking
- * @param supabase Supabase client
+ * @param db database client
  * @param apiKey The raw API key that failed
  * @param threshold Number of failures before soft-deleting (default: 3)
  */
@@ -295,7 +295,7 @@ export async function markGuildApiKeyInvalid(
  * Get all guilds that have API keys (useful for system operations like TT syncing)
  * Can list guilds with TT module enabled and their available keys
  *
- * @param supabase Service role client (admin access)
+ * @param db Service role client (admin access)
  */
 export async function getGuildsWithApiKeys(): Promise<
   Array<{ guildId: string; keyCount: number }>

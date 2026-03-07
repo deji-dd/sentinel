@@ -10,7 +10,7 @@ import {
   randomBytes,
   createHash,
 } from "crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DatabaseClient } from "./database-client.js";
 import { TornApiClient } from "./torn.js";
 
 const ALGORITHM = "aes-256-gcm";
@@ -101,7 +101,7 @@ export function isValidMasterKey(key: string): boolean {
  */
 export async function ensureApiKeyMapped(
   apiKey: string,
-  supabase: SupabaseClient,
+  db: DatabaseClient,
   config: {
     tableName: string;
     hashPepper: string;
@@ -111,7 +111,7 @@ export async function ensureApiKeyMapped(
 
   try {
     // Check if mapping already exists
-    const { data: existing, error: queryError } = await supabase
+    const { data: existing, error: queryError } = await db
       .from(config.tableName)
       .select("user_id")
       .eq("api_key_hash", keyHash)
@@ -139,7 +139,7 @@ export async function ensureApiKeyMapped(
     }
 
     // Create mapping
-    const { error: insertError } = await supabase
+    const { error: insertError } = await db
       .from(config.tableName)
       .insert([
         {

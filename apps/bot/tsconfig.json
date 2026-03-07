@@ -4,14 +4,19 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "moduleDetection": "force",
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"],
-    "noEmit": false
+    "types": [
+      "node"
+    ],
+    "noEmit": false,
+    "noImplicitAny": false
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

@@ -7,7 +7,7 @@ import {
   syncTornCategories,
   getTornCategoryNameToIdMap,
   type TornItemRow,
-} from "../lib/supabase.js";
+} from "../lib/sqlite-store.js";
 import { ApiKeyRotator } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 

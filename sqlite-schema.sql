@@ -1,4 +1,4 @@
--- SQLite schema converted from Supabase PostgreSQL dump
+-- SQLite schema converted from PostgreSQL dump
 -- Generated: 2026-03-07T10:29:34.653Z
 
 PRAGMA foreign_keys = OFF;

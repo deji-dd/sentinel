@@ -8,30 +8,18 @@ import { Client, GatewayIntentBits, Partials } from "discord.js";
 export const isDev = process.env.NODE_ENV === "development";
 
 /**
- * Load and validate Supabase configuration
+ * Validate database configuration
  */
-export function initializeSupabaseConfig(): {
-  supabaseUrl: string;
-  supabaseKey: string;
+export function initializeDatabaseConfig(): {
+  dbPath: string;
 } {
-  const supabaseUrl = isDev
-    ? process.env.SUPABASE_URL_LOCAL || "http://127.0.0.1:54321"
-    : process.env.SUPABASE_URL!;
-  const supabaseKey = isDev
-    ? process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL!
-    : process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const dbPath = isDev
+    ? process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db"
+    : process.env.SQLITE_DB_PATH || "./data/sentinel.db";
 
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      `Missing Supabase credentials for ${isDev ? "local" : "cloud"} environment`,
-    );
-  }
+  console.log(`[Bot] Using SQLite database path: ${dbPath}`);
 
-  console.log(
-    `[Bot] Connected to ${isDev ? "local" : "cloud"} Supabase: ${supabaseUrl}`,
-  );
-
-  return { supabaseUrl, supabaseKey };
+  return { dbPath };
 }
 
 /**

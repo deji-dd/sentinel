@@ -24,13 +24,13 @@ import {
   type ChannelSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../../lib/supabase.js";
+import { db } from "../../../../lib/db-client.js";
 
 async function buildRoleMappingDescription(
   messageId: string,
   baseDescription: string | null,
 ): Promise<string> {
-  const { data: mappings } = await supabase
+  const { data: mappings } = await db
     .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
     .select("emoji, role_id")
     .eq("message_id", messageId)
@@ -99,14 +99,14 @@ export async function handleShowReactionRolesSettings(
     console.log(`[Reaction Roles] Loading settings for guild: ${guildId}`);
 
     // Fetch config
-    const { data: config } = await supabase
+    const { data: config } = await db
       .from(TABLE_NAMES.REACTION_ROLE_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
       .single();
 
     // Fetch existing reaction role messages (only posted ones, exclude pending)
-    const { data: messages } = await supabase
+    const { data: messages } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
@@ -245,7 +245,7 @@ export async function handleAllowedRolesSelect(
     if (!guildId) return;
 
     // Update or create config
-    await supabase.from(TABLE_NAMES.REACTION_ROLE_CONFIG).upsert(
+    await db.from(TABLE_NAMES.REACTION_ROLE_CONFIG).upsert(
       {
         guild_id: guildId,
         allowed_role_ids: selectedRoles,
@@ -339,7 +339,7 @@ export async function handleChannelSelect(
     // Use a combination of timestamp and user ID to ensure uniqueness
     const tempMessageId = `pending_${Date.now()}_${interaction.user.id}`;
 
-    const { data: messageRecord, error: insertError } = await supabase
+    const { data: messageRecord, error: insertError } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .insert({
         guild_id: guildId,
@@ -417,7 +417,7 @@ export async function handleCreateEmbedModal(
       interaction.fields.getTextInputValue("embed_description").trim() || null;
 
     // Update the message record with details
-    await supabase
+    await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .update({ title, description })
       .eq("id", recordId);
@@ -553,7 +553,7 @@ export async function handleMappingEmojiModal(
     }
 
     // Get the message record to ensure it exists
-    const { data: messageRecord } = await supabase
+    const { data: messageRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("id", recordId)
@@ -613,7 +613,7 @@ export async function handleMappingRoleSelect(
     const selectedRoleId = interaction.values[0];
 
     // Get the message record
-    const { data: messageRecord } = await supabase
+    const { data: messageRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("id", recordId)
@@ -627,7 +627,7 @@ export async function handleMappingRoleSelect(
     const currentMessageId = messageRecord.message_id;
 
     // Upsert mapping so existing emoji mappings can be edited
-    const { error } = await supabase
+    const { error } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .upsert(
         {
@@ -751,7 +751,7 @@ export async function handlePostMessage(
     console.log(`[Reaction Roles] Posting message for recordId: ${recordId}`);
 
     // Get message record and mappings
-    const { data: messageRecord } = await supabase
+    const { data: messageRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("id", recordId)
@@ -767,7 +767,7 @@ export async function handlePostMessage(
     console.log(`[Reaction Roles] Found message record:`, messageRecord);
 
     // Get mappings for this message
-    const { data: tempMappings } = await supabase
+    const { data: tempMappings } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .select("*")
       .eq("message_id", messageRecord.message_id)
@@ -848,7 +848,7 @@ export async function handlePostMessage(
     }
 
     // Atomically finalize pending_* message_id -> real Discord message ID
-    const { data: finalizeData, error: finalizeError } = await supabase.rpc(
+    const { data: finalizeData, error: finalizeError } = await db.rpc(
       "sentinel_finalize_reaction_role_message",
       {
         p_record_id: recordId,
@@ -956,7 +956,7 @@ async function showEditMappingsForMessage(
   interaction: ButtonInteraction | StringSelectMenuInteraction,
   recordId: number,
 ): Promise<void> {
-  const { data: messageRecord } = await supabase
+  const { data: messageRecord } = await db
     .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
     .select("*")
     .eq("id", recordId)
@@ -975,7 +975,7 @@ async function showEditMappingsForMessage(
     return;
   }
 
-  const { data: mappings } = await supabase
+  const { data: mappings } = await db
     .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
     .select("*")
     .eq("message_id", messageRecord.message_id)
@@ -1037,7 +1037,7 @@ export async function handleEditMappings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: messages } = await supabase
+    const { data: messages } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
@@ -1162,7 +1162,7 @@ export async function handleEditRemoveMapping(
     const recordId = parseInt(recordIdStr, 10);
     if (isNaN(recordId)) return;
 
-    const { data: messageRecord } = await supabase
+    const { data: messageRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("id", recordId)
@@ -1170,7 +1170,7 @@ export async function handleEditRemoveMapping(
 
     if (!messageRecord) return;
 
-    const { data: mappings } = await supabase
+    const { data: mappings } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .select("*")
       .eq("message_id", messageRecord.message_id)
@@ -1233,19 +1233,19 @@ export async function handleEditRemoveMappingSelect(
       return;
     }
 
-    const { data: messageRecord } = await supabase
+    const { data: messageRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("id", recordId)
       .single();
 
-    const { data: mappingRecord } = await supabase
+    const { data: mappingRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .select("*")
       .eq("id", mappingId)
       .single();
 
-    await supabase
+    await db
       .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .delete()
       .eq("id", mappingId);
@@ -1316,7 +1316,7 @@ export async function handleViewMessages(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: messages } = await supabase
+    const { data: messages } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
@@ -1398,7 +1398,7 @@ export async function handleDeleteMessage(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: messages } = await supabase
+    const { data: messages } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("guild_id", guildId)
@@ -1461,7 +1461,7 @@ export async function handleDeleteSelect(
     }
 
     // Get message to delete from Discord
-    const { data: messageRecord } = await supabase
+    const { data: messageRecord } = await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .select("*")
       .eq("id", recordId)
@@ -1484,7 +1484,7 @@ export async function handleDeleteSelect(
     }
 
     // Delete from database (cascades to mappings)
-    await supabase
+    await db
       .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .delete()
       .eq("id", recordId);

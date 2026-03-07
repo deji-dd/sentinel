@@ -44,7 +44,7 @@ function resolveDatabasePath(
 
 /**
  * SQLite database connection singleton
- * Replaces Supabase to avoid egress limits
+ * Shared SQLite connection manager
  *
  * Environment-aware configuration:
  * - Development (NODE_ENV=development): Uses SQLITE_DB_PATH_LOCAL or ./data/sentinel-local.db
@@ -61,7 +61,7 @@ class SQLiteDB {
     // Find workspace root for monorepo support
     const workspaceRoot = findWorkspaceRoot();
 
-    // Determine database path based on environment (similar to Supabase pattern)
+    // Determine database path based on environment
     if (this.environment === "development") {
       this.dbPath = resolveDatabasePath(
         process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db",

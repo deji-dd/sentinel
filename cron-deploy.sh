@@ -51,15 +51,17 @@ timeout 120 pnpm --filter shared build || { echo "ERROR: shared build failed or 
 timeout 180 pnpm --filter worker build || { echo "ERROR: worker build failed or timed out"; exit 1; }
 timeout 180 pnpm --filter bot build || { echo "ERROR: bot build failed or timed out"; exit 1; }
 
+echo "Applying SQLite migrations..."
+timeout 120 pnpm sqlite:migrate || { echo "ERROR: sqlite migrations failed or timed out"; exit 1; }
+
 # Ensure logs directory exists
 mkdir -p logs
 
-# Rotate logs if they get large (compress and archive if >50MB)
+# Clear old logs (delete instead of archiving)
 for logfile in logs/*.log; do
   if [[ -f "${logfile}" ]] && [[ $(stat -f%z "${logfile}" 2>/dev/null || stat -c%s "${logfile}" 2>/dev/null) -gt 52428800 ]]; then
-    echo "Rotating large log file: ${logfile}"
-    gzip -c "${logfile}" > "${logfile}.$(date +%s).gz"
-    > "${logfile}"  # Truncate the log file
+    echo "Deleting large log file: ${logfile}"
+    rm -f "${logfile}"
   fi
 done
 

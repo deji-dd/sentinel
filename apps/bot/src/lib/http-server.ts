@@ -7,7 +7,7 @@ app.use(express.json());
 let discordClient: Client;
 
 /**
- * Initialize the HTTP server with Discord and Supabase clients
+ * Initialize the HTTP server with Discord and database clients
  */
 export function initHttpServer(client: Client, port: number = 3001) {
   discordClient = client;

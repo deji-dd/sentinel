@@ -15,7 +15,7 @@ import {
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
-import { supabase } from "../../../../lib/supabase.js";
+import { db } from "../../../../lib/db-client.js";
 
 export async function handleViewSelect(
   interaction: StringSelectMenuInteraction,
@@ -26,7 +26,7 @@ export async function handleViewSelect(
 
     const selectedView = interaction.values[0];
 
-    const { data: guildConfig } = await supabase
+    const { data: guildConfig } = await db
       .from(TABLE_NAMES.GUILD_CONFIG)
       .select("*")
       .eq("guild_id", guildId)
