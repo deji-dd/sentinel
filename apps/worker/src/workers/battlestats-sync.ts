@@ -14,6 +14,7 @@ import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import type { TornApiOperations } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { randomUUID } from "crypto";
 
 const WORKER_NAME = "battlestats_sync_worker";
 
@@ -133,9 +134,10 @@ async function syncBattlestats(): Promise<void> {
     // Insert new snapshot
     const db = getDB();
     db.prepare(
-      `INSERT INTO "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}" (strength, speed, defense, dexterity, total_stats)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}" (id, strength, speed, defense, dexterity, total_stats)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(
+      randomUUID(),
       newStats.strength,
       newStats.speed,
       newStats.defense,
