@@ -593,7 +593,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         await db
           .updateTable(TABLE_NAMES.ASSIST_TOKENS)
           .set({
-            last_used_at: new Date().toISOString(),
+            // Install/download should not start the active-assist lock window.
             last_seen_ip: req.header("X-Assist-Client-IP") || req.ip || null,
             last_seen_user_agent:
               req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
