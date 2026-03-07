@@ -607,7 +607,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
-      if (isAssistRateLimited(payload.uuid)) {
+      if (req.method === "POST" && isAssistRateLimited(payload.uuid)) {
         await incrementAssistStrikeByUuid(payload.uuid, "rate_limit_30s");
         logRateLimitHit(
           req.path,
@@ -694,9 +694,14 @@ export function initHttpServer(client: Client, port: number = 3001) {
       if (req.method === "PATCH") {
         const tracked = getActiveTrackedAssist(payload.uuid);
         if (!tracked) {
-          return res
-            .status(404)
-            .json({ error: "No active assist message for this UUID" });
+          await incrementAssistStrikeByUuid(
+            payload.uuid,
+            "invalid_patch_without_active_assist",
+          );
+          return res.status(409).json({
+            error:
+              "No active assist request exists for this token. Repeated invalid lifecycle updates will deactivate this token.",
+          });
         }
 
         // Extract attacker count from details
@@ -736,22 +741,31 @@ export function initHttpServer(client: Client, port: number = 3001) {
       // Handle DELETE method for session end
       if (req.method === "DELETE") {
         const tracked = getActiveTrackedAssist(payload.uuid);
-        if (tracked) {
-          try {
-            const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
-              .setColor(0x6b7280)
-              .setFooter({ text: "This assist alert has ended" });
-            upsertEmbedField(endedEmbed, "Status", "Ended", true);
-            await tracked.message.edit({
-              embeds: [endedEmbed],
-              components: [],
-            });
-          } catch (error) {
-            console.error(
-              `[ASSIST] Failed to mark assist as ended for ${payload.uuid}:`,
-              error,
-            );
-          }
+        if (!tracked) {
+          await incrementAssistStrikeByUuid(
+            payload.uuid,
+            "invalid_delete_without_active_assist",
+          );
+          return res.status(409).json({
+            error:
+              "No active assist request exists for this token. Repeated invalid lifecycle updates will deactivate this token.",
+          });
+        }
+
+        try {
+          const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
+            .setColor(0x6b7280)
+            .setFooter({ text: "This assist alert has ended" });
+          upsertEmbedField(endedEmbed, "Status", "Ended", true);
+          await tracked.message.edit({
+            embeds: [endedEmbed],
+            components: [],
+          });
+        } catch (error) {
+          console.error(
+            `[ASSIST] Failed to mark assist as ended for ${payload.uuid}:`,
+            error,
+          );
         }
 
         assistMessageTracking.delete(payload.uuid);

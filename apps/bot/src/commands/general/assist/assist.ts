@@ -267,19 +267,49 @@ async function handleGenerateSubcommand(
   }
 
   const tokenUuid = randomUUID();
+  let revokedActiveTokens = 0;
 
   try {
-    await assistDb
-      .insertInto(TABLE_NAMES.ASSIST_TOKENS)
-      .values({
-        guild_id: guildId,
-        discord_id: userId,
-        torn_id: tornId,
-        token_uuid: tokenUuid,
-        label: "Generated via /assist generate",
-        is_active: toSqliteBoolean(true),
-      })
-      .execute();
+    await assistDb.transaction().execute(async (trx) => {
+      const nowIso = new Date().toISOString();
+
+      const activeTokens = await trx
+        .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+        .select(["id"])
+        .where("guild_id", "=", guildId)
+        .where("discord_id", "=", userId)
+        .where("is_active", "=", toSqliteBoolean(true))
+        .execute();
+
+      revokedActiveTokens = activeTokens.length;
+
+      if (revokedActiveTokens > 0) {
+        await trx
+          .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+          .set({
+            is_active: toSqliteBoolean(false),
+            blacklisted_at: nowIso,
+            blacklisted_reason: "superseded_by_new_token",
+            updated_at: nowIso,
+          })
+          .where("guild_id", "=", guildId)
+          .where("discord_id", "=", userId)
+          .where("is_active", "=", toSqliteBoolean(true))
+          .execute();
+      }
+
+      await trx
+        .insertInto(TABLE_NAMES.ASSIST_TOKENS)
+        .values({
+          guild_id: guildId,
+          discord_id: userId,
+          torn_id: tornId,
+          token_uuid: tokenUuid,
+          label: "Generated via /assist generate",
+          is_active: toSqliteBoolean(true),
+        })
+        .execute();
+    });
   } catch (insertError) {
     console.error("Error inserting assist token:", insertError);
     const errorEmbed = new EmbedBuilder()
@@ -327,6 +357,14 @@ async function handleGenerateSubcommand(
       .setFooter({ text: "Sentinel Assist" })
       .setTimestamp();
 
+    if (revokedActiveTokens > 0) {
+      dmEmbed.addFields({
+        name: "Previous Active Tokens",
+        value: `Revoked ${revokedActiveTokens} old active token${revokedActiveTokens === 1 ? "" : "s"} before generating this one.`,
+        inline: false,
+      });
+    }
+
     await interaction.user.send({ embeds: [dmEmbed] });
 
     const confirmEmbed = new EmbedBuilder()
@@ -335,6 +373,14 @@ async function handleGenerateSubcommand(
       .setDescription(
         "Your assist script installation URL has been sent to your DMs. Check your messages!",
       );
+
+    if (revokedActiveTokens > 0) {
+      confirmEmbed.addFields({
+        name: "Security",
+        value: `Revoked ${revokedActiveTokens} previously active token${revokedActiveTokens === 1 ? "" : "s"}.`,
+        inline: false,
+      });
+    }
 
     await interaction.editReply({ embeds: [confirmEmbed] });
   } catch (dmError) {
