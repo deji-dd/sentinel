@@ -145,7 +145,6 @@ async function buildReviveRequestEmbed(
   let factionDisplay = "None";
   if (request.faction_id) {
     const factionName = await getFactionNameCached(
-      supabase,
       request.faction_id,
       tornApi,
       apiKey,

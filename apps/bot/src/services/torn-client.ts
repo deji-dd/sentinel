@@ -8,15 +8,62 @@
  * - Auto-marks invalid keys (error code 2) after multiple failures to prevent IP blocking
  */
 
-import { createTornApiClient } from "@sentinel/shared";
+import {
+  TornApiClient,
+  BatchOperationHandler,
+  ApiKeyRotator,
+} from "@sentinel/shared";
 import { markGuildApiKeyInvalid } from "../lib/guild-api-keys.js";
-import { supabase } from "../lib/supabase.js";
+import {
+  getOldestRequestPerUser,
+  getRequestCountPerUser,
+  recordRequestPerUser,
+} from "../lib/rate-limit-tracker-per-user.js";
 
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
 
 if (!API_KEY_HASH_PEPPER) {
   throw new Error("API_KEY_HASH_PEPPER environment variable is required");
 }
+
+const WINDOW_MS = 60_000;
+const MAX_REQUESTS_PER_WINDOW = 50;
+
+class BotSqliteRateLimiter {
+  async waitIfNeeded(apiKey: string): Promise<void> {
+    const count = await getRequestCountPerUser(apiKey);
+
+    if (count >= MAX_REQUESTS_PER_WINDOW) {
+      const oldestRequest = await getOldestRequestPerUser(apiKey);
+      if (oldestRequest) {
+        const age = Date.now() - oldestRequest.getTime();
+        const waitTime = WINDOW_MS - age + 100;
+        if (waitTime > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          return this.waitIfNeeded(apiKey);
+        }
+      }
+    }
+  }
+
+  async recordRequest(apiKey: string): Promise<void> {
+    await recordRequestPerUser(apiKey);
+  }
+
+  async getRequestCount(apiKey: string): Promise<number> {
+    return getRequestCountPerUser(apiKey);
+  }
+
+  getMaxRequests(): number {
+    return MAX_REQUESTS_PER_WINDOW;
+  }
+
+  clearCache(): void {
+    // No-op for SQLite tracker.
+  }
+}
+
+const rateLimiter = new BotSqliteRateLimiter();
 
 export interface ValidatedKeyInfo {
   playerId: number;
@@ -29,9 +76,8 @@ export interface ValidatedKeyInfo {
  * Create a Torn API client with per-user rate limiting for the bot
  * Uses the centralized factory from @sentinel/shared
  */
-export const tornApi = createTornApiClient({
-  supabase,
-  hashPepper: API_KEY_HASH_PEPPER,
+export const tornApi = new TornApiClient({
+  rateLimitTracker: rateLimiter,
   onInvalidKey: async (apiKey: string) => {
     console.warn(
       `Invalid guild API key detected (error code 2), marking for deletion`,
@@ -39,6 +85,10 @@ export const tornApi = createTornApiClient({
     await markGuildApiKeyInvalid(apiKey, 3); // Soft-delete after 3 failures
   },
 });
+
+export const batchHandler = new BatchOperationHandler(rateLimiter);
+
+export { ApiKeyRotator, BatchOperationHandler };
 
 /**
  * Validates a Torn API key and returns key info.

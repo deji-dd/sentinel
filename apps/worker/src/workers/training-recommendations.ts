@@ -3,8 +3,8 @@ import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const TRAINING_RECOMMENDATIONS_WORKER_NAME = "training_recommendations_worker";
 const TRAINING_RECOMMENDATIONS_CADENCE_SECONDS = 600; // 10 minutes
@@ -62,34 +62,45 @@ async function getLatestSnapshot(): Promise<{
   liquid_cash: number;
   can_boost_energy_perk: number;
 }> {
-  // Fetch latest battlestats snapshot (for stat values)
-  const { data: battlestatsData, error: battlestatsError } = await supabase
-    .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-    .select("strength, speed, defense, dexterity")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+  const db = getDB();
 
-  if (battlestatsError) {
-    throw new Error(
-      `Failed to fetch latest battlestats: ${battlestatsError.message}`,
-    );
+  const battlestatsData = db
+    .prepare(
+      `SELECT strength, speed, defense, dexterity
+       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get() as
+    | {
+        strength: number | null;
+        speed: number | null;
+        defense: number | null;
+        dexterity: number | null;
+      }
+    | undefined;
+
+  if (!battlestatsData) {
+    throw new Error("Failed to fetch latest battlestats: no data");
   }
 
-  // Fetch latest user snapshot (for other data)
-  const { data: userSnapshotData, error: userSnapshotError } = await supabase
-    .from(TABLE_NAMES.USER_SNAPSHOTS)
-    .select(
-      "active_gym, happy_current, strength_perk_gains, speed_perk_gains, dexterity_perk_gains, defense_perk_gains, liquid_cash",
+  const userSnapshotData = db
+    .prepare(
+      `SELECT active_gym, happy_current, liquid_cash
+       FROM "${TABLE_NAMES.USER_SNAPSHOTS}"
+       ORDER BY created_at DESC
+       LIMIT 1`,
     )
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+    .get() as
+    | {
+        active_gym: number | null;
+        happy_current: number | null;
+        liquid_cash: number | null;
+      }
+    | undefined;
 
-  if (userSnapshotError) {
-    throw new Error(
-      `Failed to fetch latest user snapshot: ${userSnapshotError.message}`,
-    );
+  if (!userSnapshotData) {
+    throw new Error("Failed to fetch latest user snapshot: no data");
   }
 
   // Construct stat_breakdown from battlestats
@@ -102,10 +113,11 @@ async function getLatestSnapshot(): Promise<{
 
   // Construct perk_gains from individual perk columns
   const perk_gains: Record<string, number> = {
-    strength_gym_gains: (userSnapshotData?.strength_perk_gains || 0) / 100, // Convert from percentage to decimal
-    speed_gym_gains: (userSnapshotData?.speed_perk_gains || 0) / 100,
-    dexterity_gym_gains: (userSnapshotData?.dexterity_perk_gains || 0) / 100,
-    defense_gym_gains: (userSnapshotData?.defense_perk_gains || 0) / 100,
+    // Perk gain columns were removed from snapshots; default to 0 for now.
+    strength_gym_gains: 0,
+    speed_gym_gains: 0,
+    dexterity_gym_gains: 0,
+    defense_gym_gains: 0,
   };
 
   return {
@@ -125,16 +137,10 @@ async function getGymDetails(activeGymId: number | null): Promise<{
   activeGym: GymDetails | null;
   stage4Gyms: GymDetails[];
 }> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TORN_GYMS)
-    .select("*")
-    .eq("unlocked", true);
-
-  if (error) {
-    throw new Error(`Failed to fetch gym details: ${error.message}`);
-  }
-
-  const gyms = (data || []) as GymDetails[];
+  const db = getDB();
+  const gyms = db
+    .prepare(`SELECT * FROM "${TABLE_NAMES.TORN_GYMS}" WHERE unlocked = 1`)
+    .all() as GymDetails[];
 
   const activeGym = activeGymId
     ? gyms.find((g) => g.id === activeGymId) || null
@@ -154,17 +160,22 @@ async function getGymDetails(activeGymId: number | null): Promise<{
 async function getEnergyGainItems(): Promise<ItemWithPrice[]> {
   const seItemNames = ["Dumbbells", "Boxing Gloves", "Parachute", "Skateboard"];
 
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TORN_ITEMS)
-    .select("id, name, energy_gain, booster_cooldown_hours")
-    .gt("energy_gain", 0)
-    .in("name", seItemNames);
+  const db = getDB();
+  const placeholders = seItemNames.map(() => "?").join(", ");
+  const data = db
+    .prepare(
+      `SELECT item_id as id, name, energy_gain, booster_cooldown_hours
+       FROM "${TABLE_NAMES.TORN_ITEMS}"
+       WHERE energy_gain > 0 AND name IN (${placeholders})`,
+    )
+    .all(...seItemNames) as Array<{
+    id: number;
+    name: string;
+    energy_gain: number;
+    booster_cooldown_hours: number;
+  }>;
 
-  if (error) {
-    throw new Error(`Failed to fetch energy gain items: ${error.message}`);
-  }
-
-  const items = (data || []).map(
+  const items = data.map(
     (item: {
       id: number;
       name: string;
@@ -316,33 +327,43 @@ async function getTrainingBudget(currentSnapshot: {
   liquid_cash?: number;
   [key: string]: unknown;
 }): Promise<number> {
-  const { data: settingsData, error: settingsError } = await supabase
-    .from(TABLE_NAMES.FINANCE_SETTINGS)
-    .select("min_reserve, split_training, split_bookie, split_gear")
-    .limit(1)
-    .single();
+  const db = getDB();
+  const settingsData = db
+    .prepare(
+      `SELECT min_reserve, split_training, split_bookie, split_gear
+       FROM "${TABLE_NAMES.FINANCE_SETTINGS}"
+       LIMIT 1`,
+    )
+    .get() as
+    | {
+        min_reserve: number | null;
+        split_training: number | null;
+        split_bookie: number | null;
+        split_gear: number | null;
+      }
+    | undefined;
 
-  if (settingsError || !settingsData) {
+  if (!settingsData) {
     logError(
       TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      `Failed to fetch finance settings: ${settingsError?.message || "No data"}`,
+      "Failed to fetch finance settings: No data",
     );
     return 0;
   }
 
   const liquidCash = Number(currentSnapshot?.liquid_cash || 0);
   const minReserve = Number(settingsData.min_reserve || 0);
+  const splitTraining = Number(settingsData.split_training || 0);
+  const splitBookie = Number(settingsData.split_bookie || 0);
+  const splitGear = Number(settingsData.split_gear || 0);
   const spendableLiquid = Math.max(0, liquidCash - minReserve);
 
   // Calculate training budget as percentage of spendable liquid
-  const splitTotal =
-    settingsData.split_training +
-    settingsData.split_bookie +
-    settingsData.split_gear;
+  const splitTotal = splitTraining + splitBookie + splitGear;
   const normalizedTotal = splitTotal > 0 ? splitTotal : 100;
 
   const trainingBudget = Math.floor(
-    spendableLiquid * (settingsData.split_training / normalizedTotal),
+    spendableLiquid * (splitTraining / normalizedTotal),
   );
 
   return trainingBudget;
@@ -497,16 +518,15 @@ function calculateTrainingCosts(
  * Get booster cooldown from sentinel_user_cooldowns
  */
 async function _getBoosterCooldown(): Promise<number> {
-  const { data, error } = await supabase
-    .from("sentinel_user_cooldowns")
-    .select("booster")
-    .limit(1)
-    .single();
+  const db = getDB();
+  const data = db
+    .prepare(`SELECT booster FROM "sentinel_user_cooldowns" LIMIT 1`)
+    .get() as { booster: number | null } | undefined;
 
-  if (error || !data) {
+  if (!data) {
     logError(
       TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      `Failed to fetch booster cooldown: ${error?.message || "No data"}`,
+      "Failed to fetch booster cooldown: No data",
     );
     return 0;
   }
@@ -520,13 +540,14 @@ async function _getBoosterCooldown(): Promise<number> {
 async function getUserBuildPreference(): Promise<{
   mainStat: StatKey | null;
 }> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.STAT_BUILD_PREFERENCES)
-    .select("main_stat")
-    .limit(1)
-    .single();
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT main_stat FROM "${TABLE_NAMES.STAT_BUILD_PREFERENCES}" LIMIT 1`,
+    )
+    .get() as { main_stat: string | null } | undefined;
 
-  if (error || !data) {
+  if (!data) {
     // No preference set is not an error, just return null
     return { mainStat: null };
   }
@@ -634,19 +655,41 @@ async function computeTrainingRecommendations(): Promise<void> {
 
     // Clear old recommendations (no player_id filter, single user) and insert new ones
     if (recommendations.length > 0) {
-      // Delete old recommendations
-      await supabase.from(TABLE_NAMES.TRAINING_RECOMMENDATIONS).delete();
+      const db = getDB();
+      const rows = recommendations as Array<Record<string, unknown>>;
+      const columns = Object.keys(rows[0]);
+      const quotedColumns = columns.map((column) => `"${column}"`).join(", ");
+      const placeholders = columns.map(() => "?").join(", ");
 
-      // Insert new recommendations
-      const { error: insertError } = await supabase
-        .from(TABLE_NAMES.TRAINING_RECOMMENDATIONS)
-        .insert(recommendations);
+      const tx = db.transaction(() => {
+        db.prepare(
+          `DELETE FROM "${TABLE_NAMES.TRAINING_RECOMMENDATIONS}"`,
+        ).run();
 
-      if (insertError) {
-        throw new Error(
-          `Failed to save training recommendations: ${insertError.message}`,
+        const insertStmt = db.prepare(
+          `INSERT INTO "${TABLE_NAMES.TRAINING_RECOMMENDATIONS}" (${quotedColumns}) VALUES (${placeholders})`,
         );
-      }
+
+        for (const row of rows) {
+          const values = columns.map((column) => {
+            const value = row[column];
+            if (Array.isArray(value)) {
+              return JSON.stringify(value);
+            }
+            if (
+              value &&
+              typeof value === "object" &&
+              !(value instanceof Date)
+            ) {
+              return JSON.stringify(value);
+            }
+            return value;
+          });
+          insertStmt.run(...values);
+        }
+      });
+
+      tx();
 
       const duration = Date.now() - startTime;
       logDuration(

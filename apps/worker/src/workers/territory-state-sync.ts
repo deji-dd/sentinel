@@ -34,7 +34,6 @@
 import { createHash } from "crypto";
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import {
@@ -43,11 +42,59 @@ import {
 } from "../lib/tt-notification-dispatcher.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 interface TTOwnershipChange {
   territory_id: string;
   old_faction_id: number | null;
   new_faction_id: number | null;
+}
+
+interface WorkerRow {
+  id: string;
+}
+
+interface WorkerScheduleMetadataRow {
+  metadata: string | null;
+}
+
+interface TerritoryBlueprintRow {
+  id: string;
+}
+
+interface TerritoryStateFullRow {
+  territory_id: string;
+  faction_id: number | null;
+  racket_name: string | null;
+  racket_level: number | null;
+  racket_created_at: number | null;
+  racket_changed_at: number | null;
+}
+
+interface ActiveWarRow {
+  territory_id: string;
+  assaulting_faction: number;
+  defending_faction: number;
+  start_time: string;
+}
+
+function parseScheduleMetadata(metadata: string | null): {
+  response_hash?: string;
+  consecutive_no_change_runs?: number;
+} {
+  if (!metadata) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(metadata) as {
+      response_hash?: string;
+      consecutive_no_change_runs?: number;
+    };
+    return parsed || {};
+  } catch {
+    return {};
+  }
 }
 
 function buildFactionTerritoryCountMap(
@@ -99,11 +146,10 @@ let cachedWorkerId: string | null = null;
 async function getWorkerId(): Promise<string | null> {
   if (cachedWorkerId) return cachedWorkerId;
 
-  const { data: worker } = await supabase
-    .from(TABLE_NAMES.WORKERS)
-    .select("id")
-    .eq("name", "territory_state_sync")
-    .maybeSingle();
+  const db = getDB();
+  const worker = db
+    .prepare(`SELECT id FROM "${TABLE_NAMES.WORKERS}" WHERE name = ? LIMIT 1`)
+    .get("territory_state_sync") as WorkerRow | undefined;
 
   cachedWorkerId = worker?.id || null;
   return cachedWorkerId;
@@ -119,13 +165,14 @@ async function getWorkerMetadata(): Promise<{
   const workerId = await getWorkerId();
   if (!workerId) return {};
 
-  const { data: schedule } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .select("metadata")
-    .eq("worker_id", workerId)
-    .maybeSingle();
+  const db = getDB();
+  const schedule = db
+    .prepare(
+      `SELECT metadata FROM "${TABLE_NAMES.WORKER_SCHEDULES}" WHERE worker_id = ? LIMIT 1`,
+    )
+    .get(workerId) as WorkerScheduleMetadataRow | undefined;
 
-  return schedule?.metadata || {};
+  return parseScheduleMetadata(schedule?.metadata || null);
 }
 
 /**
@@ -138,10 +185,10 @@ async function updateWorkerMetadata(metadata: {
   const workerId = await getWorkerId();
   if (!workerId) return;
 
-  await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .update({ metadata })
-    .eq("worker_id", workerId);
+  const db = getDB();
+  db.prepare(
+    `UPDATE "${TABLE_NAMES.WORKER_SCHEDULES}" SET metadata = ? WHERE worker_id = ?`,
+  ).run(JSON.stringify(metadata), workerId);
 }
 
 /**
@@ -183,21 +230,21 @@ async function calculateCadence(): Promise<number> {
  * Returns true if last execution was more than 2x expected cadence ago
  */
 async function isCatchUpSync(expectedCadenceSeconds: number): Promise<boolean> {
+  const db = getDB();
+  const worker = db
+    .prepare(`SELECT id FROM "${TABLE_NAMES.WORKERS}" WHERE name = ? LIMIT 1`)
+    .get("territory_state_sync") as WorkerRow | undefined;
+
+  if (!worker?.id) {
+    return false;
+  }
+
   // Get schedule info from sentinel_worker_schedules
-  const { data: schedules } = await supabase
-    .from("sentinel_worker_schedules")
-    .select("last_run_at")
-    .eq(
-      "worker_id",
-      (
-        await supabase
-          .from(TABLE_NAMES.WORKERS)
-          .select("id")
-          .eq("name", "territory_state_sync")
-          .maybeSingle()
-      ).data?.id,
+  const schedules = db
+    .prepare(
+      `SELECT last_run_at FROM "sentinel_worker_schedules" WHERE worker_id = ? LIMIT 1`,
     )
-    .maybeSingle();
+    .get(worker.id) as { last_run_at: string | null } | undefined;
 
   if (!schedules?.last_run_at) {
     return false; // First run or no schedule state
@@ -323,6 +370,7 @@ export function startTerritoryStateSyncWorker() {
         timeout: 180_000, // 3 minutes max (allows for rate limiting delays)
         handler: async () => {
           const startTime = Date.now();
+          const db = getDB();
 
           try {
             // Get system API keys and initialize rotator for load balancing
@@ -336,11 +384,11 @@ export function startTerritoryStateSyncWorker() {
             const keyRotator = new ApiKeyRotator(apiKeys);
 
             // Get all territory IDs (with explicit limit to bypass default 1000-row limit)
-            const { data: allTTs } = await supabase
-              .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-              .select("id")
-              .order("id")
-              .limit(5000); // Explicit limit - must be <= config.toml max_rows setting
+            const allTTs = db
+              .prepare(
+                `SELECT id FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}" ORDER BY id LIMIT 5000`,
+              )
+              .all() as TerritoryBlueprintRow[]; // Explicit limit - must be <= config.toml max_rows setting
 
             if (!allTTs || allTTs.length === 0) {
               logDuration(
@@ -354,9 +402,13 @@ export function startTerritoryStateSyncWorker() {
             const ttIds = allTTs.map((tt) => tt.id);
 
             // Check if this is initial seeding (avoid flooding channel with notifications)
-            const { count: existingStates } = await supabase
-              .from(TABLE_NAMES.TERRITORY_STATE)
-              .select("*", { count: "exact", head: true });
+            const existingStates = (
+              db
+                .prepare(
+                  `SELECT COUNT(*) as count FROM "${TABLE_NAMES.TERRITORY_STATE}"`,
+                )
+                .get() as { count: number }
+            ).count;
 
             const isInitialSeeding =
               !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
@@ -452,23 +504,25 @@ export function startTerritoryStateSyncWorker() {
 
             // Hash differs or first run - proceed with full sync
             // Batch-fetch all territory states at once (avoid N+1 queries)
-            const { data: allCurrentStates } = await supabase
-              .from(TABLE_NAMES.TERRITORY_STATE)
-              .select(
-                "territory_id, faction_id, racket_name, racket_level, racket_created_at, racket_changed_at",
-              );
+            const allCurrentStates = db
+              .prepare(
+                `SELECT territory_id, faction_id, racket_name, racket_level, racket_created_at, racket_changed_at
+                 FROM "${TABLE_NAMES.TERRITORY_STATE}"`,
+              )
+              .all() as TerritoryStateFullRow[];
 
             const statesByTerritory = new Map(
               (allCurrentStates || []).map((s) => [s.territory_id, s]),
             );
 
             // Batch-fetch all active wars at once (avoid N+1 queries)
-            const { data: allActiveWars } = await supabase
-              .from(TABLE_NAMES.WAR_LEDGER)
-              .select(
-                "territory_id, assaulting_faction, defending_faction, start_time",
+            const allActiveWars = db
+              .prepare(
+                `SELECT territory_id, assaulting_faction, defending_faction, start_time
+                 FROM "${TABLE_NAMES.WAR_LEDGER}"
+                 WHERE end_time IS NULL`,
               )
-              .is("end_time", null);
+              .all() as ActiveWarRow[];
 
             const warsByTerritory = new Map(
               (allActiveWars || []).map((w) => [w.territory_id, w]),
@@ -554,7 +608,7 @@ export function startTerritoryStateSyncWorker() {
                     event_type: "racket_despawned",
                     occupying_faction: oldFaction,
                     racket_name: oldRacketName,
-                    racket_old_level: oldRacketLevel,
+                    racket_old_level: oldRacketLevel ?? undefined,
                   });
                 }
                 // Racket level changed
@@ -568,7 +622,7 @@ export function startTerritoryStateSyncWorker() {
                     event_type: "racket_level_changed",
                     occupying_faction: newFaction,
                     racket_name: newRacketName,
-                    racket_old_level: oldRacketLevel,
+                    racket_old_level: oldRacketLevel ?? undefined,
                     racket_new_level: newRacketLevel,
                   });
                 }
@@ -643,16 +697,53 @@ export function startTerritoryStateSyncWorker() {
                 },
               );
 
-              const { error: updateError } = await supabase
-                .from(TABLE_NAMES.TERRITORY_STATE)
-                .upsert(stateUpdates, { onConflict: "territory_id" });
+              try {
+                const upsertStateTx = db.transaction(
+                  (
+                    rows: Array<{
+                      territory_id: string;
+                      faction_id: number | null;
+                      racket_name: string | null;
+                      racket_level: number | null;
+                      racket_reward: string | null;
+                      racket_created_at: number | null;
+                      racket_changed_at: number | null;
+                    }>,
+                  ) => {
+                    const stmt = db.prepare(
+                      `INSERT INTO "${TABLE_NAMES.TERRITORY_STATE}"
+                       (territory_id, faction_id, racket_name, racket_level, racket_reward, racket_created_at, racket_changed_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(territory_id) DO UPDATE SET
+                         faction_id = excluded.faction_id,
+                         racket_name = excluded.racket_name,
+                         racket_level = excluded.racket_level,
+                         racket_reward = excluded.racket_reward,
+                         racket_created_at = excluded.racket_created_at,
+                         racket_changed_at = excluded.racket_changed_at`,
+                    );
 
-              if (updateError) {
+                    for (const row of rows) {
+                      stmt.run(
+                        row.territory_id,
+                        row.faction_id,
+                        row.racket_name,
+                        row.racket_level,
+                        row.racket_reward,
+                        row.racket_created_at,
+                        row.racket_changed_at,
+                      );
+                    }
+                  },
+                );
+
+                upsertStateTx(stateUpdates);
+              } catch (error) {
                 logError(
                   "territory_state_sync",
-                  `Failed to update territory states: ${updateError.message}`,
+                  `Failed to update territory states: ${error instanceof Error ? error.message : String(error)}`,
                 );
-                throw updateError;
+                throw error;
               }
 
               // Queue guild notifications

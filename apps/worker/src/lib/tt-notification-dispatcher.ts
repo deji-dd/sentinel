@@ -3,15 +3,11 @@
  * Sends TT notifications to Discord guilds via bot webhook
  */
 
-import {
-  TABLE_NAMES,
-  getFactionDataCached,
-  type TornFactionData,
-} from "@sentinel/shared";
-import { supabase } from "./supabase.js";
+import { TABLE_NAMES, type TornFactionData } from "@sentinel/shared";
 import { logError } from "./logger.js";
 import { getAllSystemApiKeys } from "./api-keys.js";
 import { tornApi } from "../services/torn-client.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || "http://localhost:3001";
 
@@ -45,6 +41,30 @@ export interface TTEventNotification {
 // In-memory cache for API key
 let cachedSystemApiKey: string | null = null;
 
+interface GuildConfigRow {
+  guild_id: string;
+  enabled_modules: string | null;
+  tt_full_channel_id: string | null;
+  tt_filtered_channel_id: string | null;
+}
+
+function parseEnabledModules(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((entry) => typeof entry === "string");
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+}
+
 /**
  * Get a system API key for faction lookups (cached for dispatcher lifecycle)
  */
@@ -69,19 +89,78 @@ async function getFactionData(
   faction_id: number,
   apiKey: string | null,
 ): Promise<TornFactionData | null> {
-  if (!apiKey) {
-    // Try DB only
-    const { data: cached } = await supabase
-      .from(TABLE_NAMES.TORN_FACTIONS)
-      .select("*")
-      .eq("id", faction_id)
-      .maybeSingle();
+  const db = getDB();
+  const cached = db
+    .prepare(
+      `SELECT * FROM "${TABLE_NAMES.TORN_FACTIONS}" WHERE id = ? LIMIT 1`,
+    )
+    .get(faction_id) as TornFactionData | undefined;
 
-    return cached as TornFactionData | null;
+  if (cached) {
+    return cached;
   }
 
-  // Use shared function with cache-first, API fallback
-  return getFactionDataCached(supabase, faction_id, tornApi, apiKey);
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    const response = await tornApi.get("/faction/{id}/basic", {
+      apiKey,
+      pathParams: { id: faction_id },
+    });
+
+    const basic = response.basic;
+    if (!basic) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.TORN_FACTIONS}"
+       (id, name, tag, tag_image, leader_id, co_leader_id, respect, days_old, capacity, members, is_enlisted, rank, best_chain, note, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         tag = excluded.tag,
+         tag_image = excluded.tag_image,
+         leader_id = excluded.leader_id,
+         co_leader_id = excluded.co_leader_id,
+         respect = excluded.respect,
+         days_old = excluded.days_old,
+         capacity = excluded.capacity,
+         members = excluded.members,
+         is_enlisted = excluded.is_enlisted,
+         rank = excluded.rank,
+         best_chain = excluded.best_chain,
+         note = excluded.note,
+         updated_at = excluded.updated_at`,
+    ).run(
+      basic.id,
+      basic.name,
+      basic.tag,
+      basic.tag_image,
+      basic.leader_id,
+      basic.co_leader_id,
+      basic.respect,
+      basic.days_old,
+      basic.capacity,
+      basic.members,
+      basic.is_enlisted ? 1 : 0,
+      basic.rank?.name || null,
+      basic.best_chain,
+      basic.note || null,
+      now,
+    );
+
+    return db
+      .prepare(
+        `SELECT * FROM "${TABLE_NAMES.TORN_FACTIONS}" WHERE id = ? LIMIT 1`,
+      )
+      .get(faction_id) as TornFactionData | null;
+  } catch {
+    return null;
+  }
 }
 
 function factionLink(name: string, id: number): string {
@@ -131,20 +210,14 @@ function formatFactionWithTerritoryCount(
 async function getTerritoryCountsByFaction(): Promise<Map<number, number>> {
   const counts = new Map<number, number>();
 
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TERRITORY_STATE)
-    .select("faction_id")
-    .not("faction_id", "is", null);
+  const db = getDB();
+  const rows = db
+    .prepare(
+      `SELECT faction_id FROM "${TABLE_NAMES.TERRITORY_STATE}" WHERE faction_id IS NOT NULL`,
+    )
+    .all() as Array<{ faction_id: number | null }>;
 
-  if (error) {
-    logError(
-      "TT Dispatcher",
-      `Failed to fetch territory counts by faction: ${error.message}`,
-    );
-    return counts;
-  }
-
-  for (const row of data || []) {
+  for (const row of rows) {
     const factionId = Number(row.faction_id);
     if (!Number.isFinite(factionId)) {
       continue;
@@ -559,18 +632,20 @@ export async function processAndDispatchNotifications(
     const apiKey = await getApiKeyForDispatcher();
 
     // Get guild configs for all guilds with TT module enabled
-    const { data: guildConfigs } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select(
-        "guild_id, enabled_modules, tt_full_channel_id, tt_filtered_channel_id",
-      );
+    const db = getDB();
+    const guildConfigs = db
+      .prepare(
+        `SELECT guild_id, enabled_modules, tt_full_channel_id, tt_filtered_channel_id
+         FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
+      )
+      .all() as GuildConfigRow[];
 
     if (!guildConfigs || guildConfigs.length === 0) {
       return;
     }
 
     const ttEnabledGuilds = guildConfigs.filter((config) =>
-      (config.enabled_modules as string[] | null)?.includes("territories"),
+      parseEnabledModules(config.enabled_modules).includes("territories"),
     );
 
     if (ttEnabledGuilds.length === 0) {

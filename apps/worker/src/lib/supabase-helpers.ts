@@ -1,5 +1,9 @@
-import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
+
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
 
 export interface WorkerRow {
   id: string;
@@ -32,57 +36,30 @@ export async function ensureWorkerRegistered(
   cadenceSeconds: number,
   initialNextRunAt?: string,
 ): Promise<WorkerRow> {
-  let workerRow: WorkerRow | null = null;
+  const db = getDB();
+  const workersTable = quoteIdentifier(TABLE_NAMES.WORKERS);
+  const schedulesTable = quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES);
 
-  const { data: inserted, error: insertError } = await supabase
-    .from(TABLE_NAMES.WORKERS)
-    .insert({ name })
-    .select("id, name")
-    .single();
+  db.prepare(`INSERT OR IGNORE INTO ${workersTable} (name) VALUES (?)`).run(
+    name,
+  );
 
-  if (insertError && insertError.code !== "23505") {
-    throw new Error(`Failed to register worker: ${insertError.message}`);
-  }
-
-  if (inserted) {
-    workerRow = inserted as WorkerRow;
-  }
+  const workerRow = db
+    .prepare(`SELECT id, name FROM ${workersTable} WHERE name = ? LIMIT 1`)
+    .get(name) as WorkerRow | undefined;
 
   if (!workerRow) {
-    const { data: existing, error: fetchError } = await supabase
-      .from(TABLE_NAMES.WORKERS)
-      .select("id, name")
-      .eq("name", name)
-      .single();
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch worker id: ${fetchError.message}`);
-    }
-
-    workerRow = existing as WorkerRow;
+    throw new Error(`Failed to fetch worker id for ${name}`);
   }
 
-  // Ensure schedule row exists for the worker
-  // Only insert if it doesn't exist - do NOT overwrite existing schedules
-  const { data: existingSchedule } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .select("worker_id")
-    .eq("worker_id", workerRow.id)
-    .single();
-
-  if (!existingSchedule) {
-    const { error: schedError } = await supabase
-      .from(TABLE_NAMES.WORKER_SCHEDULES)
-      .insert({
-        worker_id: workerRow.id,
-        cadence_seconds: cadenceSeconds,
-        next_run_at: initialNextRunAt || new Date().toISOString(),
-      });
-
-    if (schedError) {
-      throw new Error(`Failed to create schedule: ${schedError.message}`);
-    }
-  }
+  db.prepare(
+    `INSERT OR IGNORE INTO ${schedulesTable} (worker_id, cadence_seconds, next_run_at)
+     VALUES (?, ?, ?)`,
+  ).run(
+    workerRow.id,
+    cadenceSeconds,
+    initialNextRunAt || new Date().toISOString(),
+  );
 
   return workerRow;
 }
@@ -91,33 +68,29 @@ export async function fetchDueWorker(
   workerId: string,
 ): Promise<WorkerScheduleRow | null> {
   const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .select("*")
-    .eq("worker_id", workerId)
-    .eq("enabled", true)
-    .or(`force_run.eq.true,next_run_at.lte.${now}`)
-    .or(`backoff_until.is.null,backoff_until.lte.${now}`)
-    .single();
+  const db = getDB();
+  const row = db
+    .prepare(
+      `SELECT * FROM ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)}
+       WHERE worker_id = ?
+         AND enabled = 1
+         AND (force_run = 1 OR next_run_at <= ?)
+         AND (backoff_until IS NULL OR backoff_until <= ?)
+       LIMIT 1`,
+    )
+    .get(workerId, now, now) as WorkerScheduleRow | undefined;
 
-  if (error && error.code !== "PGRST116") {
-    throw new Error(`Failed to fetch schedule: ${error.message}`);
-  }
-
-  return (data as WorkerScheduleRow) || null;
+  return row || null;
 }
 
 export async function claimWorker(workerId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .update({ updated_at: new Date().toISOString() })
-    .eq("worker_id", workerId)
-    .select("worker_id");
-
-  if (error) {
-    throw new Error(`Failed to claim worker: ${error.message}`);
-  }
-  return (data?.length || 0) > 0;
+  const db = getDB();
+  const result = db
+    .prepare(
+      `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)} SET updated_at = ? WHERE worker_id = ?`,
+    )
+    .run(new Date().toISOString(), workerId);
+  return result.changes > 0;
 }
 
 export async function completeWorker(
@@ -125,21 +98,12 @@ export async function completeWorker(
   cadenceSeconds: number,
 ): Promise<void> {
   const nextRun = new Date(Date.now() + cadenceSeconds * 1000).toISOString();
-  const { error } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .update({
-      last_run_at: new Date().toISOString(),
-      next_run_at: nextRun,
-      force_run: false,
-      attempts: 0,
-      backoff_until: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("worker_id", workerId);
-
-  if (error) {
-    throw new Error(`Failed to complete worker: ${error.message}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)}
+     SET last_run_at = ?, next_run_at = ?, force_run = 0, attempts = 0, backoff_until = NULL, updated_at = ?
+     WHERE worker_id = ?`,
+  ).run(new Date().toISOString(), nextRun, new Date().toISOString(), workerId);
 }
 
 export async function failWorker(
@@ -152,49 +116,44 @@ export async function failWorker(
   const backoffUntil = new Date(
     Date.now() + backoffSeconds * 1000,
   ).toISOString();
-  const { error } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .update({
-      force_run: false,
-      attempts: nextAttempts,
-      backoff_until: backoffUntil,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("worker_id", workerId);
-
-  if (error) {
-    throw new Error(`Failed to fail worker: ${error.message}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)}
+     SET force_run = 0, attempts = ?, backoff_until = ?, updated_at = ?
+     WHERE worker_id = ?`,
+  ).run(nextAttempts, backoffUntil, new Date().toISOString(), workerId);
 }
 
 export async function triggerWorkerNow(workerId: string): Promise<void> {
-  const { error } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .update({ force_run: true })
-    .eq("worker_id", workerId);
-
-  if (error) {
-    throw new Error(`Failed to trigger worker: ${error.message}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)} SET force_run = 1 WHERE worker_id = ?`,
+  ).run(workerId);
 }
 
 export async function updateWorkerCadence(
   workerId: string,
   cadenceSeconds: number,
 ): Promise<void> {
-  const { error } = await supabase
-    .from(TABLE_NAMES.WORKER_SCHEDULES)
-    .update({ cadence_seconds: cadenceSeconds })
-    .eq("worker_id", workerId);
-
-  if (error) {
-    throw new Error(`Failed to update worker cadence: ${error.message}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)} SET cadence_seconds = ? WHERE worker_id = ?`,
+  ).run(cadenceSeconds, workerId);
 }
 
 export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
-  const { error } = await supabase.from(TABLE_NAMES.WORKER_LOGS).insert(row);
-  if (error) {
-    throw new Error(`Failed to insert worker log: ${error.message}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `INSERT INTO ${quoteIdentifier(TABLE_NAMES.WORKER_LOGS)}
+      (worker_id, run_started_at, run_finished_at, duration_ms, status, message, error_message)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    row.worker_id,
+    row.run_started_at ?? null,
+    row.run_finished_at ?? null,
+    row.duration_ms ?? null,
+    row.status,
+    row.message ?? null,
+    row.error_message ?? null,
+  );
 }
