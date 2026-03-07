@@ -4,6 +4,7 @@
  */
 
 import { ChatInputCommandInteraction } from "discord.js";
+import { randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 
@@ -29,9 +30,10 @@ export async function logCommandAudit(
     });
 
     db.prepare(
-      `INSERT INTO "${TABLE_NAMES.GUILD_AUDIT}" (guild_id, actor_discord_id, action, details)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO "${TABLE_NAMES.GUILD_AUDIT}" (id, guild_id, actor_discord_id, action, details)
+       VALUES (?, ?, ?, ?, ?)`,
     ).run(
+      randomUUID(),
       interaction.guildId ?? "dm",
       interaction.user.id,
       "command_invoked",

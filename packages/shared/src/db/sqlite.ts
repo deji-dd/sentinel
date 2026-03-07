@@ -1,10 +1,46 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+/**
+ * Find the workspace root by looking for pnpm-workspace.yaml
+ */
+function findWorkspaceRoot(): string {
+  let currentDir = process.cwd();
+
+  // Walk up the directory tree looking for pnpm-workspace.yaml
+  while (currentDir !== dirname(currentDir)) {
+    const workspaceFile = join(currentDir, "pnpm-workspace.yaml");
+    if (existsSync(workspaceFile)) {
+      return currentDir;
+    }
+    currentDir = dirname(currentDir);
+  }
+
+  // Fallback to current directory if not found
+  return process.cwd();
+}
+
+function resolveDatabasePath(
+  candidatePath: string,
+  workspaceRoot: string,
+): string {
+  if (!candidatePath) {
+    return candidatePath;
+  }
+
+  // Keep absolute paths unchanged
+  if (candidatePath.startsWith("/")) {
+    return candidatePath;
+  }
+
+  // Resolve relative paths from workspace root so all apps target the same DB.
+  return resolve(workspaceRoot, candidatePath);
+}
 
 /**
  * SQLite database connection singleton
@@ -22,15 +58,20 @@ class SQLiteDB {
   constructor() {
     this.environment = process.env.NODE_ENV || "development";
 
+    // Find workspace root for monorepo support
+    const workspaceRoot = findWorkspaceRoot();
+
     // Determine database path based on environment (similar to Supabase pattern)
     if (this.environment === "development") {
-      this.dbPath =
-        process.env.SQLITE_DB_PATH_LOCAL ||
-        join(process.cwd(), "data", "sentinel-local.db");
+      this.dbPath = resolveDatabasePath(
+        process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db",
+        workspaceRoot,
+      );
     } else {
-      this.dbPath =
-        process.env.SQLITE_DB_PATH ||
-        join(process.cwd(), "data", "sentinel.db");
+      this.dbPath = resolveDatabasePath(
+        process.env.SQLITE_DB_PATH || "./data/sentinel.db",
+        workspaceRoot,
+      );
     }
   }
 
@@ -46,6 +87,13 @@ class SQLiteDB {
     console.log(
       `[SQLite] Initializing database (${this.environment}) at: ${this.dbPath}`,
     );
+
+    // Ensure data directory exists
+    const dbDir = dirname(this.dbPath);
+    if (!existsSync(dbDir)) {
+      console.log(`[SQLite] Creating directory: ${dbDir}`);
+      mkdirSync(dbDir, { recursive: true });
+    }
 
     // Create database connection
     this.db = new Database(this.dbPath);
@@ -84,8 +132,9 @@ class SQLiteDB {
     if (tableCount.count === 0) {
       console.log("[SQLite] Database is empty, executing schema creation...");
 
-      // Read and execute schema file
-      const schemaPath = join(__dirname, "..", "..", "..", "sqlite-schema.sql");
+      // Read and execute schema file from workspace root
+      const workspaceRoot = findWorkspaceRoot();
+      const schemaPath = join(workspaceRoot, "sqlite-schema.sql");
       const schema = readFileSync(schemaPath, "utf-8");
 
       // Execute schema in a transaction for atomicity

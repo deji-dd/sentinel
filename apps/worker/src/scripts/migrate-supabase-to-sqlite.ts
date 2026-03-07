@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import Database from "better-sqlite3";
 import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { TABLE_NAMES } from "../packages/shared/src/constants.js";
+import { TABLE_NAMES } from "@sentinel/shared";
 
 // Configuration
 const BATCH_SIZE = 1000; // Read and write in pages to avoid API limits and memory spikes.
@@ -26,6 +26,7 @@ interface MigrationStats {
   table: string;
   rowCount: number;
   success: boolean;
+  skipped?: boolean;
   error?: string;
   duration: number;
 }
@@ -42,11 +43,24 @@ function quoteIdentifier(name: string): string {
 }
 
 function toSQLiteValue(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  // Convert booleans to integers (SQLite doesn't have native boolean type)
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
   if (Array.isArray(value)) {
     return JSON.stringify(value);
   }
 
-  if (value && typeof value === "object" && !(value instanceof Date)) {
+  if (value && typeof value === "object") {
     return JSON.stringify(value);
   }
 
@@ -71,16 +85,16 @@ function resolveSupabaseCredentials(nodeEnv: string): {
 }
 
 function resolveSQLitePath(nodeEnv: string): string {
+  const repoRoot = join(process.cwd(), "../..");
+
   if (nodeEnv === "development") {
     return (
       process.env.SQLITE_DB_PATH_LOCAL ||
-      join(process.cwd(), "data", "sentinel-local.db")
+      join(repoRoot, "data", "sentinel-local.db")
     );
   }
 
-  return (
-    process.env.SQLITE_DB_PATH || join(process.cwd(), "data", "sentinel.db")
-  );
+  return process.env.SQLITE_DB_PATH || join(repoRoot, "data", "sentinel.db");
 }
 
 function resolveMigrationEnv(): MigrationEnv {
@@ -125,12 +139,60 @@ function initializeSchemaIfEmpty(db: Database.Database): void {
     .get() as { count: number };
 
   if (tableCount.count > 0) {
+    console.log(
+      `  Database already initialized with ${tableCount.count} tables`,
+    );
     return;
   }
 
-  const schemaPath = join(process.cwd(), "sqlite-schema.sql");
+  console.log("  Database is empty, loading schema...");
+  const repoRoot = join(process.cwd(), "../..");
+  const schemaPath = join(repoRoot, "sqlite-schema.sql");
+  console.log(`  Reading schema from: ${schemaPath}`);
   const schema = readFileSync(schemaPath, "utf-8");
-  db.exec(schema);
+  console.log(`  Executing SQL schema (${schema.length} bytes)...`);
+
+  try {
+    // Try executing the whole schema first
+    db.exec(schema);
+    const newTableCount = db
+      .prepare(
+        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+      )
+      .get() as { count: number };
+    console.log(
+      `  ✓ Schema initialized successfully: ${newTableCount.count} tables created`,
+    );
+  } catch (error) {
+    console.error(
+      "  ✗ Schema execution failed, trying statement-by-statement...\n",
+    );
+
+    // Split into individual statements and find the failing one
+    const statements = schema
+      .split(/;\s*\n/)
+      .filter((s) => s.trim() && !s.trim().startsWith("--"));
+    console.log(`  Found ${statements.length} statements to execute\n`);
+
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i].trim() + ";";
+      const preview = stmt.substring(0, 80).replace(/\s+/g, " ");
+
+      try {
+        db.exec(stmt);
+        console.log(`  ✓ ${i + 1}/${statements.length}: ${preview}`);
+      } catch (stmtError: any) {
+        console.error(
+          `\n  ✗ FAILED at statement ${i + 1}/${statements.length}:`,
+        );
+        console.error(`  Error: ${stmtError.message}`);
+        console.error(`\n  Statement preview (first 300 chars):`);
+        console.error(`  ${stmt.substring(0, 300)}`);
+        console.error(`  ...`);
+        throw stmtError;
+      }
+    }
+  }
 }
 
 async function main() {
@@ -156,8 +218,19 @@ async function main() {
 
   // Connect to SQLite
   console.log("Connecting to SQLite...");
-  mkdirSync(join(process.cwd(), "data"), { recursive: true });
-  const db = new Database(sqlitePath);
+  const repoRoot = join(process.cwd(), "../..");
+  const dataDir = join(repoRoot, "data");
+  console.log(`  Creating data directory if needed: ${dataDir}`);
+  mkdirSync(dataDir, { recursive: true });
+
+  // Ensure we use absolute path for database
+  const absoluteSQLitePath = sqlitePath.startsWith("/")
+    ? sqlitePath
+    : join(repoRoot, sqlitePath.replace(/^\.\//, ""));
+
+  console.log(`  Opening SQLite database: ${absoluteSQLitePath}`);
+  const db = new Database(absoluteSQLitePath);
+  console.log(`  ✓ SQLite database opened`);
 
   // Enable WAL mode
   db.pragma("journal_mode = WAL");
@@ -167,6 +240,7 @@ async function main() {
 
   initializeSchemaIfEmpty(db);
   const sqliteTables = getSQLiteTableNames(db);
+  console.log(`  Tables available in SQLite: ${sqliteTables.size}`);
 
   console.log("Database connections established");
   console.log();
@@ -176,6 +250,7 @@ async function main() {
   let totalRows = 0;
   let successCount = 0;
   let failCount = 0;
+  let skipCount = 0;
 
   // Migrate each table
   for (const tableName of TABLES_TO_MIGRATE) {
@@ -192,12 +267,13 @@ async function main() {
         stats.push({
           table: tableName,
           rowCount: 0,
-          success: false,
+          success: true,
+          skipped: true,
           error: message,
           duration,
         });
 
-        failCount++;
+        skipCount++;
         continue;
       }
 
@@ -241,8 +317,21 @@ async function main() {
 
           insertMany = db.transaction((dataRows: Record<string, unknown>[]) => {
             for (const row of dataRows) {
-              const values = columns.map((col) => toSQLiteValue(row[col]));
-              insertStmt.run(...values);
+              try {
+                const values = columns.map((col) => toSQLiteValue(row[col]));
+                insertStmt.run(...values);
+              } catch (err: any) {
+                console.error(`\n  ERROR inserting row into ${tableName}:`);
+                console.error(`  Row data:`, JSON.stringify(row, null, 2));
+                console.error(
+                  `  Converted values:`,
+                  columns.map((col) => {
+                    const val = toSQLiteValue(row[col]);
+                    return `${col}=${typeof val} (${val === null ? "null" : val?.constructor?.name || "unknown"})`;
+                  }),
+                );
+                throw err;
+              }
             }
           });
         }
@@ -276,6 +365,26 @@ async function main() {
       const duration = Date.now() - startTime;
       const errorMessage = err instanceof Error ? err.message : String(err);
 
+      // Some legacy tables no longer exist in Supabase and should be skipped.
+      if (
+        errorMessage.includes("Could not find the table") &&
+        errorMessage.includes("in the schema cache")
+      ) {
+        console.log(`  Skipped: ${errorMessage}`);
+
+        stats.push({
+          table: tableName,
+          rowCount: 0,
+          success: true,
+          skipped: true,
+          error: errorMessage,
+          duration,
+        });
+
+        skipCount++;
+        continue;
+      }
+
       console.log(`  Failed: ${errorMessage}`);
 
       stats.push({
@@ -302,9 +411,20 @@ async function main() {
   console.log();
 
   console.log(`Successful: ${successCount}/${TABLES_TO_MIGRATE.length} tables`);
+  console.log(`Skipped: ${skipCount}/${TABLES_TO_MIGRATE.length} tables`);
   console.log(`Failed: ${failCount}/${TABLES_TO_MIGRATE.length} tables`);
   console.log(`Total rows migrated: ${totalRows.toLocaleString()}`);
   console.log();
+
+  if (skipCount > 0) {
+    console.log("Skipped tables:");
+    stats
+      .filter((s) => s.skipped)
+      .forEach((s) => {
+        console.log(`  - ${s.table}: ${s.error}`);
+      });
+    console.log();
+  }
 
   if (failCount > 0) {
     console.log("Failed tables:");

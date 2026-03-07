@@ -49,6 +49,12 @@ next-env.d.ts
 /apps/bot/dist
 /apps/bot/node_modules
 
+# SQLite databases
+/data/
+*.db
+*.db-shm
+*.db-wal
+
 .archive/
 
 # PM2 logs

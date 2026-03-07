@@ -86,7 +86,7 @@ async function getLatestSnapshot(): Promise<{
 
   const userSnapshotData = db
     .prepare(
-      `SELECT active_gym, happy_current, strength_perk_gains, speed_perk_gains, dexterity_perk_gains, defense_perk_gains, liquid_cash
+      `SELECT active_gym, happy_current, liquid_cash
        FROM "${TABLE_NAMES.USER_SNAPSHOTS}"
        ORDER BY created_at DESC
        LIMIT 1`,
@@ -95,10 +95,6 @@ async function getLatestSnapshot(): Promise<{
     | {
         active_gym: number | null;
         happy_current: number | null;
-        strength_perk_gains: number | null;
-        speed_perk_gains: number | null;
-        dexterity_perk_gains: number | null;
-        defense_perk_gains: number | null;
         liquid_cash: number | null;
       }
     | undefined;
@@ -117,10 +113,11 @@ async function getLatestSnapshot(): Promise<{
 
   // Construct perk_gains from individual perk columns
   const perk_gains: Record<string, number> = {
-    strength_gym_gains: (userSnapshotData?.strength_perk_gains || 0) / 100, // Convert from percentage to decimal
-    speed_gym_gains: (userSnapshotData?.speed_perk_gains || 0) / 100,
-    dexterity_gym_gains: (userSnapshotData?.dexterity_perk_gains || 0) / 100,
-    defense_gym_gains: (userSnapshotData?.defense_perk_gains || 0) / 100,
+    // Perk gain columns were removed from snapshots; default to 0 for now.
+    strength_gym_gains: 0,
+    speed_gym_gains: 0,
+    dexterity_gym_gains: 0,
+    defense_gym_gains: 0,
   };
 
   return {
@@ -167,7 +164,7 @@ async function getEnergyGainItems(): Promise<ItemWithPrice[]> {
   const placeholders = seItemNames.map(() => "?").join(", ");
   const data = db
     .prepare(
-      `SELECT id, name, energy_gain, booster_cooldown_hours
+      `SELECT item_id as id, name, energy_gain, booster_cooldown_hours
        FROM "${TABLE_NAMES.TORN_ITEMS}"
        WHERE energy_gain > 0 AND name IN (${placeholders})`,
     )

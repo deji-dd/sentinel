@@ -12,6 +12,7 @@ import {
   logGuildSuccess,
   logGuildWarning,
 } from "../../../lib/guild-logger.js";
+import { upsertVerifiedUser } from "../../../lib/verified-users.js";
 import { tornApi } from "../../../services/torn-client.js";
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
@@ -220,32 +221,13 @@ export async function execute(
     }
 
     // Store verification in database
-    const now = new Date().toISOString();
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.VERIFIED_USERS}" (
-        discord_id,
-        torn_id,
-        torn_name,
-        faction_id,
-        faction_tag,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(discord_id) DO UPDATE SET
-        torn_id = excluded.torn_id,
-        torn_name = excluded.torn_name,
-        faction_id = excluded.faction_id,
-        faction_tag = excluded.faction_tag,
-        updated_at = excluded.updated_at`,
-    ).run(
-      targetUser.id,
-      response.profile?.id,
-      response.profile?.name,
-      response.faction?.id || null,
-      response.faction?.tag || null,
-      now,
-      now,
-    );
+    upsertVerifiedUser({
+      discordId: targetUser.id,
+      tornId: response.profile?.id,
+      tornName: response.profile?.name || "Unknown",
+      factionId: response.faction?.id || null,
+      factionTag: response.faction?.tag || null,
+    });
 
     // Apply nickname template
     if (interaction.guild) {

@@ -8,6 +8,7 @@ import {
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
+import { upsertVerifiedUser } from "./verified-users.js";
 import { tornApi } from "../services/torn-client.js";
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
@@ -429,32 +430,13 @@ export class GuildSyncScheduler {
             );
 
           // Upsert to database
-          const now = new Date().toISOString();
-          db.prepare(
-            `INSERT INTO "${TABLE_NAMES.VERIFIED_USERS}" (
-              discord_id,
-              torn_id,
-              torn_name,
-              faction_id,
-              faction_tag,
-              created_at,
-              updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(discord_id) DO UPDATE SET
-              torn_id = excluded.torn_id,
-              torn_name = excluded.torn_name,
-              faction_id = excluded.faction_id,
-              faction_tag = excluded.faction_tag,
-              updated_at = excluded.updated_at`,
-          ).run(
-            member.id,
-            playerId,
-            name,
-            normalizedFactionId,
-            normalizedFactionTag,
-            now,
-            now,
-          );
+          upsertVerifiedUser({
+            discordId: member.id,
+            tornId: playerId,
+            tornName: name,
+            factionId: normalizedFactionId,
+            factionTag: normalizedFactionTag,
+          });
 
           const rolesAdded: string[] = [];
           const rolesRemoved: string[] = [];

@@ -1,5 +1,5 @@
 -- SQLite schema converted from Supabase PostgreSQL dump
--- Generated: 2026-03-07T06:58:18.173Z
+-- Generated: 2026-03-07T10:29:34.653Z
 
 PRAGMA foreign_keys = OFF;
 
@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS sentinel_users (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_users_pkey ON sentinel_users (user_id);
+
 -- Table: sentinel_user_data
 CREATE TABLE IF NOT EXISTS sentinel_user_data (
     player_id INTEGER NOT NULL,
@@ -19,6 +21,8 @@ CREATE TABLE IF NOT EXISTS sentinel_user_data (
     profile_image TEXT,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_user_data_pkey ON sentinel_user_data (player_id);
 
 -- Table: sentinel_travel_data
 CREATE TABLE IF NOT EXISTS sentinel_travel_data (
@@ -35,6 +39,8 @@ CREATE TABLE IF NOT EXISTS sentinel_travel_data (
     player_id INTEGER NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_travel_data_pkey ON sentinel_travel_data (player_id);
+
 -- Table: sentinel_travel_recommendations
 CREATE TABLE IF NOT EXISTS sentinel_travel_recommendations (
     id TEXT  NOT NULL,
@@ -50,6 +56,8 @@ CREATE TABLE IF NOT EXISTS sentinel_travel_recommendations (
     cash_to_carry INTEGER
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_travel_recommendations_pkey ON sentinel_travel_recommendations (id);
+
 -- Table: sentinel_travel_settings
 CREATE TABLE IF NOT EXISTS sentinel_travel_settings (
     user_id TEXT NOT NULL,
@@ -64,6 +72,8 @@ CREATE TABLE IF NOT EXISTS sentinel_travel_settings (
     alerts_enabled INTEGER DEFAULT 1 NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_travel_settings_pkey ON sentinel_travel_settings (user_id);
+
 -- Table: sentinel_travel_stock_cache
 CREATE TABLE IF NOT EXISTS sentinel_travel_stock_cache (
     id INTEGER NOT NULL,
@@ -75,6 +85,8 @@ CREATE TABLE IF NOT EXISTS sentinel_travel_stock_cache (
     ingested_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_travel_stock_cache_pkey ON sentinel_travel_stock_cache (id);
+
 -- Table: sentinel_workers
 CREATE TABLE IF NOT EXISTS sentinel_workers (
     id TEXT  NOT NULL,
@@ -82,6 +94,10 @@ CREATE TABLE IF NOT EXISTS sentinel_workers (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_workers_name_key ON sentinel_workers (name);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_workers_pkey ON sentinel_workers (id);
 
 -- Table: sentinel_worker_schedules
 CREATE TABLE IF NOT EXISTS sentinel_worker_schedules (
@@ -95,8 +111,10 @@ CREATE TABLE IF NOT EXISTS sentinel_worker_schedules (
     backoff_until TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    metadata TEXT DEFAULT '{}'::TEXT
+    metadata TEXT DEFAULT '[]'
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_worker_schedules_pkey ON sentinel_worker_schedules (worker_id);
 
 -- Table: sentinel_worker_logs
 CREATE TABLE IF NOT EXISTS sentinel_worker_logs (
@@ -111,9 +129,11 @@ CREATE TABLE IF NOT EXISTS sentinel_worker_logs (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     is_limited INTEGER DEFAULT 0,
     limited_until TEXT,
-    last_error_at TEXT,
+    last_error_at TEXT
     
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_worker_logs_pkey ON sentinel_worker_logs (id);
 
 -- Table: sentinel_torn_items
 CREATE TABLE IF NOT EXISTS sentinel_torn_items (
@@ -130,12 +150,18 @@ CREATE TABLE IF NOT EXISTS sentinel_torn_items (
     booster_cooldown_hours INTEGER DEFAULT 0
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_items_pkey ON sentinel_torn_items (item_id);
+
 -- Table: sentinel_torn_categories
 CREATE TABLE IF NOT EXISTS sentinel_torn_categories (
     id INTEGER NOT NULL,
     name TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_categories_name_key ON sentinel_torn_categories (name);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_categories_pkey ON sentinel_torn_categories (id);
 
 -- Table: sentinel_torn_gyms
 CREATE TABLE IF NOT EXISTS sentinel_torn_gyms (
@@ -151,12 +177,18 @@ CREATE TABLE IF NOT EXISTS sentinel_torn_gyms (
     unlocked INTEGER DEFAULT 0
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_gyms_pkey ON sentinel_torn_gyms (id);
+
 -- Table: sentinel_torn_destinations
 CREATE TABLE IF NOT EXISTS sentinel_torn_destinations (
     id INTEGER NOT NULL,
     name TEXT NOT NULL,
     country_code TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_destinations_name_key ON sentinel_torn_destinations (name);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_destinations_pkey ON sentinel_torn_destinations (id);
 
 -- Table: sentinel_destination_travel_times
 CREATE TABLE IF NOT EXISTS sentinel_destination_travel_times (
@@ -172,6 +204,8 @@ CREATE TABLE IF NOT EXISTS sentinel_destination_travel_times (
     standard_cost INTEGER DEFAULT 0 NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_destination_travel_times_pkey ON sentinel_destination_travel_times (destination_id);
+
 -- Table: sentinel_rate_limit_requests_per_user
 CREATE TABLE IF NOT EXISTS sentinel_rate_limit_requests_per_user (
     id INTEGER NOT NULL,
@@ -180,21 +214,25 @@ CREATE TABLE IF NOT EXISTS sentinel_rate_limit_requests_per_user (
     user_id INTEGER NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_rate_limit_requests_per_user_pkey ON sentinel_rate_limit_requests_per_user (id);
+
 -- Table: sentinel_system_api_keys
 CREATE TABLE IF NOT EXISTS sentinel_system_api_keys (
     id TEXT  NOT NULL,
     api_key_encrypted TEXT NOT NULL,
     is_primary INTEGER DEFAULT 0,
-    key_type TEXT DEFAULT 'personal'::TEXT,
+    key_type TEXT DEFAULT 'personal',
     invalid_count INTEGER DEFAULT 0,
     last_invalid_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     last_used_at TEXT,
     deleted_at TEXT,
     user_id INTEGER NOT NULL,
-    api_key_hash TEXT,
+    api_key_hash TEXT
     
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_system_api_keys_pkey ON sentinel_system_api_keys (id);
 
 -- Table: sentinel_guild_api_keys
 CREATE TABLE IF NOT EXISTS sentinel_guild_api_keys (
@@ -211,15 +249,21 @@ CREATE TABLE IF NOT EXISTS sentinel_guild_api_keys (
     user_id INTEGER NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS guild_api_keys_unique ON sentinel_guild_api_keys (guild_id, api_key_encrypted);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_guild_api_keys_pkey ON sentinel_guild_api_keys (id);
+
 -- Table: sentinel_api_key_user_mapping
 CREATE TABLE IF NOT EXISTS sentinel_api_key_user_mapping (
     api_key_hash TEXT NOT NULL,
     source TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     deleted_at TEXT,
-    user_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL
     
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_api_key_user_mapping_pkey ON sentinel_api_key_user_mapping (api_key_hash);
 
 -- Table: sentinel_user_alerts
 CREATE TABLE IF NOT EXISTS sentinel_user_alerts (
@@ -230,6 +274,8 @@ CREATE TABLE IF NOT EXISTS sentinel_user_alerts (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_user_alerts_pkey ON sentinel_user_alerts (user_id, module);
 
 -- Table: sentinel_user_snapshots
 CREATE TABLE IF NOT EXISTS sentinel_user_snapshots (
@@ -263,6 +309,8 @@ CREATE TABLE IF NOT EXISTS sentinel_user_snapshots (
     chain_flat_time_to_full INTEGER
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_user_snapshots_pkey ON sentinel_user_snapshots (id);
+
 -- Table: sentinel_finance_settings
 CREATE TABLE IF NOT EXISTS sentinel_finance_settings (
     player_id INTEGER NOT NULL,
@@ -273,6 +321,8 @@ CREATE TABLE IF NOT EXISTS sentinel_finance_settings (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_finance_settings_pkey ON sentinel_finance_settings (player_id);
 
 -- Table: sentinel_training_recommendations
 CREATE TABLE IF NOT EXISTS sentinel_training_recommendations (
@@ -289,6 +339,8 @@ CREATE TABLE IF NOT EXISTS sentinel_training_recommendations (
     priority_score REAL DEFAULT 0
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_training_recommendations_pkey ON sentinel_training_recommendations (id);
+
 -- Table: sentinel_stat_builds
 CREATE TABLE IF NOT EXISTS sentinel_stat_builds (
     id TEXT  NOT NULL,
@@ -298,6 +350,12 @@ CREATE TABLE IF NOT EXISTS sentinel_stat_builds (
     notes TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_stat_builds_name_key ON sentinel_stat_builds (name);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_stat_builds_pkey ON sentinel_stat_builds (id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_stat_builds_slug_key ON sentinel_stat_builds (slug);
 
 -- Table: sentinel_stat_build_configurations
 CREATE TABLE IF NOT EXISTS sentinel_stat_build_configurations (
@@ -316,6 +374,10 @@ CREATE TABLE IF NOT EXISTS sentinel_stat_build_configurations (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_stat_build_configurations_build_id_main_stat_key ON sentinel_stat_build_configurations (build_id, main_stat);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_stat_build_configurations_pkey ON sentinel_stat_build_configurations (id);
+
 -- Table: sentinel_user_build_preferences
 CREATE TABLE IF NOT EXISTS sentinel_user_build_preferences (
     id TEXT  NOT NULL,
@@ -324,6 +386,8 @@ CREATE TABLE IF NOT EXISTS sentinel_user_build_preferences (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS user_build_preference_only_one ON sentinel_user_build_preferences (id);
 
 -- Table: sentinel_verified_users
 CREATE TABLE IF NOT EXISTS sentinel_verified_users (
@@ -336,6 +400,10 @@ CREATE TABLE IF NOT EXISTS sentinel_verified_users (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_verified_users_pkey ON sentinel_verified_users (discord_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_verified_users_torn_id_key ON sentinel_verified_users (torn_id);
+
 -- Table: sentinel_battlestats_snapshots
 CREATE TABLE IF NOT EXISTS sentinel_battlestats_snapshots (
     id TEXT  NOT NULL,
@@ -347,24 +415,28 @@ CREATE TABLE IF NOT EXISTS sentinel_battlestats_snapshots (
     total_stats INTEGER NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_battlestats_snapshots_pkey ON sentinel_battlestats_snapshots (id);
+
 -- Table: sentinel_guild_config
 CREATE TABLE IF NOT EXISTS sentinel_guild_config (
     guild_id TEXT NOT NULL,
-    enabled_modules TEXT[] DEFAULT '{}'::TEXT[],
-    admin_role_ids TEXT[] DEFAULT '{}'::TEXT[],
-    verified_role_ids TEXT[] DEFAULT '{}'::TEXT[],
+    enabled_modules TEXT DEFAULT '[]',
+    admin_role_ids TEXT DEFAULT '[]',
+    verified_role_ids TEXT DEFAULT '[]',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    nickname_template TEXT DEFAULT '{name}#{id}'::TEXT,
+    nickname_template TEXT DEFAULT '{name}#{id}',
     auto_verify INTEGER DEFAULT 0,
     sync_interval_seconds INTEGER DEFAULT 3600,
     verified_role_id TEXT,
     log_channel_id TEXT,
     tt_full_channel_id TEXT,
     tt_filtered_channel_id TEXT,
-    tt_territory_ids TEXT[] DEFAULT '{}'::TEXT[],
-    tt_faction_ids TEXT DEFAULT '{}'
+    tt_territory_ids TEXT DEFAULT '[]',
+    tt_faction_ids TEXT DEFAULT '[]'
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_guild_modules_pkey ON sentinel_guild_config (guild_id);
 
 -- Table: sentinel_guild_sync_jobs
 CREATE TABLE IF NOT EXISTS sentinel_guild_sync_jobs (
@@ -376,6 +448,8 @@ CREATE TABLE IF NOT EXISTS sentinel_guild_sync_jobs (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_guild_sync_jobs_pkey ON sentinel_guild_sync_jobs (guild_id);
+
 -- Table: sentinel_guild_audit
 CREATE TABLE IF NOT EXISTS sentinel_guild_audit (
     id TEXT  NOT NULL,
@@ -386,6 +460,8 @@ CREATE TABLE IF NOT EXISTS sentinel_guild_audit (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_guild_audit_pkey ON sentinel_guild_audit (id);
+
 -- Table: sentinel_faction_roles
 CREATE TABLE IF NOT EXISTS sentinel_faction_roles (
     id TEXT  NOT NULL,
@@ -393,11 +469,15 @@ CREATE TABLE IF NOT EXISTS sentinel_faction_roles (
     faction_id INTEGER NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    member_role_ids TEXT[] DEFAULT '{}'::TEXT[] NOT NULL,
+    member_role_ids TEXT DEFAULT '[]' NOT NULL,
     faction_name TEXT,
     enabled INTEGER DEFAULT 1 NOT NULL,
-    leader_role_ids TEXT[] DEFAULT '{}'::TEXT[] NOT NULL
+    leader_role_ids TEXT DEFAULT '[]' NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_faction_roles_pkey ON sentinel_faction_roles (id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS unique_guild_faction ON sentinel_faction_roles (guild_id, faction_id);
 
 -- Table: sentinel_territory_blueprint
 CREATE TABLE IF NOT EXISTS sentinel_territory_blueprint (
@@ -409,10 +489,12 @@ CREATE TABLE IF NOT EXISTS sentinel_territory_blueprint (
     respect INTEGER NOT NULL,
     coordinate_x REAL NOT NULL,
     coordinate_y REAL NOT NULL,
-    neighbors TEXT[] DEFAULT '{}'::TEXT[] NOT NULL,
+    neighbors TEXT DEFAULT '[]' NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_territory_blueprint_pkey ON sentinel_territory_blueprint (id);
 
 -- Table: sentinel_territory_state
 CREATE TABLE IF NOT EXISTS sentinel_territory_state (
@@ -428,6 +510,8 @@ CREATE TABLE IF NOT EXISTS sentinel_territory_state (
     racket_changed_at INTEGER
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_territory_state_pkey ON sentinel_territory_state (territory_id);
+
 -- Table: sentinel_war_ledger
 CREATE TABLE IF NOT EXISTS sentinel_war_ledger (
     war_id INTEGER NOT NULL,
@@ -441,6 +525,8 @@ CREATE TABLE IF NOT EXISTS sentinel_war_ledger (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_war_ledger_pkey ON sentinel_war_ledger (war_id);
+
 -- Table: sentinel_war_trackers
 CREATE TABLE IF NOT EXISTS sentinel_war_trackers (
     id TEXT  NOT NULL,
@@ -452,9 +538,13 @@ CREATE TABLE IF NOT EXISTS sentinel_war_trackers (
     enemy_side TEXT NOT NULL,
     min_away_minutes INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_war_trackers_guild_id_war_id_key ON sentinel_war_trackers (guild_id, war_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_war_trackers_pkey ON sentinel_war_trackers (id);
 
 -- Table: sentinel_torn_factions
 CREATE TABLE IF NOT EXISTS sentinel_torn_factions (
@@ -476,16 +566,20 @@ CREATE TABLE IF NOT EXISTS sentinel_torn_factions (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_torn_factions_pkey ON sentinel_torn_factions (id);
+
 -- Table: sentinel_tt_config
 CREATE TABLE IF NOT EXISTS sentinel_tt_config (
     guild_id TEXT NOT NULL,
-    notification_type TEXT DEFAULT 'all'::TEXT NOT NULL,
-    territory_ids TEXT[] DEFAULT '{}'::TEXT[],
-    faction_ids TEXT DEFAULT '{}',
+    notification_type TEXT DEFAULT 'all' NOT NULL,
+    territory_ids TEXT DEFAULT '[]',
+    faction_ids TEXT DEFAULT '[]',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_tt_config_pkey ON sentinel_tt_config (guild_id);
 
 -- Table: sentinel_reaction_role_messages
 CREATE TABLE IF NOT EXISTS sentinel_reaction_role_messages (
@@ -499,6 +593,10 @@ CREATE TABLE IF NOT EXISTS sentinel_reaction_role_messages (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_reaction_role_messages_message_id_key ON sentinel_reaction_role_messages (message_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_reaction_role_messages_pkey ON sentinel_reaction_role_messages (id);
+
 -- Table: sentinel_reaction_role_mappings
 CREATE TABLE IF NOT EXISTS sentinel_reaction_role_mappings (
     id INTEGER NOT NULL,
@@ -508,13 +606,19 @@ CREATE TABLE IF NOT EXISTS sentinel_reaction_role_mappings (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_reaction_role_mappings_message_id_emoji_key ON sentinel_reaction_role_mappings (message_id, emoji);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_reaction_role_mappings_pkey ON sentinel_reaction_role_mappings (id);
+
 -- Table: sentinel_reaction_role_config
 CREATE TABLE IF NOT EXISTS sentinel_reaction_role_config (
     guild_id TEXT NOT NULL,
-    allowed_role_ids TEXT[] DEFAULT '{}'::TEXT[],
+    allowed_role_ids TEXT DEFAULT '[]',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_reaction_role_config_pkey ON sentinel_reaction_role_config (guild_id);
 
 -- Table: sentinel_revive_config
 CREATE TABLE IF NOT EXISTS sentinel_revive_config (
@@ -527,6 +631,8 @@ CREATE TABLE IF NOT EXISTS sentinel_revive_config (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
     ping_role_id TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_revive_config_pkey ON sentinel_revive_config (guild_id);
 
 -- Table: sentinel_revive_requests
 CREATE TABLE IF NOT EXISTS sentinel_revive_requests (
@@ -547,14 +653,16 @@ CREATE TABLE IF NOT EXISTS sentinel_revive_requests (
     last_action_status TEXT,
     last_action_relative TEXT,
     last_action_timestamp INTEGER,
-    state TEXT DEFAULT 'active'::TEXT NOT NULL,
-    expires_at TEXT DEFAULT (now() + '00:05:00') NOT NULL,
+    state TEXT DEFAULT 'active' NOT NULL,
+    expires_at TEXT  NOT NULL,
     completed_by_discord_id TEXT,
     completed_at TEXT,
     cancelled_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
     
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sentinel_revive_requests_pkey ON sentinel_revive_requests (id);
 
 PRAGMA foreign_keys = ON;

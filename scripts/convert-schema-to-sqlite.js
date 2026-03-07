@@ -58,6 +58,15 @@ const TABLES_TO_EXTRACT = [
 function convertPostgresToSQLite(pgSQL) {
   let sql = pgSQL;
 
+  // Convert table constraints from ALTER TABLE into SQLite-compatible unique indexes.
+  // SQLite cannot add PRIMARY KEY via ALTER TABLE after creation, but unique indexes
+  // satisfy ON CONFLICT targets and preserve uniqueness semantics.
+  sql = sql.replace(
+    /ALTER TABLE ONLY\s+(?:"public"\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?\s+ADD CONSTRAINT\s+"?([a-zA-Z_][a-zA-Z0-9_]*)"?\s+(?:PRIMARY KEY|UNIQUE)\s*\(([^\)]+)\);/gi,
+    (_match, tableName, constraintName, columns) =>
+      `CREATE UNIQUE INDEX IF NOT EXISTS "${constraintName}" ON "${tableName}" (${columns});`,
+  );
+
   // Remove schema qualifiers
   sql = sql.replace(/IF NOT EXISTS "public"\./g, "IF NOT EXISTS ");
   sql = sql.replace(/"public"\./g, "");
@@ -91,6 +100,20 @@ function convertPostgresToSQLite(pgSQL) {
     "",
   );
 
+  // Remove ::TYPE casts BEFORE converting type names (handles '{}'::"text"[], etc.)
+  sql = sql.replace(/::("[a-zA-Z_]+"|\w+)(\[\])?/g, "");
+
+  // Remove PostgreSQL interval expressions like ("now"() + '00:05:00'::interval) or (now() + interval)
+  // Must be done early while quotes still present
+  sql = sql.replace(/DEFAULT \("?now"?\(\) \+ '[^']+'\)/gi, "");
+
+  // Convert array TYPE declarations to TEXT.
+  // Keep ARRAY[] literals intact so they can be rewritten to JSON defaults later.
+  sql = sql.replace(/("[a-zA-Z_]+"|[a-zA-Z_]+)\s*\[\]/gi, (full, ident) => {
+    const normalized = String(ident).replace(/^"|"$/g, "").toLowerCase();
+    return normalized === "array" ? full : "TEXT";
+  });
+
   // Convert data types
   sql = sql.replace(/\bbigint\b/gi, "INTEGER");
   sql = sql.replace(/\bsmallint\b/gi, "INTEGER");
@@ -113,9 +136,6 @@ function convertPostgresToSQLite(pgSQL) {
   sql = sql.replace(/\bjson\b/gi, "TEXT");
   sql = sql.replace(/\buuid\b/gi, "TEXT");
 
-  // Remove ::TEXT and other PostgreSQL casts first
-  sql = sql.replace(/::\w+(\[\])?/g, "");
-
   // Convert DEFAULT "now"() or DEFAULT now() to CURRENT_TIMESTAMP
   sql = sql.replace(/DEFAULT "?now"?\(\)/g, "DEFAULT CURRENT_TIMESTAMP");
 
@@ -126,9 +146,9 @@ function convertPostgresToSQLite(pgSQL) {
   // Remove "gen_random_uuid"() or gen_random_uuid() - SQLite will handle it in application code
   sql = sql.replace(/DEFAULT "?gen_random_uuid"?\(\)/g, "");
 
-  // Remove PostgreSQL array syntax
-  sql = sql.replace(/DEFAULT ARRAY\[\]/g, "DEFAULT '[]'");
-  sql = sql.replace(/\b(\w+)\[\]/g, "TEXT");
+  // Convert PostgreSQL array defaults to JSON array format
+  sql = sql.replace(/DEFAULT ARRAY\[\]/gi, "DEFAULT '[]'");
+  sql = sql.replace(/DEFAULT '\{\}'/g, "DEFAULT '[]'");
 
   // Simplify CHECK constraints to SQLite syntax
   sql = sql.replace(/CHECK \(\([^)]+= ANY \(ARRAY\[([^\]]+)\]\)\)\)/g, "");
@@ -136,8 +156,14 @@ function convertPostgresToSQLite(pgSQL) {
   // Remove PostgreSQL-specific constraints
   sql = sql.replace(/CONSTRAINT ".*?" /g, "");
 
+  // Remove PostgreSQL index method clauses
+  sql = sql.replace(/USING\s+"?btree"?\s*/gi, "");
+
   // Remove quotes from table and column names (SQLite doesn't require them)
   sql = sql.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)"/g, "$1");
+
+  // Remove trailing commas before closing parentheses (fixes syntax errors)
+  sql = sql.replace(/,(\s*\n\s*)\);/g, "$1);");
 
   // Clean up whitespace
   sql = sql.replace(/\n\n\n+/g, "\n\n");
@@ -169,17 +195,21 @@ function extractTableStatements(dumpContent, tableName) {
     statements.push(match[0]);
   }
 
-  // Extract ALTER TABLE statements for this table (for constraints like FOREIGN KEY)
-  const alterRegex = new RegExp(
-    `ALTER TABLE ONLY (?:"public"\\.|)${tableName}[^;]*?;`,
+  // Convert PRIMARY KEY / UNIQUE constraints into SQLite unique indexes.
+  // This preserves ON CONFLICT compatibility for runtime upserts.
+  const escapedTableName = tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const constraintRegex = new RegExp(
+    `ALTER TABLE ONLY\\s+"public"\\."${escapedTableName}"\\s+ADD CONSTRAINT\\s+"([^"]+)"\\s+(PRIMARY KEY|UNIQUE)\\s*\\(([^\\)]+)\\);`,
     "gi",
   );
-  const alterMatches = dumpContent.matchAll(alterRegex);
-  for (const match of alterMatches) {
-    // Skip OWNER statements
-    if (!match[0].includes("OWNER TO")) {
-      statements.push(match[0]);
-    }
+
+  const constraintMatches = dumpContent.matchAll(constraintRegex);
+  for (const match of constraintMatches) {
+    const constraintName = match[1];
+    const columns = match[3];
+    statements.push(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "${constraintName}" ON "public"."${tableName}" (${columns});`,
+    );
   }
 
   return statements.join("\n\n");
