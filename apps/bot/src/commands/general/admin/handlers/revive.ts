@@ -46,7 +46,7 @@ type ReviveRequest = {
   request_message_id: string | null;
   requester_torn_id: number | null;
   requester_torn_name: string | null;
-  revivable: boolean | null;
+  revivable: number | null;
   status_description: string | null;
   status_details: string | null;
   status_state: string | null;
@@ -56,9 +56,32 @@ type ReviveRequest = {
   last_action_status: string | null;
   last_action_relative: string | null;
   last_action_timestamp: number | null;
-  state: "active" | "completed" | "cancelled" | "expired";
+  state: string;
   expires_at: string;
 };
+
+function parseEnabledModules(
+  value: string | string[] | null | undefined,
+): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
 
 function secondsToHuman(seconds: number): string {
   if (seconds <= 0) return "0m";
@@ -157,22 +180,22 @@ async function buildReviveRequestEmbed(
   // Check if user is in alliance (if guild has verification module enabled)
   let allianceStatus: string | null = null;
   if (request.faction_id) {
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .eq("guild_id", guildId)
-      .maybeSingle();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
-    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    const enabledModules = parseEnabledModules(guildConfig?.enabled_modules);
     if (enabledModules.includes("verify")) {
       // Check if faction is registered in faction roles
-      const { data: factionRoles } = await db
-        .from(TABLE_NAMES.FACTION_ROLES)
-        .select("faction_id")
-        .eq("guild_id", guildId);
+      const factionRoles = await db
+        .selectFrom(TABLE_NAMES.FACTION_ROLES)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .execute();
 
-      const registeredFactionIds =
-        factionRoles?.map((fr) => fr.faction_id) || [];
+      const registeredFactionIds = factionRoles.map((fr) => fr.faction_id);
       const isInAlliance = registeredFactionIds.includes(request.faction_id);
       const greenEmoji = "<:Green:1474607376140079104>";
       const redEmoji = "<:Red:1474607810368114886>";
@@ -309,11 +332,11 @@ function buildResolvedRequestRow(
 }
 
 async function getReviveConfig(guildId: string): Promise<ReviveConfig> {
-  const { data } = await db
-    .from(TABLE_NAMES.REVIVE_CONFIG)
-    .select("*")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const data = await db
+    .selectFrom(TABLE_NAMES.REVIVE_CONFIG)
+    .selectAll()
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
   return {
     guild_id: guildId,
@@ -329,14 +352,24 @@ async function upsertReviveConfig(
   guildId: string,
   values: Partial<Omit<ReviveConfig, "guild_id">>,
 ): Promise<void> {
-  await db.from(TABLE_NAMES.REVIVE_CONFIG).upsert(
-    {
+  const updatedAt = new Date().toISOString();
+  const updateValues = {
+    ...values,
+    updated_at: updatedAt,
+  };
+
+  await db
+    .insertInto(TABLE_NAMES.REVIVE_CONFIG)
+    .values({
       guild_id: guildId,
-      ...values,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "guild_id" },
-  );
+      ...updateValues,
+    })
+    .onConflict((oc) =>
+      oc.column("guild_id").doUpdateSet({
+        ...updateValues,
+      }),
+    )
+    .execute();
 }
 
 async function safeFetchTextChannel(client: Client, channelId: string) {
@@ -424,23 +457,25 @@ async function expireRequestsForGuild(
 ): Promise<void> {
   const nowIso = new Date().toISOString();
 
-  const { data: expiredRows } = await db
-    .from(TABLE_NAMES.REVIVE_REQUESTS)
-    .select("*")
-    .eq("guild_id", guildId)
-    .eq("state", "active")
-    .lte("expires_at", nowIso);
+  const expiredRows = await db
+    .selectFrom(TABLE_NAMES.REVIVE_REQUESTS)
+    .selectAll()
+    .where("guild_id", "=", guildId)
+    .where("state", "=", "active")
+    .where("expires_at", "<=", nowIso)
+    .execute();
 
-  if (!expiredRows || expiredRows.length === 0) {
+  if (expiredRows.length === 0) {
     return;
   }
 
   for (const row of expiredRows) {
     await db
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .update({ state: "expired", updated_at: new Date().toISOString() })
-      .eq("id", row.id)
-      .eq("state", "active");
+      .updateTable(TABLE_NAMES.REVIVE_REQUESTS)
+      .set({ state: "expired", updated_at: new Date().toISOString() })
+      .where("id", "=", row.id)
+      .where("state", "=", "active")
+      .execute();
 
     await syncReviveRequestMessage(
       client,
@@ -466,13 +501,13 @@ export async function handleShowReviveSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .eq("guild_id", guildId)
-      .maybeSingle();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
-    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    const enabledModules = parseEnabledModules(guildConfig?.enabled_modules);
     if (!enabledModules.includes("revive")) {
       const disabledEmbed = new EmbedBuilder()
         .setColor(0xf59e0b)
@@ -857,15 +892,15 @@ async function getActiveRequestByUser(
   guildId: string,
   discordId: string,
 ): Promise<ReviveRequest | null> {
-  const { data } = await db
-    .from(TABLE_NAMES.REVIVE_REQUESTS)
-    .select("*")
-    .eq("guild_id", guildId)
-    .eq("requester_discord_id", discordId)
-    .eq("state", "active")
-    .maybeSingle();
+  const data = await db
+    .selectFrom(TABLE_NAMES.REVIVE_REQUESTS)
+    .selectAll()
+    .where("guild_id", "=", guildId)
+    .where("requester_discord_id", "=", discordId)
+    .where("state", "=", "active")
+    .executeTakeFirst();
 
-  return (data as ReviveRequest | null) ?? null;
+  return data ?? null;
 }
 
 async function sendTempEphemeralError(
@@ -943,31 +978,32 @@ async function createAndPostReviveRequest(
     Date.now() + REVIVE_REQUEST_TTL_SECONDS * 1000,
   ).toISOString();
 
-  const { data: inserted, error: insertError } = await db
-    .from(TABLE_NAMES.REVIVE_REQUESTS)
-    .insert({
-      guild_id: guildId,
-      requester_discord_id: interaction.user.id,
-      request_channel_id: config.requests_output_channel_id,
-      requester_torn_id: profile.id,
-      requester_torn_name: profile.name,
-      revivable: profile.revivable,
-      status_description: profile.status?.description || null,
-      status_details: profile.status?.details || null,
-      status_state: profile.status?.state || null,
-      hospital_until: profile.status?.until || null,
-      hospital_seconds_left: hospitalSecondsLeft,
-      faction_id: profile.faction_id || null,
-      last_action_status: profile.last_action?.status || null,
-      last_action_relative: profile.last_action?.relative || null,
-      last_action_timestamp: profile.last_action?.timestamp || null,
-      state: "active",
-      expires_at: expiresAt,
-    })
-    .select("*")
-    .single();
-
-  if (insertError || !inserted) {
+  let request: ReviveRequest;
+  try {
+    request = await db
+      .insertInto(TABLE_NAMES.REVIVE_REQUESTS)
+      .values({
+        guild_id: guildId,
+        requester_discord_id: interaction.user.id,
+        request_channel_id: config.requests_output_channel_id,
+        requester_torn_id: profile.id,
+        requester_torn_name: profile.name,
+        revivable: profile.revivable ? 1 : 0,
+        status_description: profile.status?.description || null,
+        status_details: profile.status?.details || null,
+        status_state: profile.status?.state || null,
+        hospital_until: profile.status?.until || null,
+        hospital_seconds_left: hospitalSecondsLeft,
+        faction_id: profile.faction_id || null,
+        last_action_status: profile.last_action?.status || null,
+        last_action_relative: profile.last_action?.relative || null,
+        last_action_timestamp: profile.last_action?.timestamp || null,
+        state: "active",
+        expires_at: expiresAt,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+  } catch {
     await sendTempEphemeralError(
       interaction,
       "Request Failed",
@@ -975,8 +1011,6 @@ async function createAndPostReviveRequest(
     );
     return;
   }
-
-  const request = inserted as ReviveRequest;
 
   const postedMessage = await outputChannel
     .send({
@@ -989,9 +1023,9 @@ async function createAndPostReviveRequest(
     })
     .catch(async () => {
       await db
-        .from(TABLE_NAMES.REVIVE_REQUESTS)
-        .delete()
-        .eq("id", request.id);
+        .deleteFrom(TABLE_NAMES.REVIVE_REQUESTS)
+        .where("id", "=", request.id)
+        .execute();
       return null;
     });
 
@@ -1005,12 +1039,13 @@ async function createAndPostReviveRequest(
   }
 
   await db
-    .from(TABLE_NAMES.REVIVE_REQUESTS)
-    .update({
+    .updateTable(TABLE_NAMES.REVIVE_REQUESTS)
+    .set({
       request_message_id: postedMessage.id,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", request.id);
+    .where("id", "=", request.id)
+    .execute();
 
   await interaction.editReply({
     embeds: [
@@ -1068,13 +1103,13 @@ async function processReviveRequest(
   }
 
   const config = await getReviveConfig(guildId);
-  const { data: guildConfig } = await db
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("enabled_modules")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const guildConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .selectAll()
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
-  const enabledModules: string[] = guildConfig?.enabled_modules || [];
+  const enabledModules = parseEnabledModules(guildConfig?.enabled_modules);
   if (!enabledModules.includes("revive")) {
     await sendTempEphemeralError(
       interaction,
@@ -1378,13 +1413,11 @@ export async function handleReviveCancelRequest(
       return;
     }
 
-    const { data: requestRow } = await db
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .select("*")
-      .eq("id", requestId)
-      .maybeSingle();
-
-    const request = requestRow as ReviveRequest | null;
+    const request = await db
+      .selectFrom(TABLE_NAMES.REVIVE_REQUESTS)
+      .selectAll()
+      .where("id", "=", requestId)
+      .executeTakeFirst();
 
     if (!request || request.state !== "active") {
       await interaction.editReply({
@@ -1415,14 +1448,15 @@ export async function handleReviveCancelRequest(
     }
 
     await db
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .update({
+      .updateTable(TABLE_NAMES.REVIVE_REQUESTS)
+      .set({
         state: "cancelled",
         cancelled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", requestId)
-      .eq("state", "active");
+      .where("id", "=", requestId)
+      .where("state", "=", "active")
+      .execute();
 
     const updatedRequest: ReviveRequest = { ...request, state: "cancelled" };
     await syncReviveRequestMessage(
@@ -1468,13 +1502,11 @@ export async function handleReviveMarkRevived(
       return;
     }
 
-    const { data: requestRow } = await db
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .select("*")
-      .eq("id", requestId)
-      .maybeSingle();
-
-    const request = requestRow as ReviveRequest | null;
+    const request = await db
+      .selectFrom(TABLE_NAMES.REVIVE_REQUESTS)
+      .selectAll()
+      .where("id", "=", requestId)
+      .executeTakeFirst();
 
     if (!request || request.state !== "active") {
       await interaction.followUp({
@@ -1490,15 +1522,16 @@ export async function handleReviveMarkRevived(
     }
 
     await db
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .update({
+      .updateTable(TABLE_NAMES.REVIVE_REQUESTS)
+      .set({
         state: "completed",
         completed_by_discord_id: interaction.user.id,
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", requestId)
-      .eq("state", "active");
+      .where("id", "=", requestId)
+      .where("state", "=", "active")
+      .execute();
 
     const updatedRequest: ReviveRequest = { ...request, state: "completed" };
     await syncReviveRequestMessage(
@@ -1524,25 +1557,27 @@ export async function handleReviveMarkRevived(
 async function expireRequestsGlobal(client: Client): Promise<void> {
   const nowIso = new Date().toISOString();
 
-  const { data: expiredRows } = await db
-    .from(TABLE_NAMES.REVIVE_REQUESTS)
-    .select("*")
-    .eq("state", "active")
-    .lte("expires_at", nowIso);
+  const expiredRows = await db
+    .selectFrom(TABLE_NAMES.REVIVE_REQUESTS)
+    .selectAll()
+    .where("state", "=", "active")
+    .where("expires_at", "<=", nowIso)
+    .execute();
 
-  if (!expiredRows || expiredRows.length === 0) {
+  if (expiredRows.length === 0) {
     return;
   }
 
   for (const row of expiredRows) {
     await db
-      .from(TABLE_NAMES.REVIVE_REQUESTS)
-      .update({
+      .updateTable(TABLE_NAMES.REVIVE_REQUESTS)
+      .set({
         state: "expired",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", row.id)
-      .eq("state", "active");
+      .where("id", "=", row.id)
+      .where("state", "=", "active")
+      .execute();
 
     const expiredRequest = {
       ...(row as ReviveRequest),
@@ -1553,12 +1588,13 @@ async function expireRequestsGlobal(client: Client): Promise<void> {
 }
 
 async function ensureAllRequestPanels(client: Client): Promise<void> {
-  const { data: configs } = await db
-    .from(TABLE_NAMES.REVIVE_CONFIG)
-    .select("guild_id, request_channel_id")
-    .not("request_channel_id", "is", null);
+  const configs = await db
+    .selectFrom(TABLE_NAMES.REVIVE_CONFIG)
+    .selectAll()
+    .where("request_channel_id", "is not", null)
+    .execute();
 
-  if (!configs || configs.length === 0) {
+  if (configs.length === 0) {
     return;
   }
 

@@ -23,18 +23,29 @@ type AssistConfig = {
 };
 
 async function getAssistConfig(guildId: string): Promise<AssistConfig> {
-  const { data } = await db
-    .from(TABLE_NAMES.ASSIST_CONFIG)
-    .select("*")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const row = await db
+    .selectFrom(TABLE_NAMES.ASSIST_CONFIG)
+    .selectAll()
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
+
+  // Parse script_generation_role_ids from JSON string
+  let scriptRoleIds: string[] = [];
+  if (row?.script_generation_role_ids) {
+    try {
+      const parsed = JSON.parse(row.script_generation_role_ids);
+      scriptRoleIds = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      scriptRoleIds = [];
+    }
+  }
 
   return {
     guild_id: guildId,
-    assist_channel_id: data?.assist_channel_id ?? null,
-    ping_role_id: data?.ping_role_id ?? null,
-    script_generation_role_ids: data?.script_generation_role_ids ?? [],
-    is_active: data?.is_active ?? true,
+    assist_channel_id: row?.assist_channel_id ?? null,
+    ping_role_id: row?.ping_role_id ?? null,
+    script_generation_role_ids: scriptRoleIds,
+    is_active: row?.is_active ? Boolean(row.is_active) : true,
   };
 }
 
@@ -42,14 +53,40 @@ async function upsertAssistConfig(
   guildId: string,
   values: Partial<Omit<AssistConfig, "guild_id">>,
 ): Promise<void> {
-  await db.from(TABLE_NAMES.ASSIST_CONFIG).upsert(
-    {
+  // Convert TypeScript types to SQLite-compatible values
+  const sqliteValues: Record<string, string | number | null> = {};
+
+  if (values.assist_channel_id !== undefined) {
+    sqliteValues.assist_channel_id = values.assist_channel_id;
+  }
+  if (values.ping_role_id !== undefined) {
+    sqliteValues.ping_role_id = values.ping_role_id;
+  }
+  if (values.script_generation_role_ids !== undefined) {
+    // Convert array to JSON string for SQLite
+    sqliteValues.script_generation_role_ids = JSON.stringify(
+      values.script_generation_role_ids,
+    );
+  }
+  if (values.is_active !== undefined) {
+    // Convert boolean to integer (1 or 0) for SQLite
+    sqliteValues.is_active = values.is_active ? 1 : 0;
+  }
+
+  await db
+    .insertInto(TABLE_NAMES.ASSIST_CONFIG)
+    .values({
       guild_id: guildId,
-      ...values,
+      ...sqliteValues,
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: "guild_id" },
-  );
+    })
+    .onConflict((oc) =>
+      oc.column("guild_id").doUpdateSet({
+        ...sqliteValues,
+        updated_at: new Date().toISOString(),
+      }),
+    )
+    .execute();
 }
 
 export async function handleShowAssistSettings(
@@ -70,13 +107,22 @@ export async function handleShowAssistSettings(
       return;
     }
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
       .select("enabled_modules")
-      .eq("guild_id", guildId)
-      .maybeSingle();
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
-    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    // Parse enabled_modules from JSON string
+    let enabledModules: string[] = [];
+    if (guildConfig?.enabled_modules) {
+      try {
+        const parsed = JSON.parse(guildConfig.enabled_modules);
+        enabledModules = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        enabledModules = [];
+      }
+    }
     if (!enabledModules.includes("assist")) {
       await interaction.editReply({
         embeds: [

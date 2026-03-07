@@ -17,6 +17,35 @@ export interface SentinelApiKeyUserMapping {
   user_id: number;
 }
 
+export interface SentinelAssistConfig {
+  assist_channel_id: string | null;
+  created_at: Generated<string>;
+  guild_id: string | null;
+  is_active: Generated<number>;
+  ping_role_id: string | null;
+  script_generation_role_ids: Generated<string>;
+  updated_at: Generated<string>;
+}
+
+export interface SentinelAssistTokens {
+  blacklisted_at: string | null;
+  blacklisted_reason: string | null;
+  created_at: Generated<string>;
+  discord_id: string;
+  expires_at: string | null;
+  guild_id: string;
+  id: Generated<number | null>;
+  is_active: Generated<number>;
+  label: string | null;
+  last_seen_ip: string | null;
+  last_seen_user_agent: string | null;
+  last_used_at: string | null;
+  strike_count: Generated<number>;
+  token_uuid: string;
+  torn_id: number;
+  updated_at: Generated<string>;
+}
+
 export interface SentinelBattlestatsSnapshots {
   created_at: Generated<string>;
   defense: number;
@@ -181,6 +210,13 @@ export interface SentinelReviveRequests {
   status_details: string | null;
   status_state: string | null;
   updated_at: Generated<string>;
+}
+
+export interface SentinelSchemaMigrations {
+  applied_at: Generated<string>;
+  checksum: string;
+  filename: string;
+  id: string | null;
 }
 
 export interface SentinelStatBuildConfigurations {
@@ -546,6 +582,8 @@ export interface SentinelWorkerSchedules {
 
 export interface DB {
   sentinel_api_key_user_mapping: SentinelApiKeyUserMapping;
+  sentinel_assist_config: SentinelAssistConfig;
+  sentinel_assist_tokens: SentinelAssistTokens;
   sentinel_battlestats_snapshots: SentinelBattlestatsSnapshots;
   sentinel_destination_travel_times: SentinelDestinationTravelTimes;
   sentinel_faction_roles: SentinelFactionRoles;
@@ -560,6 +598,7 @@ export interface DB {
   sentinel_reaction_role_messages: SentinelReactionRoleMessages;
   sentinel_revive_config: SentinelReviveConfig;
   sentinel_revive_requests: SentinelReviveRequests;
+  sentinel_schema_migrations: SentinelSchemaMigrations;
   sentinel_stat_build_configurations: SentinelStatBuildConfigurations;
   sentinel_stat_builds: SentinelStatBuilds;
   sentinel_system_api_keys: SentinelSystemApiKeys;

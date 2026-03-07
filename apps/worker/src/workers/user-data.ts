@@ -4,7 +4,7 @@ import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "user_data_worker";
 const DB_WORKER_KEY = "user_data_worker";
@@ -29,15 +29,23 @@ async function syncUserDataHandler(): Promise<void> {
       (profile.donator_status || "").toLowerCase() === "donator";
 
     // Personalized mode: upsert using player_id as primary key
-    const db = getDB();
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.USER_DATA}" (player_id, name, is_donator, profile_image)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(player_id) DO UPDATE SET
-         name = excluded.name,
-         is_donator = excluded.is_donator,
-         profile_image = excluded.profile_image`,
-    ).run(profile.id, profile.name, isDonator ? 1 : 0, profile.image || null);
+    const db = getKysely();
+    await db
+      .insertInto(TABLE_NAMES.USER_DATA)
+      .values({
+        player_id: profile.id,
+        name: profile.name,
+        is_donator: isDonator ? 1 : 0,
+        profile_image: profile.image || null,
+      })
+      .onConflict((oc) =>
+        oc.column("player_id").doUpdateSet({
+          name: profile.name,
+          is_donator: isDonator ? 1 : 0,
+          profile_image: profile.image || null,
+        }),
+      )
+      .execute();
 
     // Success - log completion
     const duration = Date.now() - startTime;

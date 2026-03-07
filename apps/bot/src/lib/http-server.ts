@@ -46,7 +46,7 @@ const assistMessageTracking = new Map<
 
 const ASSIST_EMBED_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
-type AssistTokenRecord = {
+type _AssistTokenRecord = {
   id: number;
   guild_id: string;
   discord_id: string;
@@ -210,11 +210,11 @@ async function incrementAssistStrikeByUuid(
   uuid: string,
   reason: string,
 ): Promise<void> {
-  const { data: token } = await db
-    .from(TABLE_NAMES.ASSIST_TOKENS)
-    .select("id, strike_count, is_active")
-    .eq("token_uuid", uuid)
-    .maybeSingle();
+  const token = await db
+    .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+    .select(["id", "strike_count", "is_active"])
+    .where("token_uuid", "=", uuid)
+    .executeTakeFirst();
 
   if (!token || !token.is_active) {
     return;
@@ -224,15 +224,16 @@ async function incrementAssistStrikeByUuid(
   const shouldBlacklist = nextStrike >= ASSIST_STRIKE_BLACKLIST_THRESHOLD;
 
   await db
-    .from(TABLE_NAMES.ASSIST_TOKENS)
-    .update({
+    .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+    .set({
       strike_count: nextStrike,
-      is_active: shouldBlacklist ? false : true,
+      is_active: shouldBlacklist ? 0 : 1,
       blacklisted_at: shouldBlacklist ? new Date().toISOString() : null,
       blacklisted_reason: shouldBlacklist ? reason : null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", token.id);
+    .where("id", "=", token.id)
+    .execute();
 }
 
 /**
@@ -436,15 +437,20 @@ export function initHttpServer(client: Client, port: number = 3001) {
           });
         }
 
-        const { data: rawToken } = await db
-          .from(TABLE_NAMES.ASSIST_TOKENS)
-          .select(
-            "id, guild_id, discord_id, torn_id, strike_count, is_active, blacklisted_at, expires_at",
-          )
-          .eq("token_uuid", uuid)
-          .maybeSingle();
-
-        const token = rawToken as AssistTokenRecord | null;
+        const token = await db
+          .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+          .select([
+            "id",
+            "guild_id",
+            "discord_id",
+            "torn_id",
+            "strike_count",
+            "is_active",
+            "blacklisted_at",
+            "expires_at",
+          ])
+          .where("token_uuid", "=", uuid)
+          .executeTakeFirst();
 
         if (!token) {
           return res.status(404).json({ error: "Assist token not found" });
@@ -479,15 +485,16 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
 
         await db
-          .from(TABLE_NAMES.ASSIST_TOKENS)
-          .update({
+          .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+          .set({
             last_used_at: new Date().toISOString(),
             last_seen_ip: req.header("X-Assist-Client-IP") || req.ip || null,
             last_seen_user_agent:
               req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", token.id);
+          .where("id", "=", token.id)
+          .execute();
 
         res.setHeader("Content-Type", "application/javascript; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
@@ -567,15 +574,20 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
-      const { data: rawToken } = await db
-        .from(TABLE_NAMES.ASSIST_TOKENS)
-        .select(
-          "id, guild_id, discord_id, torn_id, strike_count, is_active, blacklisted_at, expires_at",
-        )
-        .eq("token_uuid", payload.uuid)
-        .maybeSingle();
-
-      const token = rawToken as AssistTokenRecord | null;
+      const token = await db
+        .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+        .select([
+          "id",
+          "guild_id",
+          "discord_id",
+          "torn_id",
+          "strike_count",
+          "is_active",
+          "blacklisted_at",
+          "expires_at",
+        ])
+        .where("token_uuid", "=", payload.uuid)
+        .executeTakeFirst();
 
       if (!token) {
         return res.status(401).json({ error: "Invalid assist token" });
@@ -592,22 +604,26 @@ export function initHttpServer(client: Client, port: number = 3001) {
         return res.status(403).json({ error: "Assist token expired" });
       }
 
-      const { data: guildConfig } = await db
-        .from(TABLE_NAMES.GUILD_CONFIG)
-        .select("enabled_modules")
-        .eq("guild_id", token.guild_id)
-        .maybeSingle();
+      const guildConfig = await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .select(["enabled_modules"])
+        .where("guild_id", "=", token.guild_id)
+        .executeTakeFirst();
 
-      const enabledModules: string[] = guildConfig?.enabled_modules || [];
+      const enabledModules: string[] = guildConfig?.enabled_modules
+        ? typeof guildConfig.enabled_modules === "string"
+          ? JSON.parse(guildConfig.enabled_modules)
+          : guildConfig.enabled_modules
+        : [];
       if (!enabledModules.includes("assist")) {
         return res.status(403).json({ error: "Assist module disabled" });
       }
 
-      const { data: assistConfig } = await db
-        .from(TABLE_NAMES.ASSIST_CONFIG)
-        .select("assist_channel_id, ping_role_id, is_active")
-        .eq("guild_id", token.guild_id)
-        .maybeSingle();
+      const assistConfig = await db
+        .selectFrom(TABLE_NAMES.ASSIST_CONFIG)
+        .select(["assist_channel_id", "ping_role_id", "is_active"])
+        .where("guild_id", "=", token.guild_id)
+        .executeTakeFirst();
 
       if (!assistConfig?.is_active || !assistConfig.assist_channel_id) {
         return res.status(412).json({
@@ -740,14 +756,15 @@ export function initHttpServer(client: Client, port: number = 3001) {
       }
 
       await db
-        .from(TABLE_NAMES.ASSIST_TOKENS)
-        .update({
+        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+        .set({
           last_used_at: new Date().toISOString(),
           last_seen_ip: req.ip,
           last_seen_user_agent: req.get("user-agent") || null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", token.id);
+        .where("id", "=", token.id)
+        .execute();
 
       return res.json({
         success: true,

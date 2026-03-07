@@ -1,8 +1,8 @@
 /**
  * Database client for Discord Bot
- * 
+ *
  * This module exports the Kysely database instance for type-safe queries.
- * 
+ *
  * Legacy RPC functions (e.g., sentinel_finalize_reaction_role_message) have been
  * converted to standalone helper functions.
  */

@@ -54,38 +54,114 @@ interface WarTrackerRow {
 
 const WAR_PAGE_SIZE = 10;
 
-async function getTTConfig(guildId: string): Promise<TTConfig> {
-  const { data: ttConfig } = await db
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select(
-      "guild_id, tt_full_channel_id, tt_filtered_channel_id, tt_territory_ids, tt_faction_ids",
-    )
-    .eq("guild_id", guildId)
-    .single();
+function parseStringArray(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
 
-  return (
-    ttConfig || {
-      guild_id: guildId,
-      tt_full_channel_id: null,
-      tt_filtered_channel_id: null,
-      tt_territory_ids: [],
-      tt_faction_ids: [],
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
     }
-  );
+
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+function parseNumberArray(value: string | null | undefined): number[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((item): item is number => typeof item === "number");
+  } catch {
+    return [];
+  }
+}
+
+function normalizeEnemySide(
+  value: string | null | undefined,
+): "assaulting" | "defending" {
+  return value === "assaulting" ? "assaulting" : "defending";
+}
+
+async function getTTConfig(guildId: string): Promise<TTConfig> {
+  const ttConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select([
+      "guild_id",
+      "tt_full_channel_id",
+      "tt_filtered_channel_id",
+      "tt_territory_ids",
+      "tt_faction_ids",
+    ])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
+
+  return {
+    guild_id: guildId,
+    tt_full_channel_id: ttConfig?.tt_full_channel_id ?? null,
+    tt_filtered_channel_id: ttConfig?.tt_filtered_channel_id ?? null,
+    tt_territory_ids: parseStringArray(ttConfig?.tt_territory_ids),
+    tt_faction_ids: parseNumberArray(ttConfig?.tt_faction_ids),
+  };
 }
 
 async function upsertTTConfig(
   guildId: string,
   updates: Partial<TTConfig>,
 ): Promise<void> {
-  await db.from(TABLE_NAMES.GUILD_CONFIG).upsert(
-    {
+  const updatedAt = new Date().toISOString();
+  const updateValues: {
+    tt_full_channel_id?: string | null;
+    tt_filtered_channel_id?: string | null;
+    tt_territory_ids?: string | null;
+    tt_faction_ids?: string | null;
+    updated_at: string;
+  } = {
+    updated_at: updatedAt,
+  };
+
+  if ("tt_full_channel_id" in updates) {
+    updateValues.tt_full_channel_id = updates.tt_full_channel_id ?? null;
+  }
+
+  if ("tt_filtered_channel_id" in updates) {
+    updateValues.tt_filtered_channel_id =
+      updates.tt_filtered_channel_id ?? null;
+  }
+
+  if ("tt_territory_ids" in updates) {
+    updateValues.tt_territory_ids = JSON.stringify(
+      updates.tt_territory_ids ?? [],
+    );
+  }
+
+  if ("tt_faction_ids" in updates) {
+    updateValues.tt_faction_ids = JSON.stringify(updates.tt_faction_ids ?? []);
+  }
+
+  await db
+    .insertInto(TABLE_NAMES.GUILD_CONFIG)
+    .values({
       guild_id: guildId,
-      ...updates,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "guild_id" },
-  );
+      ...updateValues,
+    })
+    .onConflict((oc) =>
+      oc.column("guild_id").doUpdateSet({
+        ...updateValues,
+      }),
+    )
+    .execute();
 }
 
 async function getActiveApiKey(guildId: string): Promise<string | null> {
@@ -102,13 +178,14 @@ async function getFactionNameMap(
     return nameMap;
   }
 
-  const { data: cached } = await db
-    .from(TABLE_NAMES.TORN_FACTIONS)
-    .select("id, name")
-    .in("id", factionIds);
+  const cached = await db
+    .selectFrom(TABLE_NAMES.TORN_FACTIONS)
+    .select(["id", "name"])
+    .where("id", "in", factionIds)
+    .execute();
 
-  if (cached) {
-    for (const faction of cached) {
+  for (const faction of cached) {
+    if (typeof faction.id === "number") {
       nameMap.set(faction.id, faction.name);
     }
   }
@@ -261,19 +338,23 @@ export async function handleTTSettingsEdit(
 }
 
 async function getActiveWars(): Promise<WarLedgerRow[]> {
-  const { data, error } = await db
-    .from(TABLE_NAMES.WAR_LEDGER)
-    .select(
-      "war_id, territory_id, assaulting_faction, defending_faction, start_time, end_time",
-    )
-    .is("end_time", null)
-    .order("start_time", { ascending: false });
+  const data = await db
+    .selectFrom(TABLE_NAMES.WAR_LEDGER)
+    .select([
+      "war_id",
+      "territory_id",
+      "assaulting_faction",
+      "defending_faction",
+      "start_time",
+      "end_time",
+    ])
+    .where("end_time", "is", null)
+    .orderBy("start_time", "desc")
+    .execute();
 
-  if (error) {
-    throw error;
-  }
-
-  return data || [];
+  return data.filter(
+    (row): row is WarLedgerRow => typeof row.war_id === "number",
+  );
 }
 
 function buildWarOptionLabel(
@@ -295,24 +376,33 @@ async function getOrCreateWarTracker(
   war: WarLedgerRow,
 ): Promise<WarTrackerRow> {
   // First, try to fetch existing tracker
-  const { data: existingTracker, error: _fetchError } = await db
-    .from(TABLE_NAMES.WAR_TRACKERS)
-    .select(
-      "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
-    )
-    .eq("guild_id", guildId)
-    .eq("war_id", war.war_id)
-    .single();
+  const existingTracker = await db
+    .selectFrom(TABLE_NAMES.WAR_TRACKERS)
+    .select([
+      "guild_id",
+      "war_id",
+      "territory_id",
+      "channel_id",
+      "message_id",
+      "enemy_side",
+      "min_away_minutes",
+    ])
+    .where("guild_id", "=", guildId)
+    .where("war_id", "=", war.war_id)
+    .executeTakeFirst();
 
   // If tracker exists, return it (don't overwrite settings)
   if (existingTracker) {
-    return existingTracker as WarTrackerRow;
+    return {
+      ...existingTracker,
+      enemy_side: normalizeEnemySide(existingTracker.enemy_side),
+    };
   }
 
   // Only create if it doesn't exist
-  const { data: newTracker, error: createError } = await db
-    .from(TABLE_NAMES.WAR_TRACKERS)
-    .insert({
+  const newTracker = await db
+    .insertInto(TABLE_NAMES.WAR_TRACKERS)
+    .values({
       guild_id: guildId,
       war_id: war.war_id,
       territory_id: war.territory_id,
@@ -320,16 +410,25 @@ async function getOrCreateWarTracker(
       min_away_minutes: 0,
       updated_at: new Date().toISOString(),
     })
-    .select(
-      "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
-    )
-    .single();
+    .returning([
+      "guild_id",
+      "war_id",
+      "territory_id",
+      "channel_id",
+      "message_id",
+      "enemy_side",
+      "min_away_minutes",
+    ])
+    .executeTakeFirst();
 
-  if (createError || !newTracker) {
-    throw createError || new Error("Failed to create war tracker");
+  if (!newTracker) {
+    throw new Error("Failed to create war tracker");
   }
 
-  return newTracker as WarTrackerRow;
+  return {
+    ...newTracker,
+    enemy_side: normalizeEnemySide(newTracker.enemy_side),
+  };
 }
 
 async function updateWarTrackerRow(
@@ -338,13 +437,14 @@ async function updateWarTrackerRow(
   updates: Partial<WarTrackerRow>,
 ): Promise<void> {
   await db
-    .from(TABLE_NAMES.WAR_TRACKERS)
-    .update({
+    .updateTable(TABLE_NAMES.WAR_TRACKERS)
+    .set({
       ...updates,
       updated_at: new Date().toISOString(),
     })
-    .eq("guild_id", guildId)
-    .eq("war_id", warId);
+    .where("guild_id", "=", guildId)
+    .where("war_id", "=", warId)
+    .execute();
 }
 
 function parseWarAndPage(customId: string): { warId: number; page: number } {
@@ -404,18 +504,26 @@ async function showTTWarList(
   const trackerMap = new Map<number, WarTrackerRow>();
   if (guildId && pageWars.length > 0) {
     const warIds = pageWars.map((war) => war.war_id);
-    const { data: trackers } = await db
-      .from(TABLE_NAMES.WAR_TRACKERS)
-      .select(
-        "guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes",
-      )
-      .eq("guild_id", guildId)
-      .in("war_id", warIds);
+    const trackers = await db
+      .selectFrom(TABLE_NAMES.WAR_TRACKERS)
+      .select([
+        "guild_id",
+        "war_id",
+        "territory_id",
+        "channel_id",
+        "message_id",
+        "enemy_side",
+        "min_away_minutes",
+      ])
+      .where("guild_id", "=", guildId)
+      .where("war_id", "in", warIds)
+      .execute();
 
-    if (trackers) {
-      for (const tracker of trackers) {
-        trackerMap.set(tracker.war_id, tracker as WarTrackerRow);
-      }
+    for (const tracker of trackers) {
+      trackerMap.set(tracker.war_id, {
+        ...tracker,
+        enemy_side: normalizeEnemySide(tracker.enemy_side),
+      });
     }
   }
 
@@ -763,12 +871,12 @@ export async function handleTTWarTrackChannelClear(
   if (!guildId) return;
 
   // Fetch current tracker to get message_id
-  const { data: currentTracker } = await db
-    .from(TABLE_NAMES.WAR_TRACKERS)
-    .select("channel_id, message_id")
-    .eq("guild_id", guildId)
-    .eq("war_id", warId)
-    .single();
+  const currentTracker = await db
+    .selectFrom(TABLE_NAMES.WAR_TRACKERS)
+    .select(["channel_id", "message_id"])
+    .where("guild_id", "=", guildId)
+    .where("war_id", "=", warId)
+    .executeTakeFirst();
 
   // Delete the tracked message if it exists
   if (currentTracker?.channel_id && currentTracker?.message_id) {

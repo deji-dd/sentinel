@@ -18,6 +18,56 @@ import {
   getLinkValidityDescription,
 } from "../../../lib/assist-link-signing.js";
 
+interface AssistConfigTable {
+  guild_id: string;
+  script_generation_role_ids: string;
+}
+
+interface AssistTokensTable {
+  id?: number;
+  guild_id: string;
+  discord_id: string;
+  torn_id: number;
+  token_uuid: string;
+  label?: string | null;
+  strike_count?: number;
+  is_active: number;
+  blacklisted_at?: string | null;
+  blacklisted_reason?: string | null;
+  expires_at?: string | null;
+  last_used_at?: string | null;
+  last_seen_ip?: string | null;
+  last_seen_user_agent?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+const assistDb = db.withTables<{
+  sentinel_assist_config: AssistConfigTable;
+  sentinel_assist_tokens: AssistTokensTable;
+}>();
+
+function parseStringArray(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+function toSqliteBoolean(value: boolean): number {
+  return value ? 1 : 0;
+}
+
 function getScriptUrlBase(): string {
   const configuredProd = process.env.ASSIST_INSTALL_BASE_URL;
   const configuredLocal = process.env.ASSIST_INSTALL_BASE_URL_LOCAL;
@@ -83,27 +133,28 @@ async function canGenerateScript(
     return true;
   }
 
-  const { data: guildConfig } = await db
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("admin_role_ids")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const guildConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["admin_role_ids"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
-  const adminRoleIds: string[] = guildConfig?.admin_role_ids || [];
+  const adminRoleIds = parseStringArray(guildConfig?.admin_role_ids);
   const isAdmin = adminRoleIds.some((roleId) => userRoles.includes(roleId));
 
   if (isAdmin) {
     return true;
   }
 
-  const { data: assistConfig } = await db
-    .from(TABLE_NAMES.ASSIST_CONFIG)
-    .select("script_generation_role_ids")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const assistConfig = await assistDb
+    .selectFrom(TABLE_NAMES.ASSIST_CONFIG)
+    .select(["script_generation_role_ids"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
-  const scriptRoleIds: string[] =
-    assistConfig?.script_generation_role_ids || [];
+  const scriptRoleIds = parseStringArray(
+    assistConfig?.script_generation_role_ids,
+  );
 
   if (scriptRoleIds.length === 0) {
     return false;
@@ -124,13 +175,13 @@ async function isAdmin(
     return true;
   }
 
-  const { data: guildConfig } = await db
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("admin_role_ids")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const guildConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["admin_role_ids"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
-  const adminRoleIds: string[] = guildConfig?.admin_role_ids || [];
+  const adminRoleIds = parseStringArray(guildConfig?.admin_role_ids);
   return adminRoleIds.some((roleId) => userRoles.includes(roleId));
 }
 
@@ -141,11 +192,11 @@ async function getUserTornId(
   _guildId: string,
   discordId: string,
 ): Promise<number | null> {
-  const { data } = await db
-    .from(TABLE_NAMES.VERIFIED_USERS)
-    .select("torn_id")
-    .eq("discord_id", discordId)
-    .maybeSingle();
+  const data = await db
+    .selectFrom(TABLE_NAMES.VERIFIED_USERS)
+    .select(["torn_id"])
+    .where("discord_id", "=", discordId)
+    .executeTakeFirst();
 
   return data?.torn_id ?? null;
 }
@@ -166,13 +217,13 @@ async function handleGenerateSubcommand(
     return;
   }
 
-  const { data: guildConfig } = await db
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("enabled_modules")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const guildConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["enabled_modules"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
-  const enabledModules: string[] = guildConfig?.enabled_modules || [];
+  const enabledModules = parseStringArray(guildConfig?.enabled_modules);
   if (!enabledModules.includes("assist")) {
     const errorEmbed = new EmbedBuilder()
       .setColor(0xf59e0b)
@@ -217,18 +268,19 @@ async function handleGenerateSubcommand(
 
   const tokenUuid = randomUUID();
 
-  const { error: insertError } = await db
-    .from(TABLE_NAMES.ASSIST_TOKENS)
-    .insert({
-      guild_id: guildId,
-      discord_id: userId,
-      torn_id: tornId,
-      token_uuid: tokenUuid,
-      label: "Generated via /assist generate",
-      is_active: true,
-    });
-
-  if (insertError) {
+  try {
+    await assistDb
+      .insertInto(TABLE_NAMES.ASSIST_TOKENS)
+      .values({
+        guild_id: guildId,
+        discord_id: userId,
+        torn_id: tornId,
+        token_uuid: tokenUuid,
+        label: "Generated via /assist generate",
+        is_active: toSqliteBoolean(true),
+      })
+      .execute();
+  } catch (insertError) {
     console.error("Error inserting assist token:", insertError);
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
@@ -329,13 +381,13 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  const { data: guildConfig } = await db
-    .from(TABLE_NAMES.GUILD_CONFIG)
-    .select("enabled_modules")
-    .eq("guild_id", guildId)
-    .maybeSingle();
+  const guildConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["enabled_modules"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
 
-  const enabledModules: string[] = guildConfig?.enabled_modules || [];
+  const enabledModules = parseStringArray(guildConfig?.enabled_modules);
   if (!enabledModules.includes("assist")) {
     const errorEmbed = new EmbedBuilder()
       .setColor(0xf59e0b)
@@ -365,15 +417,17 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  const { data: tokens, error: tokensError } = await db
-    .from(TABLE_NAMES.ASSIST_TOKENS)
-    .select("token_uuid")
-    .eq("guild_id", guildId)
-    .eq("discord_id", targetUser.id)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
-
-  if (tokensError) {
+  let tokens: Array<{ token_uuid: string }> = [];
+  try {
+    tokens = (await assistDb
+      .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+      .select(["token_uuid"])
+      .where("guild_id", "=", guildId)
+      .where("discord_id", "=", targetUser.id)
+      .where("is_active", "=", toSqliteBoolean(true))
+      .orderBy("created_at", "desc")
+      .execute()) as Array<{ token_uuid: string }>;
+  } catch (tokensError) {
     console.error("Error fetching active tokens for revoke:", tokensError);
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
@@ -384,7 +438,7 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  if (!tokens || tokens.length === 0) {
+  if (tokens.length === 0) {
     const errorEmbed = new EmbedBuilder()
       .setColor(0xf59e0b)
       .setTitle("No Active Tokens")
@@ -396,14 +450,14 @@ async function handleRevokeSubcommand(
     return;
   }
 
-  const { error: revokeError } = await db
-    .from(TABLE_NAMES.ASSIST_TOKENS)
-    .delete()
-    .eq("guild_id", guildId)
-    .eq("discord_id", targetUser.id)
-    .eq("is_active", true);
-
-  if (revokeError) {
+  try {
+    await assistDb
+      .deleteFrom(TABLE_NAMES.ASSIST_TOKENS)
+      .where("guild_id", "=", guildId)
+      .where("discord_id", "=", targetUser.id)
+      .where("is_active", "=", toSqliteBoolean(true))
+      .execute();
+  } catch (revokeError) {
     console.error("Error deleting compromised assist tokens:", revokeError);
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)

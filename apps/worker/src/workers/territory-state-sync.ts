@@ -42,7 +42,7 @@ import {
 } from "../lib/tt-notification-dispatcher.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 interface TTOwnershipChange {
   territory_id: string;
@@ -146,10 +146,13 @@ let cachedWorkerId: string | null = null;
 async function getWorkerId(): Promise<string | null> {
   if (cachedWorkerId) return cachedWorkerId;
 
-  const db = getDB();
-  const worker = db
-    .prepare(`SELECT id FROM "${TABLE_NAMES.WORKERS}" WHERE name = ? LIMIT 1`)
-    .get("territory_state_sync") as WorkerRow | undefined;
+  const db = getKysely();
+  const worker = (await db
+    .selectFrom(TABLE_NAMES.WORKERS)
+    .select("id")
+    .where("name", "=", "territory_state_sync")
+    .limit(1)
+    .executeTakeFirst()) as WorkerRow | undefined;
 
   cachedWorkerId = worker?.id || null;
   return cachedWorkerId;
@@ -165,12 +168,13 @@ async function getWorkerMetadata(): Promise<{
   const workerId = await getWorkerId();
   if (!workerId) return {};
 
-  const db = getDB();
-  const schedule = db
-    .prepare(
-      `SELECT metadata FROM "${TABLE_NAMES.WORKER_SCHEDULES}" WHERE worker_id = ? LIMIT 1`,
-    )
-    .get(workerId) as WorkerScheduleMetadataRow | undefined;
+  const db = getKysely();
+  const schedule = (await db
+    .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
+    .select("metadata")
+    .where("worker_id", "=", workerId)
+    .limit(1)
+    .executeTakeFirst()) as WorkerScheduleMetadataRow | undefined;
 
   return parseScheduleMetadata(schedule?.metadata || null);
 }
@@ -185,10 +189,12 @@ async function updateWorkerMetadata(metadata: {
   const workerId = await getWorkerId();
   if (!workerId) return;
 
-  const db = getDB();
-  db.prepare(
-    `UPDATE "${TABLE_NAMES.WORKER_SCHEDULES}" SET metadata = ? WHERE worker_id = ?`,
-  ).run(JSON.stringify(metadata), workerId);
+  const db = getKysely();
+  await db
+    .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+    .set({ metadata: JSON.stringify(metadata) })
+    .where("worker_id", "=", workerId)
+    .execute();
 }
 
 /**
@@ -230,21 +236,25 @@ async function calculateCadence(): Promise<number> {
  * Returns true if last execution was more than 2x expected cadence ago
  */
 async function isCatchUpSync(expectedCadenceSeconds: number): Promise<boolean> {
-  const db = getDB();
-  const worker = db
-    .prepare(`SELECT id FROM "${TABLE_NAMES.WORKERS}" WHERE name = ? LIMIT 1`)
-    .get("territory_state_sync") as WorkerRow | undefined;
+  const db = getKysely();
+  const worker = (await db
+    .selectFrom(TABLE_NAMES.WORKERS)
+    .select("id")
+    .where("name", "=", "territory_state_sync")
+    .limit(1)
+    .executeTakeFirst()) as WorkerRow | undefined;
 
   if (!worker?.id) {
     return false;
   }
 
   // Get schedule info from sentinel_worker_schedules
-  const schedules = db
-    .prepare(
-      `SELECT last_run_at FROM "sentinel_worker_schedules" WHERE worker_id = ? LIMIT 1`,
-    )
-    .get(worker.id) as { last_run_at: string | null } | undefined;
+  const schedules = (await db
+    .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
+    .select("last_run_at")
+    .where("worker_id", "=", worker.id)
+    .limit(1)
+    .executeTakeFirst()) as { last_run_at: string | null } | undefined;
 
   if (!schedules?.last_run_at) {
     return false; // First run or no schedule state
@@ -370,7 +380,7 @@ export function startTerritoryStateSyncWorker() {
         timeout: 180_000, // 3 minutes max (allows for rate limiting delays)
         handler: async () => {
           const startTime = Date.now();
-          const db = getDB();
+          const db = getKysely();
 
           try {
             // Get system API keys and initialize rotator for load balancing
@@ -384,11 +394,12 @@ export function startTerritoryStateSyncWorker() {
             const keyRotator = new ApiKeyRotator(apiKeys);
 
             // Get all territory IDs (with explicit limit to bypass default 1000-row limit)
-            const allTTs = db
-              .prepare(
-                `SELECT id FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}" ORDER BY id LIMIT 5000`,
-              )
-              .all() as TerritoryBlueprintRow[]; // Explicit limit - must be <= config.toml max_rows setting
+            const allTTs = (await db
+              .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
+              .select("id")
+              .orderBy("id", "asc")
+              .limit(5000)
+              .execute()) as TerritoryBlueprintRow[]; // Explicit limit - must be <= config.toml max_rows setting
 
             if (!allTTs || allTTs.length === 0) {
               logDuration(
@@ -402,13 +413,11 @@ export function startTerritoryStateSyncWorker() {
             const ttIds = allTTs.map((tt) => tt.id);
 
             // Check if this is initial seeding (avoid flooding channel with notifications)
-            const existingStates = (
-              db
-                .prepare(
-                  `SELECT COUNT(*) as count FROM "${TABLE_NAMES.TERRITORY_STATE}"`,
-                )
-                .get() as { count: number }
-            ).count;
+            const existingStatesRow = await db
+              .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+              .select((eb) => eb.fn.count("territory_id").as("count"))
+              .executeTakeFirst();
+            const existingStates = Number(existingStatesRow?.count ?? 0);
 
             const isInitialSeeding =
               !existingStates || existingStates < ttIds.length * 0.05; // Less than 5% seeded
@@ -504,25 +513,33 @@ export function startTerritoryStateSyncWorker() {
 
             // Hash differs or first run - proceed with full sync
             // Batch-fetch all territory states at once (avoid N+1 queries)
-            const allCurrentStates = db
-              .prepare(
-                `SELECT territory_id, faction_id, racket_name, racket_level, racket_created_at, racket_changed_at
-                 FROM "${TABLE_NAMES.TERRITORY_STATE}"`,
-              )
-              .all() as TerritoryStateFullRow[];
+            const allCurrentStates = (await db
+              .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+              .select([
+                "territory_id",
+                "faction_id",
+                "racket_name",
+                "racket_level",
+                "racket_created_at",
+                "racket_changed_at",
+              ])
+              .execute()) as TerritoryStateFullRow[];
 
             const statesByTerritory = new Map(
               (allCurrentStates || []).map((s) => [s.territory_id, s]),
             );
 
             // Batch-fetch all active wars at once (avoid N+1 queries)
-            const allActiveWars = db
-              .prepare(
-                `SELECT territory_id, assaulting_faction, defending_faction, start_time
-                 FROM "${TABLE_NAMES.WAR_LEDGER}"
-                 WHERE end_time IS NULL`,
-              )
-              .all() as ActiveWarRow[];
+            const allActiveWars = (await db
+              .selectFrom(TABLE_NAMES.WAR_LEDGER)
+              .select([
+                "territory_id",
+                "assaulting_faction",
+                "defending_faction",
+                "start_time",
+              ])
+              .where("end_time", "is", null)
+              .execute()) as ActiveWarRow[];
 
             const warsByTerritory = new Map(
               (allActiveWars || []).map((w) => [w.territory_id, w]),
@@ -698,46 +715,24 @@ export function startTerritoryStateSyncWorker() {
               );
 
               try {
-                const upsertStateTx = db.transaction(
-                  (
-                    rows: Array<{
-                      territory_id: string;
-                      faction_id: number | null;
-                      racket_name: string | null;
-                      racket_level: number | null;
-                      racket_reward: string | null;
-                      racket_created_at: number | null;
-                      racket_changed_at: number | null;
-                    }>,
-                  ) => {
-                    const stmt = db.prepare(
-                      `INSERT INTO "${TABLE_NAMES.TERRITORY_STATE}"
-                       (territory_id, faction_id, racket_name, racket_level, racket_reward, racket_created_at, racket_changed_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(territory_id) DO UPDATE SET
-                         faction_id = excluded.faction_id,
-                         racket_name = excluded.racket_name,
-                         racket_level = excluded.racket_level,
-                         racket_reward = excluded.racket_reward,
-                         racket_created_at = excluded.racket_created_at,
-                         racket_changed_at = excluded.racket_changed_at`,
-                    );
-
-                    for (const row of rows) {
-                      stmt.run(
-                        row.territory_id,
-                        row.faction_id,
-                        row.racket_name,
-                        row.racket_level,
-                        row.racket_reward,
-                        row.racket_created_at,
-                        row.racket_changed_at,
-                      );
-                    }
-                  },
-                );
-
-                upsertStateTx(stateUpdates);
+                await db.transaction().execute(async (trx) => {
+                  for (const row of stateUpdates) {
+                    await trx
+                      .insertInto(TABLE_NAMES.TERRITORY_STATE)
+                      .values(row)
+                      .onConflict((oc) =>
+                        oc.column("territory_id").doUpdateSet({
+                          faction_id: row.faction_id,
+                          racket_name: row.racket_name,
+                          racket_level: row.racket_level,
+                          racket_reward: row.racket_reward,
+                          racket_created_at: row.racket_created_at,
+                          racket_changed_at: row.racket_changed_at,
+                        }),
+                      )
+                      .execute();
+                  }
+                });
               } catch (error) {
                 logError(
                   "territory_state_sync",
