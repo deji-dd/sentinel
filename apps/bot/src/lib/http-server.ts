@@ -627,7 +627,8 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       if (!assistConfig?.is_active || !assistConfig.assist_channel_id) {
         return res.status(412).json({
-          error: "Assist channel is not configured",
+          error:
+            "Assist is not set up for this Discord server yet. Ask a server admin to configure Assist in Discord and try again.",
         });
       }
 

@@ -45,7 +45,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.0.0
+// @version      2.1.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -61,9 +61,16 @@ ${connectMetadata}
   const API_URL = ${JSON.stringify(`${normalizedApiBaseUrl}/api/assist-events`)};
   const BUTTON_ID = "sentinel-assist-button";
   const TOAST_ID = "sentinel-assist-toast";
+  const COOLDOWN_STORAGE_KEY = "sentinel_assist_cooldown_until_" + ASSIST_UUID;
+  const DEFAULT_COOLDOWN_MS = 30000;
+  const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
 
   let buttonMounted = false;
   let lastAttackerCount = null;
+  let assistButtonEl = null;
+  let cooldownInterval = null;
+  let cooldownUntil = 0;
+  let assistRequestInFlight = false;
 
   function showToast(message, isSuccess = true) {
     const existing = document.getElementById(TOAST_ID);
@@ -116,47 +123,151 @@ ${connectMetadata}
     return params.get("user2ID");
   }
 
-  function sendAssistEvent(method, payload, options) {
-    const notify = options?.notify === true;
+  function setButtonState(disabled, label) {
+    if (!assistButtonEl) {
+      return;
+    }
 
-    GM_xmlhttpRequest({
-      method,
-      url: API_URL,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      data: JSON.stringify({
-        uuid: ASSIST_UUID,
-        source: "tampermonkey",
-        occurred_at: new Date().toISOString(),
-        target_torn_id: Number.parseInt(getTargetId() || "0", 10) || undefined,
-        ...payload,
-      }),
-      onload: (response) => {
-        if (!notify) {
-          return;
-        }
+    assistButtonEl.disabled = disabled;
+    assistButtonEl.textContent = label;
+    assistButtonEl.style.opacity = disabled ? "0.7" : "1";
+    assistButtonEl.style.cursor = disabled ? "not-allowed" : "pointer";
+    assistButtonEl.style.filter = disabled ? "grayscale(0.15)" : "none";
+  }
 
-        if (response.status >= 200 && response.status < 300) {
-          showToast("Assist alert sent", true);
-          return;
-        }
+  function formatRemainingSeconds(msRemaining) {
+    return Math.max(1, Math.ceil(msRemaining / 1000));
+  }
 
-        if (response.status === 429) {
-          showToast("Rate limited. Try again in a few seconds", false);
-          return;
-        }
+  function clearCooldownInterval() {
+    if (cooldownInterval !== null) {
+      window.clearInterval(cooldownInterval);
+      cooldownInterval = null;
+    }
+  }
 
-        showToast(
-          "Failed to send assist alert (" + String(response.status) + ")",
-          false,
-        );
-      },
-      onerror: () => {
-        if (notify) {
-          showToast("Network error while sending assist alert", false);
+  function setCooldownUntil(nextCooldownUntil) {
+    cooldownUntil = Math.max(cooldownUntil, nextCooldownUntil);
+
+    try {
+      window.localStorage.setItem(COOLDOWN_STORAGE_KEY, String(cooldownUntil));
+    } catch {
+      // Local storage can fail in private mode; proceed with in-memory cooldown.
+    }
+
+    clearCooldownInterval();
+
+    const renderCooldownState = () => {
+      const remaining = cooldownUntil - Date.now();
+      if (remaining <= 0) {
+        cooldownUntil = 0;
+        clearCooldownInterval();
+        setButtonState(false, "Yabba Dabba Doo!");
+        try {
+          window.localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+        } catch {
+          // Ignore storage errors.
         }
-      },
+        return;
+      }
+
+      setButtonState(true, "Wait " + String(formatRemainingSeconds(remaining)) + "s");
+    };
+
+    renderCooldownState();
+    cooldownInterval = window.setInterval(renderCooldownState, 500);
+  }
+
+  function loadPersistedCooldown() {
+    try {
+      const raw = window.localStorage.getItem(COOLDOWN_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = Number.parseInt(raw, 10);
+      if (Number.isFinite(parsed) && parsed > Date.now()) {
+        setCooldownUntil(parsed);
+      } else {
+        window.localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  function getFriendlyAssistErrorMessage(response) {
+    if (response.status === 0) {
+      return "Could not reach Assist service. Check your internet connection and try again.";
+    }
+
+    if (response.status === 412) {
+      return "Assist is not set up for this server yet. Ask a server admin to configure Assist in Discord.";
+    }
+
+    if (response.status === 429) {
+      const retryAfter = Number.parseInt(
+        String(response.body?.retry_after_seconds || "0"),
+        10,
+      );
+
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        return "You're sending assists too quickly. Please wait " + String(retryAfter) + "s and try again.";
+      }
+
+      return "You're sending assists too quickly. Please wait a few seconds and try again.";
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return "Your Assist link is no longer valid. Reinstall the userscript from Discord.";
+    }
+
+    const serverMessage =
+      typeof response.body?.error === "string" ? response.body.error : "";
+    if (serverMessage) {
+      return serverMessage;
+    }
+
+    return "Could not send Assist alert (HTTP " + String(response.status) + "). Please try again.";
+  }
+
+  function sendAssistEvent(method, payload) {
+    return new Promise((resolve) => {
+      GM_xmlhttpRequest({
+        method,
+        url: API_URL,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        data: JSON.stringify({
+          uuid: ASSIST_UUID,
+          source: "tampermonkey",
+          occurred_at: new Date().toISOString(),
+          target_torn_id: Number.parseInt(getTargetId() || "0", 10) || undefined,
+          ...payload,
+        }),
+        onload: (response) => {
+          let body = null;
+          try {
+            body = response.responseText ? JSON.parse(response.responseText) : null;
+          } catch {
+            body = null;
+          }
+
+          resolve({
+            ok: response.status >= 200 && response.status < 300,
+            status: response.status,
+            body,
+          });
+        },
+        onerror: () => {
+          resolve({
+            ok: false,
+            status: 0,
+            body: null,
+          });
+        },
+      });
     });
   }
 
@@ -202,6 +313,9 @@ ${connectMetadata}
       "user-select: none",
     ].join(";");
 
+    assistButtonEl = button;
+    loadPersistedCooldown();
+
     button.onmouseover = () => {
       button.style.background =
         "linear-gradient(135deg, #357abd 0%, #2a5f8f 100%)";
@@ -228,13 +342,45 @@ ${connectMetadata}
       button.style.transform = "scale(1)";
     };
 
-    button.addEventListener("click", () => {
-      sendAssistEvent("POST", {
+    button.addEventListener("click", async () => {
+      if (assistRequestInFlight || Date.now() < cooldownUntil) {
+        return;
+      }
+
+      assistRequestInFlight = true;
+      setButtonState(true, "Sending...");
+
+      const response = await sendAssistEvent("POST", {
         action: "manual_alert",
         result: "button_click",
-      }, {
-        notify: true,
       });
+
+      if (response.ok) {
+        showToast("Assist alert sent", true);
+        setCooldownUntil(Date.now() + DEFAULT_COOLDOWN_MS);
+      } else if (response.status === 429) {
+        const retryAfter = Number.parseInt(
+          String(response.body?.retry_after_seconds || "0"),
+          10,
+        );
+        const cooldownMs =
+          Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : DEFAULT_COOLDOWN_MS;
+        setCooldownUntil(Date.now() + cooldownMs);
+        showToast(getFriendlyAssistErrorMessage(response), false);
+      } else if (response.status === 412) {
+        setCooldownUntil(Date.now() + ASSIST_UNAVAILABLE_COOLDOWN_MS);
+        showToast(getFriendlyAssistErrorMessage(response), false);
+      } else if (response.status === 0) {
+        showToast(getFriendlyAssistErrorMessage(response), false);
+        setButtonState(false, "Yabba Dabba Doo!");
+      } else {
+        showToast(getFriendlyAssistErrorMessage(response), false);
+        setButtonState(false, "Yabba Dabba Doo!");
+      }
+
+      assistRequestInFlight = false;
     });
 
     buttonContainer.appendChild(button);
