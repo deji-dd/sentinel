@@ -205,17 +205,17 @@ ${connectMetadata}
       return "Assist is not set up for this server yet. Ask a server admin to configure Assist in Discord.";
     }
 
-    if (response.status === 429) {
+    if (response.status === 429 || response.status === 409) {
       const retryAfter = Number.parseInt(
         String(response.body?.retry_after_seconds || "0"),
         10,
       );
 
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
-        return "You're sending assists too quickly. Please wait " + String(retryAfter) + "s and try again.";
+        return "Please wait " + String(retryAfter) + "s before sending another assist alert.";
       }
 
-      return "You're sending assists too quickly. Please wait a few seconds and try again.";
+      return "Please wait a few seconds before sending another assist alert.";
     }
 
     if (response.status === 401 || response.status === 403) {
@@ -358,7 +358,7 @@ ${connectMetadata}
       if (response.ok) {
         showToast("Assist alert sent", true);
         setCooldownUntil(Date.now() + DEFAULT_COOLDOWN_MS);
-      } else if (response.status === 429) {
+      } else if (response.status === 429 || response.status === 409) {
         const retryAfter = Number.parseInt(
           String(response.body?.retry_after_seconds || "0"),
           10,

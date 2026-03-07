@@ -128,12 +128,15 @@ function getAssistPayloadSizeBytes(req: Request): number {
 
 function buildInitialAssistEmbed(
   targetTornId: number | undefined,
+  requesterDiscordId: string,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
     .setTitle("Assist Alert")
     .addFields(
       { name: "Source", value: "Userscript", inline: true },
+      { name: "Requester", value: `<@${requesterDiscordId}>`, inline: true },
+      { name: "Status", value: "Started", inline: true },
       {
         name: "Target",
         value: targetTornId ? `Loading...` : "Unknown",
@@ -146,6 +149,41 @@ function buildInitialAssistEmbed(
   return embed;
 }
 
+function upsertEmbedField(
+  embed: EmbedBuilder,
+  name: string,
+  value: string,
+  inline: boolean,
+): void {
+  const fields = embed.data.fields || [];
+  const index = fields.findIndex((field) => field.name === name);
+
+  if (index >= 0) {
+    embed.spliceFields(index, 1, { name, value, inline });
+    return;
+  }
+
+  embed.addFields({ name, value, inline });
+}
+
+function getActiveTrackedAssist(uuid: string): {
+  message: Message;
+  createdAt: number;
+  attackerCount: number | null;
+} | null {
+  const tracked = assistMessageTracking.get(uuid);
+  if (!tracked) {
+    return null;
+  }
+
+  if (Date.now() - tracked.createdAt > ASSIST_EMBED_TIMEOUT_MS) {
+    assistMessageTracking.delete(uuid);
+    return null;
+  }
+
+  return tracked;
+}
+
 async function enrichAssistEmbed(
   embed: EmbedBuilder,
   targetTornId: number,
@@ -156,36 +194,20 @@ async function enrichAssistEmbed(
 
     if (profileData?.profile) {
       const targetDisplay = `[${profileData.profile.name} [${targetTornId}]](https://www.torn.com/profiles.php?XID=${targetTornId})`;
-      embed.spliceFields(1, 1, {
-        name: "Target",
-        value: targetDisplay,
-        inline: true,
-      });
+      upsertEmbedField(embed, "Target", targetDisplay, true);
 
       if (profileData.faction?.name) {
-        embed.addFields({
-          name: "Faction",
-          value: profileData.faction.name,
-          inline: true,
-        });
+        upsertEmbedField(embed, "Faction", profileData.faction.name, true);
       }
     } else {
-      embed.spliceFields(1, 1, {
-        name: "Target",
-        value: `[${targetTornId}]`,
-        inline: true,
-      });
+      upsertEmbedField(embed, "Target", `[${targetTornId}]`, true);
     }
   } catch (error) {
     console.error(
       `[ASSIST] Failed to enrich embed for ${targetTornId}:`,
       error,
     );
-    embed.spliceFields(1, 1, {
-      name: "Target",
-      value: `[${targetTornId}]`,
-      inline: true,
-    });
+    upsertEmbedField(embed, "Target", `[${targetTornId}]`, true);
   }
 }
 
@@ -645,37 +667,39 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       // Handle PATCH method for attacker count updates
       if (req.method === "PATCH") {
-        const tracked = assistMessageTracking.get(payload.uuid);
+        const tracked = getActiveTrackedAssist(payload.uuid);
         if (!tracked) {
           return res
             .status(404)
             .json({ error: "No active assist message for this UUID" });
         }
 
-        const now = Date.now();
-        if (now - tracked.createdAt > ASSIST_EMBED_TIMEOUT_MS) {
-          assistMessageTracking.delete(payload.uuid);
-          return res.status(410).json({ error: "Assist message expired" });
-        }
-
         // Extract attacker count from details
         const details = payload.details || "";
         const match = details.match(/(\d+)\s*->\s*(\d+)/);
+        const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
+        let hasChanges = false;
+
+        const statusField = updatedEmbed.data.fields?.find(
+          (field) => field.name === "Status",
+        );
+        if (statusField?.value !== "Ongoing") {
+          upsertEmbedField(updatedEmbed, "Status", "Ongoing", true);
+          hasChanges = true;
+        }
+
         if (match) {
           const newCount = Number.parseInt(match[2], 10);
           if (Number.isFinite(newCount) && newCount !== tracked.attackerCount) {
-            const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
-            updatedEmbed.spliceFields(2, 1, {
-              name: "Attackers",
-              value: String(newCount),
-              inline: true,
-            });
-
-            await tracked.message.edit({ embeds: [updatedEmbed] });
+            upsertEmbedField(updatedEmbed, "Attackers", String(newCount), true);
             tracked.attackerCount = newCount;
-
-            return res.json({ success: true, updated: "attacker_count" });
+            hasChanges = true;
           }
+        }
+
+        if (hasChanges) {
+          await tracked.message.edit({ embeds: [updatedEmbed] });
+          return res.json({ success: true, updated: "message" });
         }
 
         return res.json({ success: true, updated: "none" });
@@ -683,15 +707,48 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       // Handle DELETE method for session end
       if (req.method === "DELETE") {
+        const tracked = getActiveTrackedAssist(payload.uuid);
+        if (tracked) {
+          try {
+            const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
+              .setColor(0x6b7280)
+              .setFooter({ text: "This assist alert has ended" });
+            upsertEmbedField(endedEmbed, "Status", "Ended", true);
+            await tracked.message.edit({
+              embeds: [endedEmbed],
+              components: [],
+            });
+          } catch (error) {
+            console.error(
+              `[ASSIST] Failed to mark assist as ended for ${payload.uuid}:`,
+              error,
+            );
+          }
+        }
+
         assistMessageTracking.delete(payload.uuid);
-        return res.json({ success: true, deleted: true });
+        return res.json({ success: true, deleted: true, status: "ended" });
       }
 
       // Handle POST method for new assist alerts
+      const activeTracked = getActiveTrackedAssist(payload.uuid);
+      if (activeTracked) {
+        const remainingMs =
+          ASSIST_EMBED_TIMEOUT_MS - (Date.now() - activeTracked.createdAt);
+        return res.status(409).json({
+          error:
+            "You already have an active assist alert. Wait for it to end before sending another one.",
+          retry_after_seconds: Math.max(1, Math.ceil(remainingMs / 1000)),
+        });
+      }
+
       const mention = assistConfig.ping_role_id
         ? `<@&${assistConfig.ping_role_id}>`
         : "";
-      const embed = buildInitialAssistEmbed(payload.target_torn_id);
+      const embed = buildInitialAssistEmbed(
+        payload.target_torn_id,
+        token.discord_id,
+      );
       const button = buildAssistButton(payload.target_torn_id);
 
       const components = button ? [button] : [];
@@ -716,6 +773,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
             const expiredEmbed = EmbedBuilder.from(tracked.message.embeds[0])
               .setColor(0x6b7280)
               .setFooter({ text: "This assist alert has expired" });
+            upsertEmbedField(expiredEmbed, "Status", "Ended (Expired)", true);
             await tracked.message.edit({
               embeds: [expiredEmbed],
               components: [],
