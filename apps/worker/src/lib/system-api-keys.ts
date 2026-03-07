@@ -10,8 +10,8 @@
  */
 
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
-import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 if (!process.env.ENCRYPTION_KEY) {
   throw new Error("ENCRYPTION_KEY environment variable is required");
@@ -24,6 +24,22 @@ if (!process.env.API_KEY_HASH_PEPPER) {
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
 
+interface SystemApiKeyEncryptedRow {
+  id: string;
+  api_key_encrypted: string;
+  key_type?: "personal" | "system";
+  invalid_count?: number | null;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("unique") || message.includes("constraint");
+}
+
 /**
  * Get system API key for worker operations
  * Reads from database (personal or system key types)
@@ -33,23 +49,24 @@ const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
 export async function getSystemApiKey(
   keyType: "personal" | "system" = "personal",
 ): Promise<string> {
-  // Try to get from database (system key or primary from DB)
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("api_key_encrypted")
-    .eq("is_primary", true)
-    .eq("key_type", keyType === "personal" ? "personal" : "system")
-    .is("deleted_at", null)
-    .limit(1)
-    .single();
+  const db = getDB();
+  const row = db
+    .prepare(
+      `SELECT api_key_encrypted
+       FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       WHERE is_primary = 1
+         AND key_type = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+    .get(keyType) as { api_key_encrypted: string } | undefined;
 
-  if (error || !data) {
+  if (!row) {
     throw new Error(`No ${keyType} API key found in database.`);
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return decryptApiKey((data as any).api_key_encrypted, ENCRYPTION_KEY);
+    return decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
   } catch (err) {
     throw new Error(`Failed to decrypt system API key: ${err}`);
   }
@@ -68,74 +85,57 @@ export async function storeSystemApiKey(
   keyType: "personal" | "system" = "system",
   isPrimary: boolean = false,
 ): Promise<void> {
+  const db = getDB();
   const encrypted = encryptApiKey(apiKey, ENCRYPTION_KEY);
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // Store the encrypted key
   // Check if this key already exists (deduplication)
-  const { data: existing, error: checkError } = await supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("id, user_id, key_type, is_primary")
-    .eq("api_key_hash", hash)
-    .is("deleted_at", null)
-    .single();
-
-  if (checkError && checkError.code !== "PGRST116") {
-    // PGRST116 = no rows returned, which is fine
-    throw new Error(`Failed to check for existing key: ${checkError.message}`);
-  }
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       WHERE api_key_hash = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+    .get(hash) as { id: string } | undefined;
 
   if (existing) {
     // Key already exists - update it
-    const { error: updateError } = await supabase
-      .from(TABLE_NAMES.SYSTEM_API_KEYS)
-      .update({
-        user_id: userId,
-        api_key_encrypted: encrypted,
-        is_primary: isPrimary,
-        key_type: keyType,
-      })
-      .eq("id", existing.id);
-
-    if (updateError) {
-      throw new Error(`Failed to update existing key: ${updateError.message}`);
-    }
+    db.prepare(
+      `UPDATE "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       SET user_id = ?, api_key_encrypted = ?, is_primary = ?, key_type = ?
+       WHERE id = ?`,
+    ).run(userId, encrypted, isPrimary ? 1 : 0, keyType, existing.id);
 
     console.log(
       `[SystemKeys] Updated existing ${keyType} key for user ${userId}`,
     );
   } else {
     // New key - insert it
-    const { error: insertError } = await supabase
-      .from(TABLE_NAMES.SYSTEM_API_KEYS)
-      .insert({
-        user_id: userId,
-        api_key_encrypted: encrypted,
-        api_key_hash: hash,
-        is_primary: isPrimary,
-        key_type: keyType,
-      });
-
-    if (insertError) {
-      throw new Error(`Failed to insert new key: ${insertError.message}`);
-    }
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       (user_id, api_key_encrypted, api_key_hash, is_primary, key_type)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(userId, encrypted, hash, isPrimary ? 1 : 0, keyType);
 
     console.log(`[SystemKeys] Added new ${keyType} key for user ${userId}`);
   }
 
   // Register in mapping table for rate limiting
-  const { error: mapError } = await supabase
-    .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-    .insert({
-      api_key_hash: hash,
-      user_id: userId,
-      source: "system",
-    });
-
-  if (mapError && !mapError.message.includes("duplicate")) {
-    throw new Error(
-      `Failed to map API key for rate limiting: ${mapError.message}`,
-    );
+  try {
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.API_KEY_USER_MAPPING}"
+       (api_key_hash, user_id, source)
+       VALUES (?, ?, ?)`,
+    ).run(hash, userId, "system");
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw new Error(
+        `Failed to map API key for rate limiting: ${String(error)}`,
+      );
+    }
   }
 }
 
@@ -147,31 +147,32 @@ export async function getSystemApiKeys(
   userId: number,
   keyType?: "personal" | "system",
 ): Promise<string[]> {
-  let query = supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("api_key_encrypted")
-    .eq("user_id", userId)
-    .is("deleted_at", null);
-
-  if (keyType) {
-    query = query.eq("key_type", keyType);
-  }
-
-  const { data, error } = await query.order("is_primary", { ascending: false });
-
-  if (error) {
-    console.error(`Failed to retrieve system API keys: ${error.message}`);
-    return [];
-  }
+  const db = getDB();
+  const rows = keyType
+    ? (db
+        .prepare(
+          `SELECT api_key_encrypted
+           FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+           WHERE user_id = ?
+             AND key_type = ?
+             AND deleted_at IS NULL
+           ORDER BY is_primary DESC`,
+        )
+        .all(userId, keyType) as Array<{ api_key_encrypted: string }>)
+    : (db
+        .prepare(
+          `SELECT api_key_encrypted
+           FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+           WHERE user_id = ?
+             AND deleted_at IS NULL
+           ORDER BY is_primary DESC`,
+        )
+        .all(userId) as Array<{ api_key_encrypted: string }>);
 
   const keys: string[] = [];
-  for (const row of data || []) {
+  for (const row of rows) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       keys.push(decrypted);
     } catch (err) {
       console.error("Failed to decrypt system API key:", err);
@@ -187,38 +188,42 @@ export async function getSystemApiKeys(
 export async function getAllSystemApiKeys(
   keyType: "personal" | "system" | "all" = "system",
 ): Promise<string[]> {
-  let query = supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("api_key_encrypted, key_type")
-    .is("deleted_at", null)
-    .order("is_primary", { ascending: false })
-    .order("created_at", { ascending: true }); // Ensure consistent ordering
-
-  if (keyType !== "all") {
-    query = query.eq("key_type", keyType);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error(`Failed to retrieve system API keys: ${error.message}`);
-    return [];
-  }
+  const db = getDB();
+  const data =
+    keyType === "all"
+      ? (db
+          .prepare(
+            `SELECT api_key_encrypted, key_type
+           FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+           WHERE deleted_at IS NULL
+           ORDER BY is_primary DESC, created_at ASC`,
+          )
+          .all() as Array<{
+          api_key_encrypted: string;
+          key_type: string | null;
+        }>)
+      : (db
+          .prepare(
+            `SELECT api_key_encrypted, key_type
+           FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+           WHERE deleted_at IS NULL
+             AND key_type = ?
+           ORDER BY is_primary DESC, created_at ASC`,
+          )
+          .all(keyType) as Array<{
+          api_key_encrypted: string;
+          key_type: string | null;
+        }>);
 
   const systemKeys: string[] = [];
   const personalKeys: string[] = [];
-  for (const row of data || []) {
+  for (const row of data) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
 
       // For pooled usage, bias toward system keys by returning them first.
       if (keyType === "all") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rowKeyType = (row as any).key_type;
+        const rowKeyType = row.key_type;
         if (rowKeyType === "personal") {
           personalKeys.push(decrypted);
         } else {
@@ -245,22 +250,24 @@ export async function getAllSystemApiKeys(
 export async function getPrimarySystemApiKey(
   userId: number,
 ): Promise<string | null> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("api_key_encrypted")
-    .eq("user_id", userId)
-    .eq("is_primary", true)
-    .is("deleted_at", null)
-    .limit(1)
-    .single();
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT api_key_encrypted
+       FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       WHERE user_id = ?
+         AND is_primary = 1
+         AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+    .get(userId) as { api_key_encrypted: string } | undefined;
 
-  if (error || !data) {
+  if (!data) {
     return null;
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return decryptApiKey((data as any).api_key_encrypted, ENCRYPTION_KEY);
+    return decryptApiKey(data.api_key_encrypted, ENCRYPTION_KEY);
   } catch (err) {
     console.error("Failed to decrypt primary system API key:", err);
     return null;
@@ -274,41 +281,31 @@ export async function deleteSystemApiKey(
   userId: number,
   apiKey: string,
 ): Promise<void> {
+  const db = getDB();
   // Find the key by decrypting and comparing
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("id, api_key_encrypted")
-    .eq("user_id", userId)
-    .is("deleted_at", null);
+  const data = db
+    .prepare(
+      `SELECT id, api_key_encrypted
+       FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       WHERE user_id = ?
+         AND deleted_at IS NULL`,
+    )
+    .all(userId) as SystemApiKeyEncryptedRow[];
 
-  if (error) {
-    throw new Error(`Failed to find system API key: ${error.message}`);
-  }
-
-  for (const row of data || []) {
+  for (const row of data) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       if (decrypted === apiKey) {
-        const { error: deleteError } = await supabase
-          .from(TABLE_NAMES.SYSTEM_API_KEYS)
-          .update({ deleted_at: new Date().toISOString() })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .eq("id", (row as any).id);
-
-        if (deleteError) {
-          throw deleteError;
-        }
+        const now = new Date().toISOString();
+        db.prepare(
+          `UPDATE "${TABLE_NAMES.SYSTEM_API_KEYS}" SET deleted_at = ? WHERE id = ?`,
+        ).run(now, row.id);
 
         // Also soft-delete from mapping
         const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
-        await supabase
-          .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("api_key_hash", hash);
+        db.prepare(
+          `UPDATE "${TABLE_NAMES.API_KEY_USER_MAPPING}" SET deleted_at = ? WHERE api_key_hash = ?`,
+        ).run(now, hash);
 
         return;
       }
@@ -331,33 +328,39 @@ export async function markSystemApiKeyInvalid(
   apiKey: string,
   threshold: number = 3,
 ): Promise<void> {
+  const db = getDB();
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // Find the key by hash in mapping table
-  const { data: mapping, error: mapError } = await supabase
-    .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-    .select("user_id")
-    .eq("api_key_hash", hash)
-    .eq("source", "system")
-    .is("deleted_at", null)
-    .single();
+  const mapping = db
+    .prepare(
+      `SELECT user_id
+       FROM "${TABLE_NAMES.API_KEY_USER_MAPPING}"
+       WHERE api_key_hash = ?
+         AND source = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+    .get(hash, "system") as { user_id: number } | undefined;
 
-  if (mapError || !mapping) {
+  if (!mapping) {
     console.warn(`Could not find system API key mapping for invalid key`);
     return;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userId = (mapping as any).user_id;
+  const userId = mapping.user_id;
 
   // Find the key record
-  const { data: keys, error: keysError } = await supabase
-    .from(TABLE_NAMES.SYSTEM_API_KEYS)
-    .select("id, api_key_encrypted, invalid_count")
-    .eq("user_id", userId)
-    .is("deleted_at", null);
+  const keys = db
+    .prepare(
+      `SELECT id, api_key_encrypted, invalid_count
+       FROM "${TABLE_NAMES.SYSTEM_API_KEYS}"
+       WHERE user_id = ?
+         AND deleted_at IS NULL`,
+    )
+    .all(userId) as SystemApiKeyEncryptedRow[];
 
-  if (keysError || !keys || keys.length === 0) {
+  if (!keys || keys.length === 0) {
     console.warn("Could not find system API key records");
     return;
   }
@@ -365,48 +368,34 @@ export async function markSystemApiKeyInvalid(
   // Find matching key by decrypting
   for (const row of keys) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       if (decrypted === apiKey) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const currentCount = (row as any).invalid_count || 0;
+        const currentCount = row.invalid_count || 0;
         const newCount = currentCount + 1;
-
-        // Update invalid count and timestamp
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updates: any = {
-          invalid_count: newCount,
-          last_invalid_at: new Date().toISOString(),
-        };
+        const now = new Date().toISOString();
 
         // Soft-delete if threshold reached
         if (newCount >= threshold) {
-          updates.deleted_at = new Date().toISOString();
           console.warn(
             `System API key reached ${threshold} invalid attempts, soft-deleting`,
           );
 
           // Also soft-delete from mapping
-          await supabase
-            .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-            .update({ deleted_at: new Date().toISOString() })
-            .eq("api_key_hash", hash);
-        }
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.API_KEY_USER_MAPPING}" SET deleted_at = ? WHERE api_key_hash = ?`,
+          ).run(now, hash);
 
-        const { error: updateError } = await supabase
-          .from(TABLE_NAMES.SYSTEM_API_KEYS)
-          .update(updates)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .eq("id", (row as any).id);
-
-        if (updateError) {
-          console.error(
-            "Failed to mark system API key as invalid:",
-            updateError,
-          );
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.SYSTEM_API_KEYS}"
+             SET invalid_count = ?, last_invalid_at = ?, deleted_at = ?
+             WHERE id = ?`,
+          ).run(newCount, now, now, row.id);
+        } else {
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.SYSTEM_API_KEYS}"
+             SET invalid_count = ?, last_invalid_at = ?
+             WHERE id = ?`,
+          ).run(newCount, now, row.id);
         }
 
         return;

@@ -7,13 +7,13 @@
  */
 
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import type { TornApiOperations } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "battlestats_sync_worker";
 
@@ -27,20 +27,25 @@ async function getMostRecentSnapshot(): Promise<{
   dexterity: number;
   total_stats: number;
 } | null> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-    .select("strength, speed, defense, dexterity, total_stats")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT strength, speed, defense, dexterity, total_stats
+       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get() as
+    | {
+        strength: number;
+        speed: number;
+        defense: number;
+        dexterity: number;
+        total_stats: number;
+      }
+    | undefined;
 
-  if (error) {
-    throw new Error(
-      `Failed to fetch most recent battlestats snapshot: ${error.message}`,
-    );
-  }
-
-  return data as unknown as {
+  return (data ?? null) as {
     strength: number;
     speed: number;
     defense: number;
@@ -126,13 +131,17 @@ async function syncBattlestats(): Promise<void> {
     }
 
     // Insert new snapshot
-    const { error } = await supabase
-      .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-      .insert(newStats);
-
-    if (error) {
-      throw error;
-    }
+    const db = getDB();
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}" (strength, speed, defense, dexterity, total_stats)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      newStats.strength,
+      newStats.speed,
+      newStats.defense,
+      newStats.dexterity,
+      newStats.total_stats,
+    );
 
     const duration = Date.now() - startTime;
     logDuration(
