@@ -45,7 +45,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.1.0
+// @version      2.2.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -62,8 +62,10 @@ ${connectMetadata}
   const BUTTON_ID = "sentinel-assist-button";
   const TOAST_ID = "sentinel-assist-toast";
   const COOLDOWN_STORAGE_KEY = "sentinel_assist_cooldown_until_" + ASSIST_UUID;
+  const ACTIVE_SESSION_STORAGE_KEY = "sentinel_assist_active_until_" + ASSIST_UUID;
   const DEFAULT_COOLDOWN_MS = 30000;
   const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
+  const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
 
   let buttonMounted = false;
   let lastAttackerCount = null;
@@ -71,6 +73,7 @@ ${connectMetadata}
   let cooldownInterval = null;
   let cooldownUntil = 0;
   let assistRequestInFlight = false;
+  let assistSessionActiveUntil = 0;
 
   function showToast(message, isSuccess = true) {
     const existing = document.getElementById(TOAST_ID);
@@ -196,6 +199,56 @@ ${connectMetadata}
     }
   }
 
+  function setActiveAssistSessionUntil(nextActiveUntil) {
+    assistSessionActiveUntil = Math.max(assistSessionActiveUntil, nextActiveUntil);
+    try {
+      window.localStorage.setItem(
+        ACTIVE_SESSION_STORAGE_KEY,
+        String(assistSessionActiveUntil),
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  function clearActiveAssistSession() {
+    assistSessionActiveUntil = 0;
+    try {
+      window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  function hasActiveAssistSession() {
+    if (assistSessionActiveUntil <= Date.now()) {
+      if (assistSessionActiveUntil !== 0) {
+        clearActiveAssistSession();
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  function loadPersistedActiveAssistSession() {
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = Number.parseInt(raw, 10);
+      if (Number.isFinite(parsed) && parsed > Date.now()) {
+        assistSessionActiveUntil = parsed;
+      } else {
+        window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
   function getFriendlyAssistErrorMessage(response) {
     if (response.status === 0) {
       return "Could not reach Assist service. Check your internet connection and try again.";
@@ -315,6 +368,7 @@ ${connectMetadata}
 
     assistButtonEl = button;
     loadPersistedCooldown();
+    loadPersistedActiveAssistSession();
 
     button.onmouseover = () => {
       button.style.background =
@@ -357,6 +411,7 @@ ${connectMetadata}
 
       if (response.ok) {
         showToast("Assist alert sent", true);
+        setActiveAssistSessionUntil(Date.now() + ACTIVE_SESSION_WINDOW_MS);
         setCooldownUntil(Date.now() + DEFAULT_COOLDOWN_MS);
       } else if (response.status === 429 || response.status === 409) {
         const retryAfter = Number.parseInt(
@@ -406,6 +461,11 @@ ${connectMetadata}
       }
 
       if (lastAttackerCount !== null && current !== lastAttackerCount) {
+        if (!hasActiveAssistSession()) {
+          lastAttackerCount = current;
+          return;
+        }
+
         sendAssistEvent("PATCH", {
           action: "attacker_count_changed",
           details:
@@ -414,6 +474,10 @@ ${connectMetadata}
             " -> " +
             String(current),
           result: "count_changed",
+        }).then((response) => {
+          if (response.status === 404 || response.status === 410) {
+            clearActiveAssistSession();
+          }
         });
       }
 
@@ -431,6 +495,11 @@ ${connectMetadata}
   }
 
   window.addEventListener("beforeunload", () => {
+    if (!hasActiveAssistSession()) {
+      return;
+    }
+
+    clearActiveAssistSession();
     sendAssistEvent("DELETE", {
       action: "session_end",
       result: "page_unload",
