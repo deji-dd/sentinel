@@ -1,33 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./encryption.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
-
-// Use local Supabase in development, cloud in production
-const isDev = process.env.NODE_ENV === "development";
-const supabaseUrl = isDev
-  ? process.env.SUPABASE_URL_LOCAL || "http://127.0.0.1:54321"
-  : process.env.SUPABASE_URL!;
-const supabaseServiceKey = isDev
-  ? process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL!
-  : process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error(
-    `Missing Supabase credentials for ${isDev ? "local" : "cloud"} environment`,
-  );
-}
-
-console.log(
-  `[Supabase] Connected to ${isDev ? "local" : "cloud"} instance: ${supabaseUrl}`,
-);
-
-export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
 
 function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -406,6 +379,24 @@ export async function getTornItemsWithCategories(): Promise<
   });
 
   return map;
+}
+
+export async function getTornCategoryNameToIdMap(): Promise<
+  Map<string, number>
+> {
+  const db = getDB();
+  const categories = db
+    .prepare(
+      `SELECT id, name FROM ${quoteIdentifier(TABLE_NAMES.TORN_CATEGORIES)}`,
+    )
+    .all() as Array<{ id: number; name: string }>;
+
+  const categoryNameToId = new Map<string, number>();
+  for (const category of categories) {
+    categoryNameToId.set(category.name, category.id);
+  }
+
+  return categoryNameToId;
 }
 
 /**

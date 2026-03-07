@@ -5,10 +5,10 @@ import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import {
   upsertTornItems,
   syncTornCategories,
-  supabase,
+  getTornCategoryNameToIdMap,
   type TornItemRow,
 } from "../lib/supabase.js";
-import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
+import { ApiKeyRotator } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
@@ -146,18 +146,7 @@ async function syncTornItems(): Promise<void> {
     }
 
     // Fetch all categories to map names to IDs
-    const { data: categoryData, error: categoryError } = await supabase
-      .from(TABLE_NAMES.TORN_CATEGORIES)
-      .select("id, name");
-
-    if (categoryError) {
-      throw new Error(`Failed to fetch categories: ${categoryError.message}`);
-    }
-
-    const categoryNameToId = new Map<string, number>();
-    categoryData?.forEach((cat) => {
-      categoryNameToId.set(cat.name, cat.id);
-    });
+    const categoryNameToId = await getTornCategoryNameToIdMap();
 
     // Normalize items with category IDs
     const items = normalizeItems(response, categoryNameToId);
