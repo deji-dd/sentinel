@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getDB } from "@sentinel/shared/db/sqlite.js";
 
@@ -40,13 +40,8 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
   const db = getDB();
   db.prepare(
     `INSERT INTO "${TRACKER_TABLE}" (id, api_key_hash, requested_at, user_id)
-     VALUES (
-       (CAST(strftime('%s','now') AS INTEGER) * 1000) + (ABS(RANDOM()) % 1000),
-       ?,
-       ?,
-       ?
-     )`,
-  ).run(keyHash, now, userId);
+     VALUES (?, ?, ?, ?)`,
+  ).run(randomUUID(), keyHash, now, userId);
 }
 
 export async function getRequestCountPerUser(apiKey: string): Promise<number> {
