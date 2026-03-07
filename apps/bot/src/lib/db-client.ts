@@ -5,7 +5,11 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   private sqliteDb: Database.Database;
   private tableName: string;
   private selectFields: string[] = [];
-  private whereConditions: Array<{ column: string; operator: string; value: any }> = [];
+  private whereConditions: Array<{
+    column: string;
+    operator: string;
+    value: any;
+  }> = [];
   private inConditions: Array<{ column: string; values: any[] }> = [];
   private updates: Record<string, any> = {};
   private isUpdate = false;
@@ -36,7 +40,11 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
     if (value === null) {
       this.whereConditions.push({ column, operator: "IS NULL", value: null });
     } else {
-      this.whereConditions.push({ column, operator: "IS NOT NULL", value: null });
+      this.whereConditions.push({
+        column,
+        operator: "IS NOT NULL",
+        value: null,
+      });
     }
     return this;
   }
@@ -84,7 +92,8 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 
   private executeSelect(): { data: any; error: any } {
-    const fields = this.selectFields.length > 0 ? this.selectFields.join(", ") : "*";
+    const fields =
+      this.selectFields.length > 0 ? this.selectFields.join(", ") : "*";
     let query = `SELECT ${fields} FROM ${this.tableName}`;
     const params: any[] = [];
 
@@ -196,7 +205,9 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 
   then<TResult1, TResult2 = any>(
-    onFulfilled?: ((value: { data: any; error: any }) => TResult1 | PromiseLike<TResult1>) | null,
+    onFulfilled?:
+      | ((value: { data: any; error: any }) => TResult1 | PromiseLike<TResult1>)
+      | null,
     onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
     return this.execute().then(onFulfilled, onRejected);
@@ -236,7 +247,9 @@ class SQLiteSupabaseCompat {
           for (const record of recordsArray) {
             const columns = Object.keys(record);
             const placeholders = columns.map(() => "?").join(", ");
-            const setClause = columns.map((col) => `${col} = excluded.${col}`).join(", ");
+            const setClause = columns
+              .map((col) => `${col} = excluded.${col}`)
+              .join(", ");
             const values = columns.map((col) => record[col]);
             const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders}) ON CONFLICT DO UPDATE SET ${setClause}`;
             this.sqliteDb.prepare(sql).run(...values);
@@ -313,21 +326,29 @@ class SQLiteSupabaseCompat {
   private finalizeReactionRoleMessage(recordId: number, newMessageId: string) {
     const transaction = this.sqliteDb.transaction(() => {
       const messageRecord = this.sqliteDb
-        .prepare("SELECT message_id FROM sentinel_reaction_role_messages WHERE id = ?")
+        .prepare(
+          "SELECT message_id FROM sentinel_reaction_role_messages WHERE id = ?",
+        )
         .get(recordId) as { message_id: string } | undefined;
 
       if (!messageRecord) {
-        throw new Error(`Reaction role message record not found for id=${recordId}`);
+        throw new Error(
+          `Reaction role message record not found for id=${recordId}`,
+        );
       }
 
       const oldMessageId = messageRecord.message_id;
 
       const updateMappingsStmt = this.sqliteDb
-        .prepare("UPDATE sentinel_reaction_role_mappings SET message_id = ? WHERE message_id = ?")
+        .prepare(
+          "UPDATE sentinel_reaction_role_mappings SET message_id = ? WHERE message_id = ?",
+        )
         .run(newMessageId, oldMessageId);
 
       const updateMessageStmt = this.sqliteDb
-        .prepare("UPDATE sentinel_reaction_role_messages SET message_id = ?, updated_at = ? WHERE id = ?")
+        .prepare(
+          "UPDATE sentinel_reaction_role_messages SET message_id = ?, updated_at = ? WHERE id = ?",
+        )
         .run(newMessageId, new Date().toISOString(), recordId);
 
       return {
@@ -342,6 +363,8 @@ class SQLiteSupabaseCompat {
 }
 
 const isDev = process.env.NODE_ENV === "development";
-console.log(`[DB] Connected to ${isDev ? "local" : "production"} SQLite database`);
+console.log(
+  `[DB] Connected to ${isDev ? "local" : "production"} SQLite database`,
+);
 
 export const db = new SQLiteSupabaseCompat();
