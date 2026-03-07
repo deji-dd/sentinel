@@ -7,8 +7,8 @@ import {
   type ChatInputCommandInteraction,
   type ModalSubmitInteraction,
 } from "discord.js";
-import { supabase } from "../../../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import {
   runWithInteractionError,
   safeReply,
@@ -161,21 +161,32 @@ export async function handleModalSubmit(
         return;
       }
 
-      const { error } = await supabase
-        .from(TABLE_NAMES.FINANCE_SETTINGS)
-        .upsert(
-          {
-            player_id: userId,
-            min_reserve: minReserveValue,
-            split_bookie: splitBookieValue,
-            split_training: splitTrainingValue,
-            split_gear: splitGearValue,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "player_id" },
+      try {
+        const db = getDB();
+        db.prepare(
+          `INSERT INTO "${TABLE_NAMES.FINANCE_SETTINGS}" (
+            player_id,
+            min_reserve,
+            split_bookie,
+            split_training,
+            split_gear,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(player_id) DO UPDATE SET
+            min_reserve = excluded.min_reserve,
+            split_bookie = excluded.split_bookie,
+            split_training = excluded.split_training,
+            split_gear = excluded.split_gear,
+            updated_at = excluded.updated_at`,
+        ).run(
+          userId,
+          minReserveValue,
+          splitBookieValue,
+          splitTrainingValue,
+          splitGearValue,
+          new Date().toISOString(),
         );
-
-      if (error) {
+      } catch {
         await safeReply(
           interaction,
           "❌ Failed to update finance settings. Please try again.",

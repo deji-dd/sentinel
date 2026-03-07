@@ -1,33 +1,95 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "./encryption.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
-// Use local Supabase in development, cloud in production
-const isDev = process.env.NODE_ENV === "development";
-const supabaseUrl = isDev
-  ? process.env.SUPABASE_URL_LOCAL || "http://127.0.0.1:54321"
-  : process.env.SUPABASE_URL!;
-const supabaseServiceKey = isDev
-  ? process.env.SUPABASE_SERVICE_ROLE_KEY_LOCAL!
-  : process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error(
-    `Missing Supabase credentials for ${isDev ? "local" : "cloud"} environment`,
-  );
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
-console.log(
-  `[Supabase] Connected to ${isDev ? "local" : "cloud"} instance: ${supabaseUrl}`,
-);
+function parseJsonArray(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item));
+  }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => Number(item))
+          .filter((item) => Number.isFinite(item));
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function toSQLiteValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return JSON.stringify(value);
+  }
+
+  return value;
+}
+
+function selectByUserIds<T>(tableName: string, userIds: string[]): T[] {
+  if (!userIds.length) {
+    return [];
+  }
+
+  const db = getDB();
+  const placeholders = userIds.map(() => "?").join(", ");
+  const sql = `SELECT * FROM ${quoteIdentifier(tableName)} WHERE user_id IN (${placeholders})`;
+  return db.prepare(sql).all(...userIds) as T[];
+}
+
+function upsertRows(
+  tableName: string,
+  rows: Record<string, unknown>[],
+  conflictColumns: string[],
+): void {
+  if (!rows.length) {
+    return;
+  }
+
+  const db = getDB();
+  const columns = Object.keys(rows[0]);
+  const insertColumns = columns.map(quoteIdentifier).join(", ");
+  const placeholders = columns.map(() => "?").join(", ");
+  const conflictList = conflictColumns.map(quoteIdentifier).join(", ");
+  const updateColumns = columns
+    .filter((column) => !conflictColumns.includes(column))
+    .map(
+      (column) =>
+        `${quoteIdentifier(column)} = excluded.${quoteIdentifier(column)}`,
+    )
+    .join(", ");
+
+  const tableIdentifier = quoteIdentifier(tableName);
+  const insertSql =
+    updateColumns.length > 0
+      ? `INSERT INTO ${tableIdentifier} (${insertColumns}) VALUES (${placeholders}) ON CONFLICT(${conflictList}) DO UPDATE SET ${updateColumns}`
+      : `INSERT OR IGNORE INTO ${tableIdentifier} (${insertColumns}) VALUES (${placeholders})`;
+
+  const stmt = db.prepare(insertSql);
+  const tx = db.transaction((batch: Record<string, unknown>[]) => {
+    for (const row of batch) {
+      const values = columns.map((column) => toSQLiteValue(row[column]));
+      stmt.run(...values);
+    }
+  });
+
+  tx(rows);
+}
 
 export interface User {
   user_id: string;
@@ -112,18 +174,11 @@ export interface TravelSettings {
 }
 
 export async function getAllUsers(): Promise<User[]> {
-  // DEPRECATED: Multi-user support removed in personalized bot pivot
-  // Kept for compatibility with legacy code only
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.USERS)
-    .select("*")
-    .returns<User[]>();
-
-  if (error) {
-    throw new Error(`Failed to fetch users: ${error.message}`);
-  }
-
-  return data || [];
+  const db = getDB();
+  const rows = db
+    .prepare(`SELECT * FROM ${quoteIdentifier(TABLE_NAMES.USERS)}`)
+    .all() as User[];
+  return rows;
 }
 
 export async function getTravelSettingsByUserIds(
@@ -132,17 +187,17 @@ export async function getTravelSettingsByUserIds(
   const map = new Map<string, TravelSettings>();
   if (!userIds.length) return map;
 
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TRAVEL_SETTINGS)
-    .select("*")
-    .in("user_id", userIds);
+  const rows = selectByUserIds<Record<string, unknown>>(
+    TABLE_NAMES.TRAVEL_SETTINGS,
+    userIds,
+  );
 
-  if (error) {
-    throw new Error(`Failed to fetch travel settings: ${error.message}`);
-  }
-
-  (data || []).forEach((row) => {
-    map.set((row as any).user_id as string, row as TravelSettings);
+  rows.forEach((row) => {
+    map.set(row.user_id as string, {
+      ...(row as unknown as TravelSettings),
+      blacklisted_items: parseJsonArray(row.blacklisted_items),
+      blacklisted_categories: parseJsonArray(row.blacklisted_categories),
+    });
   });
 
   return map;
@@ -154,17 +209,9 @@ export async function getTravelDataByUserIds(
   const map = new Map<string, TravelData>();
   if (!userIds.length) return map;
 
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TRAVEL_DATA)
-    .select("*")
-    .in("user_id", userIds);
-
-  if (error) {
-    throw new Error(`Failed to fetch travel data: ${error.message}`);
-  }
-
-  (data || []).forEach((row) => {
-    map.set((row as any).user_id as string, row as TravelData);
+  const rows = selectByUserIds<TravelData>(TABLE_NAMES.TRAVEL_DATA, userIds);
+  rows.forEach((row) => {
+    map.set(row.user_id, row);
   });
 
   return map;
@@ -173,15 +220,11 @@ export async function getTravelDataByUserIds(
 export async function upsertTravelData(updates: TravelData[]): Promise<void> {
   if (updates.length === 0) return;
 
-  const { error } = await supabase
-    .from(TABLE_NAMES.TRAVEL_DATA)
-    .upsert(updates, {
-      onConflict: "user_id",
-    });
-
-  if (error) {
-    throw new Error(`Failed to upsert travel data: ${error.message}`);
-  }
+  upsertRows(
+    TABLE_NAMES.TRAVEL_DATA,
+    updates as unknown as Record<string, unknown>[],
+    ["user_id"],
+  );
 }
 
 export async function upsertUserData(
@@ -189,25 +232,21 @@ export async function upsertUserData(
 ): Promise<void> {
   if (updates.length === 0) return;
 
-  const { error } = await supabase.from(TABLE_NAMES.USER_DATA).upsert(updates, {
-    onConflict: "user_id",
-  });
-
-  if (error) {
-    throw new Error(`Failed to upsert user data: ${error.message}`);
-  }
+  upsertRows(
+    TABLE_NAMES.USER_DATA,
+    updates as unknown as Record<string, unknown>[],
+    ["user_id"],
+  );
 }
 
 export async function upsertUserBars(updates: UserBarsData[]): Promise<void> {
   if (updates.length === 0) return;
 
-  const { error } = await supabase.from(TABLE_NAMES.USER_BARS).upsert(updates, {
-    onConflict: "user_id",
-  });
-
-  if (error) {
-    throw new Error(`Failed to upsert user bars: ${error.message}`);
-  }
+  upsertRows(
+    TABLE_NAMES.USER_BARS,
+    updates as unknown as Record<string, unknown>[],
+    ["user_id"],
+  );
 }
 
 export async function getUserBarsByUserIds(
@@ -216,17 +255,9 @@ export async function getUserBarsByUserIds(
   const map = new Map<string, UserBarsData>();
   if (!userIds.length) return map;
 
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.USER_BARS)
-    .select("*")
-    .in("user_id", userIds);
-
-  if (error) {
-    throw new Error(`Failed to fetch user bars: ${error.message}`);
-  }
-
-  (data || []).forEach((row) => {
-    map.set((row as any).user_id as string, row as UserBarsData);
+  const rows = selectByUserIds<UserBarsData>(TABLE_NAMES.USER_BARS, userIds);
+  rows.forEach((row) => {
+    map.set(row.user_id, row);
   });
 
   return map;
@@ -237,15 +268,11 @@ export async function upsertUserCooldowns(
 ): Promise<void> {
   if (updates.length === 0) return;
 
-  const { error } = await supabase
-    .from(TABLE_NAMES.USER_COOLDOWNS)
-    .upsert(updates, {
-      onConflict: "user_id",
-    });
-
-  if (error) {
-    throw new Error(`Failed to upsert user cooldowns: ${error.message}`);
-  }
+  upsertRows(
+    TABLE_NAMES.USER_COOLDOWNS,
+    updates as unknown as Record<string, unknown>[],
+    ["user_id"],
+  );
 }
 
 export async function getUserCooldownsByUserIds(
@@ -254,17 +281,12 @@ export async function getUserCooldownsByUserIds(
   const map = new Map<string, UserCooldownsData>();
   if (!userIds.length) return map;
 
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.USER_COOLDOWNS)
-    .select("*")
-    .in("user_id", userIds);
-
-  if (error) {
-    throw new Error(`Failed to fetch user cooldowns: ${error.message}`);
-  }
-
-  (data || []).forEach((row) => {
-    map.set((row as any).user_id as string, row as UserCooldownsData);
+  const rows = selectByUserIds<UserCooldownsData>(
+    TABLE_NAMES.USER_COOLDOWNS,
+    userIds,
+  );
+  rows.forEach((row) => {
+    map.set(row.user_id, row);
   });
 
   return map;
@@ -273,30 +295,34 @@ export async function getUserCooldownsByUserIds(
 export async function insertStockCache(rows: StockCacheRow[]): Promise<void> {
   if (rows.length === 0) return;
 
-  const { error } = await supabase
-    .from("sentinel_travel_stock_cache")
-    .insert(rows);
+  const db = getDB();
+  const tx = db.transaction((batch: StockCacheRow[]) => {
+    const stmt = db.prepare(
+      `INSERT INTO ${quoteIdentifier("sentinel_travel_stock_cache")} (destination_id, item_id, quantity, cost, last_updated)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
 
-  if (error) {
-    throw new Error(`Failed to insert stock cache: ${error.message}`);
-  }
+    for (const row of batch) {
+      stmt.run(
+        row.destination_id,
+        row.item_id,
+        row.quantity,
+        row.cost,
+        row.last_updated,
+      );
+    }
+  });
+
+  tx(rows);
 }
 
 export async function getTravelStockCache(): Promise<StockCacheRow[]> {
-  // With Supabase row limit increased to 1M, we can fetch all stock cache in a single query.
-  // Order by last_updated DESC to get most recent snapshots first.
-  // App layer will group by (destination_id, item_id) to get latest per item.
-  const { data, error } = await supabase
-    .from("sentinel_travel_stock_cache")
-    .select("*")
-    .order("last_updated", { ascending: false })
-    .order("ingested_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`Failed to fetch travel stock cache: ${error.message}`);
-  }
-
-  const result = (data || []) as StockCacheRow[];
+  const db = getDB();
+  const result = db
+    .prepare(
+      `SELECT * FROM ${quoteIdentifier("sentinel_travel_stock_cache")} ORDER BY last_updated DESC, ingested_at DESC`,
+    )
+    .all() as StockCacheRow[];
   return result;
 }
 
@@ -307,15 +333,12 @@ export interface TornDestinationRow {
 }
 
 export async function getDestinations(): Promise<TornDestinationRow[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TORN_DESTINATIONS)
-    .select("id, name, country_code");
-
-  if (error) {
-    throw new Error(`Failed to fetch destinations: ${error.message}`);
-  }
-
-  return (data || []) as TornDestinationRow[];
+  const db = getDB();
+  return db
+    .prepare(
+      `SELECT id, name, country_code FROM ${quoteIdentifier(TABLE_NAMES.TORN_DESTINATIONS)}`,
+    )
+    .all() as TornDestinationRow[];
 }
 
 export async function cleanupOldStockCache(
@@ -324,45 +347,56 @@ export async function cleanupOldStockCache(
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-  const { error } = await supabase
-    .from("sentinel_travel_stock_cache")
-    .delete()
-    .lt("ingested_at", cutoffDate.toISOString());
-
-  if (error) {
-    throw new Error(`Failed to cleanup stock cache: ${error.message}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `DELETE FROM ${quoteIdentifier("sentinel_travel_stock_cache")} WHERE ingested_at < ?`,
+  ).run(cutoffDate.toISOString());
 }
 
 export async function upsertTornItems(items: TornItemRow[]): Promise<void> {
   if (!items.length) return;
 
-  const { error } = await supabase
-    .from(TABLE_NAMES.TORN_ITEMS)
-    .upsert(items, { onConflict: "item_id" });
-
-  if (error) {
-    throw new Error(`Failed to upsert torn items: ${error.message}`);
-  }
+  upsertRows(
+    TABLE_NAMES.TORN_ITEMS,
+    items as unknown as Record<string, unknown>[],
+    ["item_id"],
+  );
 }
 
 export async function getTornItemsWithCategories(): Promise<
   Map<number, TornItemRow>
 > {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.TORN_ITEMS)
-    .select("item_id, name, image, type, category_id");
-
-  if (error) {
-    throw new Error(`Failed to fetch torn items: ${error.message}`);
-  }
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT item_id, name, image, type, category_id FROM ${quoteIdentifier(TABLE_NAMES.TORN_ITEMS)}`,
+    )
+    .all() as TornItemRow[];
 
   const map = new Map<number, TornItemRow>();
   (data || []).forEach((item) => {
-    map.set((item as any).item_id as number, item as TornItemRow);
+    map.set(item.item_id, item);
   });
 
   return map;
+}
+
+export async function getTornCategoryNameToIdMap(): Promise<
+  Map<string, number>
+> {
+  const db = getDB();
+  const categories = db
+    .prepare(
+      `SELECT id, name FROM ${quoteIdentifier(TABLE_NAMES.TORN_CATEGORIES)}`,
+    )
+    .all() as Array<{ id: number; name: string }>;
+
+  const categoryNameToId = new Map<string, number>();
+  for (const category of categories) {
+    categoryNameToId.set(category.name, category.id);
+  }
+
+  return categoryNameToId;
 }
 
 /**
@@ -374,12 +408,12 @@ export async function syncTornCategories(
 ): Promise<void> {
   if (!categoryNames.length) return;
 
-  // Get existing categories
-  const { data: existing } = await supabase
-    .from(TABLE_NAMES.TORN_CATEGORIES)
-    .select("name");
+  const db = getDB();
+  const existing = db
+    .prepare(`SELECT name FROM ${quoteIdentifier(TABLE_NAMES.TORN_CATEGORIES)}`)
+    .all() as Array<{ name: string }>;
 
-  const existingNames = new Set(existing?.map((c) => c.name) || []);
+  const existingNames = new Set(existing.map((c) => c.name));
 
   // Filter to only new categories
   const newCategories = categoryNames
@@ -387,30 +421,30 @@ export async function syncTornCategories(
     .map((name) => ({ name }));
 
   if (newCategories.length > 0) {
-    const { error } = await supabase
-      .from(TABLE_NAMES.TORN_CATEGORIES)
-      .insert(newCategories);
-
-    if (error) {
-      throw new Error(`Failed to insert torn categories: ${error.message}`);
-    }
+    const stmt = db.prepare(
+      `INSERT INTO ${quoteIdentifier(TABLE_NAMES.TORN_CATEGORIES)} (name) VALUES (?)`,
+    );
+    const tx = db.transaction((rows: Array<{ name: string }>) => {
+      for (const row of rows) {
+        stmt.run(row.name);
+      }
+    });
+    tx(newCategories);
   }
 }
 
 export async function getValidApiKeys(): Promise<string[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.USERS)
-    .select("api_key")
-    .not("api_key", "is", null);
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT api_key FROM ${quoteIdentifier(TABLE_NAMES.USERS)} WHERE api_key IS NOT NULL`,
+    )
+    .all() as Array<{ api_key: string | null }>;
 
-  if (error) {
-    throw new Error(`Failed to fetch API keys: ${error.message}`);
-  }
-
-  return (data || [])
+  return data
     .map((row) => {
       try {
-        const encryptedKey = (row as any).api_key as string;
+        const encryptedKey = row.api_key as string;
         return decrypt(encryptedKey);
       } catch (err) {
         console.error("Failed to decrypt API key:", err);
@@ -436,17 +470,12 @@ export interface DestinationTravelTime {
 export async function getDestinationTravelTimes(): Promise<
   DestinationTravelTime[]
 > {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.DESTINATION_TRAVEL_TIMES)
-    .select("*");
-
-  if (error) {
-    throw new Error(
-      `Failed to fetch destination travel times: ${error.message}`,
-    );
-  }
-
-  return (data || []) as DestinationTravelTime[];
+  const db = getDB();
+  return db
+    .prepare(
+      `SELECT * FROM ${quoteIdentifier(TABLE_NAMES.DESTINATION_TRAVEL_TIMES)}`,
+    )
+    .all() as DestinationTravelTime[];
 }
 
 export interface TravelRecommendation {
@@ -469,27 +498,28 @@ export async function upsertTravelRecommendations(
   // Get unique user IDs from recommendations
   const userIds = Array.from(new Set(recommendations.map((r) => r.user_id)));
 
-  // Delete all existing recommendations for these users
-  // This ensures stale recommendations disappear if no new ones are generated
-  const { error: deleteError } = await supabase
-    .from(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)
-    .delete()
-    .in("user_id", userIds);
+  const db = getDB();
+  const placeholders = userIds.map(() => "?").join(", ");
 
-  if (deleteError) {
-    throw new Error(
-      `Failed to delete old recommendations: ${deleteError.message}`,
+  const tx = db.transaction((rows: TravelRecommendation[]) => {
+    db.prepare(
+      `DELETE FROM ${quoteIdentifier(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)} WHERE user_id IN (${placeholders})`,
+    ).run(...userIds);
+
+    const columns = Object.keys(rows[0]);
+    const insertColumns = columns.map(quoteIdentifier).join(", ");
+    const valuePlaceholders = columns.map(() => "?").join(", ");
+    const insertStmt = db.prepare(
+      `INSERT INTO ${quoteIdentifier(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)} (${insertColumns}) VALUES (${valuePlaceholders})`,
     );
-  }
 
-  // Insert fresh recommendations
-  const { error: insertError } = await supabase
-    .from(TABLE_NAMES.TRAVEL_RECOMMENDATIONS)
-    .insert(recommendations);
+    for (const row of rows) {
+      const values = columns.map((column) =>
+        toSQLiteValue((row as unknown as Record<string, unknown>)[column]),
+      );
+      insertStmt.run(...values);
+    }
+  });
 
-  if (insertError) {
-    throw new Error(
-      `Failed to insert travel recommendations: ${insertError.message}`,
-    );
-  }
+  tx(recommendations);
 }

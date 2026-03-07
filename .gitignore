@@ -49,6 +49,12 @@ next-env.d.ts
 /apps/bot/dist
 /apps/bot/node_modules
 
+# SQLite databases
+/data/
+*.db
+*.db-shm
+*.db-wal
+
 .archive/
 
 # PM2 logs
@@ -58,4 +64,5 @@ logs/
 
 # Supabase CLI generated files
 supabase/.branches/
-supabase/.temp/
+supabase/.temp/*.db*
+.dev.vars

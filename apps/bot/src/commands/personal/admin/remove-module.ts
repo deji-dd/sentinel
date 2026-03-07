@@ -10,7 +10,33 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
+
+type GuildConfigRow = {
+  guild_id: string;
+  enabled_modules: string | string[] | null;
+};
+
+function parseEnabledModules(value: string | string[] | null): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("remove-module")
@@ -44,9 +70,12 @@ export async function execute(
     }
 
     // Get list of all configured guilds with modules
-    const { data: configuredGuilds } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id, enabled_modules");
+    const db = getDB();
+    const configuredGuilds = db
+      .prepare(
+        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
+      )
+      .all() as GuildConfigRow[];
 
     if (!configuredGuilds || configuredGuilds.length === 0) {
       const errorEmbed = new EmbedBuilder()
@@ -64,9 +93,9 @@ export async function execute(
 
     // Filter to only guilds with modules that can be removed (not just admin)
     const guildsWithRemovableModules = configuredGuilds.filter((config) => {
-      const removableModules = (config.enabled_modules as string[]).filter(
-        (m) => m !== "admin",
-      );
+      const removableModules = parseEnabledModules(
+        config.enabled_modules,
+      ).filter((m) => m !== "admin");
       return removableModules.length > 0;
     });
 
@@ -88,7 +117,7 @@ export async function execute(
     const guildOptions = guildsWithRemovableModules.map((config) => {
       const guild = client.guilds.cache.get(config.guild_id);
       const guildName = guild?.name || `Unknown Guild (${config.guild_id})`;
-      const modulesList = (config.enabled_modules as string[])
+      const modulesList = parseEnabledModules(config.enabled_modules)
         .filter((m) => m !== "admin")
         .join(", ");
 
@@ -141,11 +170,14 @@ export async function handleGuildSelect(
     const selectedGuildId = interaction.values[0];
 
     // Get current config for this guild
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .eq("guild_id", selectedGuildId)
-      .single();
+    const db = getDB();
+    const guildConfig = db
+      .prepare(
+        `SELECT enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+      )
+      .get(selectedGuildId) as
+      | Pick<GuildConfigRow, "enabled_modules">
+      | undefined;
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -161,7 +193,7 @@ export async function handleGuildSelect(
     }
 
     // Available modules for removal (exclude admin)
-    const removableModules = (guildConfig.enabled_modules as string[])
+    const removableModules = parseEnabledModules(guildConfig.enabled_modules)
       .filter((m) => m !== "admin")
       .map((moduleName) => ({
         name:
@@ -248,11 +280,12 @@ export async function handleModuleRemove(
     const modulesToRemove = interaction.values;
 
     // Get current modules
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .eq("guild_id", guildId)
-      .single();
+    const db = getDB();
+    const guildConfig = db
+      .prepare(
+        `SELECT enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+      )
+      .get(guildId) as Pick<GuildConfigRow, "enabled_modules"> | undefined;
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -268,23 +301,20 @@ export async function handleModuleRemove(
     }
 
     // Keep admin and other non-removed modules
-    const modulesToEnable = (guildConfig.enabled_modules as string[]).filter(
-      (m) => m === "admin" || !modulesToRemove.includes(m),
-    );
+    const modulesToEnable = parseEnabledModules(
+      guildConfig.enabled_modules,
+    ).filter((m) => m === "admin" || !modulesToRemove.includes(m));
 
     // Update guild config
-    const { error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({
-        enabled_modules: modulesToEnable,
-      })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      db.prepare(
+        `UPDATE "${TABLE_NAMES.GUILD_CONFIG}" SET enabled_modules = ? WHERE guild_id = ?`,
+      ).run(JSON.stringify(modulesToEnable), guildId);
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Failed to Remove Modules")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],

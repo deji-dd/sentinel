@@ -6,8 +6,8 @@
  */
 
 import { createHash } from "crypto";
-import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
 const WINDOW_MS = 60000; // 1 minute window
@@ -37,10 +37,10 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
   const now = new Date();
 
   try {
-    await supabase.from(TRACKER_TABLE).insert({
-      api_key_hash: keyHash,
-      requested_at: now.toISOString(),
-    });
+    const db = getDB();
+    db.prepare(
+      `INSERT INTO "${TRACKER_TABLE}" (api_key_hash, requested_at) VALUES (?, ?)`,
+    ).run(keyHash, now.toISOString());
   } catch (error) {
     console.error("Failed to record per-user request:", error);
   }
@@ -54,18 +54,14 @@ export async function getRequestCountPerUser(apiKey: string): Promise<number> {
   const windowStart = new Date(Date.now() - WINDOW_MS);
 
   try {
-    const { count, error } = await supabase
-      .from(TRACKER_TABLE)
-      .select("*", { count: "exact", head: true })
-      .eq("api_key_hash", keyHash)
-      .gte("requested_at", windowStart.toISOString());
+    const db = getDB();
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) as count FROM "${TRACKER_TABLE}" WHERE api_key_hash = ? AND requested_at >= ?`,
+      )
+      .get(keyHash, windowStart.toISOString()) as { count: number };
 
-    if (error) {
-      console.error("Failed to count per-user requests:", error);
-      return 0;
-    }
-
-    return count || 0;
+    return row.count || 0;
   } catch {
     return 0;
   }
@@ -89,20 +85,20 @@ export async function getOldestRequestPerUser(
   const windowStart = new Date(Date.now() - WINDOW_MS);
 
   try {
-    const { data, error } = await supabase
-      .from(TRACKER_TABLE)
-      .select("requested_at")
-      .eq("api_key_hash", keyHash)
-      .gte("requested_at", windowStart.toISOString())
-      .order("requested_at", { ascending: true })
-      .limit(1)
-      .single();
+    const db = getDB();
+    const data = db
+      .prepare(
+        `SELECT requested_at FROM "${TRACKER_TABLE}" WHERE api_key_hash = ? AND requested_at >= ? ORDER BY requested_at ASC LIMIT 1`,
+      )
+      .get(keyHash, windowStart.toISOString()) as
+      | { requested_at: string }
+      | undefined;
 
-    if (error || !data) {
+    if (!data) {
       return null;
     }
 
-    return new Date((data as any).requested_at);
+    return new Date(data.requested_at);
   } catch {
     return null;
   }
@@ -115,10 +111,10 @@ export async function cleanupOldRequestsPerUser(): Promise<void> {
   const windowStart = new Date(Date.now() - WINDOW_MS);
 
   try {
-    await supabase
-      .from(TRACKER_TABLE)
-      .delete()
-      .lt("requested_at", windowStart.toISOString());
+    const db = getDB();
+    db.prepare(`DELETE FROM "${TRACKER_TABLE}" WHERE requested_at < ?`).run(
+      windowStart.toISOString(),
+    );
   } catch (error) {
     console.error("Failed to cleanup per-user requests:", error);
   }

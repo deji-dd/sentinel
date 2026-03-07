@@ -6,9 +6,10 @@
 import { Client, GuildMember, EmbedBuilder } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { type TornApiComponents } from "@sentinel/shared";
-import { supabase } from "./supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildSuccess, logGuildError } from "./guild-logger.js";
+import { upsertVerifiedUser } from "./verified-users.js";
 import { tornApi } from "../services/torn-client.js";
 
 type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
@@ -28,6 +29,44 @@ interface VerificationResult {
   errorMessage?: string;
 }
 
+type GuildConfigRow = {
+  auto_verify: boolean | number | null;
+  nickname_template: string | null;
+  verified_role_id: string | null;
+};
+
+type FactionRoleMappingRow = {
+  faction_id: number;
+  member_role_ids: string[];
+  leader_role_ids: string[];
+  enabled: boolean;
+};
+
+function parseTextArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function isTruthyBoolean(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
 /**
  * Handle member join event - auto-verify if enabled
  */
@@ -44,21 +83,31 @@ export async function handleMemberJoin(
     const guildId = member.guild.id;
 
     // Get guild config to check if auto-verify is enabled
-    const { data: guildConfig, error: configError } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("auto_verify, nickname_template, verified_role_id")
-      .eq("guild_id", guildId)
-      .single();
+    const db = getDB();
+    const guildConfigRow = db
+      .prepare(
+        `SELECT auto_verify, nickname_template, verified_role_id
+         FROM "${TABLE_NAMES.GUILD_CONFIG}"
+         WHERE guild_id = ?
+         LIMIT 1`,
+      )
+      .get(guildId) as GuildConfigRow | undefined;
 
-    if (configError || !guildConfig) {
+    if (!guildConfigRow) {
       // Guild not configured, skip
       return;
     }
 
-    if (!guildConfig.auto_verify) {
+    if (!isTruthyBoolean(guildConfigRow.auto_verify)) {
       // Auto-verify not enabled for this guild
       return;
     }
+
+    const guildConfig = {
+      auto_verify: true,
+      nickname_template: guildConfigRow.nickname_template ?? "{name} [{id}]",
+      verified_role_id: guildConfigRow.verified_role_id,
+    };
 
     // Get API keys from guild
     const apiKeys = await getGuildApiKeys(guildId);
@@ -175,13 +224,13 @@ async function attemptAutoVerification(
   }
 
   // Successfully verified - store in database
-  await supabase.from(TABLE_NAMES.VERIFIED_USERS).upsert({
-    discord_id: member.id,
-    torn_player_id: response.profile.id,
-    torn_player_name: response.profile.name,
-    faction_id: response.faction?.id || null,
-    faction_name: response.faction?.name || null,
-    verified_at: new Date().toISOString(),
+  const db = getDB();
+  upsertVerifiedUser({
+    discordId: member.id,
+    tornId: response.profile.id,
+    tornName: response.profile.name,
+    factionId: response.faction?.id || null,
+    factionTag: response.faction?.tag || null,
   });
 
   // Assign nickname
@@ -222,10 +271,28 @@ async function attemptAutoVerification(
 
   // Handle faction roles - WITH STRICT ROLE SECURITY
   // Treat faction roles as "master" - only people in that faction can have those roles
-  const { data: allFactionMappings } = await supabase
-    .from(TABLE_NAMES.FACTION_ROLES)
-    .select("faction_id, member_role_ids, leader_role_ids, enabled")
-    .eq("guild_id", member.guild.id);
+  const allFactionMappingsRaw = db
+    .prepare(
+      `SELECT faction_id, member_role_ids, leader_role_ids, enabled
+       FROM "${TABLE_NAMES.FACTION_ROLES}"
+       WHERE guild_id = ?`,
+    )
+    .all(member.guild.id) as Array<{
+    faction_id: number;
+    member_role_ids: unknown;
+    leader_role_ids: unknown;
+    enabled: unknown;
+  }>;
+
+  const allFactionMappings: FactionRoleMappingRow[] = allFactionMappingsRaw.map(
+    (row) => ({
+      faction_id: row.faction_id,
+      member_role_ids: parseTextArray(row.member_role_ids),
+      leader_role_ids: parseTextArray(row.leader_role_ids),
+      enabled:
+        row.enabled !== false && row.enabled !== 0 && row.enabled !== "0",
+    }),
+  );
 
   if (allFactionMappings && allFactionMappings.length > 0) {
     const enabledMappings = allFactionMappings.filter(
@@ -243,15 +310,12 @@ async function attemptAutoVerification(
 
       if (currentFactionMapping) {
         // Add member roles
-        currentFactionMapping.member_role_ids?.forEach((roleId: string) => {
+        currentFactionMapping.member_role_ids.forEach((roleId: string) => {
           rolesUserShouldHave.add(roleId);
         });
 
         // Check if user is a leader and add leader roles
-        if (
-          currentFactionMapping.leader_role_ids &&
-          currentFactionMapping.leader_role_ids.length > 0
-        ) {
+        if (currentFactionMapping.leader_role_ids.length > 0) {
           try {
             const membersResponse = await tornApi.get("/faction/{id}/members", {
               apiKey,
@@ -285,8 +349,8 @@ async function attemptAutoVerification(
     // Now enforce role state: remove all faction-mapped roles that user shouldn't have
     for (const mapping of enabledMappings) {
       const allMappedRoles = [
-        ...(mapping.member_role_ids || []),
-        ...(mapping.leader_role_ids || []),
+        ...mapping.member_role_ids,
+        ...mapping.leader_role_ids,
       ];
 
       for (const roleId of allMappedRoles) {

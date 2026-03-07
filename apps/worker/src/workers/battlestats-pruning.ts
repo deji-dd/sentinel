@@ -11,13 +11,18 @@
  */
 
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "battlestats_pruning_worker";
 const RETENTION_DAYS = 30;
+
+interface SnapshotRow {
+  id: string;
+  created_at: string;
+}
 
 /**
  * Prune battlestats snapshots by removing intra-day fluctuations older than 30 days
@@ -42,15 +47,15 @@ async function pruneBattlestats(): Promise<void> {
     cutoffDate.setUTCHours(0, 0, 0, 0);
 
     // Fetch all snapshots older than cutoff
-    const { data: oldSnapshots, error: fetchError } = await supabase
-      .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-      .select("id, created_at")
-      .lt("created_at", cutoffDate.toISOString())
-      .order("created_at", { ascending: false });
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch old snapshots: ${fetchError.message}`);
-    }
+    const db = getDB();
+    const oldSnapshots = db
+      .prepare(
+        `SELECT id, created_at
+         FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
+         WHERE created_at < ?
+         ORDER BY created_at DESC`,
+      )
+      .all(cutoffDate.toISOString()) as SnapshotRow[];
 
     if (!oldSnapshots || oldSnapshots.length === 0) {
       const duration = Date.now() - startTime;
@@ -84,16 +89,10 @@ async function pruneBattlestats(): Promise<void> {
       // Keep the first one (latest, due to descending sort), delete the rest
       const toDelete = snapshotIds.slice(1);
 
-      const { error: deleteError } = await supabase
-        .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-        .delete()
-        .in("id", toDelete);
-
-      if (deleteError) {
-        throw new Error(
-          `Failed to delete old battlestats snapshots: ${deleteError.message}`,
-        );
-      }
+      const placeholders = toDelete.map(() => "?").join(", ");
+      db.prepare(
+        `DELETE FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}" WHERE id IN (${placeholders})`,
+      ).run(...toDelete);
 
       totalDeleted += toDelete.length;
     }

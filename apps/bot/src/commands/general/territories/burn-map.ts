@@ -14,10 +14,10 @@ import {
   getBurnedTerritories,
   getFactionNameCached,
 } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import { tornApi } from "../../../services/torn-client.js";
-import { supabase } from "../../../lib/supabase.js";
 
 const STATUS_EMOJI_SUCCESS = "<:Green:1474607376140079104>";
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
@@ -48,12 +48,7 @@ export async function execute(
     const apiKey = guildId ? await getActiveApiKey(guildId) : null;
 
     // Get faction name
-    const factionName = await getFactionNameCached(
-      supabase,
-      factionId,
-      tornApi,
-      apiKey,
-    );
+    const factionName = await getFactionNameCached(factionId, tornApi, apiKey);
     const factionDisplay = factionName
       ? `${factionName} (${factionId})`
       : `Faction ${factionId}`;
@@ -62,36 +57,26 @@ export async function execute(
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    const { data: wars, error: warsError } = await supabase
-      .from(TABLE_NAMES.WAR_LEDGER)
-      .select("*")
-      .gte("start_time", ninetyDaysAgo.toISOString())
-      .order("start_time", { ascending: false });
-
-    if (warsError) {
-      throw warsError;
-    }
+    const db = getDB();
+    const wars = db
+      .prepare(
+        `SELECT * FROM "${TABLE_NAMES.WAR_LEDGER}" WHERE start_time >= ? ORDER BY start_time DESC`,
+      )
+      .all(ninetyDaysAgo.toISOString()) as any[];
 
     // Get current territory count for faction
-    const { data: ownedTerritories, error: territoriesError } = await supabase
-      .from(TABLE_NAMES.TERRITORY_STATE)
-      .select("territory_id")
-      .eq("faction_id", factionId);
-
-    if (territoriesError) {
-      console.warn("Failed to fetch faction territories:", territoriesError);
-    }
+    const ownedTerritories = db
+      .prepare(
+        `SELECT territory_id FROM "${TABLE_NAMES.TERRITORY_STATE}" WHERE faction_id = ?`,
+      )
+      .all(factionId) as any[];
 
     const currentTerritoryCount = ownedTerritories?.length || 0;
 
     // Get all territories
-    const { data: allTerritories, error: allTerritoriesError } = await supabase
-      .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-      .select("id");
-
-    if (allTerritoriesError || !allTerritories) {
-      throw new Error("Failed to fetch territory list");
-    }
+    const allTerritories = db
+      .prepare(`SELECT id FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}"`)
+      .all() as any[];
 
     const allTerritoryIds = allTerritories.map((t) => t.id);
 

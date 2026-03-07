@@ -8,10 +8,10 @@
 
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
@@ -19,6 +19,7 @@ export function startTerritoryBlueprintSyncWorker() {
     defaultCadenceSeconds: 86400, // Once daily (24 hours)
     handler: async () => {
       const startTime = Date.now();
+      const db = getDB();
 
       try {
         // Get system API keys and initialize rotator for load balancing
@@ -87,12 +88,13 @@ export function startTerritoryBlueprintSyncWorker() {
         }
 
         // Check if this is first run (no blueprints exist yet)
-        const { count: existingCount } = await supabase
-          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-          .select("id", { count: "exact" })
-          .limit(1);
+        const existingCountRow = db
+          .prepare(
+            `SELECT COUNT(*) as count FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}"`,
+          )
+          .get() as { count: number };
 
-        const isFirstRun = (existingCount ?? 0) === 0;
+        const isFirstRun = (existingCountRow?.count ?? 0) === 0;
 
         // Prepare upsert data for blueprints
         const blueprintData = territories.map((tt) => ({
@@ -104,19 +106,65 @@ export function startTerritoryBlueprintSyncWorker() {
           respect: tt.respect,
           coordinate_x: tt.coordinates.x,
           coordinate_y: tt.coordinates.y,
-          neighbors: tt.neighbors,
+          neighbors: JSON.stringify(tt.neighbors || []),
           updated_at: new Date().toISOString(),
         }));
 
         // Upsert blueprints
-        const { error: blueprintError, count: _blueprintCount } = await supabase
-          .from(TABLE_NAMES.TERRITORY_BLUEPRINT)
-          .upsert(blueprintData, { onConflict: "id" });
+        const upsertBlueprintTx = db.transaction(
+          (
+            rows: Array<{
+              id: string;
+              sector: number;
+              size: number;
+              density: number;
+              slots: number;
+              respect: number;
+              coordinate_x: number;
+              coordinate_y: number;
+              neighbors: string;
+              updated_at: string;
+            }>,
+          ) => {
+            const stmt = db.prepare(
+              `INSERT INTO "${TABLE_NAMES.TERRITORY_BLUEPRINT}"
+               (id, sector, size, density, slots, respect, coordinate_x, coordinate_y, neighbors, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 sector = excluded.sector,
+                 size = excluded.size,
+                 density = excluded.density,
+                 slots = excluded.slots,
+                 respect = excluded.respect,
+                 coordinate_x = excluded.coordinate_x,
+                 coordinate_y = excluded.coordinate_y,
+                 neighbors = excluded.neighbors,
+                 updated_at = excluded.updated_at`,
+            );
 
-        if (blueprintError) {
+            for (const row of rows) {
+              stmt.run(
+                row.id,
+                row.sector,
+                row.size,
+                row.density,
+                row.slots,
+                row.respect,
+                row.coordinate_x,
+                row.coordinate_y,
+                row.neighbors,
+                row.updated_at,
+              );
+            }
+          },
+        );
+
+        try {
+          upsertBlueprintTx(blueprintData);
+        } catch (error) {
           logError(
             "territory_blueprint_sync",
-            `Failed to upsert blueprints: ${blueprintError.message}`,
+            `Failed to upsert blueprints: ${error instanceof Error ? error.message : String(error)}`,
           );
           return false;
         }
@@ -129,14 +177,35 @@ export function startTerritoryBlueprintSyncWorker() {
             is_warring: false,
           }));
 
-          const { error: stateError } = await supabase
-            .from(TABLE_NAMES.TERRITORY_STATE)
-            .insert(stateData);
+          try {
+            const insertStateTx = db.transaction(
+              (
+                rows: Array<{
+                  territory_id: string;
+                  faction_id: number | null;
+                  is_warring: boolean;
+                }>,
+              ) => {
+                const stmt = db.prepare(
+                  `INSERT INTO "${TABLE_NAMES.TERRITORY_STATE}" (territory_id, faction_id, is_warring)
+                   VALUES (?, ?, ?)`,
+                );
 
-          if (stateError) {
+                for (const row of rows) {
+                  stmt.run(
+                    row.territory_id,
+                    row.faction_id,
+                    row.is_warring ? 1 : 0,
+                  );
+                }
+              },
+            );
+
+            insertStateTx(stateData);
+          } catch (error) {
             logError(
               "territory_blueprint_sync",
-              `Failed to initialize territory states: ${stateError.message}`,
+              `Failed to initialize territory states: ${error instanceof Error ? error.message : String(error)}`,
             );
             return false;
           }

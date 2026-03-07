@@ -1,8 +1,8 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { logDuration } from "../lib/logger.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "rate_limit_pruning_worker";
 const PRUNE_CADENCE_SECONDS = 3600; // Prune every hour
@@ -16,17 +16,10 @@ async function prunRateLimitRequests(): Promise<void> {
   const startTime = Date.now();
   const cutoffTime = new Date(Date.now() - RETENTION_HOURS * 60 * 60 * 1000);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { count, error } = await supabase
-    .from(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
-    .delete()
-    .lt("requested_at", cutoffTime.toISOString());
-
-  if (error) {
-    const errorMsg =
-      error instanceof Error ? error.message : JSON.stringify(error);
-    throw new Error(`Failed to prune rate limit: ${errorMsg}`);
-  }
+  const db = getDB();
+  db.prepare(
+    `DELETE FROM "${TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER}" WHERE requested_at < ?`,
+  ).run(cutoffTime.toISOString());
 
   const duration = Date.now() - startTime;
   logDuration(WORKER_NAME, "Sync completed", duration);

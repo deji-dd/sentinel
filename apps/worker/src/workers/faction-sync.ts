@@ -6,10 +6,14 @@
 
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
+
+interface FactionRoleRow {
+  faction_id: number | null;
+}
 
 export function startFactionSyncWorker() {
   return startDbScheduledRunner({
@@ -17,26 +21,18 @@ export function startFactionSyncWorker() {
     defaultCadenceSeconds: 86400, // Run once daily (24 hours)
     handler: async () => {
       const startTime = Date.now();
+      const db = getDB();
 
       try {
         // Get all faction IDs we're tracking from guild faction role mappings
-        const { data: factionRoles, error: queryError } = await supabase
-          .from(TABLE_NAMES.FACTION_ROLES)
-          .select("faction_id");
-
-        if (queryError) {
-          logError(
-            "faction_sync",
-            `Error fetching faction IDs: ${queryError.message}`,
-          );
-          return false;
-        }
+        const factionRoles = db
+          .prepare(`SELECT faction_id FROM "${TABLE_NAMES.FACTION_ROLES}"`)
+          .all() as FactionRoleRow[];
 
         const uniqueFactionIds = Array.from(
           new Set(
             factionRoles
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ?.map((row: any) => row.faction_id)
+              .map((row) => row.faction_id)
               .filter((id) => id != null) || [],
           ),
         ) as number[];
@@ -84,35 +80,42 @@ export function startFactionSyncWorker() {
               const basic = response.basic;
 
               // Upsert to database
-              const { error: upsertError } = await supabase
-                .from(TABLE_NAMES.TORN_FACTIONS)
-                .upsert(
-                  {
-                    id: basic.id,
-                    name: basic.name,
-                    tag: basic.tag,
-                    tag_image: basic.tag_image,
-                    leader_id: basic.leader_id,
-                    co_leader_id: basic.co_leader_id,
-                    respect: basic.respect,
-                    days_old: basic.days_old,
-                    capacity: basic.capacity,
-                    members: basic.members,
-                    is_enlisted: basic.is_enlisted,
-                    rank: basic.rank?.name || null,
-                    best_chain: basic.best_chain,
-                    note: basic.note || null,
-                    updated_at: new Date().toISOString(),
-                  },
-                  { onConflict: "id" },
-                );
-
-              if (upsertError) {
-                console.warn(
-                  `[Faction Sync] Failed to upsert faction ${factionId}: ${upsertError.message}`,
-                );
-                return { success: false };
-              }
+              db.prepare(
+                `INSERT INTO "${TABLE_NAMES.TORN_FACTIONS}"
+                 (id, name, tag, tag_image, leader_id, co_leader_id, respect, days_old, capacity, members, is_enlisted, rank, best_chain, note, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   name = excluded.name,
+                   tag = excluded.tag,
+                   tag_image = excluded.tag_image,
+                   leader_id = excluded.leader_id,
+                   co_leader_id = excluded.co_leader_id,
+                   respect = excluded.respect,
+                   days_old = excluded.days_old,
+                   capacity = excluded.capacity,
+                   members = excluded.members,
+                   is_enlisted = excluded.is_enlisted,
+                   rank = excluded.rank,
+                   best_chain = excluded.best_chain,
+                   note = excluded.note,
+                   updated_at = excluded.updated_at`,
+              ).run(
+                basic.id,
+                basic.name,
+                basic.tag,
+                basic.tag_image,
+                basic.leader_id,
+                basic.co_leader_id,
+                basic.respect,
+                basic.days_old,
+                basic.capacity,
+                basic.members,
+                basic.is_enlisted ? 1 : 0,
+                basic.rank?.name || null,
+                basic.best_chain,
+                basic.note || null,
+                new Date().toISOString(),
+              );
 
               return { success: true };
             } catch (error) {

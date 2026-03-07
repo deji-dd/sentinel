@@ -9,12 +9,12 @@
 
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { supabase } from "../lib/supabase.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 interface TerritoryWar {
   territory_war_id: number;
@@ -30,6 +30,24 @@ interface TerritoryWar {
 
 interface TornV1TerritorywarsResponse {
   territorywars: Record<string, TerritoryWar>;
+}
+
+interface ExistingWarRow {
+  war_id: number;
+  territory_id: string;
+}
+
+interface ActiveWarRow {
+  war_id: number;
+  territory_id: string;
+  assaulting_faction: number;
+  defending_faction: number;
+  start_time: string;
+}
+
+interface TerritoryStateRow {
+  territory_id: string;
+  faction_id: number | null;
 }
 
 // Track recent war counts for adaptive cadence
@@ -89,6 +107,7 @@ export function startWarLedgerSyncWorker() {
         timeout: 60_000, // 1 minute max
         handler: async () => {
           const startTime = Date.now();
+          const db = getDB();
 
           try {
             // Get system API keys and initialize rotator for load balancing
@@ -159,13 +178,18 @@ export function startWarLedgerSyncWorker() {
             }
 
             // Separate into new wars and existing wars
-            const { data: existingWars } = await supabase
-              .from(TABLE_NAMES.WAR_LEDGER)
-              .select("war_id, territory_id")
-              .in(
-                "war_id",
-                validWars.map((w) => w.territory_war_id),
-              );
+            const warIds = validWars.map((w) => w.territory_war_id);
+            let existingWars: ExistingWarRow[] = [];
+            if (warIds.length > 0) {
+              const warIdPlaceholders = warIds.map(() => "?").join(", ");
+              existingWars = db
+                .prepare(
+                  `SELECT war_id, territory_id
+                   FROM "${TABLE_NAMES.WAR_LEDGER}"
+                   WHERE war_id IN (${warIdPlaceholders})`,
+                )
+                .all(...warIds) as ExistingWarRow[];
+            }
 
             const existingWarIds = new Set(
               (existingWars || []).map((w) => w.war_id),
@@ -173,9 +197,13 @@ export function startWarLedgerSyncWorker() {
 
             // Check if this is bootstrap mode (empty war ledger)
             // If so, don't send notifications for "new" wars - just sync the data
-            const { count: totalWarCount } = await supabase
-              .from(TABLE_NAMES.WAR_LEDGER)
-              .select("*", { count: "exact", head: true });
+            const totalWarCount = (
+              db
+                .prepare(
+                  `SELECT COUNT(*) as count FROM "${TABLE_NAMES.WAR_LEDGER}"`,
+                )
+                .get() as { count: number }
+            ).count;
 
             const isBootstrapMode = (totalWarCount || 0) === 0;
 
@@ -184,12 +212,13 @@ export function startWarLedgerSyncWorker() {
             );
 
             // Detect ended wars (wars in DB but not in API response)
-            const { data: allActiveWars } = await supabase
-              .from(TABLE_NAMES.WAR_LEDGER)
-              .select(
-                "war_id, territory_id, assaulting_faction, defending_faction, start_time",
+            const allActiveWars = db
+              .prepare(
+                `SELECT war_id, territory_id, assaulting_faction, defending_faction, start_time
+                 FROM "${TABLE_NAMES.WAR_LEDGER}"
+                 WHERE end_time IS NULL`,
               )
-              .is("end_time", null);
+              .all() as ActiveWarRow[];
 
             const activeWarIds = new Set(
               validWars.map((w) => w.territory_war_id),
@@ -233,11 +262,13 @@ export function startWarLedgerSyncWorker() {
             // Add war ended notifications and update DB
             for (const war of endedWars) {
               // Get current owner to determine victor
-              const { data: territoryState } = await supabase
-                .from(TABLE_NAMES.TERRITORY_STATE)
-                .select("faction_id")
-                .eq("territory_id", war.territory_id)
-                .single();
+              const territoryState = db
+                .prepare(
+                  `SELECT faction_id FROM "${TABLE_NAMES.TERRITORY_STATE}" WHERE territory_id = ? LIMIT 1`,
+                )
+                .get(war.territory_id) as
+                | { faction_id: number | null }
+                | undefined;
 
               const victor = territoryState?.faction_id ?? null;
               const now = new Date();
@@ -276,19 +307,16 @@ export function startWarLedgerSyncWorker() {
               });
 
               // Mark war as ended in DB
-              await supabase
-                .from(TABLE_NAMES.WAR_LEDGER)
-                .update({
-                  end_time: new Date().toISOString(),
-                  victor_faction: victor,
-                })
-                .eq("war_id", war.war_id);
+              db.prepare(
+                `UPDATE "${TABLE_NAMES.WAR_LEDGER}"
+                 SET end_time = ?, victor_faction = ?
+                 WHERE war_id = ?`,
+              ).run(new Date().toISOString(), victor, war.war_id);
 
               // Mark territory as not warring
-              await supabase
-                .from(TABLE_NAMES.TERRITORY_STATE)
-                .update({ is_warring: false })
-                .eq("territory_id", war.territory_id);
+              db.prepare(
+                `UPDATE "${TABLE_NAMES.TERRITORY_STATE}" SET is_warring = 0 WHERE territory_id = ?`,
+              ).run(war.territory_id);
             }
 
             // Upsert war data
@@ -302,26 +330,72 @@ export function startWarLedgerSyncWorker() {
               end_time: null, // Active wars must have null end_time
             }));
 
-            const { error: upsertError } = await supabase
-              .from(TABLE_NAMES.WAR_LEDGER)
-              .upsert(warData, { onConflict: "war_id" });
+            try {
+              const upsertWarTx = db.transaction(
+                (
+                  rows: Array<{
+                    war_id: number;
+                    territory_id: string;
+                    assaulting_faction: number;
+                    defending_faction: number;
+                    victor_faction: number | null;
+                    start_time: string;
+                    end_time: string | null;
+                  }>,
+                ) => {
+                  const stmt = db.prepare(
+                    `INSERT INTO "${TABLE_NAMES.WAR_LEDGER}"
+                     (war_id, territory_id, assaulting_faction, defending_faction, victor_faction, start_time, end_time)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(war_id) DO UPDATE SET
+                       territory_id = excluded.territory_id,
+                       assaulting_faction = excluded.assaulting_faction,
+                       defending_faction = excluded.defending_faction,
+                       victor_faction = excluded.victor_faction,
+                       start_time = excluded.start_time,
+                       end_time = excluded.end_time`,
+                  );
 
-            if (upsertError) {
+                  for (const row of rows) {
+                    stmt.run(
+                      row.war_id,
+                      row.territory_id,
+                      row.assaulting_faction,
+                      row.defending_faction,
+                      row.victor_faction,
+                      row.start_time,
+                      row.end_time,
+                    );
+                  }
+                },
+              );
+
+              upsertWarTx(warData);
+            } catch (error) {
               logError(
                 "war_ledger_sync",
-                `Failed to upsert wars: ${upsertError.message}`,
+                `Failed to upsert wars: ${error instanceof Error ? error.message : String(error)}`,
               );
-              throw upsertError;
+              throw error;
             }
 
             // Update territory states to mark as warring
             // First, ensure missing territory_state rows exist without clobbering faction_id
             const warringTerritories = validWars.map((w) => w.territory_id);
 
-            const { data: existingStates } = await supabase
-              .from(TABLE_NAMES.TERRITORY_STATE)
-              .select("territory_id")
-              .in("territory_id", warringTerritories);
+            let existingStates: TerritoryStateRow[] = [];
+            if (warringTerritories.length > 0) {
+              const territoryPlaceholders = warringTerritories
+                .map(() => "?")
+                .join(", ");
+              existingStates = db
+                .prepare(
+                  `SELECT territory_id, faction_id
+                   FROM "${TABLE_NAMES.TERRITORY_STATE}"
+                   WHERE territory_id IN (${territoryPlaceholders})`,
+                )
+                .all(...warringTerritories) as TerritoryStateRow[];
+            }
 
             const existingIds = new Set(
               (existingStates || []).map((row) => row.territory_id),
@@ -331,35 +405,45 @@ export function startWarLedgerSyncWorker() {
             );
 
             if (missingIds.length > 0) {
-              const { error: insertError } = await supabase
-                .from(TABLE_NAMES.TERRITORY_STATE)
-                .insert(
-                  missingIds.map((territory_id) => ({
-                    territory_id,
-                    is_warring: true,
-                  })),
+              try {
+                const insertMissingTx = db.transaction(
+                  (territoryIds: string[]) => {
+                    const stmt = db.prepare(
+                      `INSERT INTO "${TABLE_NAMES.TERRITORY_STATE}" (territory_id, is_warring)
+                     VALUES (?, ?)`,
+                    );
+                    for (const territoryId of territoryIds) {
+                      stmt.run(territoryId, 1);
+                    }
+                  },
                 );
-
-              if (insertError) {
+                insertMissingTx(missingIds);
+              } catch (error) {
                 logError(
                   "war_ledger_sync",
-                  `Failed to insert missing territory states: ${insertError.message}`,
+                  `Failed to insert missing territory states: ${error instanceof Error ? error.message : String(error)}`,
                 );
               }
             }
 
             // Mark all active-war territories as warring without touching faction ownership
-            const { error: stateError } = await supabase
-              .from(TABLE_NAMES.TERRITORY_STATE)
-              .update({ is_warring: true })
-              .in("territory_id", warringTerritories);
-
-            if (stateError) {
-              logError(
-                "war_ledger_sync",
-                `Failed to update territory state: ${stateError.message}`,
-              );
-              // Don't return false - DB update failure shouldn't prevent ledger update
+            if (warringTerritories.length > 0) {
+              try {
+                const updatePlaceholders = warringTerritories
+                  .map(() => "?")
+                  .join(", ");
+                db.prepare(
+                  `UPDATE "${TABLE_NAMES.TERRITORY_STATE}"
+                   SET is_warring = 1
+                   WHERE territory_id IN (${updatePlaceholders})`,
+                ).run(...warringTerritories);
+              } catch (error) {
+                logError(
+                  "war_ledger_sync",
+                  `Failed to update territory state: ${error instanceof Error ? error.message : String(error)}`,
+                );
+                // Don't return false - DB update failure shouldn't prevent ledger update
+              }
             }
 
             const duration = Date.now() - startTime;

@@ -11,8 +11,8 @@
  */
 
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
-import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 if (!process.env.ENCRYPTION_KEY) {
   throw new Error("ENCRYPTION_KEY environment variable is required");
@@ -25,31 +25,43 @@ if (!process.env.API_KEY_HASH_PEPPER) {
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
 
+interface GuildApiKeyRow {
+  id: string;
+  guild_id: string;
+  user_id: number;
+  api_key_encrypted: string;
+  invalid_count: number | null;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("unique") || message.includes("constraint");
+}
+
 /**
  * Get guild's API keys (guild-isolated via RLS)
  * Returns decrypted keys for a specific guild
  */
 export async function getGuildApiKeys(guildId: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("api_key_encrypted")
-    .eq("guild_id", guildId)
-    .is("deleted_at", null)
-    .order("is_primary", { ascending: false });
-
-  if (error) {
-    console.error(`Failed to retrieve guild API keys: ${error.message}`);
-    return [];
-  }
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT api_key_encrypted
+       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
+       WHERE guild_id = ?
+         AND deleted_at IS NULL
+       ORDER BY is_primary DESC`,
+    )
+    .all(guildId) as Array<{ api_key_encrypted: string }>;
 
   const keys: string[] = [];
-  for (const row of data || []) {
+  for (const row of data) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       keys.push(decrypted);
     } catch (err) {
       console.error("Failed to decrypt guild API key:", err);
@@ -66,22 +78,24 @@ export async function getGuildApiKeys(guildId: string): Promise<string[]> {
 export async function getPrimaryGuildApiKey(
   guildId: string,
 ): Promise<string | null> {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("api_key_encrypted")
-    .eq("guild_id", guildId)
-    .eq("is_primary", true)
-    .is("deleted_at", null)
-    .limit(1)
-    .single();
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT api_key_encrypted
+       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
+       WHERE guild_id = ?
+         AND is_primary = 1
+         AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+    .get(guildId) as { api_key_encrypted: string } | undefined;
 
-  if (error || !data) {
+  if (!data) {
     return null;
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return decryptApiKey((data as any).api_key_encrypted, ENCRYPTION_KEY);
+    return decryptApiKey(data.api_key_encrypted, ENCRYPTION_KEY);
   } catch (err) {
     console.error("Failed to decrypt primary guild API key:", err);
     return null;
@@ -104,46 +118,35 @@ export async function storeGuildApiKey(
   providedBy: string,
   isPrimary: boolean = false,
 ): Promise<void> {
+  const db = getDB();
   const encrypted = encryptApiKey(apiKey, ENCRYPTION_KEY);
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // If setting as primary, unset other primaries first
   if (isPrimary) {
-    await supabase
-      .from(TABLE_NAMES.GUILD_API_KEYS)
-      .update({ is_primary: false })
-      .eq("guild_id", guildId)
-      .eq("is_primary", true);
+    db.prepare(
+      `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}" SET is_primary = 0 WHERE guild_id = ? AND is_primary = 1`,
+    ).run(guildId);
   }
 
   // Store the encrypted key
-  const { error: insertError } = await supabase
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .insert({
-      guild_id: guildId,
-      user_id: userId,
-      api_key_encrypted: encrypted,
-      is_primary: isPrimary,
-      provided_by: providedBy,
-    });
-
-  if (insertError) {
-    throw new Error(`Failed to store guild API key: ${insertError.message}`);
-  }
+  db.prepare(
+    `INSERT INTO "${TABLE_NAMES.GUILD_API_KEYS}" (guild_id, user_id, api_key_encrypted, is_primary, provided_by)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(guildId, userId, encrypted, isPrimary ? 1 : 0, providedBy);
 
   // Register in mapping table for rate limiting
-  const { error: mapError } = await supabase
-    .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-    .insert({
-      api_key_hash: hash,
-      user_id: userId,
-      source: "guild",
-    });
-
-  if (mapError && !mapError.message.includes("duplicate")) {
-    throw new Error(
-      `Failed to map API key for rate limiting: ${mapError.message}`,
-    );
+  try {
+    db.prepare(
+      `INSERT INTO "${TABLE_NAMES.API_KEY_USER_MAPPING}" (api_key_hash, user_id, source)
+       VALUES (?, ?, ?)`,
+    ).run(hash, userId, "guild");
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw new Error(
+        `Failed to map API key for rate limiting: ${String(error)}`,
+      );
+    }
   }
 }
 
@@ -157,42 +160,32 @@ export async function deleteGuildApiKey(
   guildId: string,
   apiKey: string,
 ): Promise<void> {
+  const db = getDB();
   // Find the key by decrypting and comparing
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("id, api_key_encrypted, user_id")
-    .eq("guild_id", guildId)
-    .is("deleted_at", null);
+  const data = db
+    .prepare(
+      `SELECT id, guild_id, user_id, api_key_encrypted, invalid_count
+       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
+       WHERE guild_id = ?
+         AND deleted_at IS NULL`,
+    )
+    .all(guildId) as GuildApiKeyRow[];
 
-  if (error) {
-    throw new Error(`Failed to find guild API key: ${error.message}`);
-  }
-
-  for (const row of data || []) {
+  for (const row of data) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       if (decrypted === apiKey) {
         // Soft delete the key
-        const { error: deleteError } = await supabase
-          .from(TABLE_NAMES.GUILD_API_KEYS)
-          .update({ deleted_at: new Date().toISOString() })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .eq("id", (row as any).id);
-
-        if (deleteError) {
-          throw deleteError;
-        }
+        const now = new Date().toISOString();
+        db.prepare(
+          `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}" SET deleted_at = ? WHERE id = ?`,
+        ).run(now, row.id);
 
         // Also soft-delete from mapping
         const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
-        await supabase
-          .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("api_key_hash", hash);
+        db.prepare(
+          `UPDATE "${TABLE_NAMES.API_KEY_USER_MAPPING}" SET deleted_at = ? WHERE api_key_hash = ?`,
+        ).run(now, hash);
 
         return;
       }
@@ -216,33 +209,39 @@ export async function markGuildApiKeyInvalid(
   apiKey: string,
   threshold: number = 3,
 ): Promise<void> {
+  const db = getDB();
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // Find the key by hash in mapping table
-  const { data: mapping, error: mapError } = await supabase
-    .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-    .select("user_id")
-    .eq("api_key_hash", hash)
-    .eq("source", "guild")
-    .is("deleted_at", null)
-    .single();
+  const mapping = db
+    .prepare(
+      `SELECT user_id
+       FROM "${TABLE_NAMES.API_KEY_USER_MAPPING}"
+       WHERE api_key_hash = ?
+         AND source = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+    )
+    .get(hash, "guild") as { user_id: number } | undefined;
 
-  if (mapError || !mapping) {
+  if (!mapping) {
     console.warn(`Could not find guild API key mapping for invalid key`);
     return;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userId = (mapping as any).user_id;
+  const userId = mapping.user_id;
 
   // Find the key record
-  const { data: keys, error: keysError } = await supabase
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("id, api_key_encrypted, invalid_count, guild_id")
-    .eq("user_id", userId)
-    .is("deleted_at", null);
+  const keys = db
+    .prepare(
+      `SELECT id, guild_id, user_id, api_key_encrypted, invalid_count
+       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
+       WHERE user_id = ?
+         AND deleted_at IS NULL`,
+    )
+    .all(userId) as GuildApiKeyRow[];
 
-  if (keysError || !keys || keys.length === 0) {
+  if (!keys || keys.length === 0) {
     console.warn("Could not find guild API key records");
     return;
   }
@@ -250,50 +249,35 @@ export async function markGuildApiKeyInvalid(
   // Find matching key by decrypting
   for (const row of keys) {
     try {
-      const decrypted = decryptApiKey(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (row as any).api_key_encrypted,
-        ENCRYPTION_KEY,
-      );
+      const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       if (decrypted === apiKey) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const currentCount = (row as any).invalid_count || 0;
+        const currentCount = row.invalid_count || 0;
         const newCount = currentCount + 1;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const guildId = (row as any).guild_id;
-
-        // Update invalid count and timestamp
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updates: any = {
-          invalid_count: newCount,
-          last_invalid_at: new Date().toISOString(),
-        };
+        const guildId = row.guild_id;
+        const now = new Date().toISOString();
 
         // Soft-delete if threshold reached
         if (newCount >= threshold) {
-          updates.deleted_at = new Date().toISOString();
           console.warn(
             `Guild API key (guild: ${guildId}) reached ${threshold} invalid attempts, soft-deleting`,
           );
 
           // Also soft-delete from mapping
-          await supabase
-            .from(TABLE_NAMES.API_KEY_USER_MAPPING)
-            .update({ deleted_at: new Date().toISOString() })
-            .eq("api_key_hash", hash);
-        }
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.API_KEY_USER_MAPPING}" SET deleted_at = ? WHERE api_key_hash = ?`,
+          ).run(now, hash);
 
-        const { error: updateError } = await supabase
-          .from(TABLE_NAMES.GUILD_API_KEYS)
-          .update(updates)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .eq("id", (row as any).id);
-
-        if (updateError) {
-          console.error(
-            "Failed to mark guild API key as invalid:",
-            updateError,
-          );
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}"
+             SET invalid_count = ?, last_invalid_at = ?, deleted_at = ?
+             WHERE id = ?`,
+          ).run(newCount, now, now, row.id);
+        } else {
+          db.prepare(
+            `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}"
+             SET invalid_count = ?, last_invalid_at = ?
+             WHERE id = ?`,
+          ).run(newCount, now, row.id);
         }
 
         return;
@@ -316,21 +300,17 @@ export async function markGuildApiKeyInvalid(
 export async function getGuildsWithApiKeys(): Promise<
   Array<{ guildId: string; keyCount: number }>
 > {
-  const { data, error } = await supabase
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("guild_id")
-    .is("deleted_at", null);
-
-  if (error) {
-    console.error("Failed to get guilds with API keys:", error);
-    return [];
-  }
+  const db = getDB();
+  const data = db
+    .prepare(
+      `SELECT guild_id FROM "${TABLE_NAMES.GUILD_API_KEYS}" WHERE deleted_at IS NULL`,
+    )
+    .all() as Array<{ guild_id: string }>;
 
   // Count keys per guild
   const guildCounts = new Map<string, number>();
-  for (const row of data || []) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const guildId = (row as any).guild_id;
+  for (const row of data) {
+    const guildId = row.guild_id;
     guildCounts.set(guildId, (guildCounts.get(guildId) || 0) + 1);
   }
 

@@ -11,7 +11,33 @@ import {
   Routes,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
+
+type GuildConfigRow = {
+  guild_id: string;
+  enabled_modules: string | string[] | null;
+};
+
+function parseEnabledModules(value: string | string[] | null): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
 
 export const data = new SlashCommandBuilder()
   .setName("teardown-guild")
@@ -43,9 +69,18 @@ export async function execute(
     }
 
     // Get list of configured guilds from database
-    const { data: configuredGuilds, error: queryError } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id, enabled_modules");
+    const db = getDB();
+    let configuredGuilds: GuildConfigRow[] = [];
+    let queryError: string | null = null;
+    try {
+      configuredGuilds = db
+        .prepare(
+          `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
+        )
+        .all() as GuildConfigRow[];
+    } catch (error) {
+      queryError = error instanceof Error ? error.message : String(error);
+    }
 
     // Get all guilds the bot is currently in
     const botsGuilds = client.guilds.cache;
@@ -62,7 +97,7 @@ export async function execute(
         allGuilds.set(config.guild_id, {
           id: config.guild_id,
           configured: true,
-          enabled_modules: config.enabled_modules,
+          enabled_modules: parseEnabledModules(config.enabled_modules),
         });
       }
     }
@@ -185,11 +220,12 @@ export async function handleTeardownGuildSelect(
     const selectedGuildId = interaction.values[0];
 
     // Check if guild is configured
-    const { data: guildConfig } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id")
-      .eq("guild_id", selectedGuildId)
-      .single();
+    const db = getDB();
+    const guildConfig = db
+      .prepare(
+        `SELECT guild_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+      )
+      .get(selectedGuildId) as { guild_id: string } | undefined;
 
     const isConfigured = !!guildConfig;
 
@@ -244,17 +280,16 @@ export async function handleTeardownGuildSelect(
     // Only clean up database records if the guild was configured
     if (isConfigured) {
       // Remove guild config from database
-      const { error: deleteConfigError } = await supabase
-        .from(TABLE_NAMES.GUILD_CONFIG)
-        .delete()
-        .eq("guild_id", selectedGuildId);
-
-      if (deleteConfigError) {
+      try {
+        db.prepare(
+          `DELETE FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ?`,
+        ).run(selectedGuildId);
+      } catch (deleteConfigError) {
         const errorEmbed = new EmbedBuilder()
           .setColor(0xef4444)
           .setTitle("❌ Teardown Failed")
           .setDescription(
-            `Failed to remove guild configuration: ${deleteConfigError.message}`,
+            `Failed to remove guild configuration: ${deleteConfigError instanceof Error ? deleteConfigError.message : String(deleteConfigError)}`,
           );
 
         await interaction.editReply({
@@ -265,15 +300,16 @@ export async function handleTeardownGuildSelect(
       }
 
       // Remove sync jobs for this guild
-      const { error: deleteSyncError } = await supabase
-        .from(TABLE_NAMES.GUILD_SYNC_JOBS)
-        .delete()
-        .eq("guild_id", selectedGuildId);
-
-      if (deleteSyncError) {
+      try {
+        db.prepare(
+          `DELETE FROM "${TABLE_NAMES.GUILD_SYNC_JOBS}" WHERE guild_id = ?`,
+        ).run(selectedGuildId);
+      } catch (deleteSyncError) {
         console.error(
           `Warning: Failed to remove sync jobs for guild ${selectedGuildId}:`,
-          deleteSyncError.message,
+          deleteSyncError instanceof Error
+            ? deleteSyncError.message
+            : String(deleteSyncError),
         );
         // Don't fail teardown for this, just log it
       }

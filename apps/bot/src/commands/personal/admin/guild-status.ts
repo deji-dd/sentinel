@@ -6,7 +6,7 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { supabase } from "../../../lib/supabase.js";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 export const data = new SlashCommandBuilder()
   .setName("guild-status")
@@ -39,17 +39,55 @@ export async function execute(
       return;
     }
 
-    // Get all initialized guilds
-    const { data: configuredGuilds, error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("guild_id, enabled_modules")
-      .order("guild_id", { ascending: true });
+    type GuildConfigRow = {
+      guild_id: string;
+      enabled_modules: string | string[] | null;
+    };
 
-    if (error) {
+    let configuredGuilds: Array<{
+      guild_id: string;
+      enabled_modules: string[];
+    }>;
+    try {
+      const db = getDB();
+      const rows = db
+        .prepare(
+          `SELECT guild_id, enabled_modules
+           FROM "${TABLE_NAMES.GUILD_CONFIG}"
+           ORDER BY guild_id ASC`,
+        )
+        .all() as GuildConfigRow[];
+
+      configuredGuilds = rows.map((row) => {
+        const raw = row.enabled_modules;
+        let parsed: string[] = [];
+
+        if (Array.isArray(raw)) {
+          parsed = raw;
+        } else if (typeof raw === "string") {
+          try {
+            const value = JSON.parse(raw);
+            if (Array.isArray(value)) {
+              parsed = value.filter(
+                (item): item is string => typeof item === "string",
+              );
+            }
+          } catch {
+            parsed = [];
+          }
+        }
+
+        return {
+          guild_id: row.guild_id,
+          enabled_modules: parsed,
+        };
+      });
+    } catch (error) {
+      console.error("Error loading guild status:", error);
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Database Error")
-        .setDescription(error.message);
+        .setDescription("Failed to load guild status from database.");
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -91,7 +129,7 @@ export async function execute(
       const guildMemberCount = guild ? guild.memberCount : "?";
 
       // Get active modules (excluding admin which is always enabled)
-      const activeModules = (config.enabled_modules as string[])
+      const activeModules = config.enabled_modules
         .filter((m) => m !== "admin")
         .map((m) => m.charAt(0).toUpperCase() + m.slice(1))
         .join(", ");

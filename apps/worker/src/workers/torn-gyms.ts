@@ -2,9 +2,9 @@ import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
-import { supabase } from "../lib/supabase.js";
 import { tornApi } from "../services/torn-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "torn_gyms_worker";
 const DAILY_CADENCE_SECONDS = 86400; // 24h
@@ -115,6 +115,7 @@ interface TornGymsResponse {
 
 async function syncTornGyms(): Promise<void> {
   const startTime = Date.now();
+  const db = getDB();
 
   try {
     const apiKey = await getSystemApiKey("personal");
@@ -132,19 +133,25 @@ async function syncTornGyms(): Promise<void> {
     }
 
     // Fetch user stats from most recent battlestats snapshot
-    const { data: snapshotData, error: snapshotError } = await supabase
-      .from(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-      .select("strength, speed, defense, dexterity")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    const snapshotData = db
+      .prepare(
+        `SELECT strength, speed, defense, dexterity
+         FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get() as
+      | {
+          strength: number | null;
+          speed: number | null;
+          defense: number | null;
+          dexterity: number | null;
+        }
+      | undefined;
 
-    if (snapshotError) {
-      logError(
-        WORKER_NAME,
-        `Failed to fetch user snapshot: ${snapshotError.message}`,
-      );
-      throw snapshotError;
+    if (!snapshotData) {
+      logError(WORKER_NAME, "Failed to fetch user snapshot: no data");
+      throw new Error("No battlestats snapshot available");
     }
 
     const userStats: UserStats = {
@@ -188,13 +195,35 @@ async function syncTornGyms(): Promise<void> {
     }
 
     // Upsert gyms (replace existing)
-    const { error } = await supabase
-      .from(TABLE_NAMES.TORN_GYMS)
-      .upsert(gyms, { onConflict: "id" });
+    const tx = db.transaction((rows: GymRow[]) => {
+      const stmt = db.prepare(
+        `INSERT INTO "${TABLE_NAMES.TORN_GYMS}" (id, name, energy, strength, speed, dexterity, defense, unlocked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           energy = excluded.energy,
+           strength = excluded.strength,
+           speed = excluded.speed,
+           dexterity = excluded.dexterity,
+           defense = excluded.defense,
+           unlocked = excluded.unlocked`,
+      );
 
-    if (error) {
-      throw error;
-    }
+      for (const gym of rows) {
+        stmt.run(
+          gym.id,
+          gym.name,
+          gym.energy,
+          gym.strength,
+          gym.speed,
+          gym.dexterity,
+          gym.defense,
+          gym.unlocked ? 1 : 0,
+        );
+      }
+    });
+
+    tx(gyms);
 
     const duration = Date.now() - startTime;
     logDuration(

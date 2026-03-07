@@ -122,12 +122,7 @@ async function getFactionNameMap(
     return nameMap;
   }
 
-  const fetched = await getFactionDataBatchCached(
-    supabase,
-    missingIds,
-    tornApi,
-    apiKey,
-  );
+  const fetched = await getFactionDataBatchCached(missingIds, tornApi, apiKey);
 
   for (const [id, data] of fetched.entries()) {
     nameMap.set(id, data.name);

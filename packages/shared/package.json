@@ -12,6 +12,14 @@
     "./torn": {
       "types": "./dist/torn.d.ts",
       "import": "./dist/torn.js"
+    },
+    "./db/sqlite": {
+      "types": "./dist/db/sqlite.d.ts",
+      "import": "./dist/db/sqlite.js"
+    },
+    "./db/sqlite.js": {
+      "types": "./dist/db/sqlite.d.ts",
+      "import": "./dist/db/sqlite.js"
     }
   },
   "scripts": {
@@ -20,11 +28,13 @@
     "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/generated/torn-api.ts"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.5",
     "openapi-typescript": "^7.4.4",
     "typescript": "^5.7.3"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.91.0"
+    "@supabase/supabase-js": "^2.91.0",
+    "better-sqlite3": "^12.6.2"
   }
 }

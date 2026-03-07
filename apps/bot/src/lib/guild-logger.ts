@@ -1,6 +1,6 @@
 import { EmbedBuilder, ChannelType, type Client } from "discord.js";
-import { supabase } from "./supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 export interface GuildLogOptions {
   title: string;
@@ -24,14 +24,15 @@ export async function logGuildAction(
   options: GuildLogOptions,
 ): Promise<void> {
   try {
+    const db = getDB();
     // Fetch guild config to get log channel ID
-    const { data: guildConfig, error } = await supabase
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("log_channel_id")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = db
+      .prepare(
+        `SELECT log_channel_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
+      )
+      .get(guildId) as { log_channel_id: string | null } | undefined;
 
-    if (error || !guildConfig?.log_channel_id) {
+    if (!guildConfig?.log_channel_id) {
       // Guild doesn't have logging enabled, skip silently
       return;
     }

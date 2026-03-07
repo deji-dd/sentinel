@@ -1,5 +1,5 @@
-import { supabase } from "../lib/supabase.js";
 import { decryptApiKey, hashApiKey } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
@@ -19,16 +19,15 @@ interface SystemKeyRow {
 }
 
 async function run(): Promise<void> {
-  const { data, error } = await supabase
-    .from("sentinel_system_api_keys")
-    .select("id, api_key_encrypted, created_at")
-    .is("deleted_at", null);
+  const db = getDB();
+  const rows = db
+    .prepare(
+      `SELECT id, api_key_encrypted, created_at
+       FROM "sentinel_system_api_keys"
+       WHERE deleted_at IS NULL`,
+    )
+    .all() as SystemKeyRow[];
 
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data || []) as SystemKeyRow[];
   if (!rows.length) {
     console.log("No active system keys found.");
     return;
@@ -55,27 +54,18 @@ async function run(): Promise<void> {
     const keep = sorted[0];
     const duplicates = sorted.slice(1);
 
-    const { error: updateError } = await supabase
-      .from("sentinel_system_api_keys")
-      .update({ api_key_hash: hash })
-      .eq("id", keep.id);
-
-    if (updateError) {
-      throw updateError;
-    }
+    db.prepare(
+      `UPDATE "sentinel_system_api_keys" SET api_key_hash = ? WHERE id = ?`,
+    ).run(hash, keep.id);
 
     updated += 1;
 
     if (duplicates.length > 0) {
       const duplicateIds = duplicates.map((entry) => entry.id);
-      const { error: deleteError } = await supabase
-        .from("sentinel_system_api_keys")
-        .update({ deleted_at: new Date().toISOString() })
-        .in("id", duplicateIds);
-
-      if (deleteError) {
-        throw deleteError;
-      }
+      const placeholders = duplicateIds.map(() => "?").join(", ");
+      db.prepare(
+        `UPDATE "sentinel_system_api_keys" SET deleted_at = ? WHERE id IN (${placeholders})`,
+      ).run(new Date().toISOString(), ...duplicateIds);
 
       removed += duplicateIds.length;
     }

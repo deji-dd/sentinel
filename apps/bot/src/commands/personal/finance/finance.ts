@@ -3,8 +3,8 @@ import {
   EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import { supabase } from "../../../lib/supabase.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getDB } from "@sentinel/shared/db/sqlite.js";
 import {
   runWithInteractionError,
   safeReply,
@@ -50,31 +50,51 @@ export async function execute(
     interaction,
     async () => {
       await interaction.deferReply();
+      type SnapshotRow = {
+        created_at: string;
+        liquid_cash: number | null;
+        bookie_value: number | null;
+        bookie_updated_at: string | null;
+        net_worth: number | null;
+      };
 
-      const [snapshotResult, settingsResult] = await Promise.all([
-        supabase
-          .from(TABLE_NAMES.USER_SNAPSHOTS)
-          .select(
-            "created_at, liquid_cash, bookie_value, bookie_updated_at, net_worth",
+      type FinanceSettingsRow = {
+        min_reserve: number;
+        split_bookie: number;
+        split_training: number;
+        split_gear: number;
+      };
+
+      const db = getDB();
+
+      let snapshot: SnapshotRow | undefined;
+      let settings: FinanceSettingsRow | undefined;
+      try {
+        snapshot = db
+          .prepare(
+            `SELECT created_at, liquid_cash, bookie_value, bookie_updated_at, net_worth
+             FROM "${TABLE_NAMES.USER_SNAPSHOTS}"
+             ORDER BY created_at DESC
+             LIMIT 1`,
           )
-          .order("created_at", { ascending: false })
-          .limit(1),
-        supabase
-          .from(TABLE_NAMES.FINANCE_SETTINGS)
-          .select("min_reserve, split_bookie, split_training, split_gear")
-          .eq("player_id", userId)
-          .maybeSingle(),
-      ]);
+          .get() as SnapshotRow | undefined;
 
-      if (snapshotResult.error) {
+        settings = db
+          .prepare(
+            `SELECT min_reserve, split_bookie, split_training, split_gear
+             FROM "${TABLE_NAMES.FINANCE_SETTINGS}"
+             WHERE player_id = ?
+             LIMIT 1`,
+          )
+          .get(userId) as FinanceSettingsRow | undefined;
+      } catch {
         await safeReply(
           interaction,
-          "❌ Failed to load finance snapshot. Please try again.",
+          "❌ Failed to load finance data. Please try again.",
         );
         return;
       }
 
-      const snapshot = snapshotResult.data?.[0];
       if (!snapshot) {
         const emptyEmbed = new EmbedBuilder()
           .setColor(0xf59e0b)
@@ -89,15 +109,7 @@ export async function execute(
         return;
       }
 
-      if (settingsResult.error) {
-        await safeReply(
-          interaction,
-          "❌ Failed to load finance settings. Please try again.",
-        );
-        return;
-      }
-
-      if (!settingsResult.data) {
+      if (!settings) {
         const setupEmbed = new EmbedBuilder()
           .setColor(0xf59e0b)
           .setTitle("💰 Finance Settings Needed")
@@ -124,7 +136,7 @@ export async function execute(
         return;
       }
 
-      const rawSettings = settingsResult.data;
+      const rawSettings = settings;
       const splitTotal =
         rawSettings.split_bookie +
         rawSettings.split_training +
