@@ -44,6 +44,7 @@ const ASSIST_MAX_PAYLOAD_BYTES =
   parsedAssistMaxPayloadBytes > 0
     ? parsedAssistMaxPayloadBytes
     : 16384;
+const ASSIST_SLOW_DELIVERY_WARN_MS = 1000; // Flag transport lag at 1s+
 
 const assistMessageTracking = new Map<
   string,
@@ -71,6 +72,7 @@ type _AssistTokenRecord = {
 type AssistPayload = {
   uuid: string;
   auth_token?: string;
+  client_sent_at?: string;
   action?: string;
   source?: string;
   attacker_name?: string;
@@ -87,6 +89,20 @@ type AssistPayload = {
   enemy_health_max?: number;
   enemy_health_percent?: number;
 };
+
+function getClientToServerLagMs(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const lagMs = Date.now() - parsed;
+  return lagMs >= 0 ? lagMs : null;
+}
 
 function normalizeFightStatus(value: string | undefined): string | null {
   if (!value) {
@@ -199,23 +215,6 @@ function isValidUuid(value: string): boolean {
   );
 }
 
-function getRemainingWindowSeconds(
-  timestamp: string | null | undefined,
-  windowMs: number,
-): number {
-  if (!timestamp) {
-    return 0;
-  }
-
-  const parsed = new Date(timestamp).getTime();
-  if (!Number.isFinite(parsed)) {
-    return 0;
-  }
-
-  const remainingMs = windowMs - (Date.now() - parsed);
-  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
-}
-
 function hasValidProxySecret(req: Request): boolean {
   const expectedProxySecret = process.env.ASSIST_PROXY_SECRET;
   const providedProxySecret = req.header(ASSIST_PROXY_SECRET_HEADER);
@@ -252,6 +251,8 @@ function buildInitialAssistEmbed(
   targetTornId: number | undefined,
   requesterDiscordId: string,
   fightStatus: string,
+  initialAttackerValue: string,
+  initialEnemyHpValue: string,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
@@ -265,8 +266,8 @@ function buildInitialAssistEmbed(
         value: targetTornId ? `Loading...` : "Unknown",
         inline: true,
       },
-      { name: "Attackers", value: "Unavailable", inline: true },
-      { name: "Enemy HP", value: "Unavailable", inline: true },
+      { name: "Attackers", value: initialAttackerValue, inline: true },
+      { name: "Enemy HP", value: initialEnemyHpValue, inline: true },
     )
     .setTimestamp();
 
@@ -834,6 +835,18 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
+      const clientToServerLagMs = getClientToServerLagMs(
+        payload.client_sent_at,
+      );
+      if (
+        clientToServerLagMs !== null &&
+        clientToServerLagMs >= ASSIST_SLOW_DELIVERY_WARN_MS
+      ) {
+        console.warn(
+          `[ASSIST] Slow client->server delivery for ${payload.uuid}: ${clientToServerLagMs}ms`,
+        );
+      }
+
       const token = await db
         .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
         .select([
@@ -863,20 +876,6 @@ export function initHttpServer(client: Client, port: number = 3001) {
         new Date(token.expires_at).getTime() <= Date.now()
       ) {
         return res.status(403).json({ error: "Assist token expired" });
-      }
-
-      if (req.method === "POST") {
-        const activeLockSeconds = getRemainingWindowSeconds(
-          token.last_used_at,
-          ASSIST_EMBED_TIMEOUT_MS,
-        );
-        if (activeLockSeconds > 0) {
-          return res.status(409).json({
-            error:
-              "You already have an active assist alert. Wait for it to end before sending another one.",
-            retry_after_seconds: activeLockSeconds,
-          });
-        }
       }
 
       const guildConfig = await db
@@ -1090,12 +1089,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
       // Handle POST method for new assist alerts
       const activeTracked = getActiveTrackedAssist(payload.uuid);
       if (activeTracked) {
-        const remainingMs =
-          ASSIST_EMBED_TIMEOUT_MS - (Date.now() - activeTracked.lastActivityAt);
-        return res.status(409).json({
-          error:
-            "You already have an active assist alert. Wait for it to end before sending another one.",
-          retry_after_seconds: Math.max(1, Math.ceil(remainingMs / 1000)),
+        return res.status(202).json({
+          success: true,
+          dropped: true,
+          reason: "active_assist_exists",
         });
       }
 
@@ -1104,10 +1101,33 @@ export function initHttpServer(client: Client, port: number = 3001) {
         : "";
       const initialFightStatus =
         resolveStatusFieldValue(payload) || "Requester not started fight";
+
+      const initialAttackerCount = Number.isFinite(payload.attacker_count)
+        ? Number(payload.attacker_count)
+        : null;
+      const initialAttackerValue = Number.isFinite(initialAttackerCount)
+        ? String(initialAttackerCount)
+        : payload.attacker_count_state === "mobile_unavailable"
+          ? "Unavailable (mobile)"
+          : "Unavailable";
+
+      const healthCurrent = payload.enemy_health_current;
+      const healthMax = payload.enemy_health_max;
+      const healthPercent = payload.enemy_health_percent;
+      const initialEnemyHpValue =
+        Number.isFinite(healthCurrent) &&
+        Number.isFinite(healthMax) &&
+        healthMax &&
+        healthMax > 0
+          ? `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${Math.max(0, Math.min(100, Math.round(Number.isFinite(healthPercent) ? healthPercent : (healthCurrent / healthMax) * 100)))}%)`
+          : "Unavailable";
+
       const embed = buildInitialAssistEmbed(
         payload.target_torn_id,
         token.discord_id,
         initialFightStatus,
+        initialAttackerValue,
+        initialEnemyHpValue,
       );
       const button = buildAssistButton(payload.target_torn_id);
 
@@ -1123,7 +1143,9 @@ export function initHttpServer(client: Client, port: number = 3001) {
         message: sentMessage,
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
-        attackerCount: null,
+        attackerCount: Number.isFinite(initialAttackerCount)
+          ? initialAttackerCount
+          : null,
       });
 
       scheduleAssistExpiry(payload.uuid);

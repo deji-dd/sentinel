@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.4
+// @version      2.7.9
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -65,20 +65,14 @@ ${connectMetadata}
   const API_URL = ${JSON.stringify(`${normalizedApiBaseUrl}/api/assist-events`)};
   const BUTTON_ID = "sentinel-assist-button";
   const TOAST_ID = "sentinel-assist-toast";
-  const COOLDOWN_STORAGE_KEY = "sentinel_assist_cooldown_until_" + ASSIST_UUID;
-  const ACTIVE_SESSION_STORAGE_KEY = "sentinel_assist_active_until_" + ASSIST_UUID;
-  const DEFAULT_COOLDOWN_MS = 30000;
-  const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
-  const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
+  const ACTIVE_SESSION_STORAGE_KEY = "sentinel_assist_active_" + ASSIST_UUID;
   const LOG_PREFIX = "[Sentinel Assist]";
 
   let buttonMounted = false;
   let lastAttackerCount = null;
   let assistButtonEl = null;
-  let cooldownInterval = null;
-  let cooldownUntil = 0;
   let assistRequestInFlight = false;
-  let assistSessionActiveUntil = 0;
+  let assistSessionActive = false;
   let lastFightStatus = null;
   let lastAttackerSnapshot = null;
   let lastHealthSnapshot = null;
@@ -141,6 +135,14 @@ ${connectMetadata}
   function getTargetId() {
     const params = new URLSearchParams(window.location.search);
     return params.get("user2ID");
+  }
+
+  function isAttackPageUrl() {
+    return (
+      window.location.hostname === "www.torn.com" &&
+      window.location.pathname === "/loader.php" &&
+      new URLSearchParams(window.location.search).get("sid") === "attack"
+    );
   }
 
   function toSentenceCase(value) {
@@ -319,6 +321,37 @@ ${connectMetadata}
     };
   }
 
+  function readAttackerCountState() {
+    const statsHeader = document.getElementById("stats-header");
+    if (!statsHeader) {
+      return {
+        attackerCount: null,
+        attackerCountState: "mobile_unavailable",
+      };
+    }
+
+    const node = statsHeader.querySelector('[class*="titleNumber"]');
+    if (!node) {
+      return {
+        attackerCount: null,
+        attackerCountState: "mobile_unavailable",
+      };
+    }
+
+    const current = Number.parseInt((node.textContent || "").trim(), 10);
+    if (!Number.isFinite(current)) {
+      return {
+        attackerCount: null,
+        attackerCountState: "mobile_unavailable",
+      };
+    }
+
+    return {
+      attackerCount: current,
+      attackerCountState: "available",
+    };
+  }
+
   function setButtonState(disabled, label) {
     if (!assistButtonEl) {
       return;
@@ -331,109 +364,53 @@ ${connectMetadata}
     assistButtonEl.style.filter = disabled ? "grayscale(0.15)" : "none";
   }
 
-  function formatRemainingSeconds(msRemaining) {
-    return Math.max(1, Math.ceil(msRemaining / 1000));
-  }
-
-  function clearCooldownInterval() {
-    if (cooldownInterval !== null) {
-      window.clearInterval(cooldownInterval);
-      cooldownInterval = null;
-    }
-  }
-
-  function setCooldownUntil(nextCooldownUntil) {
-    cooldownUntil = Math.max(cooldownUntil, nextCooldownUntil);
-
-    try {
-      window.localStorage.setItem(COOLDOWN_STORAGE_KEY, String(cooldownUntil));
-    } catch {
+  function renderAssistButtonState() {
+    if (assistRequestInFlight) {
+      setButtonState(true, "Sending...");
+      return;
     }
 
-    clearCooldownInterval();
-
-    const renderCooldownState = () => {
-      const remaining = cooldownUntil - Date.now();
-      if (remaining <= 0) {
-        cooldownUntil = 0;
-        clearCooldownInterval();
-        setButtonState(false, "Yabba Dabba Doo!");
-        try {
-          window.localStorage.removeItem(COOLDOWN_STORAGE_KEY);
-        } catch {
-          // Ignore storage errors.
-        }
-        return;
-      }
-
-      setButtonState(true, "Wait " + String(formatRemainingSeconds(remaining)) + "s");
-    };
-
-    renderCooldownState();
-    cooldownInterval = window.setInterval(renderCooldownState, 500);
-  }
-
-  function loadPersistedCooldown() {
-    try {
-      const raw = window.localStorage.getItem(COOLDOWN_STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-
-      const parsed = Number.parseInt(raw, 10);
-      if (Number.isFinite(parsed) && parsed > Date.now()) {
-        setCooldownUntil(parsed);
-      } else {
-        window.localStorage.removeItem(COOLDOWN_STORAGE_KEY);
-      }
-    } catch {
+    if (assistSessionActive) {
+      setButtonState(true, "Assist Active");
+      return;
     }
+
+    setButtonState(false, "Yabba Dabba Doo!");
   }
 
-  function setActiveAssistSessionUntil(nextActiveUntil) {
-    assistSessionActiveUntil = Math.max(assistSessionActiveUntil, nextActiveUntil);
+  function setActiveAssistSession() {
+    assistSessionActive = true;
     try {
       window.localStorage.setItem(
         ACTIVE_SESSION_STORAGE_KEY,
-        String(assistSessionActiveUntil),
+        "1",
       );
     } catch {
     }
+
+    renderAssistButtonState();
   }
 
   function clearActiveAssistSession() {
-    assistSessionActiveUntil = 0;
+    assistSessionActive = false;
     try {
       window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
     } catch {
     }
+
+    renderAssistButtonState();
   }
 
   function hasActiveAssistSession() {
-    if (assistSessionActiveUntil <= Date.now()) {
-      if (assistSessionActiveUntil !== 0) {
-        clearActiveAssistSession();
-      }
-      return false;
-    }
-
-    return true;
+    return assistSessionActive;
   }
 
   function loadPersistedActiveAssistSession() {
     try {
       const raw = window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-
-      const parsed = Number.parseInt(raw, 10);
-      if (Number.isFinite(parsed) && parsed > Date.now()) {
-        assistSessionActiveUntil = parsed;
-      } else {
-        window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
-      }
+      assistSessionActive = raw === "1";
     } catch {
+      assistSessionActive = false;
     }
   }
 
@@ -474,6 +451,7 @@ ${connectMetadata}
 
   function sendAssistEvent(method, payload) {
     const detectedFightStatus = detectFightState();
+    const clientSentAt = new Date().toISOString();
 
     return new Promise((resolve) => {
       GM_xmlhttpRequest({
@@ -486,7 +464,8 @@ ${connectMetadata}
           uuid: ASSIST_UUID,
           auth_token: ASSIST_EVENT_AUTH_TOKEN,
           source: "tampermonkey",
-          occurred_at: new Date().toISOString(),
+          occurred_at: clientSentAt,
+          client_sent_at: clientSentAt,
           fight_status: detectedFightStatus,
           target_torn_id: Number.parseInt(getTargetId() || "0", 10) || undefined,
           ...payload,
@@ -566,8 +545,8 @@ ${connectMetadata}
     ].join(";");
 
     assistButtonEl = button;
-    loadPersistedCooldown();
     loadPersistedActiveAssistSession();
+    renderAssistButtonState();
 
     button.onmouseover = () => {
       button.style.background =
@@ -596,47 +575,66 @@ ${connectMetadata}
     };
 
     button.addEventListener("click", async () => {
-      if (assistRequestInFlight || Date.now() < cooldownUntil) {
+      if (assistRequestInFlight || hasActiveAssistSession()) {
         return;
       }
 
       assistRequestInFlight = true;
-      setButtonState(true, "Sending...");
+      renderAssistButtonState();
 
-      const response = await sendAssistEvent("POST", {
+      const attackerState = readAttackerCountState();
+      const initialHealth = readEnemyHealth();
+      const initialPostPayload = {
         action: "manual_alert",
         result: "button_click",
-      });
+        attacker_count_state: attackerState.attackerCountState,
+      };
 
-      if (response.ok) {
+      if (Number.isFinite(attackerState.attackerCount)) {
+        initialPostPayload.attacker_count = attackerState.attackerCount;
+      }
+
+      if (initialHealth) {
+        initialPostPayload.enemy_health_current = Math.round(initialHealth.current);
+        initialPostPayload.enemy_health_max = Math.round(initialHealth.max);
+        initialPostPayload.enemy_health_percent = Math.round(initialHealth.percent);
+      }
+
+      const response = await sendAssistEvent("POST", initialPostPayload);
+
+      if (response.ok && !response.body?.dropped) {
         logInfo("Assist alert sent successfully");
         showToast("Assist alert sent", true);
-        setActiveAssistSessionUntil(Date.now() + ACTIVE_SESSION_WINDOW_MS);
+        setActiveAssistSession();
         lastFightStatus = detectFightState();
-        setCooldownUntil(Date.now() + DEFAULT_COOLDOWN_MS);
+
+        if (Number.isFinite(attackerState.attackerCount)) {
+          lastAttackerCount = attackerState.attackerCount;
+          lastAttackerSnapshot = "count:" + String(attackerState.attackerCount);
+        } else {
+          lastAttackerCount = null;
+          lastAttackerSnapshot = "unavailable";
+        }
+
+        if (initialHealth) {
+          lastHealthSnapshot =
+            String(Math.round(initialHealth.current)) +
+            "/" +
+            String(Math.round(initialHealth.max));
+        }
+      } else if (response.ok && response.body?.dropped) {
+        setActiveAssistSession();
+        showToast("Assist already active. Waiting before next alert.", false);
       } else if (response.status === 429 || response.status === 409) {
-        const retryAfter = Number.parseInt(
-          String(response.body?.retry_after_seconds || "0"),
-          10,
-        );
-        const cooldownMs =
-          Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter * 1000
-            : DEFAULT_COOLDOWN_MS;
-        setCooldownUntil(Date.now() + cooldownMs);
         showToast(getFriendlyAssistErrorMessage(response), false);
       } else if (response.status === 412) {
-        setCooldownUntil(Date.now() + ASSIST_UNAVAILABLE_COOLDOWN_MS);
         showToast(getFriendlyAssistErrorMessage(response), false);
-      } else if (response.status === 0) {
-        showToast(getFriendlyAssistErrorMessage(response), false);
-        setButtonState(false, "Yabba Dabba Doo!");
       } else {
         showToast(getFriendlyAssistErrorMessage(response), false);
-        setButtonState(false, "Yabba Dabba Doo!");
       }
 
       assistRequestInFlight = false;
+      renderAssistButtonState();
     });
 
     buttonContainer.appendChild(button);
@@ -740,6 +738,15 @@ ${connectMetadata}
       characterData: true,
     });
 
+    // Mobile views can miss mutation events; poll as a fallback.
+    window.setInterval(() => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      tryAttach();
+    }, 1500);
+
     tryAttach();
   }
 
@@ -777,6 +784,10 @@ ${connectMetadata}
             String(currentStatus),
           result: "fight_ended",
           fight_status: normalizeFightStatus(currentStatus),
+        }).then((response) => {
+          if (response.ok) {
+            clearActiveAssistSession();
+          }
         });
         return;
       }
@@ -902,7 +913,7 @@ ${connectMetadata}
     tryAttach();
   }
 
-  window.addEventListener("beforeunload", () => {
+  const endActiveSession = () => {
     if (!hasActiveAssistSession()) {
       return;
     }
@@ -912,7 +923,35 @@ ${connectMetadata}
       action: "session_end",
       result: "page_unload",
     });
-  });
+  };
+
+  const checkForNavigationAway = () => {
+    if (!hasActiveAssistSession()) {
+      return;
+    }
+
+    if (!isAttackPageUrl()) {
+      endActiveSession();
+    }
+  };
+
+  const originalPushState = window.history.pushState;
+  window.history.pushState = function (...args) {
+    const result = originalPushState.apply(this, args);
+    checkForNavigationAway();
+    return result;
+  };
+
+  const originalReplaceState = window.history.replaceState;
+  window.history.replaceState = function (...args) {
+    const result = originalReplaceState.apply(this, args);
+    checkForNavigationAway();
+    return result;
+  };
+
+  window.addEventListener("popstate", checkForNavigationAway);
+  window.addEventListener("hashchange", checkForNavigationAway);
+  window.setInterval(checkForNavigationAway, 1000);
 
   const mountLoop = window.setInterval(() => {
     injectButton();
