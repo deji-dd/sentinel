@@ -69,7 +69,6 @@ ${connectMetadata}
   const DEFAULT_COOLDOWN_MS = 30000;
   const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
   const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
-  const HEALTH_UPDATE_INTERVAL_MS = 5000;
   const LOG_PREFIX = "[Sentinel Assist]";
 
   let buttonMounted = false;
@@ -742,36 +741,62 @@ ${connectMetadata}
   }
 
   function monitorEnemyHealth() {
-    window.setInterval(() => {
-      if (!hasActiveAssistSession()) {
+    let healthObserverAttached = false;
+
+    const tryAttach = () => {
+      const enemyHeader = document.querySelector('[class*="headerWrapper"][class*="rose"]');
+      if (!enemyHeader) {
         return;
       }
 
-      const health = readEnemyHealth();
+      if (!healthObserverAttached) {
+        const observer = new MutationObserver(() => {
+          if (!hasActiveAssistSession()) {
+            return;
+          }
 
-      if (!health) {
-        return;
+          const health = readEnemyHealth();
+
+          if (!health) {
+            return;
+          }
+
+          const snapshot =
+            String(Math.round(health.current)) + "/" + String(Math.round(health.max));
+          if (snapshot === lastHealthSnapshot) {
+            return;
+          }
+          lastHealthSnapshot = snapshot;
+
+          sendAssistEvent("PATCH", {
+            action: "enemy_health_updated",
+            result: "health_update",
+            enemy_health_current: Math.round(health.current),
+            enemy_health_max: Math.round(health.max),
+            enemy_health_percent: Math.round(health.percent),
+          }).then((response) => {
+            if (response.status === 404 || response.status === 410) {
+              clearActiveAssistSession();
+            }
+          });
+        });
+        observer.observe(enemyHeader, {
+          subtree: true,
+          childList: true,
+          characterData: true,
+        });
+        healthObserverAttached = true;
       }
+    };
 
-      const snapshot =
-        String(Math.round(health.current)) + "/" + String(Math.round(health.max));
-      if (snapshot === lastHealthSnapshot) {
-        return;
-      }
-      lastHealthSnapshot = snapshot;
+    const bodyObserver = new MutationObserver(tryAttach);
+    bodyObserver.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
 
-      sendAssistEvent("PATCH", {
-        action: "enemy_health_updated",
-        result: "health_update",
-        enemy_health_current: Math.round(health.current),
-        enemy_health_max: Math.round(health.max),
-        enemy_health_percent: Math.round(health.percent),
-      }).then((response) => {
-        if (response.status === 404 || response.status === 410) {
-          clearActiveAssistSession();
-        }
-      });
-    }, HEALTH_UPDATE_INTERVAL_MS);
+    tryAttach();
   }
 
   window.addEventListener("beforeunload", () => {
