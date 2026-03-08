@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 type AssistUserscriptOptions = {
   uuid: string;
   apiBaseUrl: string;

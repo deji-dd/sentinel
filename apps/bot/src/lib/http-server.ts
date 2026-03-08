@@ -80,14 +80,33 @@ type AssistPayload = {
   enemy_health_percent?: number;
 };
 
-function normalizeFightStatus(
-  value: string | undefined,
-): "Requester not started fight" | "Ongoing" | "Ended" | null {
+function normalizeFightStatus(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
 
   const normalized = value.trim().toLowerCase();
+
+  if (normalized === "target is down") {
+    return "Target is down";
+  }
+
+  if (normalized === "requester is down") {
+    return "Requester is down";
+  }
+
+  if (normalized === "requester stalemated") {
+    return "Requester stalemated";
+  }
+
+  if (normalized === "requester timed out") {
+    return "Requester timed out";
+  }
+
+  if (normalized === "fight ended") {
+    return "Fight ended";
+  }
+
   if (normalized === "not started" || normalized === "not_started") {
     return "Requester not started fight";
   }
@@ -97,7 +116,7 @@ function normalizeFightStatus(
   }
 
   if (normalized === "ended" || normalized === "finished") {
-    return "Ended";
+    return "Fight ended";
   }
 
   return null;
@@ -113,37 +132,45 @@ function normalizeFightOutcomeStatus(value: string | undefined): string | null {
     return null;
   }
 
-  const sentenceCase =
-    compact.charAt(0).toUpperCase() + compact.slice(1).toLowerCase();
+  const lower = compact.toLowerCase();
 
-  const extract = (pattern: RegExp): string | null => {
-    const match = sentenceCase.match(pattern);
-    if (!match) {
-      return null;
-    }
+  if (
+    lower.includes("target is down") ||
+    lower.includes("you defeated") ||
+    lower.includes("you mugged") ||
+    lower.includes("you hospitalized") ||
+    lower.includes("you arrested")
+  ) {
+    return "Target is down";
+  }
 
-    const phrase = (match[0] || "").replace(/\s+/g, " ").trim();
-    return phrase || null;
-  };
+  if (
+    lower.includes("requester stalemated") ||
+    lower.includes("you stalemated")
+  ) {
+    return "Requester stalemated";
+  }
 
-  const orderedPatterns = [
-    /you defeated [^.!?\n]+/i,
-    /you mugged [^.!?\n]+/i,
-    /you hospitalized [^.!?\n]+/i,
-    /you arrested [^.!?\n]+/i,
-    /you stalemated[^.!?\n]*/i,
-    /you lost[^.!?\n]*/i,
-    /[^.!?\n]+ took down your opponent/i,
-    /[^.!?\n]+ was defeated by [^.!?\n]+/i,
-    /[^.!?\n]+ was sent to hospital/i,
-    /[^.!?\n]+ was surrounded by police/i,
-  ];
+  if (lower.includes("requester is down") || lower.includes("you lost")) {
+    return "Requester is down";
+  }
 
-  for (const pattern of orderedPatterns) {
-    const phrase = extract(pattern);
-    if (phrase) {
-      return phrase;
-    }
+  if (lower.includes("requester timed out") || lower.includes("timed out")) {
+    return "Requester timed out";
+  }
+
+  if (
+    lower.includes("took down your opponent") ||
+    lower.includes("was defeated by")
+  ) {
+    return "Target is down";
+  }
+
+  if (
+    lower.includes("was sent to hospital") ||
+    lower.includes("was surrounded by police")
+  ) {
+    return "Target is down";
   }
 
   return null;
@@ -919,7 +946,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
           const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
             .setColor(0x6b7280)
             .setFooter({ text: "This assist alert has ended" });
-          const endedStatus = resolveStatusFieldValue(payload) || "Ended";
+          const endedStatus = resolveStatusFieldValue(payload) || "Fight ended";
           upsertEmbedField(endedEmbed, "Status", endedStatus, true);
           await tracked.message.edit({
             embeds: [endedEmbed],

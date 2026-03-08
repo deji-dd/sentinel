@@ -5,9 +5,16 @@
 
 import {
   SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   MessageFlags,
   type ChatInputCommandInteraction,
+  type ButtonInteraction,
+  type StringSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../../lib/db-client.js";
@@ -92,6 +99,7 @@ function getScriptUrlBase(): string {
 
 const SCRIPT_URL_BASE = getScriptUrlBase();
 const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+const ASSIST_MANAGE_PAGE_SIZE = 10;
 
 if (!botOwnerId) {
   throw new Error("Missing SENTINEL_DISCORD_USER_ID environment variable");
@@ -119,7 +127,33 @@ export const data = new SlashCommandBuilder()
           .setDescription("Discord user whose assist tokens should be revoked")
           .setRequired(true),
       ),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("manage")
+      .setDescription(
+        "Manage active assist script users (enable/disable/delete/blacklist)",
+      ),
   );
+
+type ActiveAssistUser = {
+  discordId: string;
+  tokenCount: number;
+  latestUpdatedAt: string | null;
+  latestUsedAt: string | null;
+};
+
+function parseManageCustomId(
+  customId: string,
+  prefix: string,
+): string[] | null {
+  if (!customId.startsWith(prefix)) {
+    return null;
+  }
+
+  const remainder = customId.slice(prefix.length);
+  return remainder.split("|");
+}
 
 /**
  * Check if user has permission to generate scripts based on configured roles
@@ -199,6 +233,177 @@ async function getUserTornId(
     .executeTakeFirst();
 
   return data?.torn_id ?? null;
+}
+
+async function getActiveAssistUsers(
+  guildId: string,
+): Promise<ActiveAssistUser[]> {
+  const rows = await assistDb
+    .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+    .select(["discord_id", "updated_at", "last_used_at"])
+    .where("guild_id", "=", guildId)
+    .where("is_active", "=", toSqliteBoolean(true))
+    .where("blacklisted_at", "is", null)
+    .execute();
+
+  const userMap = new Map<string, ActiveAssistUser>();
+
+  for (const row of rows) {
+    const existing = userMap.get(row.discord_id);
+    const updatedAt = row.updated_at ?? null;
+    const lastUsedAt = row.last_used_at ?? null;
+
+    if (!existing) {
+      userMap.set(row.discord_id, {
+        discordId: row.discord_id,
+        tokenCount: 1,
+        latestUpdatedAt: updatedAt,
+        latestUsedAt: lastUsedAt,
+      });
+      continue;
+    }
+
+    existing.tokenCount += 1;
+
+    if (
+      updatedAt &&
+      (!existing.latestUpdatedAt ||
+        new Date(updatedAt).getTime() >
+          new Date(existing.latestUpdatedAt).getTime())
+    ) {
+      existing.latestUpdatedAt = updatedAt;
+    }
+
+    if (
+      lastUsedAt &&
+      (!existing.latestUsedAt ||
+        new Date(lastUsedAt).getTime() >
+          new Date(existing.latestUsedAt).getTime())
+    ) {
+      existing.latestUsedAt = lastUsedAt;
+    }
+  }
+
+  return Array.from(userMap.values()).sort((a, b) => {
+    const aTime = a.latestUsedAt || a.latestUpdatedAt || "";
+    const bTime = b.latestUsedAt || b.latestUpdatedAt || "";
+    return new Date(bTime).getTime() - new Date(aTime).getTime();
+  });
+}
+
+function formatRelativeActivity(value: string | null): string {
+  if (!value) {
+    return "never";
+  }
+
+  const deltaMs = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(deltaMs) || deltaMs < 0) {
+    return "just now";
+  }
+
+  const minutes = Math.floor(deltaMs / 60000);
+  if (minutes < 1) {
+    return "just now";
+  }
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+async function buildManageUsersView(
+  guildId: string,
+  requestedPage: number,
+  notice?: string,
+): Promise<{
+  embed: EmbedBuilder;
+  components: Array<
+    ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>
+  >;
+}> {
+  const users = await getActiveAssistUsers(guildId);
+  const pageCount = Math.max(
+    1,
+    Math.ceil(users.length / ASSIST_MANAGE_PAGE_SIZE),
+  );
+  const page = Math.min(Math.max(0, requestedPage), pageCount - 1);
+  const start = page * ASSIST_MANAGE_PAGE_SIZE;
+  const pageUsers = users.slice(start, start + ASSIST_MANAGE_PAGE_SIZE);
+
+  const descriptionLines: string[] = [];
+
+  if (notice) {
+    descriptionLines.push(notice, "");
+  }
+
+  if (pageUsers.length === 0) {
+    descriptionLines.push("No active assist script users found in this guild.");
+  } else {
+    descriptionLines.push(
+      ...pageUsers.map(
+        (entry, index) =>
+          `${start + index + 1}. <@${entry.discordId}> | tokens: ${entry.tokenCount} | last used: ${formatRelativeActivity(entry.latestUsedAt)}`,
+      ),
+    );
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x2563eb)
+    .setTitle("Assist Active Script Users")
+    .setDescription(descriptionLines.join("\n"))
+    .setFooter({
+      text: `Page ${page + 1}/${pageCount} • Total active users: ${users.length}`,
+    });
+
+  const components: Array<
+    ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>
+  > = [];
+
+  if (pageUsers.length > 0) {
+    const userSelect = new StringSelectMenuBuilder()
+      .setCustomId(`assist_manage_user_select|${page}`)
+      .setPlaceholder("Select a user to manage")
+      .addOptions(
+        pageUsers.map((entry) =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`User ${entry.discordId}`)
+            .setDescription(
+              `Tokens: ${entry.tokenCount} • Last used: ${formatRelativeActivity(entry.latestUsedAt)}`,
+            )
+            .setValue(entry.discordId),
+        ),
+      );
+
+    components.push(
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(userSelect),
+    );
+  }
+
+  const prevBtn = new ButtonBuilder()
+    .setCustomId(`assist_manage_page_prev|${page}`)
+    .setLabel("Previous")
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page <= 0);
+
+  const nextBtn = new ButtonBuilder()
+    .setCustomId(`assist_manage_page_next|${page}`)
+    .setLabel("Next")
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page >= pageCount - 1);
+
+  components.push(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn),
+  );
+
+  return { embed, components };
 }
 
 async function handleGenerateSubcommand(
@@ -524,6 +729,282 @@ async function handleRevokeSubcommand(
   await interaction.editReply({ embeds: [successEmbed], components: [] });
 }
 
+async function handleManageSubcommand(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const guildId = interaction.guildId;
+  const userId = interaction.user.id;
+
+  if (!guildId) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle("❌ Error")
+          .setDescription("This command can only be used in a guild."),
+      ],
+    });
+    return;
+  }
+
+  const guildConfig = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["enabled_modules"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
+
+  const enabledModules = parseStringArray(guildConfig?.enabled_modules);
+  if (!enabledModules.includes("assist")) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xf59e0b)
+          .setTitle("Assist Module Disabled")
+          .setDescription(
+            "This guild has not enabled the assist module yet. Contact an admin to enable it.",
+          ),
+      ],
+    });
+    return;
+  }
+
+  const userRoles = interaction.member?.roles;
+  const userRoleIds =
+    userRoles && "cache" in userRoles ? Array.from(userRoles.cache.keys()) : [];
+
+  const userIsAdmin = await isAdmin(guildId, userId, userRoleIds);
+  if (!userIsAdmin) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle("❌ Not Authorized")
+          .setDescription("Only admins can manage assist script users."),
+      ],
+    });
+    return;
+  }
+
+  const { embed, components } = await buildManageUsersView(guildId, 0);
+  await interaction.editReply({ embeds: [embed], components });
+}
+
+export async function handleManagePageButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      return;
+    }
+
+    const prevParts = parseManageCustomId(
+      interaction.customId,
+      "assist_manage_page_prev|",
+    );
+    const nextParts = parseManageCustomId(
+      interaction.customId,
+      "assist_manage_page_next|",
+    );
+
+    const basePage = Number.parseInt(
+      prevParts?.[0] || nextParts?.[0] || "0",
+      10,
+    );
+    const currentPage = Number.isFinite(basePage) ? basePage : 0;
+    const page = prevParts ? currentPage - 1 : currentPage + 1;
+
+    const { embed, components } = await buildManageUsersView(guildId, page);
+    await interaction.editReply({ embeds: [embed], components });
+  } catch (error) {
+    console.error("Error handling assist manage page button:", error);
+  }
+}
+
+export async function handleManageUserSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      return;
+    }
+
+    const userId = interaction.values[0];
+    if (!userId) {
+      return;
+    }
+
+    const parts = parseManageCustomId(
+      interaction.customId,
+      "assist_manage_user_select|",
+    );
+    const page = Number.parseInt(parts?.[0] || "0", 10) || 0;
+
+    const tokenRows = await assistDb
+      .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+      .select(["id"])
+      .where("guild_id", "=", guildId)
+      .where("discord_id", "=", userId)
+      .execute();
+
+    const actionEmbed = new EmbedBuilder()
+      .setColor(0x1d4ed8)
+      .setTitle("Manage Assist Script User")
+      .setDescription(
+        `Selected user: <@${userId}>\nToken rows in guild: ${tokenRows.length}\n\nChoose an action below.`,
+      );
+
+    const actionSelect = new StringSelectMenuBuilder()
+      .setCustomId(`assist_manage_action_select|${userId}|${page}`)
+      .setPlaceholder("Select an action")
+      .addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Enable")
+          .setDescription("Mark all user tokens as active and clear blacklist")
+          .setValue("enable"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Disable")
+          .setDescription("Disable all user tokens without deleting")
+          .setValue("disable"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Delete")
+          .setDescription("Permanently remove all user tokens")
+          .setValue("delete"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Blacklist")
+          .setDescription("Disable and blacklist all user tokens")
+          .setValue("blacklist"),
+      );
+
+    const backButton = new ButtonBuilder()
+      .setCustomId(`assist_manage_back|${page}`)
+      .setLabel("Back to user list")
+      .setStyle(ButtonStyle.Secondary);
+
+    await interaction.editReply({
+      embeds: [actionEmbed],
+      components: [
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+          actionSelect,
+        ),
+        new ActionRowBuilder<ButtonBuilder>().addComponents(backButton),
+      ],
+    });
+  } catch (error) {
+    console.error("Error handling assist manage user select:", error);
+  }
+}
+
+export async function handleManageActionSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      return;
+    }
+
+    const parts = parseManageCustomId(
+      interaction.customId,
+      "assist_manage_action_select|",
+    );
+    if (!parts || parts.length < 3) {
+      return;
+    }
+
+    const [targetDiscordId, pageRaw] = parts;
+    const page = Number.parseInt(pageRaw || "0", 10) || 0;
+    const action = interaction.values[0];
+    const now = new Date().toISOString();
+
+    if (!targetDiscordId || !action) {
+      return;
+    }
+
+    if (action === "enable") {
+      await assistDb
+        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+        .set({
+          is_active: toSqliteBoolean(true),
+          blacklisted_at: null,
+          blacklisted_reason: null,
+          updated_at: now,
+        })
+        .where("guild_id", "=", guildId)
+        .where("discord_id", "=", targetDiscordId)
+        .execute();
+    } else if (action === "disable") {
+      await assistDb
+        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+        .set({
+          is_active: toSqliteBoolean(false),
+          updated_at: now,
+        })
+        .where("guild_id", "=", guildId)
+        .where("discord_id", "=", targetDiscordId)
+        .execute();
+    } else if (action === "delete") {
+      await assistDb
+        .deleteFrom(TABLE_NAMES.ASSIST_TOKENS)
+        .where("guild_id", "=", guildId)
+        .where("discord_id", "=", targetDiscordId)
+        .execute();
+    } else if (action === "blacklist") {
+      await assistDb
+        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+        .set({
+          is_active: toSqliteBoolean(false),
+          blacklisted_at: now,
+          blacklisted_reason: "blacklisted_by_admin",
+          updated_at: now,
+        })
+        .where("guild_id", "=", guildId)
+        .where("discord_id", "=", targetDiscordId)
+        .execute();
+    }
+
+    const notice = `Updated <@${targetDiscordId}>: ${action}`;
+    const { embed, components } = await buildManageUsersView(
+      guildId,
+      page,
+      notice,
+    );
+    await interaction.editReply({ embeds: [embed], components });
+  } catch (error) {
+    console.error("Error handling assist manage action select:", error);
+  }
+}
+
+export async function handleManageBackButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      return;
+    }
+
+    const parts = parseManageCustomId(
+      interaction.customId,
+      "assist_manage_back|",
+    );
+    const page = Number.parseInt(parts?.[0] || "0", 10) || 0;
+    const { embed, components } = await buildManageUsersView(guildId, page);
+    await interaction.editReply({ embeds: [embed], components });
+  } catch (error) {
+    console.error("Error handling assist manage back button:", error);
+  }
+}
+
 export async function execute(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -539,6 +1020,10 @@ export async function execute(
       }
       case "revoke": {
         await handleRevokeSubcommand(interaction);
+        break;
+      }
+      case "manage": {
+        await handleManageSubcommand(interaction);
         break;
       }
       default: {
