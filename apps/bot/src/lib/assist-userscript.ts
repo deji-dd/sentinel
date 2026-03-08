@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.3
+// @version      2.7.4
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -664,6 +664,7 @@ ${connectMetadata}
           lastAttackerSnapshot = "unavailable";
           notifyAttackerPatch({
             action: "attacker_count_unavailable",
+            attacker_count_state: "mobile_unavailable",
             details: "Attacker count unavailable",
             result: "count_unavailable",
           });
@@ -677,6 +678,7 @@ ${connectMetadata}
           lastAttackerSnapshot = "unavailable";
           notifyAttackerPatch({
             action: "attacker_count_unavailable",
+            attacker_count_state: "mobile_unavailable",
             details: "Attacker count unavailable",
             result: "count_unavailable",
           });
@@ -693,6 +695,8 @@ ${connectMetadata}
 
         notifyAttackerPatch({
           action: "attacker_count_changed",
+          attacker_count: current,
+          attacker_count_state: "available",
           details:
             "Attacker count changed: " +
             previousValue +
