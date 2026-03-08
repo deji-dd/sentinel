@@ -47,7 +47,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.0
+// @version      2.7.1
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -153,6 +153,23 @@ ${connectMetadata}
   }
 
   function detectFightOutcomeStatus() {
+    const actionButtons = Array.from(
+      document.querySelectorAll(
+        '[class*="dialogWrapper"] [class*="dialogButtons"] button[type="submit"]',
+      ),
+    )
+      .map((node) => (node.textContent || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    // When this action dialog appears, Torn has already ended the fight in the requester's favor.
+    if (
+      actionButtons.includes("leave") &&
+      actionButtons.includes("mug") &&
+      actionButtons.includes("hospitalize")
+    ) {
+      return "Target is down";
+    }
+
     const dialogText = toSentenceCase(
       document.querySelector('[class*="dialogWrapper"]')?.textContent || "",
     );
@@ -225,6 +242,7 @@ ${connectMetadata}
 
     // Requester defeated outcomes
     if (
+      lower.includes("target is down") ||
       lower.includes("you defeated") ||
       lower.includes("you mugged") ||
       lower.includes("you hospitalized") ||
