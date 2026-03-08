@@ -340,6 +340,19 @@ function scheduleAssistExpiry(uuid: string): void {
         embeds: [expiredEmbed],
         components: [],
       });
+
+      // Delete the message after a short delay
+      setTimeout(async () => {
+        try {
+          await current.message.delete();
+          console.log(`[ASSIST] Deleted expired assist message for ${uuid}`);
+        } catch (error) {
+          console.error(
+            `[ASSIST] Failed to delete expired assist message for ${uuid}:`,
+            error,
+          );
+        }
+      }, 5000); // 5 second delay
     } catch (error) {
       console.error(`[ASSIST] Failed to expire embed for ${uuid}:`, error);
     }
@@ -1063,6 +1076,21 @@ export function initHttpServer(client: Client, port: number = 3001) {
             embeds: [endedEmbed],
             components: [],
           });
+
+          // Delete the message after a short delay
+          setTimeout(async () => {
+            try {
+              await tracked.message.delete();
+              console.log(
+                `[ASSIST] Deleted ended assist message for ${payload.uuid}`,
+              );
+            } catch (error) {
+              console.error(
+                `[ASSIST] Failed to delete ended assist message for ${payload.uuid}:`,
+                error,
+              );
+            }
+          }, 5000); // 5 second delay
         } catch (error) {
           console.error(
             `[ASSIST] Failed to mark assist as ended for ${payload.uuid}:`,
