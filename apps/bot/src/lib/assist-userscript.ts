@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.2
+// @version      2.7.4
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -293,7 +293,14 @@ ${connectMetadata}
       '[class*="entry"] [class*="iconHealth"] + span',
     );
     const healthText = (healthValueNode?.textContent || "").trim();
-    const match = healthText.match(/([\\d,]+)\\s*\\/\\s*([\\d,]+)/);
+    let match = healthText.match(/([\\d,]+)\\s*\\/\\s*([\\d,]+)/);
+    if (!match) {
+      // Mobile layouts sometimes expose health as "Health X of Y" via aria-live summary text.
+      const summaryNode = enemyHeader.querySelector('[id$="-summary"]');
+      const summaryText = (summaryNode?.textContent || "").trim();
+      match = summaryText.match(/health\\s+([\\d,]+)\\s+(?:of|\\/)\\s+([\\d,]+)/i);
+    }
+
     if (!match) {
       return null;
     }
@@ -657,6 +664,7 @@ ${connectMetadata}
           lastAttackerSnapshot = "unavailable";
           notifyAttackerPatch({
             action: "attacker_count_unavailable",
+            attacker_count_state: "mobile_unavailable",
             details: "Attacker count unavailable",
             result: "count_unavailable",
           });
@@ -670,6 +678,7 @@ ${connectMetadata}
           lastAttackerSnapshot = "unavailable";
           notifyAttackerPatch({
             action: "attacker_count_unavailable",
+            attacker_count_state: "mobile_unavailable",
             details: "Attacker count unavailable",
             result: "count_unavailable",
           });
@@ -686,6 +695,8 @@ ${connectMetadata}
 
         notifyAttackerPatch({
           action: "attacker_count_changed",
+          attacker_count: current,
+          attacker_count_state: "available",
           details:
             "Attacker count changed: " +
             previousValue +
@@ -825,7 +836,38 @@ ${connectMetadata}
   }
 
   function monitorEnemyHealth() {
-    let healthObserverAttached = false;
+    let observedEnemyHeader = null;
+    let healthObserver = null;
+
+    const onHealthMutated = () => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      const health = readEnemyHealth();
+      if (!health) {
+        return;
+      }
+
+      const snapshot =
+        String(Math.round(health.current)) + "/" + String(Math.round(health.max));
+      if (snapshot === lastHealthSnapshot) {
+        return;
+      }
+      lastHealthSnapshot = snapshot;
+
+      sendAssistEvent("PATCH", {
+        action: "enemy_health_updated",
+        result: "health_update",
+        enemy_health_current: Math.round(health.current),
+        enemy_health_max: Math.round(health.max),
+        enemy_health_percent: Math.round(health.percent),
+      }).then((response) => {
+        if (response.status === 404 || response.status === 410) {
+          clearActiveAssistSession();
+        }
+      });
+    };
 
     const tryAttach = () => {
       const enemyHeader = document.querySelector('[class*="headerWrapper"][class*="rose"]');
@@ -833,44 +875,21 @@ ${connectMetadata}
         return;
       }
 
-      if (!healthObserverAttached) {
-        const observer = new MutationObserver(() => {
-          if (!hasActiveAssistSession()) {
-            return;
-          }
+      if (enemyHeader !== observedEnemyHeader) {
+        if (healthObserver) {
+          healthObserver.disconnect();
+        }
 
-          const health = readEnemyHealth();
-
-          if (!health) {
-            return;
-          }
-
-          const snapshot =
-            String(Math.round(health.current)) + "/" + String(Math.round(health.max));
-          if (snapshot === lastHealthSnapshot) {
-            return;
-          }
-          lastHealthSnapshot = snapshot;
-
-          sendAssistEvent("PATCH", {
-            action: "enemy_health_updated",
-            result: "health_update",
-            enemy_health_current: Math.round(health.current),
-            enemy_health_max: Math.round(health.max),
-            enemy_health_percent: Math.round(health.percent),
-          }).then((response) => {
-            if (response.status === 404 || response.status === 410) {
-              clearActiveAssistSession();
-            }
-          });
-        });
-        observer.observe(enemyHeader, {
+        healthObserver = new MutationObserver(onHealthMutated);
+        healthObserver.observe(enemyHeader, {
           subtree: true,
           childList: true,
           characterData: true,
         });
-        healthObserverAttached = true;
+        observedEnemyHeader = enemyHeader;
       }
+
+      onHealthMutated();
     };
 
     const bodyObserver = new MutationObserver(tryAttach);
