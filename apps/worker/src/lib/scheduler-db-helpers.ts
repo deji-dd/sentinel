@@ -1,10 +1,6 @@
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { randomUUID } from "crypto";
-
-function quoteIdentifier(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
 
 export interface WorkerRow {
   id: string;
@@ -37,30 +33,34 @@ export async function ensureWorkerRegistered(
   cadenceSeconds: number,
   initialNextRunAt?: string,
 ): Promise<WorkerRow> {
-  const db = getDB();
-  const workersTable = quoteIdentifier(TABLE_NAMES.WORKERS);
-  const schedulesTable = quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES);
+  const db = getKysely();
 
-  db.prepare(
-    `INSERT OR IGNORE INTO ${workersTable} (id, name) VALUES (?, ?)`,
-  ).run(randomUUID(), name);
+  await db
+    .insertInto(TABLE_NAMES.WORKERS)
+    .values({ id: randomUUID(), name })
+    .onConflict((oc) => oc.column("name").doNothing())
+    .execute();
 
-  const workerRow = db
-    .prepare(`SELECT id, name FROM ${workersTable} WHERE name = ? LIMIT 1`)
-    .get(name) as WorkerRow | undefined;
+  const workerRow = await db
+    .selectFrom(TABLE_NAMES.WORKERS)
+    .select(["id", "name"])
+    .where("name", "=", name)
+    .limit(1)
+    .executeTakeFirst();
 
   if (!workerRow) {
     throw new Error(`Failed to fetch worker id for ${name}`);
   }
 
-  db.prepare(
-    `INSERT OR IGNORE INTO ${schedulesTable} (worker_id, cadence_seconds, next_run_at)
-     VALUES (?, ?, ?)`,
-  ).run(
-    workerRow.id,
-    cadenceSeconds,
-    initialNextRunAt || new Date().toISOString(),
-  );
+  await db
+    .insertInto(TABLE_NAMES.WORKER_SCHEDULES)
+    .values({
+      worker_id: workerRow.id,
+      cadence_seconds: cadenceSeconds,
+      next_run_at: initialNextRunAt || new Date().toISOString(),
+    })
+    .onConflict((oc) => oc.column("worker_id").doNothing())
+    .execute();
 
   return workerRow;
 }
@@ -69,29 +69,43 @@ export async function fetchDueWorker(
   workerId: string,
 ): Promise<WorkerScheduleRow | null> {
   const now = new Date().toISOString();
-  const db = getDB();
-  const row = db
-    .prepare(
-      `SELECT * FROM ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)}
-       WHERE worker_id = ?
-         AND enabled = 1
-         AND (force_run = 1 OR next_run_at <= ?)
-         AND (backoff_until IS NULL OR backoff_until <= ?)
-       LIMIT 1`,
+  const db = getKysely();
+  const row = await db
+    .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
+    .selectAll()
+    .where("worker_id", "=", workerId)
+    .where("enabled", "=", 1)
+    .where((eb) => eb.or([eb("force_run", "=", 1), eb("next_run_at", "<=", now)]))
+    .where((eb) =>
+      eb.or([eb("backoff_until", "is", null), eb("backoff_until", "<=", now)]),
     )
-    .get(workerId, now, now) as WorkerScheduleRow | undefined;
+    .limit(1)
+    .executeTakeFirst();
 
-  return row || null;
+  if (!row) {
+    return null;
+  }
+
+  return {
+    worker_id: row.worker_id,
+    enabled: Number(row.enabled) !== 0,
+    force_run: Number(row.force_run) !== 0,
+    cadence_seconds: row.cadence_seconds,
+    next_run_at: row.next_run_at,
+    last_run_at: row.last_run_at,
+    attempts: row.attempts,
+    backoff_until: row.backoff_until,
+  };
 }
 
 export async function claimWorker(workerId: string): Promise<boolean> {
-  const db = getDB();
-  const result = db
-    .prepare(
-      `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)} SET updated_at = ? WHERE worker_id = ?`,
-    )
-    .run(new Date().toISOString(), workerId);
-  return result.changes > 0;
+  const db = getKysely();
+  const result = await db
+    .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+    .set({ updated_at: new Date().toISOString() })
+    .where("worker_id", "=", workerId)
+    .executeTakeFirst();
+  return Number(result.numUpdatedRows) > 0;
 }
 
 export async function completeWorker(
@@ -99,12 +113,20 @@ export async function completeWorker(
   cadenceSeconds: number,
 ): Promise<void> {
   const nextRun = new Date(Date.now() + cadenceSeconds * 1000).toISOString();
-  const db = getDB();
-  db.prepare(
-    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)}
-     SET last_run_at = ?, next_run_at = ?, force_run = 0, attempts = 0, backoff_until = NULL, updated_at = ?
-     WHERE worker_id = ?`,
-  ).run(new Date().toISOString(), nextRun, new Date().toISOString(), workerId);
+  const db = getKysely();
+  const now = new Date().toISOString();
+  await db
+    .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+    .set({
+      last_run_at: now,
+      next_run_at: nextRun,
+      force_run: 0,
+      attempts: 0,
+      backoff_until: null,
+      updated_at: now,
+    })
+    .where("worker_id", "=", workerId)
+    .execute();
 }
 
 export async function failWorker(
@@ -117,45 +139,52 @@ export async function failWorker(
   const backoffUntil = new Date(
     Date.now() + backoffSeconds * 1000,
   ).toISOString();
-  const db = getDB();
-  db.prepare(
-    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)}
-     SET force_run = 0, attempts = ?, backoff_until = ?, updated_at = ?
-     WHERE worker_id = ?`,
-  ).run(nextAttempts, backoffUntil, new Date().toISOString(), workerId);
+  const db = getKysely();
+  await db
+    .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+    .set({
+      force_run: 0,
+      attempts: nextAttempts,
+      backoff_until: backoffUntil,
+      updated_at: new Date().toISOString(),
+    })
+    .where("worker_id", "=", workerId)
+    .execute();
 }
 
 export async function triggerWorkerNow(workerId: string): Promise<void> {
-  const db = getDB();
-  db.prepare(
-    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)} SET force_run = 1 WHERE worker_id = ?`,
-  ).run(workerId);
+  const db = getKysely();
+  await db
+    .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+    .set({ force_run: 1 })
+    .where("worker_id", "=", workerId)
+    .execute();
 }
 
 export async function updateWorkerCadence(
   workerId: string,
   cadenceSeconds: number,
 ): Promise<void> {
-  const db = getDB();
-  db.prepare(
-    `UPDATE ${quoteIdentifier(TABLE_NAMES.WORKER_SCHEDULES)} SET cadence_seconds = ? WHERE worker_id = ?`,
-  ).run(cadenceSeconds, workerId);
+  const db = getKysely();
+  await db
+    .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+    .set({ cadence_seconds: cadenceSeconds })
+    .where("worker_id", "=", workerId)
+    .execute();
 }
 
 export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
-  const db = getDB();
-  db.prepare(
-    `INSERT INTO ${quoteIdentifier(TABLE_NAMES.WORKER_LOGS)}
-      (id, worker_id, run_started_at, run_finished_at, duration_ms, status, message, error_message)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    randomUUID(),
-    row.worker_id,
-    row.run_started_at ?? null,
-    row.run_finished_at ?? null,
-    row.duration_ms ?? null,
-    row.status,
-    row.message ?? null,
-    row.error_message ?? null,
-  );
+  const db = getKysely();
+  await db
+    .insertInto(TABLE_NAMES.WORKER_LOGS)
+    .values({
+      worker_id: row.worker_id,
+      run_started_at: row.run_started_at ?? new Date().toISOString(),
+      run_finished_at: row.run_finished_at ?? null,
+      duration_ms: row.duration_ms ?? null,
+      status: row.status,
+      message: row.message ?? null,
+      error_message: row.error_message ?? null,
+    })
+    .execute();
 }

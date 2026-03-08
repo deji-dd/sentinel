@@ -7,7 +7,7 @@ import { TABLE_NAMES, type TornFactionData } from "@sentinel/shared";
 import { logError } from "./logger.js";
 import { getAllSystemApiKeys } from "./api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || "http://localhost:3001";
 
@@ -89,12 +89,13 @@ async function getFactionData(
   faction_id: number,
   apiKey: string | null,
 ): Promise<TornFactionData | null> {
-  const db = getDB();
-  const cached = db
-    .prepare(
-      `SELECT * FROM "${TABLE_NAMES.TORN_FACTIONS}" WHERE id = ? LIMIT 1`,
-    )
-    .get(faction_id) as TornFactionData | undefined;
+  const db = getKysely();
+  const cached = (await db
+    .selectFrom(TABLE_NAMES.TORN_FACTIONS)
+    .selectAll()
+    .where("id", "=", faction_id)
+    .limit(1)
+    .executeTakeFirst()) as TornFactionData | undefined;
 
   if (cached) {
     return cached;
@@ -116,48 +117,51 @@ async function getFactionData(
     }
 
     const now = new Date().toISOString();
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.TORN_FACTIONS}"
-       (id, name, tag, tag_image, leader_id, co_leader_id, respect, days_old, capacity, members, is_enlisted, rank, best_chain, note, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         name = excluded.name,
-         tag = excluded.tag,
-         tag_image = excluded.tag_image,
-         leader_id = excluded.leader_id,
-         co_leader_id = excluded.co_leader_id,
-         respect = excluded.respect,
-         days_old = excluded.days_old,
-         capacity = excluded.capacity,
-         members = excluded.members,
-         is_enlisted = excluded.is_enlisted,
-         rank = excluded.rank,
-         best_chain = excluded.best_chain,
-         note = excluded.note,
-         updated_at = excluded.updated_at`,
-    ).run(
-      basic.id,
-      basic.name,
-      basic.tag,
-      basic.tag_image,
-      basic.leader_id,
-      basic.co_leader_id,
-      basic.respect,
-      basic.days_old,
-      basic.capacity,
-      basic.members,
-      basic.is_enlisted ? 1 : 0,
-      basic.rank?.name || null,
-      basic.best_chain,
-      basic.note || null,
-      now,
-    );
-
-    return db
-      .prepare(
-        `SELECT * FROM "${TABLE_NAMES.TORN_FACTIONS}" WHERE id = ? LIMIT 1`,
+    await db
+      .insertInto(TABLE_NAMES.TORN_FACTIONS)
+      .values({
+        id: basic.id,
+        name: basic.name,
+        tag: basic.tag,
+        tag_image: basic.tag_image,
+        leader_id: basic.leader_id,
+        co_leader_id: basic.co_leader_id,
+        respect: basic.respect,
+        days_old: basic.days_old,
+        capacity: basic.capacity,
+        members: basic.members,
+        is_enlisted: basic.is_enlisted ? 1 : 0,
+        rank: basic.rank?.name || null,
+        best_chain: basic.best_chain,
+        note: basic.note || null,
+        updated_at: now,
+      })
+      .onConflict((oc) =>
+        oc.column("id").doUpdateSet({
+          name: basic.name,
+          tag: basic.tag,
+          tag_image: basic.tag_image,
+          leader_id: basic.leader_id,
+          co_leader_id: basic.co_leader_id,
+          respect: basic.respect,
+          days_old: basic.days_old,
+          capacity: basic.capacity,
+          members: basic.members,
+          is_enlisted: basic.is_enlisted ? 1 : 0,
+          rank: basic.rank?.name || null,
+          best_chain: basic.best_chain,
+          note: basic.note || null,
+          updated_at: now,
+        }),
       )
-      .get(faction_id) as TornFactionData | null;
+      .execute();
+
+    return (await db
+      .selectFrom(TABLE_NAMES.TORN_FACTIONS)
+      .selectAll()
+      .where("id", "=", faction_id)
+      .limit(1)
+      .executeTakeFirst()) as TornFactionData | null;
   } catch {
     return null;
   }
@@ -210,12 +214,12 @@ function formatFactionWithTerritoryCount(
 async function getTerritoryCountsByFaction(): Promise<Map<number, number>> {
   const counts = new Map<number, number>();
 
-  const db = getDB();
-  const rows = db
-    .prepare(
-      `SELECT faction_id FROM "${TABLE_NAMES.TERRITORY_STATE}" WHERE faction_id IS NOT NULL`,
-    )
-    .all() as Array<{ faction_id: number | null }>;
+  const db = getKysely();
+  const rows = (await db
+    .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+    .select("faction_id")
+    .where("faction_id", "is not", null)
+    .execute()) as Array<{ faction_id: number | null }>;
 
   for (const row of rows) {
     const factionId = Number(row.faction_id);
@@ -632,13 +636,16 @@ export async function processAndDispatchNotifications(
     const apiKey = await getApiKeyForDispatcher();
 
     // Get guild configs for all guilds with TT module enabled
-    const db = getDB();
-    const guildConfigs = db
-      .prepare(
-        `SELECT guild_id, enabled_modules, tt_full_channel_id, tt_filtered_channel_id
-         FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
-      )
-      .all() as GuildConfigRow[];
+    const db = getKysely();
+    const guildConfigs = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select([
+        "guild_id",
+        "enabled_modules",
+        "tt_full_channel_id",
+        "tt_filtered_channel_id",
+      ])
+      .execute()) as GuildConfigRow[];
 
     if (!guildConfigs || guildConfigs.length === 0) {
       return;

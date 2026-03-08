@@ -58,19 +58,19 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
     }
 
     // Get guild config with settings
-    const { data: guildConfig, error: configError } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("nickname_template, verified_role_id")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["nickname_template", "verified_role_id"])
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
-    if (configError || !guildConfig) {
+    if (!guildConfig) {
       await logGuildError(
         guildId,
         interaction.client,
 
         "Verify All Failed: Not Configured",
-        configError?.message || "Missing guild config",
+        "Missing guild config",
         `${interaction.user} attempted /verifyall but guild is not configured.`,
       );
       const errorEmbed = new EmbedBuilder()
@@ -158,10 +158,11 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
     await interaction.editReply({ embeds: [progressEmbed] });
 
     // Fetch faction role mappings and cache faction leaders
-    const { data: factionMappings } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("*")
-      .eq("guild_id", guildId);
+    const factionMappings = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .execute();
 
     // Cache faction members for leader detection
     // Map: factionId -> Set of leader player IDs
@@ -169,12 +170,14 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
     // Fetch faction members for all mapped factions that are enabled and have leader roles
     if (factionMappings && factionMappings.length > 0) {
-      const enabledMappings = factionMappings.filter(
-        (m) =>
-          m.enabled !== false &&
-          m.leader_role_ids &&
-          m.leader_role_ids.length > 0,
-      );
+      const enabledMappings = factionMappings.filter((m) => {
+        const enabled = Number(m.enabled) !== 0; // SQLite stores booleans as 0/1
+        const leaderRoleIds: string[] =
+          typeof m.leader_role_ids === "string"
+            ? JSON.parse(m.leader_role_ids)
+            : m.leader_role_ids || [];
+        return enabled && leaderRoleIds.length > 0;
+      });
 
       for (const mapping of enabledMappings) {
         try {
@@ -243,14 +246,26 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
           });
 
           // Store in database
-          await db.from(TABLE_NAMES.VERIFIED_USERS).upsert({
-            discord_id: member.id,
-            torn_id: response.profile?.id,
-            torn_name: response.profile?.name,
-            faction_id: response.faction?.id || null,
-            faction_tag: response.faction?.tag || null,
-            updated_at: new Date().toISOString(),
-          });
+          await db
+            .insertInto(TABLE_NAMES.VERIFIED_USERS)
+            .values({
+              discord_id: member.id,
+              torn_id: response.profile?.id,
+              torn_name: response.profile?.name,
+              faction_id: response.faction?.id || null,
+              faction_tag: response.faction?.tag || null,
+              updated_at: new Date().toISOString(),
+            })
+            .onConflict((oc) =>
+              oc.column("discord_id").doUpdateSet({
+                torn_id: response.profile?.id,
+                torn_name: response.profile?.name,
+                faction_id: response.faction?.id || null,
+                faction_tag: response.faction?.tag || null,
+                updated_at: new Date().toISOString(),
+              }),
+            )
+            .execute();
 
           // Apply nickname template
           try {
@@ -260,6 +275,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
               .replace("{tag}", response.faction?.tag || "");
 
             await member.setNickname(nickname);
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
           } catch (nicknameError) {
             // Silently ignore nickname errors (expected for admins with higher perms)
           }
@@ -284,14 +300,20 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
           // Handle faction roles - WITH STRICT ROLE SECURITY
           // Treat faction roles as "master" - only people in that faction can have those roles
-          const { data: allFactionMappings } = await db
-            .from(TABLE_NAMES.FACTION_ROLES)
-            .select("faction_id, member_role_ids, leader_role_ids, enabled")
-            .eq("guild_id", guildId);
+          const allFactionMappings = await db
+            .selectFrom(TABLE_NAMES.FACTION_ROLES)
+            .select([
+              "faction_id",
+              "member_role_ids",
+              "leader_role_ids",
+              "enabled",
+            ])
+            .where("guild_id", "=", guildId)
+            .execute();
 
           if (allFactionMappings && allFactionMappings.length > 0) {
             const enabledMappings = allFactionMappings.filter(
-              (m) => m.enabled !== false,
+              (m) => Number(m.enabled) !== 0, // SQLite stores booleans as 0/1
             );
 
             // Determine which roles user SHOULD have (based on their faction)
@@ -305,25 +327,25 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
               if (currentFactionMapping) {
                 // Add member roles
-                currentFactionMapping.member_role_ids?.forEach(
-                  (roleId: string) => {
-                    rolesUserShouldHave.add(roleId);
-                  },
-                );
+                const memberRoleIds: string[] =
+                  typeof currentFactionMapping.member_role_ids === "string"
+                    ? JSON.parse(currentFactionMapping.member_role_ids)
+                    : currentFactionMapping.member_role_ids || [];
+                memberRoleIds.forEach((roleId: string) => {
+                  rolesUserShouldHave.add(roleId);
+                });
 
                 // Check if user is a leader and add leader roles
-                if (
-                  currentFactionMapping.leader_role_ids &&
-                  currentFactionMapping.leader_role_ids.length > 0 &&
-                  response.profile?.id
-                ) {
+                const leaderRoleIds: string[] =
+                  typeof currentFactionMapping.leader_role_ids === "string"
+                    ? JSON.parse(currentFactionMapping.leader_role_ids)
+                    : currentFactionMapping.leader_role_ids || [];
+                if (leaderRoleIds.length > 0 && response.profile?.id) {
                   const leaders = factionLeadersCache.get(response.faction.id);
                   if (leaders && leaders.has(response.profile.id)) {
-                    currentFactionMapping.leader_role_ids.forEach(
-                      (roleId: string) => {
-                        rolesUserShouldHave.add(roleId);
-                      },
-                    );
+                    leaderRoleIds.forEach((roleId: string) => {
+                      rolesUserShouldHave.add(roleId);
+                    });
                   }
                 }
               }
@@ -331,10 +353,15 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
 
             // Now enforce role state: remove all faction-mapped roles that user shouldn't have
             for (const mapping of enabledMappings) {
-              const allMappedRoles = [
-                ...(mapping.member_role_ids || []),
-                ...(mapping.leader_role_ids || []),
-              ];
+              const memberRoleIds: string[] =
+                typeof mapping.member_role_ids === "string"
+                  ? JSON.parse(mapping.member_role_ids)
+                  : mapping.member_role_ids || [];
+              const leaderRoleIds: string[] =
+                typeof mapping.leader_role_ids === "string"
+                  ? JSON.parse(mapping.leader_role_ids)
+                  : mapping.leader_role_ids || [];
+              const allMappedRoles = [...memberRoleIds, ...leaderRoleIds];
 
               for (const roleId of allMappedRoles) {
                 const userHasRole = member.roles.cache.has(roleId);

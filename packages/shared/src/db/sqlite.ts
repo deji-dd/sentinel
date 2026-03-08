@@ -1,7 +1,9 @@
 import Database from "better-sqlite3";
-import { readFileSync, existsSync, mkdirSync } from "fs";
+import { Kysely, SqliteDialect } from "kysely";
+import { existsSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve } from "path";
+import type { DB } from "./kysely-types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -52,6 +54,7 @@ function resolveDatabasePath(
  */
 class SQLiteDB {
   private db: Database.Database | null = null;
+  private kysely: Kysely<DB> | null = null;
   private readonly dbPath: string;
   private readonly environment: string;
 
@@ -115,7 +118,30 @@ class SQLiteDB {
   }
 
   /**
-   * Check if database is empty and execute schema creation if needed
+   * Get or create the Kysely database instance
+   * Provides type-safe query builder
+   */
+  getKysely(): Kysely<DB> {
+    if (this.kysely) {
+      return this.kysely;
+    }
+
+    // Ensure better-sqlite3 connection is initialized first
+    const db = this.getConnection();
+
+    // Create Kysely instance with SqliteDialect
+    this.kysely = new Kysely<DB>({
+      dialect: new SqliteDialect({
+        database: db,
+      }),
+    });
+
+    return this.kysely;
+  }
+
+  /**
+   * Check if database is empty and log status
+   * Schema initialization is now handled by migration system
    */
   private initializeSchemaIfEmpty(): void {
     if (!this.db) {
@@ -130,17 +156,9 @@ class SQLiteDB {
       .get() as { count: number };
 
     if (tableCount.count === 0) {
-      console.log("[SQLite] Database is empty, executing schema creation...");
-
-      // Read and execute schema file from workspace root
-      const workspaceRoot = findWorkspaceRoot();
-      const schemaPath = join(workspaceRoot, "sqlite-schema.sql");
-      const schema = readFileSync(schemaPath, "utf-8");
-
-      // Execute schema in a transaction for atomicity
-      this.db.exec(schema);
-
-      console.log("[SQLite] Schema created successfully");
+      console.log(
+        "[SQLite] Database is empty. Run migrations with 'pnpm sqlite:migrate' to initialize schema.",
+      );
     } else {
       console.log(
         `[SQLite] Database already initialized with ${tableCount.count} tables`,
@@ -153,6 +171,10 @@ class SQLiteDB {
    * Call this on graceful shutdown
    */
   close(): void {
+    if (this.kysely) {
+      this.kysely.destroy();
+      this.kysely = null;
+    }
     if (this.db) {
       this.db.close();
       this.db = null;
@@ -175,9 +197,14 @@ class SQLiteDB {
 // Export singleton instance
 export const sqliteDB = new SQLiteDB();
 
-// Export db getter for convenience
+// Export db getter for convenience (better-sqlite3)
 export function getDB(): Database.Database {
   return sqliteDB.getConnection();
+}
+
+// Export Kysely instance getter
+export function getKysely(): Kysely<DB> {
+  return sqliteDB.getKysely();
 }
 
 // Graceful shutdown handler

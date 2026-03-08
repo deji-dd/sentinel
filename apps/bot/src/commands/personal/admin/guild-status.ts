@@ -6,7 +6,7 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 export const data = new SlashCommandBuilder()
   .setName("guild-status")
@@ -49,14 +49,11 @@ export async function execute(
       enabled_modules: string[];
     }>;
     try {
-      const db = getDB();
-      const rows = db
-        .prepare(
-          `SELECT guild_id, enabled_modules
-           FROM "${TABLE_NAMES.GUILD_CONFIG}"
-           ORDER BY guild_id ASC`,
-        )
-        .all() as GuildConfigRow[];
+      const rows = (await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .select(["guild_id", "enabled_modules"])
+        .orderBy("guild_id", "asc")
+        .execute()) as GuildConfigRow[];
 
       configuredGuilds = rows.map((row) => {
         const raw = row.enabled_modules;

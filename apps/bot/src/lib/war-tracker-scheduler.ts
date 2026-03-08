@@ -5,7 +5,7 @@
 
 import { EmbedBuilder, type Client } from "discord.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import {
   buildWarTrackerEmbed,
@@ -71,12 +71,19 @@ export class WarTrackerScheduler {
   }
 
   private async pollAndUpdate(): Promise<void> {
-    const db = getDB();
-    const trackers = db
-      .prepare(
-        `SELECT guild_id, war_id, territory_id, channel_id, message_id, enemy_side, min_away_minutes FROM "${TABLE_NAMES.WAR_TRACKERS}" WHERE channel_id IS NOT NULL`,
-      )
-      .all() as WarTrackerRow[];
+    const trackers = (await db
+      .selectFrom(TABLE_NAMES.WAR_TRACKERS)
+      .select([
+        "guild_id",
+        "war_id",
+        "territory_id",
+        "channel_id",
+        "message_id",
+        "enemy_side",
+        "min_away_minutes",
+      ])
+      .where("channel_id", "is not", null)
+      .execute()) as WarTrackerRow[];
 
     if (trackers.length === 0) {
       return;
@@ -191,24 +198,30 @@ export class WarTrackerScheduler {
       .send({ embeds: [embed] })
       .catch(() => null);
     if (newMessage) {
-      const db = getDB();
-      db.prepare(
-        `UPDATE "${TABLE_NAMES.WAR_TRACKERS}" SET message_id = ?, updated_at = ? WHERE guild_id = ? AND war_id = ?`,
-      ).run(
-        newMessage.id,
-        new Date().toISOString(),
-        tracker.guild_id,
-        tracker.war_id,
-      );
+      await db
+        .updateTable(TABLE_NAMES.WAR_TRACKERS)
+        .set({
+          message_id: newMessage.id,
+          updated_at: new Date().toISOString(),
+        })
+        .where("guild_id", "=", tracker.guild_id)
+        .where("war_id", "=", tracker.war_id)
+        .execute();
     }
   }
 
   private async handleWarEnded(tracker: WarTrackerRow): Promise<void> {
-    const db = getDB();
     if (!tracker.channel_id || !tracker.message_id) {
-      db.prepare(
-        `UPDATE "${TABLE_NAMES.WAR_TRACKERS}" SET channel_id = NULL, message_id = NULL, updated_at = ? WHERE guild_id = ? AND war_id = ?`,
-      ).run(new Date().toISOString(), tracker.guild_id, tracker.war_id);
+      await db
+        .updateTable(TABLE_NAMES.WAR_TRACKERS)
+        .set({
+          channel_id: null,
+          message_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .where("guild_id", "=", tracker.guild_id)
+        .where("war_id", "=", tracker.war_id)
+        .execute();
       return;
     }
 
@@ -226,8 +239,15 @@ export class WarTrackerScheduler {
       }
     }
 
-    db.prepare(
-      `UPDATE "${TABLE_NAMES.WAR_TRACKERS}" SET channel_id = NULL, message_id = NULL, updated_at = ? WHERE guild_id = ? AND war_id = ?`,
-    ).run(new Date().toISOString(), tracker.guild_id, tracker.war_id);
+    await db
+      .updateTable(TABLE_NAMES.WAR_TRACKERS)
+      .set({
+        channel_id: null,
+        message_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .where("guild_id", "=", tracker.guild_id)
+      .where("war_id", "=", tracker.war_id)
+      .execute();
   }
 }

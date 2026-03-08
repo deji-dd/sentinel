@@ -13,6 +13,7 @@ import * as configCommand from "../commands/general/admin/config.js";
 import * as assaultCheckCommand from "../commands/general/territories/assault-check.js";
 import * as burnMapCommand from "../commands/general/territories/burn-map.js";
 import * as burnMapSimulatorCommand from "../commands/general/territories/burn-map-simulator.js";
+import * as assistCommand from "../commands/general/assist/assist.js";
 
 /**
  * List of all regular (non-admin) command names
@@ -27,6 +28,7 @@ const REGULAR_COMMAND_NAMES = [
   "assault-check",
   "burn-map",
   "burn-map-simulator",
+  "assist",
 ];
 
 /**
@@ -75,6 +77,9 @@ export async function handleRegularCommand(
       break;
     case "burn-map-simulator":
       await burnMapSimulatorCommand.execute(interaction);
+      break;
+    case "assist":
+      await assistCommand.execute(interaction);
       break;
   }
 

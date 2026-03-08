@@ -6,7 +6,7 @@
 import { Client, GuildMember, EmbedBuilder } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { type TornApiComponents } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildSuccess, logGuildError } from "./guild-logger.js";
 import { upsertVerifiedUser } from "./verified-users.js";
@@ -83,15 +83,12 @@ export async function handleMemberJoin(
     const guildId = member.guild.id;
 
     // Get guild config to check if auto-verify is enabled
-    const db = getDB();
-    const guildConfigRow = db
-      .prepare(
-        `SELECT auto_verify, nickname_template, verified_role_id
-         FROM "${TABLE_NAMES.GUILD_CONFIG}"
-         WHERE guild_id = ?
-         LIMIT 1`,
-      )
-      .get(guildId) as GuildConfigRow | undefined;
+    const guildConfigRow = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["auto_verify", "nickname_template", "verified_role_id"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as GuildConfigRow | undefined;
 
     if (!guildConfigRow) {
       // Guild not configured, skip
@@ -224,8 +221,7 @@ async function attemptAutoVerification(
   }
 
   // Successfully verified - store in database
-  const db = getDB();
-  upsertVerifiedUser({
+  await upsertVerifiedUser({
     discordId: member.id,
     tornId: response.profile.id,
     tornName: response.profile.name,
@@ -271,13 +267,11 @@ async function attemptAutoVerification(
 
   // Handle faction roles - WITH STRICT ROLE SECURITY
   // Treat faction roles as "master" - only people in that faction can have those roles
-  const allFactionMappingsRaw = db
-    .prepare(
-      `SELECT faction_id, member_role_ids, leader_role_ids, enabled
-       FROM "${TABLE_NAMES.FACTION_ROLES}"
-       WHERE guild_id = ?`,
-    )
-    .all(member.guild.id) as Array<{
+  const allFactionMappingsRaw = (await db
+    .selectFrom(TABLE_NAMES.FACTION_ROLES)
+    .select(["faction_id", "member_role_ids", "leader_role_ids", "enabled"])
+    .where("guild_id", "=", member.guild.id)
+    .execute()) as Array<{
     faction_id: number;
     member_role_ids: unknown;
     leader_role_ids: unknown;

@@ -4,7 +4,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 import {
   runWithInteractionError,
   safeReply,
@@ -65,28 +65,33 @@ export async function execute(
         split_gear: number;
       };
 
-      const db = getDB();
-
       let snapshot: SnapshotRow | undefined;
       let settings: FinanceSettingsRow | undefined;
       try {
-        snapshot = db
-          .prepare(
-            `SELECT created_at, liquid_cash, bookie_value, bookie_updated_at, net_worth
-             FROM "${TABLE_NAMES.USER_SNAPSHOTS}"
-             ORDER BY created_at DESC
-             LIMIT 1`,
-          )
-          .get() as SnapshotRow | undefined;
+        snapshot = (await db
+          .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+          .select([
+            "created_at",
+            "liquid_cash",
+            "bookie_value",
+            "bookie_updated_at",
+            "net_worth",
+          ])
+          .orderBy("created_at", "desc")
+          .limit(1)
+          .executeTakeFirst()) as SnapshotRow | undefined;
 
-        settings = db
-          .prepare(
-            `SELECT min_reserve, split_bookie, split_training, split_gear
-             FROM "${TABLE_NAMES.FINANCE_SETTINGS}"
-             WHERE player_id = ?
-             LIMIT 1`,
-          )
-          .get(userId) as FinanceSettingsRow | undefined;
+        settings = (await db
+          .selectFrom(TABLE_NAMES.FINANCE_SETTINGS)
+          .select([
+            "min_reserve",
+            "split_bookie",
+            "split_training",
+            "split_gear",
+          ])
+          .where("player_id", "=", Number(userId))
+          .limit(1)
+          .executeTakeFirst()) as FinanceSettingsRow | undefined;
       } catch {
         await safeReply(
           interaction,

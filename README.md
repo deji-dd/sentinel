@@ -34,7 +34,7 @@ Sentinel now uses SQLite only.
 - `SQLITE_DB_PATH_LOCAL`
 - `SQLITE_DB_PATH`
 
-Schema bootstrap is handled automatically from `sqlite-schema.sql` when a DB file is empty.
+Schema initialization is handled by the migration system. When a database is empty, run `pnpm sqlite:migrate` to apply all migrations.
 
 ## Migrations
 

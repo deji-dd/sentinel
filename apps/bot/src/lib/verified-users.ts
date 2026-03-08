@@ -1,5 +1,5 @@
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 
 type UpsertVerifiedUserInput = {
   discordId: string;
@@ -14,35 +14,33 @@ type UpsertVerifiedUserInput = {
  * Persist a verified user without relying on SQLite UNIQUE/PK constraints.
  * This keeps a single row for either discord_id or torn_id.
  */
-export function upsertVerifiedUser(input: UpsertVerifiedUserInput): void {
-  const db = getDB();
+export async function upsertVerifiedUser(
+  input: UpsertVerifiedUserInput,
+): Promise<void> {
   const now = input.now ?? new Date().toISOString();
 
-  const replaceUser = db.transaction(() => {
-    db.prepare(
-      `DELETE FROM "${TABLE_NAMES.VERIFIED_USERS}" WHERE discord_id = ? OR torn_id = ?`,
-    ).run(input.discordId, input.tornId);
+  await db.transaction().execute(async (trx) => {
+    await trx
+      .deleteFrom(TABLE_NAMES.VERIFIED_USERS)
+      .where((eb) =>
+        eb.or([
+          eb("discord_id", "=", input.discordId),
+          eb("torn_id", "=", input.tornId),
+        ]),
+      )
+      .execute();
 
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.VERIFIED_USERS}" (
-        discord_id,
-        torn_id,
-        torn_name,
-        faction_id,
-        faction_tag,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      input.discordId,
-      input.tornId,
-      input.tornName,
-      input.factionId,
-      input.factionTag,
-      now,
-      now,
-    );
+    await trx
+      .insertInto(TABLE_NAMES.VERIFIED_USERS)
+      .values({
+        discord_id: input.discordId,
+        torn_id: input.tornId,
+        torn_name: input.tornName,
+        faction_id: input.factionId,
+        faction_tag: input.factionTag,
+        created_at: now,
+        updated_at: now,
+      })
+      .execute();
   });
-
-  replaceUser();
 }

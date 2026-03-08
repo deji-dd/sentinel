@@ -4,7 +4,7 @@ import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { randomUUID } from "crypto";
 
 const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
@@ -171,58 +171,35 @@ async function takeSnapshot(): Promise<void> {
       employees,
     );
 
-    const db = getDB();
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.USER_SNAPSHOTS}" (
-        id,
-        liquid_cash,
-        bookie_value,
-        bookie_updated_at,
-        net_worth,
-        active_gym,
-        energy_current,
-        energy_maximum,
-        nerve_current,
-        nerve_maximum,
-        happy_current,
-        happy_maximum,
-        life_current,
-        life_maximum,
-        chain_current,
-        chain_maximum,
-        energy_flat_time_to_full,
-        energy_time_to_full,
-        nerve_flat_time_to_full,
-        nerve_time_to_full,
-        drug_cooldown,
-        medical_cooldown,
-        booster_cooldown
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      randomUUID(),
-      liquidCash,
-      bookieValue,
-      bookieUpdatedAt,
-      netWorth,
-      activeGym,
-      energyCurrent,
-      energyMaximum,
-      nerveCurrent,
-      nerveMaximum,
-      happyCurrent,
-      happyMaximum,
-      lifeCurrent,
-      lifeMaximum,
-      chainCurrent,
-      chainMaximum,
-      energyFlatTimeToFull,
-      energyTimeToFull,
-      nerveFlatTimeToFull,
-      nerveTimeToFull,
-      drugCooldown,
-      medicalCooldown,
-      boosterCooldown,
-    );
+    const db = getKysely();
+    await db
+      .insertInto(TABLE_NAMES.USER_SNAPSHOTS)
+      .values({
+        id: randomUUID(),
+        liquid_cash: liquidCash,
+        bookie_value: bookieValue,
+        bookie_updated_at: bookieUpdatedAt,
+        net_worth: netWorth,
+        active_gym: activeGym,
+        energy_current: energyCurrent,
+        energy_maximum: energyMaximum,
+        nerve_current: nerveCurrent,
+        nerve_maximum: nerveMaximum,
+        happy_current: happyCurrent,
+        happy_maximum: happyMaximum,
+        life_current: lifeCurrent,
+        life_maximum: lifeMaximum,
+        chain_current: chainCurrent,
+        chain_maximum: chainMaximum,
+        energy_flat_time_to_full: energyFlatTimeToFull,
+        energy_time_to_full: energyTimeToFull,
+        nerve_flat_time_to_full: nerveFlatTimeToFull,
+        nerve_time_to_full: nerveTimeToFull,
+        drug_cooldown: drugCooldown,
+        medical_cooldown: medicalCooldown,
+        booster_cooldown: boosterCooldown,
+      })
+      .execute();
 
     const duration = Date.now() - startTime;
     logDuration(SNAPSHOT_WORKER_NAME, "Sync completed", duration);
@@ -267,12 +244,13 @@ async function pruneSnapshots(): Promise<void> {
     // Actually, let's be smarter: keep one snapshot per hour (the first one in each hour)
 
     // Get all snapshots older than 1 week
-    const db = getDB();
-    const oldSnapshots = db
-      .prepare(
-        `SELECT id, created_at FROM "${TABLE_NAMES.USER_SNAPSHOTS}" WHERE created_at < ? ORDER BY created_at ASC`,
-      )
-      .all(oneWeekAgo) as SnapshotRow[];
+    const db = getKysely();
+    const oldSnapshots = (await db
+      .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+      .select(["id", "created_at"])
+      .where("created_at", "<", oneWeekAgo)
+      .orderBy("created_at", "asc")
+      .execute()) as SnapshotRow[];
 
     if (!oldSnapshots || oldSnapshots.length === 0) {
       return;
@@ -298,10 +276,10 @@ async function pruneSnapshots(): Promise<void> {
       .map((s) => s.id);
 
     if (idsToDelete.length > 0) {
-      const placeholders = idsToDelete.map(() => "?").join(", ");
-      db.prepare(
-        `DELETE FROM "${TABLE_NAMES.USER_SNAPSHOTS}" WHERE id IN (${placeholders})`,
-      ).run(...idsToDelete);
+      await db
+        .deleteFrom(TABLE_NAMES.USER_SNAPSHOTS)
+        .where("id", "in", idsToDelete)
+        .execute();
 
       const duration = Date.now() - startTime;
       logDuration(

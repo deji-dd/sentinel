@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { type TornApiComponents } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   logGuildError,
@@ -73,12 +73,12 @@ export async function execute(
     }
 
     // Get guild config for settings (nickname template, verified role)
-    const db = getDB();
-    const guildConfig = db
-      .prepare(
-        `SELECT nickname_template, verified_role_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(guildId) as
+    const guildConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["nickname_template", "verified_role_id"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as
       | { nickname_template: string | null; verified_role_id: string | null }
       | undefined;
 
@@ -221,7 +221,7 @@ export async function execute(
     }
 
     // Store verification in database
-    upsertVerifiedUser({
+    await upsertVerifiedUser({
       discordId: targetUser.id,
       tornId: response.profile?.id,
       tornName: response.profile?.name || "Unknown",
@@ -271,31 +271,35 @@ export async function execute(
       const member = await interaction.guild.members.fetch(targetUser.id);
 
       // Fetch ALL faction role mappings for this guild
-      const allFactionMappings = db
-        .prepare(
-          `SELECT faction_id, member_role_ids, leader_role_ids, enabled
-           FROM "${TABLE_NAMES.FACTION_ROLES}"
-           WHERE guild_id = ?`,
-        )
-        .all(interaction.guildId)
-        .map((row) => {
-          const typed = row as {
-            faction_id: number;
-            member_role_ids: unknown;
-            leader_role_ids: unknown;
-            enabled: unknown;
-          };
+      const allFactionMappings = (
+        await db
+          .selectFrom(TABLE_NAMES.FACTION_ROLES)
+          .select([
+            "faction_id",
+            "member_role_ids",
+            "leader_role_ids",
+            "enabled",
+          ])
+          .where("guild_id", "=", interaction.guildId)
+          .execute()
+      ).map((row) => {
+        const typed = row as {
+          faction_id: number;
+          member_role_ids: unknown;
+          leader_role_ids: unknown;
+          enabled: unknown;
+        };
 
-          return {
-            faction_id: typed.faction_id,
-            member_role_ids: parseTextArray(typed.member_role_ids),
-            leader_role_ids: parseTextArray(typed.leader_role_ids),
-            enabled:
-              typed.enabled !== false &&
-              typed.enabled !== 0 &&
-              typed.enabled !== "0",
-          };
-        });
+        return {
+          faction_id: typed.faction_id,
+          member_role_ids: parseTextArray(typed.member_role_ids),
+          leader_role_ids: parseTextArray(typed.leader_role_ids),
+          enabled:
+            typed.enabled !== false &&
+            typed.enabled !== 0 &&
+            typed.enabled !== "0",
+        };
+      });
 
       if (allFactionMappings && allFactionMappings.length > 0) {
         const enabledMappings = allFactionMappings.filter(

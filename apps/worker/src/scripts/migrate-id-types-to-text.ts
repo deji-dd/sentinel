@@ -13,7 +13,7 @@
  * Usage: npx tsx src/scripts/migrate-id-types-to-text.ts
  */
 
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getDB, getKysely } from "@sentinel/shared/db/sqlite.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
 function quoteIdentifier(name: string): string {
@@ -25,6 +25,7 @@ async function migrateTable(
   idColumnName: string = "id",
 ): Promise<void> {
   const db = getDB();
+  const kdb = getKysely();
   const quoted = quoteIdentifier(tableName);
   const idQuoted = quoteIdentifier(idColumnName);
 
@@ -35,9 +36,11 @@ async function migrateTable(
 
   try {
     // Count existing rows
-    const beforeCount = db
-      .prepare(`SELECT COUNT(*) as count FROM ${quoted}`)
-      .get() as { count: number };
+    const beforeCountRow = await kdb
+      .selectFrom(tableName as never)
+      .select((eb) => eb.fn.countAll<number>().as("count"))
+      .executeTakeFirstOrThrow();
+    const beforeCount = { count: Number(beforeCountRow.count) };
 
     console.log(`  ✓ Found ${beforeCount.count} existing rows`);
 
@@ -52,9 +55,7 @@ async function migrateTable(
     `);
 
     // Get column definitions (excluding the id column)
-    const tableInfo = db
-      .prepare(`PRAGMA table_info(${quoted})`)
-      .all() as Array<{
+    const tableInfo = db.pragma(`table_info(${quoted})`) as Array<{
       cid: number;
       name: string;
       type: string;
@@ -123,9 +124,11 @@ async function migrateTable(
     `);
 
     // Verify data integrity
-    const afterCount = db
-      .prepare(`SELECT COUNT(*) as count FROM ${quoted}`)
-      .get() as { count: number };
+    const afterCountRow = await kdb
+      .selectFrom(tableName as never)
+      .select((eb) => eb.fn.countAll<number>().as("count"))
+      .executeTakeFirstOrThrow();
+    const afterCount = { count: Number(afterCountRow.count) };
 
     if (afterCount.count === beforeCount.count) {
       console.log(`  ✅ Data migration successful (${afterCount.count} rows)`);

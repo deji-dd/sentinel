@@ -14,7 +14,7 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "battlestats_pruning_worker";
 const RETENTION_DAYS = 30;
@@ -47,15 +47,13 @@ async function pruneBattlestats(): Promise<void> {
     cutoffDate.setUTCHours(0, 0, 0, 0);
 
     // Fetch all snapshots older than cutoff
-    const db = getDB();
-    const oldSnapshots = db
-      .prepare(
-        `SELECT id, created_at
-         FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
-         WHERE created_at < ?
-         ORDER BY created_at DESC`,
-      )
-      .all(cutoffDate.toISOString()) as SnapshotRow[];
+    const db = getKysely();
+    const oldSnapshots = (await db
+      .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+      .select(["id", "created_at"])
+      .where("created_at", "<", cutoffDate.toISOString())
+      .orderBy("created_at", "desc")
+      .execute()) as SnapshotRow[];
 
     if (!oldSnapshots || oldSnapshots.length === 0) {
       const duration = Date.now() - startTime;
@@ -89,10 +87,10 @@ async function pruneBattlestats(): Promise<void> {
       // Keep the first one (latest, due to descending sort), delete the rest
       const toDelete = snapshotIds.slice(1);
 
-      const placeholders = toDelete.map(() => "?").join(", ");
-      db.prepare(
-        `DELETE FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}" WHERE id IN (${placeholders})`,
-      ).run(...toDelete);
+      await db
+        .deleteFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+        .where("id", "in", toDelete)
+        .execute();
 
       totalDeleted += toDelete.length;
     }

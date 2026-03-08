@@ -2,7 +2,7 @@ import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { logDuration } from "../lib/logger.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "war_ledger_pruning_worker";
 const PRUNE_CADENCE_SECONDS = 86400; // Prune once daily
@@ -18,10 +18,11 @@ async function pruneWarLedger(): Promise<void> {
     Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  const db = getDB();
-  db.prepare(
-    `DELETE FROM "${TABLE_NAMES.WAR_LEDGER}" WHERE start_time < ?`,
-  ).run(cutoffTime.toISOString());
+  const db = getKysely();
+  await db
+    .deleteFrom(TABLE_NAMES.WAR_LEDGER)
+    .where("start_time", "<", cutoffTime.toISOString())
+    .execute();
 
   const duration = Date.now() - startTime;
   logDuration(WORKER_NAME, "Sync completed", duration);

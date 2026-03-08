@@ -37,43 +37,47 @@ import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
+import * as assistHandlers from "./handlers/assist.js";
 import { db } from "../../../lib/db-client.js";
 
 interface StoredGuildApiKey {
-  id: number;
+  id: string;
   api_key_encrypted: string;
   is_primary: boolean;
   createdAt: string;
 }
 
+interface GuildConfigView {
+  log_channel_id: string | null;
+  admin_role_ids: string | null;
+  auto_verify: number | null;
+  verified_role_id: string | null;
+  nickname_template: string | null;
+}
+
 async function getStoredGuildApiKeys(
   guildId: string,
 ): Promise<StoredGuildApiKey[]> {
-  const { data, error } = await db
-    .from(TABLE_NAMES.GUILD_API_KEYS)
-    .select("id, api_key_encrypted, is_primary, created_at")
-    .eq("guild_id", guildId)
-    .is("deleted_at", null)
-    .order("is_primary", { ascending: false })
-    .order("created_at", { ascending: true });
+  try {
+    const rows = await db
+      .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+      .select(["id", "api_key_encrypted", "is_primary", "created_at"])
+      .where("guild_id", "=", guildId)
+      .where("deleted_at", "is", null)
+      .orderBy("is_primary", "desc")
+      .orderBy("created_at", "asc")
+      .execute();
 
-  if (error || !data) {
+    return rows.map((row) => ({
+      id: row.id,
+      api_key_encrypted: row.api_key_encrypted,
+      is_primary: Boolean(row.is_primary),
+      createdAt: row.created_at as string,
+    }));
+  } catch (error) {
+    console.error("Error fetching guild API keys:", error);
     return [];
   }
-
-  return data.map(
-    (row) =>
-      ({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        id: (row as any).id,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        api_key_encrypted: (row as any).api_key_encrypted,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        is_primary: Boolean((row as any).is_primary),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        createdAt: (row as any).created_at,
-      }) as StoredGuildApiKey,
-  );
 }
 
 async function getActiveGuildApiKey(
@@ -143,6 +147,15 @@ function buildConfigViewMenuRow(
     );
   }
 
+  if (enabledModules.includes("assist")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Assist Settings")
+        .setValue("assist")
+        .setDescription("Configure combat assist alert routing"),
+    );
+  }
+
   const selectMenu = new StringSelectMenuBuilder()
     .setCustomId("config_view_select")
     .setPlaceholder("Select a settings section...")
@@ -180,11 +193,11 @@ export async function execute(
     }
 
     // Check if guild is configured
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -201,7 +214,10 @@ export async function execute(
     }
 
     // Check if user has permission to use config command
-    const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
+    const adminRoleIds: string[] =
+      typeof guildConfig.admin_role_ids === "string"
+        ? JSON.parse(guildConfig.admin_role_ids)
+        : guildConfig.admin_role_ids || [];
 
     const userIsBotOwner = interaction.user.id === botOwnerId;
 
@@ -229,7 +245,10 @@ export async function execute(
     }
 
     // Show view selection menu
-    const enabledModules: string[] = guildConfig.enabled_modules || [];
+    const enabledModules: string[] =
+      typeof guildConfig.enabled_modules === "string"
+        ? JSON.parse(guildConfig.enabled_modules)
+        : guildConfig.enabled_modules || [];
     const row = buildConfigViewMenuRow(enabledModules);
 
     const menuEmbed = new EmbedBuilder()
@@ -300,11 +319,11 @@ export async function handleViewSelect(
     }
 
     // Get guild config BEFORE deferring
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -329,10 +348,14 @@ export async function handleViewSelect(
       territories: "territories",
       reaction_roles: "reaction_roles",
       revive: "revive",
+      assist: "assist",
     };
 
     const requiredModule = moduleForView[selectedView];
-    const enabledModules: string[] = guildConfig.enabled_modules || [];
+    const enabledModules: string[] =
+      typeof guildConfig.enabled_modules === "string"
+        ? JSON.parse(guildConfig.enabled_modules)
+        : guildConfig.enabled_modules || [];
 
     if (requiredModule && !enabledModules.includes(requiredModule)) {
       const disabledEmbed = new EmbedBuilder()
@@ -362,6 +385,8 @@ export async function handleViewSelect(
       );
     } else if (selectedView === "revive") {
       await reviveHandlers.handleShowReviveSettings(interaction, true);
+    } else if (selectedView === "assist") {
+      await assistHandlers.handleShowAssistSettings(interaction, true);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -380,8 +405,7 @@ export async function handleViewSelect(
 
 async function showAdminSettings(
   interaction: StringSelectMenuInteraction,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  guildConfig: any,
+  guildConfig: GuildConfigView,
 ): Promise<void> {
   const guildId = interaction.guildId;
   const apiKeys = guildId ? await getStoredGuildApiKeys(guildId) : [];
@@ -403,7 +427,10 @@ async function showAdminSettings(
     : "Not configured";
 
   // Format admin roles display
-  const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
+  const adminRoleIds: string[] =
+    typeof guildConfig.admin_role_ids === "string"
+      ? JSON.parse(guildConfig.admin_role_ids)
+      : guildConfig.admin_role_ids || [];
   let adminRolesDisplay = "Not configured (anyone can use config)";
   if (adminRoleIds.length > 0) {
     adminRolesDisplay = adminRoleIds
@@ -469,16 +496,16 @@ async function showAdminSettings(
 }
 
 async function showVerifySettings(
-  interaction: StringSelectMenuInteraction,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  guildConfig: any,
+  interaction: StringSelectMenuInteraction | ButtonInteraction,
+  guildConfig: GuildConfigView,
 ): Promise<void> {
   // Fetch faction role mappings
-  const { data: factionRoles } = await db
-    .from(TABLE_NAMES.FACTION_ROLES)
-    .select("*")
-    .eq("guild_id", interaction.guildId)
-    .order("faction_id", { ascending: true });
+  const factionRoles = await db
+    .selectFrom(TABLE_NAMES.FACTION_ROLES)
+    .selectAll()
+    .where("guild_id", "=", interaction.guildId)
+    .orderBy("faction_id", "asc")
+    .execute();
 
   const guildId = interaction.guildId;
   const apiKeys = guildId ? await getStoredGuildApiKeys(guildId) : [];
@@ -595,13 +622,16 @@ export async function handleBackToMenu(
     const adminGuildId = process.env.ADMIN_GUILD_ID;
     const isAdminGuild = guildId === adminGuildId;
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .eq("guild_id", guildId)
-      .maybeSingle();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["enabled_modules"])
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
-    const enabledModules: string[] = guildConfig?.enabled_modules || [];
+    const enabledModules: string[] =
+      typeof guildConfig?.enabled_modules === "string"
+        ? JSON.parse(guildConfig.enabled_modules)
+        : guildConfig?.enabled_modules || [];
 
     const row = buildConfigViewMenuRow(enabledModules);
 
@@ -634,22 +664,23 @@ export async function handleBackToVerifySettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .maybeSingle();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) return;
 
     // Create a mock StringSelectMenuInteraction to reuse showVerifySettings
     // Since we can't directly pass ButtonInteraction to showVerifySettings,
     // we'll inline the display logic here
-    const { data: factionRoles } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .order("faction_id", { ascending: true });
+    const factionRoles = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .orderBy("faction_id", "asc")
+      .execute();
 
     const apiKeys = await getStoredGuildApiKeys(guildId);
     const hasApiKey = apiKeys.length > 0;
@@ -673,25 +704,35 @@ export async function handleBackToVerifySettings(
       factionRolesDisplay = factionRoles
         .map((fr) => {
           const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
-          const enabled = fr.enabled !== false;
+          const enabled = Number(fr.enabled) !== 0; // SQLite stores as 0/1
           const statusEmoji = enabled
             ? "<:Green:1474607376140079104>"
             : "<:Red:1474607810368114886>";
 
           let rolesText = "";
 
+          // Parse JSON arrays
+          const memberRoleIds: string[] =
+            typeof fr.member_role_ids === "string"
+              ? JSON.parse(fr.member_role_ids)
+              : fr.member_role_ids || [];
+          const leaderRoleIds: string[] =
+            typeof fr.leader_role_ids === "string"
+              ? JSON.parse(fr.leader_role_ids)
+              : fr.leader_role_ids || [];
+
           // Show member roles
-          if (fr.member_role_ids && fr.member_role_ids.length > 0) {
-            const memberRoles = fr.member_role_ids
-              .map((roleId: string) => `<@&${roleId}>`)
+          if (memberRoleIds && memberRoleIds.length > 0) {
+            const memberRoles = memberRoleIds
+              .map((roleId) => `<@&${roleId}>`)
               .join(", ");
             rolesText += `Members: ${memberRoles}`;
           }
 
           // Show leader roles if configured
-          if (fr.leader_role_ids && fr.leader_role_ids.length > 0) {
-            const leaderRoles = fr.leader_role_ids
-              .map((roleId: string) => `<@&${roleId}>`)
+          if (leaderRoleIds && leaderRoleIds.length > 0) {
+            const leaderRoles = leaderRoleIds
+              .map((roleId) => `<@&${roleId}>`)
               .join(", ");
             rolesText += (rolesText ? " | " : "") + `Leaders: ${leaderRoles}`;
           }
@@ -812,11 +853,11 @@ export async function handleBackToAdminSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) return;
 
@@ -839,7 +880,10 @@ export async function handleBackToAdminSettings(
       : "Not configured";
 
     // Format admin roles display
-    const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
+    const adminRoleIds: string[] =
+      typeof guildConfig.admin_role_ids === "string"
+        ? JSON.parse(guildConfig.admin_role_ids)
+        : guildConfig.admin_role_ids || [];
     let adminRolesDisplay = "Not configured (anyone can use config)";
     if (adminRoleIds.length > 0) {
       adminRolesDisplay = adminRoleIds
@@ -931,11 +975,11 @@ export async function handleVerifySettingsEdit(
     }
 
     // Get guild config
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) {
       await interaction.deferUpdate();
@@ -1084,16 +1128,12 @@ async function showFactionRoleMenu(
   page: number = 1,
 ): Promise<void> {
   try {
-    const { data: factionRoles, error: factionError } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .order("created_at", { ascending: true });
-
-    if (factionError) {
-      console.error("Error fetching faction roles:", factionError);
-      throw new Error(`Failed to fetch faction roles: ${factionError.message}`);
-    }
+    const factionRoles = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .orderBy("created_at", "asc")
+      .execute();
 
     let factionRolesDisplay =
       "None configured\n\nUse the **Add Faction** button below to get started.";
@@ -1122,15 +1162,17 @@ async function showFactionRoleMenu(
           await fetchAndStoreFactionNames(factionIds, apiKey);
 
           // Re-fetch the page's faction roles to get updated names
-          const { data: updatedRoles } = await db
-            .from(TABLE_NAMES.FACTION_ROLES)
-            .select("*")
-            .eq("guild_id", guildId)
-            .in(
+          const updatedRoles = await db
+            .selectFrom(TABLE_NAMES.FACTION_ROLES)
+            .selectAll()
+            .where("guild_id", "=", guildId)
+            .where(
               "faction_id",
+              "in",
               pageFactionRoles.map((fr) => fr.faction_id),
             )
-            .order("faction_id", { ascending: true });
+            .orderBy("faction_id", "asc")
+            .execute();
 
           if (updatedRoles) {
             // Update the page faction roles with fetched names
@@ -1152,7 +1194,7 @@ async function showFactionRoleMenu(
       // Build options and display for current page only
       pageFactionRoles.forEach((fr) => {
         const factionName = fr.faction_name || `Faction ${fr.faction_id}`;
-        const enabled = fr.enabled !== false; // Default to true if not set
+        const enabled = Number(fr.enabled) !== 0; // SQLite stores as 0/1
         const statusEmoji = enabled
           ? "<:Green:1474607376140079104>"
           : "<:Red:1474607810368114886>";
@@ -1348,12 +1390,12 @@ async function showFactionManagePage(
   if (!guildId) return;
 
   // Fetch faction mapping
-  const { data: factionMapping } = await db
-    .from(TABLE_NAMES.FACTION_ROLES)
-    .select("*")
-    .eq("guild_id", guildId)
-    .eq("faction_id", factionId)
-    .single();
+  const factionMapping = await db
+    .selectFrom(TABLE_NAMES.FACTION_ROLES)
+    .selectAll()
+    .where("guild_id", "=", guildId)
+    .where("faction_id", "=", factionId)
+    .executeTakeFirst();
 
   if (!factionMapping) {
     const errorEmbed = new EmbedBuilder()
@@ -1371,9 +1413,15 @@ async function showFactionManagePage(
   }
 
   const factionName = factionMapping.faction_name || `Faction ${factionId}`;
-  const enabled = factionMapping.enabled !== false;
-  const memberRoleIds = factionMapping.member_role_ids || [];
-  const leaderRoleIds = factionMapping.leader_role_ids || [];
+  const enabled = Number(factionMapping.enabled) !== 0; // SQLite stores as 0/1
+  const memberRoleIds: string[] =
+    typeof factionMapping.member_role_ids === "string"
+      ? JSON.parse(factionMapping.member_role_ids)
+      : factionMapping.member_role_ids || [];
+  const leaderRoleIds: string[] =
+    typeof factionMapping.leader_role_ids === "string"
+      ? JSON.parse(factionMapping.leader_role_ids)
+      : factionMapping.leader_role_ids || [];
 
   // Build description
   let description = `Configure role assignments for **${factionName}**.\n\n`;
@@ -1381,12 +1429,12 @@ async function showFactionManagePage(
   description += `**Member Roles** (assigned to ALL faction members):\n`;
   description +=
     memberRoleIds.length > 0
-      ? memberRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+      ? memberRoleIds.map((id) => `<@&${id}>`).join(", ")
       : "_None configured_";
   description += `\n\n**Leader Roles** (assigned ONLY to Leaders & Co-leaders):\n`;
   description +=
     leaderRoleIds.length > 0
-      ? leaderRoleIds.map((id: string) => `<@&${id}>`).join(", ")
+      ? leaderRoleIds.map((id) => `<@&${id}>`).join(", ")
       : "_None configured_";
 
   const manageEmbed = new EmbedBuilder()
@@ -1451,11 +1499,11 @@ export async function handleVerifySettingsEditCancel(
       return;
     }
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -1470,8 +1518,7 @@ export async function handleVerifySettingsEditCancel(
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await showVerifySettings(interaction as any, guildConfig);
+    await showVerifySettings(interaction, guildConfig);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in cancel handler:", errorMsg);
@@ -1500,11 +1547,11 @@ export async function handleEditApiKeysButton(
       return;
     }
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -1798,37 +1845,26 @@ export async function handleRotateApiKeyButton(
       apiKeys[nextInactiveIdx].api_key_encrypted,
     );
 
-    const { error: clearPrimaryError } = await db
-      .from(TABLE_NAMES.GUILD_API_KEYS)
-      .update({ is_primary: false })
-      .eq("guild_id", guildId)
-      .is("deleted_at", null);
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+        .set({ is_primary: 0 })
+        .where("guild_id", "=", guildId)
+        .where("deleted_at", "is", null)
+        .execute();
 
-    if (clearPrimaryError) {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+        .set({ is_primary: 1 })
+        .where("id", "=", apiKeys[nextInactiveIdx].id)
+        .where("guild_id", "=", guildId)
+        .where("deleted_at", "is", null)
+        .execute();
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Failed to Rotate Key")
-        .setDescription(clearPrimaryError.message);
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_API_KEYS)
-      .update({ is_primary: true })
-      .eq("id", apiKeys[nextInactiveIdx].id)
-      .eq("guild_id", guildId)
-      .is("deleted_at", null);
-
-    if (error) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Failed to Rotate Key")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -1930,8 +1966,7 @@ export async function handleRemoveApiKeySelect(
     await interaction.deferUpdate();
 
     const guildId = interaction.guildId;
-    const keyIdStr = interaction.values[0].replace("remove_key_", "");
-    const keyId = parseInt(keyIdStr, 10);
+    const keyId = interaction.values[0].replace("remove_key_", "");
 
     if (!guildId) {
       return;
@@ -1977,11 +2012,12 @@ export async function handleRemoveApiKeySelect(
       const remainingKeys = await getStoredGuildApiKeys(guildId);
       if (remainingKeys.length > 0) {
         await db
-          .from(TABLE_NAMES.GUILD_API_KEYS)
-          .update({ is_primary: true })
-          .eq("id", remainingKeys[0].id)
-          .eq("guild_id", guildId)
-          .is("deleted_at", null);
+          .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+          .set({ is_primary: 1 })
+          .where("id", "=", remainingKeys[0].id)
+          .where("guild_id", "=", guildId)
+          .where("deleted_at", "is", null)
+          .execute();
       }
     }
 
@@ -2143,23 +2179,26 @@ export async function handleAddFactionRoleModalSubmit(
     }
 
     // Check if this faction is already mapped
-    const { data: existingMapping } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId)
-      .maybeSingle();
+    const existingMapping = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .where("faction_id", "=", factionId)
+      .executeTakeFirst();
 
     // If not exists, create it with empty roles
     if (!existingMapping) {
-      await db.from(TABLE_NAMES.FACTION_ROLES).insert({
-        guild_id: guildId,
-        faction_id: factionId,
-        faction_name: factionDetails.name,
-        member_role_ids: [],
-        leader_role_ids: [],
-        enabled: true,
-      });
+      await db
+        .insertInto(TABLE_NAMES.FACTION_ROLES)
+        .values({
+          guild_id: guildId,
+          faction_id: factionId,
+          faction_name: factionDetails.name,
+          member_role_ids: JSON.stringify([]),
+          leader_role_ids: JSON.stringify([]),
+          enabled: 1, // SQLite stores as 0/1
+        })
+        .execute();
 
       await logGuildAudit({
         guildId,
@@ -2173,9 +2212,15 @@ export async function handleAddFactionRoleModalSubmit(
     }
 
     // Show faction management page
-    const memberRoleIds = existingMapping?.member_role_ids || [];
-    const leaderRoleIds = existingMapping?.leader_role_ids || [];
-    const enabled = existingMapping?.enabled !== false;
+    const memberRoleIds: string[] =
+      typeof existingMapping?.member_role_ids === "string"
+        ? JSON.parse(existingMapping.member_role_ids)
+        : existingMapping?.member_role_ids || [];
+    const leaderRoleIds: string[] =
+      typeof existingMapping?.leader_role_ids === "string"
+        ? JSON.parse(existingMapping.leader_role_ids)
+        : existingMapping?.leader_role_ids || [];
+    const enabled = Number(existingMapping?.enabled) !== 0; // SQLite stores as 0/1
 
     // Build description
     let description = `Configure role assignments for **${factionDetails.name}**.\n\n`;
@@ -2270,17 +2315,17 @@ export async function handleRemoveFactionRoleModalSubmit(
       return;
     }
 
-    const { error } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .delete()
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId);
-
-    if (error) {
+    try {
+      await db
+        .deleteFrom(TABLE_NAMES.FACTION_ROLES)
+        .where("guild_id", "=", guildId)
+        .where("faction_id", "=", factionId)
+        .execute();
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Failed to Remove Mapping")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -2458,16 +2503,17 @@ export async function handleVerifiedRoleSelect(
 
     const roleId = interaction.values[0];
 
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ verified_role_id: roleId })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ verified_role_id: roleId })
+        .where("guild_id", "=", guildId)
+        .execute();
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Failed to Save Verification Role")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -2530,16 +2576,17 @@ export async function handleNicknameTemplateModalSubmit(
       return;
     }
 
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ nickname_template: template })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ nickname_template: template })
+        .where("guild_id", "=", guildId)
+        .execute();
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Failed to Save Template")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -2610,11 +2657,11 @@ export async function handleConfirmAutoVerifyToggle(
       return;
     }
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("auto_verify")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["auto_verify"])
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) {
       return;
@@ -2622,16 +2669,17 @@ export async function handleConfirmAutoVerifyToggle(
 
     const newValue = !guildConfig.auto_verify;
 
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ auto_verify: newValue })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ auto_verify: newValue ? 1 : 0 })
+        .where("guild_id", "=", guildId)
+        .execute();
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Failed to Update Setting")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -2687,11 +2735,11 @@ export async function handleEditLogChannelButton(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("log_channel_id")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["log_channel_id"])
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     const channelSelectMenu = new ChannelSelectMenuBuilder()
       .setCustomId("config_log_channel_select")
@@ -2760,18 +2808,19 @@ export async function handleLogChannelSelect(
     }
 
     // Update guild config with log channel
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ log_channel_id: selectedChannel.id })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ log_channel_id: selectedChannel.id })
+        .where("guild_id", "=", guildId)
+        .execute();
+    } catch (error) {
       await logGuildError(
         guildId,
         interaction.client,
 
         "Log Channel Update Failed",
-        error.message,
+        error instanceof Error ? error.message : String(error),
         `Failed to set log channel to ${selectedChannel}.`,
       );
       const errorEmbed = new EmbedBuilder()
@@ -2835,18 +2884,19 @@ export async function handleClearLogChannel(
     if (!guildId) return;
 
     // Clear log channel
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({ log_channel_id: null })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({ log_channel_id: null })
+        .where("guild_id", "=", guildId)
+        .execute();
+    } catch (error) {
       await logGuildError(
         guildId,
         interaction.client,
 
         "Log Channel Clear Failed",
-        error.message,
+        error instanceof Error ? error.message : String(error),
         `Failed to clear log channel for ${interaction.user}.`,
       );
       const errorEmbed = new EmbedBuilder()
@@ -2956,18 +3006,19 @@ export async function handleAdminRolesSelect(
     }
 
     // Update guild config with selected admin roles
-    const { error } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .update({
-        admin_role_ids: selectedRoleIds,
-      })
-      .eq("guild_id", guildId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.GUILD_CONFIG)
+        .set({
+          admin_role_ids: JSON.stringify(selectedRoleIds),
+        })
+        .where("guild_id", "=", guildId)
+        .execute();
+    } catch (error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Failed to Update Admin Roles")
-        .setDescription(error.message);
+        .setDescription(error instanceof Error ? error.message : String(error));
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -3032,12 +3083,15 @@ async function logGuildAudit(entry: {
   details?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    await db.from(TABLE_NAMES.GUILD_AUDIT).insert({
-      guild_id: entry.guildId,
-      actor_discord_id: entry.actorId,
-      action: entry.action,
-      details: entry.details ?? null,
-    });
+    await db
+      .insertInto(TABLE_NAMES.GUILD_AUDIT)
+      .values({
+        guild_id: entry.guildId,
+        actor_discord_id: entry.actorId,
+        action: entry.action,
+        details: entry.details ? JSON.stringify(entry.details) : null,
+      })
+      .execute();
   } catch (error) {
     console.warn("Failed to write guild audit entry:", error);
   }
@@ -3220,25 +3274,26 @@ export async function handleFactionToggle(
     if (!guildId) return;
 
     // Get current mapping
-    const { data: currentMapping } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("enabled")
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId)
-      .single();
+    const currentMapping = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .select(["enabled"])
+      .where("guild_id", "=", guildId)
+      .where("faction_id", "=", factionId)
+      .executeTakeFirst();
 
     if (!currentMapping) return;
 
-    const newEnabled = !(currentMapping.enabled !== false); // Toggle
+    const newEnabled = Number(currentMapping.enabled) === 0; // Toggle (SQLite 0/1)
 
     // Update in database
-    const { error } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .update({ enabled: newEnabled })
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.FACTION_ROLES)
+        .set({ enabled: newEnabled ? 1 : 0 })
+        .where("guild_id", "=", guildId)
+        .where("faction_id", "=", factionId)
+        .execute();
+    } catch (error) {
       console.error("Error toggling faction:", error);
       return;
     }
@@ -3278,12 +3333,12 @@ export async function handleFactionMemberRolesButton(
     if (!guildId) return;
 
     // Fetch faction name
-    const { data: factionMapping } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("faction_name")
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId)
-      .single();
+    const factionMapping = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .select(["faction_name"])
+      .where("guild_id", "=", guildId)
+      .where("faction_id", "=", factionId)
+      .executeTakeFirst();
 
     const factionName = factionMapping?.faction_name || `Faction ${factionId}`;
 
@@ -3333,12 +3388,12 @@ export async function handleFactionLeaderRolesButton(
     if (!guildId) return;
 
     // Fetch faction name
-    const { data: factionMapping } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .select("faction_name")
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId)
-      .single();
+    const factionMapping = await db
+      .selectFrom(TABLE_NAMES.FACTION_ROLES)
+      .select(["faction_name"])
+      .where("guild_id", "=", guildId)
+      .where("faction_id", "=", factionId)
+      .executeTakeFirst();
 
     const factionName = factionMapping?.faction_name || `Faction ${factionId}`;
 
@@ -3390,13 +3445,14 @@ export async function handleFactionMemberRolesSelect(
     const roleIds = interaction.values;
 
     // Update in database
-    const { error } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .update({ member_role_ids: roleIds })
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.FACTION_ROLES)
+        .set({ member_role_ids: JSON.stringify(roleIds) })
+        .where("guild_id", "=", guildId)
+        .where("faction_id", "=", factionId)
+        .execute();
+    } catch (error) {
       console.error("Error updating member roles:", error);
       return;
     }
@@ -3438,13 +3494,14 @@ export async function handleFactionLeaderRolesSelect(
     const roleIds = interaction.values;
 
     // Update in database
-    const { error } = await db
-      .from(TABLE_NAMES.FACTION_ROLES)
-      .update({ leader_role_ids: roleIds })
-      .eq("guild_id", guildId)
-      .eq("faction_id", factionId);
-
-    if (error) {
+    try {
+      await db
+        .updateTable(TABLE_NAMES.FACTION_ROLES)
+        .set({ leader_role_ids: JSON.stringify(roleIds) })
+        .where("guild_id", "=", guildId)
+        .where("faction_id", "=", factionId)
+        .execute();
+    } catch (error) {
       console.error("Error updating leader roles:", error);
       return;
     }
@@ -3715,4 +3772,80 @@ export async function handleReviveMarkRevived(
   interaction: ButtonInteraction,
 ): Promise<void> {
   return reviveHandlers.handleReviveMarkRevived(interaction);
+}
+
+export async function handleShowAssistSettings(
+  interaction: ButtonInteraction,
+  isAlreadyDeferred: boolean = false,
+): Promise<void> {
+  return assistHandlers.handleShowAssistSettings(
+    interaction,
+    isAlreadyDeferred,
+  );
+}
+
+export async function handleAssistSetChannel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistSetChannel(interaction);
+}
+
+export async function handleAssistSetPingRole(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistSetPingRole(interaction);
+}
+
+export async function handleAssistChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistChannelSelect(interaction);
+}
+
+export async function handleAssistPingRoleSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistPingRoleSelect(interaction);
+}
+
+export async function handleAssistSetScriptRoles(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistSetScriptRoles(interaction);
+}
+
+export async function handleAssistScriptRolesSelect(
+  interaction: RoleSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistScriptRolesSelect(interaction);
+}
+
+export async function handleAssistManageUsers(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageUsers(interaction);
+}
+
+export async function handleAssistManagePageButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManagePageButton(interaction);
+}
+
+export async function handleAssistManageUserSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageUserSelect(interaction);
+}
+
+export async function handleAssistManageActionSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageActionSelect(interaction);
+}
+
+export async function handleAssistManageBackButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageBackButton(interaction);
 }

@@ -11,7 +11,7 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
@@ -19,7 +19,7 @@ export function startTerritoryBlueprintSyncWorker() {
     defaultCadenceSeconds: 86400, // Once daily (24 hours)
     handler: async () => {
       const startTime = Date.now();
-      const db = getDB();
+      const db = getKysely();
 
       try {
         // Get system API keys and initialize rotator for load balancing
@@ -88,13 +88,12 @@ export function startTerritoryBlueprintSyncWorker() {
         }
 
         // Check if this is first run (no blueprints exist yet)
-        const existingCountRow = db
-          .prepare(
-            `SELECT COUNT(*) as count FROM "${TABLE_NAMES.TERRITORY_BLUEPRINT}"`,
-          )
-          .get() as { count: number };
+        const existingCountRow = await db
+          .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
+          .select((eb) => eb.fn.count("id").as("count"))
+          .executeTakeFirst();
 
-        const isFirstRun = (existingCountRow?.count ?? 0) === 0;
+        const isFirstRun = Number(existingCountRow?.count ?? 0) === 0;
 
         // Prepare upsert data for blueprints
         const blueprintData = territories.map((tt) => ({
@@ -110,57 +109,28 @@ export function startTerritoryBlueprintSyncWorker() {
           updated_at: new Date().toISOString(),
         }));
 
-        // Upsert blueprints
-        const upsertBlueprintTx = db.transaction(
-          (
-            rows: Array<{
-              id: string;
-              sector: number;
-              size: number;
-              density: number;
-              slots: number;
-              respect: number;
-              coordinate_x: number;
-              coordinate_y: number;
-              neighbors: string;
-              updated_at: string;
-            }>,
-          ) => {
-            const stmt = db.prepare(
-              `INSERT INTO "${TABLE_NAMES.TERRITORY_BLUEPRINT}"
-               (id, sector, size, density, slots, respect, coordinate_x, coordinate_y, neighbors, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                 sector = excluded.sector,
-                 size = excluded.size,
-                 density = excluded.density,
-                 slots = excluded.slots,
-                 respect = excluded.respect,
-                 coordinate_x = excluded.coordinate_x,
-                 coordinate_y = excluded.coordinate_y,
-                 neighbors = excluded.neighbors,
-                 updated_at = excluded.updated_at`,
-            );
-
-            for (const row of rows) {
-              stmt.run(
-                row.id,
-                row.sector,
-                row.size,
-                row.density,
-                row.slots,
-                row.respect,
-                row.coordinate_x,
-                row.coordinate_y,
-                row.neighbors,
-                row.updated_at,
-              );
-            }
-          },
-        );
-
         try {
-          upsertBlueprintTx(blueprintData);
+          await db.transaction().execute(async (trx) => {
+            for (const row of blueprintData) {
+              await trx
+                .insertInto(TABLE_NAMES.TERRITORY_BLUEPRINT)
+                .values(row)
+                .onConflict((oc) =>
+                  oc.column("id").doUpdateSet({
+                    sector: row.sector,
+                    size: row.size,
+                    density: row.density,
+                    slots: row.slots,
+                    respect: row.respect,
+                    coordinate_x: row.coordinate_x,
+                    coordinate_y: row.coordinate_y,
+                    neighbors: row.neighbors,
+                    updated_at: row.updated_at,
+                  }),
+                )
+                .execute();
+            }
+          });
         } catch (error) {
           logError(
             "territory_blueprint_sync",
@@ -178,30 +148,18 @@ export function startTerritoryBlueprintSyncWorker() {
           }));
 
           try {
-            const insertStateTx = db.transaction(
-              (
-                rows: Array<{
-                  territory_id: string;
-                  faction_id: number | null;
-                  is_warring: boolean;
-                }>,
-              ) => {
-                const stmt = db.prepare(
-                  `INSERT INTO "${TABLE_NAMES.TERRITORY_STATE}" (territory_id, faction_id, is_warring)
-                   VALUES (?, ?, ?)`,
-                );
-
-                for (const row of rows) {
-                  stmt.run(
-                    row.territory_id,
-                    row.faction_id,
-                    row.is_warring ? 1 : 0,
-                  );
-                }
-              },
-            );
-
-            insertStateTx(stateData);
+            await db.transaction().execute(async (trx) => {
+              for (const row of stateData) {
+                await trx
+                  .insertInto(TABLE_NAMES.TERRITORY_STATE)
+                  .values({
+                    territory_id: row.territory_id,
+                    faction_id: row.faction_id,
+                    is_warring: row.is_warring ? 1 : 0,
+                  })
+                  .execute();
+              }
+            });
           } catch (error) {
             logError(
               "territory_blueprint_sync",

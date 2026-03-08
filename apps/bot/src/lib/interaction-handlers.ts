@@ -10,6 +10,7 @@ import * as enableModuleCommand from "../commands/personal/admin/enable-module.j
 import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as configCommand from "../commands/general/admin/config.js";
 import * as statsCommand from "../commands/personal/stats.js";
+import * as assistCommand from "../commands/general/assist/assist.js";
 
 /**
  * Handle all button interactions
@@ -134,6 +135,30 @@ export async function handleButtonInteraction(
     await configCommand.handleReviveCancelRequest(interaction);
   } else if (customId.startsWith("revive_mark_revived|")) {
     await configCommand.handleReviveMarkRevived(interaction);
+  } else if (customId === "assist_settings_show") {
+    await configCommand.handleShowAssistSettings(interaction);
+  } else if (customId === "assist_set_channel") {
+    await configCommand.handleAssistSetChannel(interaction);
+  } else if (customId === "assist_set_ping_role") {
+    await configCommand.handleAssistSetPingRole(interaction);
+  } else if (customId === "assist_set_script_roles") {
+    await configCommand.handleAssistSetScriptRoles(interaction);
+  } else if (customId === "assist_manage_users") {
+    await configCommand.handleAssistManageUsers(interaction);
+  } else if (
+    customId.startsWith("assist_config_page_prev|") ||
+    customId.startsWith("assist_config_page_next|")
+  ) {
+    await configCommand.handleAssistManagePageButton(interaction);
+  } else if (customId.startsWith("assist_config_manage_back|")) {
+    await configCommand.handleAssistManageBackButton(interaction);
+  } else if (
+    customId.startsWith("assist_manage_page_prev|") ||
+    customId.startsWith("assist_manage_page_next|")
+  ) {
+    await assistCommand.handleManagePageButton(interaction);
+  } else if (customId.startsWith("assist_manage_back|")) {
+    await assistCommand.handleManageBackButton(interaction);
   } else {
     return false;
   }
@@ -245,6 +270,14 @@ export async function handleStringSelectMenuInteraction(
     await configCommand.handleEditReactionRoleMappingSelect(interaction);
   } else if (customId.startsWith("reaction_role_edit_remove_select|")) {
     await configCommand.handleEditReactionRoleRemoveMappingSelect(interaction);
+  } else if (customId.startsWith("assist_config_user_select|")) {
+    await configCommand.handleAssistManageUserSelect(interaction);
+  } else if (customId.startsWith("assist_config_action_select|")) {
+    await configCommand.handleAssistManageActionSelect(interaction);
+  } else if (customId.startsWith("assist_manage_user_select|")) {
+    await assistCommand.handleManageUserSelect(interaction);
+  } else if (customId.startsWith("assist_manage_action_select|")) {
+    await assistCommand.handleManageActionSelect(interaction);
   }
   // Stats command
   else if (customId === "stats_timeframe_select") {
@@ -286,6 +319,10 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleMappingRoleSelect(interaction);
   } else if (customId === "revive_ping_role_select") {
     await configCommand.handleRevivePingRoleSelect(interaction);
+  } else if (customId === "assist_ping_role_select") {
+    await configCommand.handleAssistPingRoleSelect(interaction);
+  } else if (customId === "assist_script_roles_select") {
+    await configCommand.handleAssistScriptRolesSelect(interaction);
   } else {
     return false;
   }
@@ -319,6 +356,8 @@ export async function handleChannelSelectMenuInteraction(
     await configCommand.handleReviveRequestChannelSelect(interaction);
   } else if (customId === "revive_output_channel_select") {
     await configCommand.handleReviveOutputChannelSelect(interaction);
+  } else if (customId === "assist_channel_select") {
+    await configCommand.handleAssistChannelSelect(interaction);
   } else {
     return false;
   }

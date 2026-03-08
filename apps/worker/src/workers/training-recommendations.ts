@@ -4,7 +4,7 @@ import { tornApi } from "../services/torn-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const TRAINING_RECOMMENDATIONS_WORKER_NAME = "training_recommendations_worker";
 const TRAINING_RECOMMENDATIONS_CADENCE_SECONDS = 600; // 10 minutes
@@ -62,16 +62,14 @@ async function getLatestSnapshot(): Promise<{
   liquid_cash: number;
   can_boost_energy_perk: number;
 }> {
-  const db = getDB();
+  const db = getKysely();
 
-  const battlestatsData = db
-    .prepare(
-      `SELECT strength, speed, defense, dexterity
-       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    )
-    .get() as
+  const battlestatsData = (await db
+    .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+    .select(["strength", "speed", "defense", "dexterity"])
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst()) as
     | {
         strength: number | null;
         speed: number | null;
@@ -84,14 +82,12 @@ async function getLatestSnapshot(): Promise<{
     throw new Error("Failed to fetch latest battlestats: no data");
   }
 
-  const userSnapshotData = db
-    .prepare(
-      `SELECT active_gym, happy_current, liquid_cash
-       FROM "${TABLE_NAMES.USER_SNAPSHOTS}"
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    )
-    .get() as
+  const userSnapshotData = (await db
+    .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+    .select(["active_gym", "happy_current", "liquid_cash"])
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst()) as
     | {
         active_gym: number | null;
         happy_current: number | null;
@@ -137,10 +133,12 @@ async function getGymDetails(activeGymId: number | null): Promise<{
   activeGym: GymDetails | null;
   stage4Gyms: GymDetails[];
 }> {
-  const db = getDB();
-  const gyms = db
-    .prepare(`SELECT * FROM "${TABLE_NAMES.TORN_GYMS}" WHERE unlocked = 1`)
-    .all() as GymDetails[];
+  const db = getKysely();
+  const gyms = (await db
+    .selectFrom(TABLE_NAMES.TORN_GYMS)
+    .selectAll()
+    .where("unlocked", "=", 1)
+    .execute()) as unknown as GymDetails[];
 
   const activeGym = activeGymId
     ? gyms.find((g) => g.id === activeGymId) || null
@@ -160,15 +158,13 @@ async function getGymDetails(activeGymId: number | null): Promise<{
 async function getEnergyGainItems(): Promise<ItemWithPrice[]> {
   const seItemNames = ["Dumbbells", "Boxing Gloves", "Parachute", "Skateboard"];
 
-  const db = getDB();
-  const placeholders = seItemNames.map(() => "?").join(", ");
-  const data = db
-    .prepare(
-      `SELECT item_id as id, name, energy_gain, booster_cooldown_hours
-       FROM "${TABLE_NAMES.TORN_ITEMS}"
-       WHERE energy_gain > 0 AND name IN (${placeholders})`,
-    )
-    .all(...seItemNames) as Array<{
+  const db = getKysely();
+  const data = (await db
+    .selectFrom(TABLE_NAMES.TORN_ITEMS)
+    .select(["item_id as id", "name", "energy_gain", "booster_cooldown_hours"])
+    .where("energy_gain", ">", 0)
+    .where("name", "in", seItemNames)
+    .execute()) as Array<{
     id: number;
     name: string;
     energy_gain: number;
@@ -327,14 +323,12 @@ async function getTrainingBudget(currentSnapshot: {
   liquid_cash?: number;
   [key: string]: unknown;
 }): Promise<number> {
-  const db = getDB();
-  const settingsData = db
-    .prepare(
-      `SELECT min_reserve, split_training, split_bookie, split_gear
-       FROM "${TABLE_NAMES.FINANCE_SETTINGS}"
-       LIMIT 1`,
-    )
-    .get() as
+  const db = getKysely();
+  const settingsData = (await db
+    .selectFrom(TABLE_NAMES.FINANCE_SETTINGS)
+    .select(["min_reserve", "split_training", "split_bookie", "split_gear"])
+    .limit(1)
+    .executeTakeFirst()) as
     | {
         min_reserve: number | null;
         split_training: number | null;
@@ -518,10 +512,12 @@ function calculateTrainingCosts(
  * Get booster cooldown from sentinel_user_cooldowns
  */
 async function _getBoosterCooldown(): Promise<number> {
-  const db = getDB();
-  const data = db
-    .prepare(`SELECT booster FROM "sentinel_user_cooldowns" LIMIT 1`)
-    .get() as { booster: number | null } | undefined;
+  const db = getKysely();
+  const data = (await db
+    .selectFrom(TABLE_NAMES.USER_COOLDOWNS)
+    .select("booster")
+    .limit(1)
+    .executeTakeFirst()) as { booster: number | null } | undefined;
 
   if (!data) {
     logError(
@@ -540,12 +536,12 @@ async function _getBoosterCooldown(): Promise<number> {
 async function getUserBuildPreference(): Promise<{
   mainStat: StatKey | null;
 }> {
-  const db = getDB();
-  const data = db
-    .prepare(
-      `SELECT main_stat FROM "${TABLE_NAMES.STAT_BUILD_PREFERENCES}" LIMIT 1`,
-    )
-    .get() as { main_stat: string | null } | undefined;
+  const db = getKysely();
+  const data = (await db
+    .selectFrom(TABLE_NAMES.STAT_BUILD_PREFERENCES)
+    .select("main_stat")
+    .limit(1)
+    .executeTakeFirst()) as { main_stat: string | null } | undefined;
 
   if (!data) {
     // No preference set is not an error, just return null
@@ -615,7 +611,21 @@ async function computeTrainingRecommendations(): Promise<void> {
     }
 
     // Save recommendations for each stat
-    const recommendations = [];
+    const recommendations: Array<{
+      stat: string;
+      best_method_type: string;
+      best_method_id: number;
+      cost_per_stat: number;
+      estimated_gains_per_train: number;
+      max_quantity_affordable: number;
+      training_budget: number;
+      current_gym_sub_optimal: number;
+      better_gym_name: string | null;
+      better_gym_bonus: number;
+      current_gym_bonus: number;
+      is_main_stat_focus: number;
+      priority_score: number;
+    }> = [];
     for (const stat of Object.keys(trainingCosts) as StatKey[]) {
       const costs = trainingCosts[stat];
       if (costs.length === 0) continue;
@@ -634,7 +644,7 @@ async function computeTrainingRecommendations(): Promise<void> {
       const priorityScore = isMainStatFocus ? 0 : 1;
 
       // Build recommendation object
-      const recommendation: Record<string, unknown> = {
+      const recommendation = {
         stat,
         best_method_type: cheapest.method,
         best_method_id: cheapest.itemId,
@@ -642,11 +652,11 @@ async function computeTrainingRecommendations(): Promise<void> {
         estimated_gains_per_train: Math.ceil(cheapest.estimatedGain),
         max_quantity_affordable: cheapest.quantityAffordable,
         training_budget: trainingBudget,
-        current_gym_sub_optimal: gymInfo.isSubOptimal,
+        current_gym_sub_optimal: gymInfo.isSubOptimal ? 1 : 0,
         better_gym_name: gymInfo.betterGymName,
         better_gym_bonus: gymInfo.betterBonus,
         current_gym_bonus: gymInfo.currentBonus,
-        is_main_stat_focus: isMainStatFocus,
+        is_main_stat_focus: isMainStatFocus ? 1 : 0,
         priority_score: priorityScore,
       };
 
@@ -655,41 +665,15 @@ async function computeTrainingRecommendations(): Promise<void> {
 
     // Clear old recommendations (no player_id filter, single user) and insert new ones
     if (recommendations.length > 0) {
-      const db = getDB();
-      const rows = recommendations as Array<Record<string, unknown>>;
-      const columns = Object.keys(rows[0]);
-      const quotedColumns = columns.map((column) => `"${column}"`).join(", ");
-      const placeholders = columns.map(() => "?").join(", ");
+      const db = getKysely();
+      await db.transaction().execute(async (trx) => {
+        await trx.deleteFrom(TABLE_NAMES.TRAINING_RECOMMENDATIONS).execute();
 
-      const tx = db.transaction(() => {
-        db.prepare(
-          `DELETE FROM "${TABLE_NAMES.TRAINING_RECOMMENDATIONS}"`,
-        ).run();
-
-        const insertStmt = db.prepare(
-          `INSERT INTO "${TABLE_NAMES.TRAINING_RECOMMENDATIONS}" (${quotedColumns}) VALUES (${placeholders})`,
-        );
-
-        for (const row of rows) {
-          const values = columns.map((column) => {
-            const value = row[column];
-            if (Array.isArray(value)) {
-              return JSON.stringify(value);
-            }
-            if (
-              value &&
-              typeof value === "object" &&
-              !(value instanceof Date)
-            ) {
-              return JSON.stringify(value);
-            }
-            return value;
-          });
-          insertStmt.run(...values);
-        }
+        await trx
+          .insertInto(TABLE_NAMES.TRAINING_RECOMMENDATIONS)
+          .values(recommendations)
+          .execute();
       });
-
-      tx();
 
       const duration = Date.now() - startTime;
       logDuration(

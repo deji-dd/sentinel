@@ -2,7 +2,8 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getDB, getKysely } from "@sentinel/shared/db/sqlite.js";
+import { randomUUID } from "crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -43,10 +44,11 @@ function getMigrationFiles(migrationsDir: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const repoRoot = findRepoRoot();
   const migrationsDir = join(repoRoot, "sqlite", "migrations");
   const db = getDB();
+  const kdb = getKysely();
 
   ensureMigrationsTable();
 
@@ -60,14 +62,15 @@ function main(): void {
 
   for (const file of files) {
     const filePath = join(migrationsDir, file);
-    const sql = readFileSync(filePath, "utf-8").trim();
-    const hash = checksum(sql);
+    const sqlText = readFileSync(filePath, "utf-8").trim();
+    const hash = checksum(sqlText);
 
-    const existing = db
-      .prepare(
-        `SELECT checksum FROM sentinel_schema_migrations WHERE filename = ? LIMIT 1`,
-      )
-      .get(file) as { checksum: string } | undefined;
+    const existing = await kdb
+      .selectFrom("sentinel_schema_migrations")
+      .select("checksum")
+      .where("filename", "=", file)
+      .limit(1)
+      .executeTakeFirst();
 
     if (existing) {
       if (existing.checksum !== hash) {
@@ -78,20 +81,29 @@ function main(): void {
       continue;
     }
 
-    if (!sql) {
+    if (!sqlText) {
       throw new Error(`[sqlite:migrate] Migration file is empty: ${file}`);
     }
 
     console.log(`[sqlite:migrate] Applying ${file} ...`);
 
-    const apply = db.transaction(() => {
-      db.exec(sql);
-      db.prepare(
-        `INSERT INTO sentinel_schema_migrations (id, filename, checksum) VALUES (lower(hex(randomblob(16))), ?, ?)`,
-      ).run(file, hash);
-    });
+    try {
+      db.exec("BEGIN");
+      db.exec(sqlText);
+      await kdb
+        .insertInto("sentinel_schema_migrations")
+        .values({ id: randomUUID(), filename: file, checksum: hash })
+        .execute();
+      db.exec("COMMIT");
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Ignore rollback failures to preserve original error context.
+      }
+      throw error;
+    }
 
-    apply();
     appliedCount++;
   }
 
@@ -100,4 +112,7 @@ function main(): void {
   );
 }
 
-main();
+main().catch((error) => {
+  console.error("[sqlite:migrate] Failed:", error);
+  process.exit(1);
+});
