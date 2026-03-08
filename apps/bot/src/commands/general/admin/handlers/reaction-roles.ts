@@ -82,6 +82,11 @@ async function syncPostedReactionRoleMessage(
   await message.edit({ embeds: [embed] });
 }
 
+function createMappingId(): number {
+  // Keep mapping ids numeric because they are encoded/decoded via parseInt in custom IDs.
+  return Date.now() * 1000 + Math.floor(Math.random() * 1000);
+}
+
 /**
  * Show reaction roles settings UI
  */
@@ -642,6 +647,7 @@ export async function handleMappingRoleSelect(
     await db
       .insertInto(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
       .values({
+        id: createMappingId(),
         message_id: currentMessageId,
         emoji,
         role_id: selectedRoleId,
