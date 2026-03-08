@@ -12,6 +12,7 @@ import {
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   MessageFlags,
+  type Guild,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
@@ -138,7 +139,6 @@ export const data = new SlashCommandBuilder()
 
 type ActiveAssistUser = {
   discordId: string;
-  tokenCount: number;
   latestUpdatedAt: string | null;
   latestUsedAt: string | null;
 };
@@ -256,14 +256,11 @@ async function getActiveAssistUsers(
     if (!existing) {
       userMap.set(row.discord_id, {
         discordId: row.discord_id,
-        tokenCount: 1,
         latestUpdatedAt: updatedAt,
         latestUsedAt: lastUsedAt,
       });
       continue;
     }
-
-    existing.tokenCount += 1;
 
     if (
       updatedAt &&
@@ -322,6 +319,7 @@ function formatRelativeActivity(value: string | null): string {
 async function buildManageUsersView(
   guildId: string,
   requestedPage: number,
+  guild?: Guild | null,
   notice?: string,
 ): Promise<{
   embed: EmbedBuilder;
@@ -337,6 +335,27 @@ async function buildManageUsersView(
   const page = Math.min(Math.max(0, requestedPage), pageCount - 1);
   const start = page * ASSIST_MANAGE_PAGE_SIZE;
   const pageUsers = users.slice(start, start + ASSIST_MANAGE_PAGE_SIZE);
+  const displayNameByUserId = new Map<string, string>();
+
+  await Promise.all(
+    pageUsers.map(async (entry) => {
+      let displayName = entry.discordId;
+
+      try {
+        if (guild) {
+          const member = await guild.members.fetch(entry.discordId);
+          displayName =
+            member.displayName ||
+            member.user.globalName ||
+            member.user.username;
+        }
+      } catch {
+        displayName = entry.discordId;
+      }
+
+      displayNameByUserId.set(entry.discordId, displayName.slice(0, 100));
+    }),
+  );
 
   const descriptionLines: string[] = [];
 
@@ -350,7 +369,7 @@ async function buildManageUsersView(
     descriptionLines.push(
       ...pageUsers.map(
         (entry, index) =>
-          `${start + index + 1}. <@${entry.discordId}> | tokens: ${entry.tokenCount} | last used: ${formatRelativeActivity(entry.latestUsedAt)}`,
+          `${start + index + 1}. <@${entry.discordId}> | last used: ${formatRelativeActivity(entry.latestUsedAt || entry.latestUpdatedAt)}`,
       ),
     );
   }
@@ -374,9 +393,11 @@ async function buildManageUsersView(
       .addOptions(
         pageUsers.map((entry) =>
           new StringSelectMenuOptionBuilder()
-            .setLabel(`User ${entry.discordId}`)
+            .setLabel(
+              displayNameByUserId.get(entry.discordId) || entry.discordId,
+            )
             .setDescription(
-              `Tokens: ${entry.tokenCount} • Last used: ${formatRelativeActivity(entry.latestUsedAt)}`,
+              `Last used: ${formatRelativeActivity(entry.latestUsedAt || entry.latestUpdatedAt)}`,
             )
             .setValue(entry.discordId),
         ),
@@ -785,7 +806,11 @@ async function handleManageSubcommand(
     return;
   }
 
-  const { embed, components } = await buildManageUsersView(guildId, 0);
+  const { embed, components } = await buildManageUsersView(
+    guildId,
+    0,
+    interaction.guild,
+  );
   await interaction.editReply({ embeds: [embed], components });
 }
 
@@ -816,7 +841,11 @@ export async function handleManagePageButton(
     const currentPage = Number.isFinite(basePage) ? basePage : 0;
     const page = prevParts ? currentPage - 1 : currentPage + 1;
 
-    const { embed, components } = await buildManageUsersView(guildId, page);
+    const { embed, components } = await buildManageUsersView(
+      guildId,
+      page,
+      interaction.guild,
+    );
     await interaction.editReply({ embeds: [embed], components });
   } catch (error) {
     console.error("Error handling assist manage page button:", error);
@@ -974,6 +1003,7 @@ export async function handleManageActionSelect(
     const { embed, components } = await buildManageUsersView(
       guildId,
       page,
+      interaction.guild,
       notice,
     );
     await interaction.editReply({ embeds: [embed], components });
@@ -998,7 +1028,11 @@ export async function handleManageBackButton(
       "assist_manage_back|",
     );
     const page = Number.parseInt(parts?.[0] || "0", 10) || 0;
-    const { embed, components } = await buildManageUsersView(guildId, page);
+    const { embed, components } = await buildManageUsersView(
+      guildId,
+      page,
+      interaction.guild,
+    );
     await interaction.editReply({ embeds: [embed], components });
   } catch (error) {
     console.error("Error handling assist manage back button:", error);
