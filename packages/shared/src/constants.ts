@@ -46,6 +46,8 @@ export const TABLE_NAMES = {
   REVIVE_REQUESTS: "sentinel_revive_requests",
   ASSIST_CONFIG: "sentinel_assist_config",
   ASSIST_TOKENS: "sentinel_assist_tokens",
+  ASSIST_IP_RATE_LIMITS: "sentinel_assist_ip_rate_limits",
+  ASSIST_SCRIPT_GENERATION_LIMITS: "sentinel_assist_script_generation_limits",
 } as const;
 
 /** Alert module types */

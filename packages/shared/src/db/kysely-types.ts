@@ -5,10 +5,9 @@
 
 import type { ColumnType } from "kysely";
 
-export type Generated<T> =
-  T extends ColumnType<infer S, infer I, infer U>
-    ? ColumnType<S, I | undefined, U>
-    : ColumnType<T, T | undefined, T>;
+export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S, I | undefined, U>
+  : ColumnType<T, T | undefined, T>;
 
 export interface SentinelApiKeyUserMapping {
   api_key_hash: string;
@@ -25,6 +24,35 @@ export interface SentinelAssistConfig {
   is_active: Generated<number>;
   ping_role_id: string | null;
   script_generation_role_ids: Generated<string>;
+  updated_at: Generated<string>;
+}
+
+export interface SentinelAssistIpRateLimits {
+  blocked_reason: string | null;
+  blocked_until: string | null;
+  error_type: string;
+  first_occurrence_at: Generated<string>;
+  id: Generated<number | null>;
+  ip_address: string;
+  is_blocked: Generated<number>;
+  last_occurrence_at: Generated<string>;
+  request_count: Generated<number>;
+  request_path: string | null;
+  user_agent: string | null;
+  uuid: string | null;
+}
+
+export interface SentinelAssistScriptGenerationLimits {
+  consecutive_failures: Generated<number>;
+  created_at: Generated<string>;
+  generation_count: Generated<number>;
+  id: Generated<number | null>;
+  is_rate_limited: Generated<number>;
+  last_failure_at: string | null;
+  last_generation_at: string | null;
+  last_generation_ip: string | null;
+  rate_limit_until: string | null;
+  token_uuid: string;
   updated_at: Generated<string>;
 }
 
@@ -144,7 +172,7 @@ export interface SentinelGuildSyncJobs {
 
 export interface SentinelRateLimitRequestsPerUser {
   api_key_hash: string;
-  id: Generated<string>;
+  id: string;
   requested_at: Generated<string>;
   user_id: number | null;
 }
@@ -549,7 +577,7 @@ export interface SentinelWorkerLogs {
   created_at: Generated<string>;
   duration_ms: number | null;
   error_message: string | null;
-  id: Generated<string>;
+  id: string;
   is_limited: Generated<number | null>;
   last_error_at: string | null;
   limited_until: string | null;
@@ -584,6 +612,8 @@ export interface SentinelWorkerSchedules {
 export interface DB {
   sentinel_api_key_user_mapping: SentinelApiKeyUserMapping;
   sentinel_assist_config: SentinelAssistConfig;
+  sentinel_assist_ip_rate_limits: SentinelAssistIpRateLimits;
+  sentinel_assist_script_generation_limits: SentinelAssistScriptGenerationLimits;
   sentinel_assist_tokens: SentinelAssistTokens;
   sentinel_battlestats_snapshots: SentinelBattlestatsSnapshots;
   sentinel_destination_travel_times: SentinelDestinationTravelTimes;
