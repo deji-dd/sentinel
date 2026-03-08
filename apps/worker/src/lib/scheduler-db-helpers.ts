@@ -75,7 +75,9 @@ export async function fetchDueWorker(
     .selectAll()
     .where("worker_id", "=", workerId)
     .where("enabled", "=", 1)
-    .where((eb) => eb.or([eb("force_run", "=", 1), eb("next_run_at", "<=", now)]))
+    .where((eb) =>
+      eb.or([eb("force_run", "=", 1), eb("next_run_at", "<=", now)]),
+    )
     .where((eb) =>
       eb.or([eb("backoff_until", "is", null), eb("backoff_until", "<=", now)]),
     )
@@ -178,6 +180,7 @@ export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
   await db
     .insertInto(TABLE_NAMES.WORKER_LOGS)
     .values({
+      id: randomUUID(),
       worker_id: row.worker_id,
       run_started_at: row.run_started_at ?? new Date().toISOString(),
       run_finished_at: row.run_finished_at ?? null,
