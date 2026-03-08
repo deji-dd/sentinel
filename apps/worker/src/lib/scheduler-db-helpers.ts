@@ -70,6 +70,37 @@ export async function fetchDueWorker(
 ): Promise<WorkerScheduleRow | null> {
   const now = new Date().toISOString();
   const db = getKysely();
+
+  // First, check for stale claims (worker was claimed but process died before completing)
+  // If next_run_at is far in the future (>1 day) and updated_at is old (>5 min), it's stale
+  const scheduleRow = await db
+    .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
+    .selectAll()
+    .where("worker_id", "=", workerId)
+    .where("enabled", "=", 1)
+    .executeTakeFirst();
+
+  if (scheduleRow) {
+    const nextRunTime = new Date(scheduleRow.next_run_at).getTime();
+    const updatedTime = scheduleRow.updated_at
+      ? new Date(scheduleRow.updated_at).getTime()
+      : Date.now();
+    const isNextRunFarFuture = nextRunTime > Date.now() + 24 * 60 * 60 * 1000; // >1 day
+    const isUpdateStale = Date.now() - updatedTime > 5 * 60 * 1000; // >5 minutes
+
+    // Stale claim detected: reset to run now
+    if (isNextRunFarFuture && isUpdateStale) {
+      await db
+        .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+        .set({
+          next_run_at: now,
+          updated_at: now,
+        })
+        .where("worker_id", "=", workerId)
+        .execute();
+    }
+  }
+
   const row = await db
     .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
     .selectAll()
@@ -86,6 +117,29 @@ export async function fetchDueWorker(
 
   if (!row) {
     return null;
+  }
+
+  // Auto-recovery: If worker has been in backoff for more than 24 hours since last run,
+  // reset attempts to give it a fresh start (prevents indefinite stuck state)
+  if (row.last_run_at && row.attempts > 0) {
+    const lastRunTime = new Date(row.last_run_at).getTime();
+    const hoursSinceLastRun = (Date.now() - lastRunTime) / (1000 * 60 * 60);
+
+    if (hoursSinceLastRun > 24) {
+      await db
+        .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+        .set({
+          attempts: 0,
+          backoff_until: null,
+          updated_at: now,
+        })
+        .where("worker_id", "=", workerId)
+        .execute();
+
+      // Update the row we'll return to reflect the reset
+      row.attempts = 0;
+      row.backoff_until = null;
+    }
   }
 
   return {
@@ -149,7 +203,12 @@ export async function failWorker(
   _errorMessage: string,
 ): Promise<void> {
   const nextAttempts = attempts + 1;
-  const backoffSeconds = Math.min(Math.pow(2, nextAttempts) * 60, 3600);
+
+  // Cap max attempts at 10 to prevent infinite backoff
+  // After 10 failures, reset to attempt 5 (maintains backoff but prevents getting stuck)
+  const cappedAttempts = nextAttempts > 10 ? 5 : nextAttempts;
+
+  const backoffSeconds = Math.min(Math.pow(2, cappedAttempts) * 60, 3600);
   const backoffUntil = new Date(
     Date.now() + backoffSeconds * 1000,
   ).toISOString();
@@ -158,7 +217,7 @@ export async function failWorker(
     .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
     .set({
       force_run: 0,
-      attempts: nextAttempts,
+      attempts: cappedAttempts,
       backoff_until: backoffUntil,
       updated_at: new Date().toISOString(),
     })

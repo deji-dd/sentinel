@@ -19,6 +19,7 @@ import {
   startTerritoryStateSyncWorker,
   startRateLimitPruningWorker,
   startWarLedgerPruningWorker,
+  startWorkerLogsPruningWorker,
 } from "./workers/public/index.js";
 import { logSection } from "./lib/logger.js";
 import { initializeApiKeyMappings } from "./services/torn-client.js";
@@ -84,6 +85,7 @@ async function startAllWorkers(): Promise<void> {
       // Auto-pruning workers
       startRateLimitPruningWorker(); // prune old rate limit entries hourly
       startWarLedgerPruningWorker(); // prune wars older than 95 days daily
+      startWorkerLogsPruningWorker(); // prune worker logs older than 30 days daily
     }
 
     // ⚠️  DISABLED: Travel module workers (on backburner)
