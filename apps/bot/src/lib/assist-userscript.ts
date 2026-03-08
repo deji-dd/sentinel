@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.7
+// @version      2.7.8
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -135,6 +135,14 @@ ${connectMetadata}
   function getTargetId() {
     const params = new URLSearchParams(window.location.search);
     return params.get("user2ID");
+  }
+
+  function isAttackPageUrl() {
+    return (
+      window.location.hostname === "www.torn.com" &&
+      window.location.pathname === "/loader.php" &&
+      new URLSearchParams(window.location.search).get("sid") === "attack"
+    );
   }
 
   function toSentenceCase(value) {
@@ -858,6 +866,34 @@ ${connectMetadata}
 
   window.addEventListener("beforeunload", endActiveSession);
   window.addEventListener("pagehide", endActiveSession);
+
+  const checkForNavigationAway = () => {
+    if (!hasActiveAssistSession()) {
+      return;
+    }
+
+    if (!isAttackPageUrl()) {
+      endActiveSession();
+    }
+  };
+
+  const originalPushState = window.history.pushState;
+  window.history.pushState = function (...args) {
+    const result = originalPushState.apply(this, args);
+    checkForNavigationAway();
+    return result;
+  };
+
+  const originalReplaceState = window.history.replaceState;
+  window.history.replaceState = function (...args) {
+    const result = originalReplaceState.apply(this, args);
+    checkForNavigationAway();
+    return result;
+  };
+
+  window.addEventListener("popstate", checkForNavigationAway);
+  window.addEventListener("hashchange", checkForNavigationAway);
+  window.setInterval(checkForNavigationAway, 1000);
 
   const mountLoop = window.setInterval(() => {
     injectButton();
