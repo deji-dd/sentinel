@@ -108,32 +108,12 @@ if (!botOwnerId) {
 
 export const data = new SlashCommandBuilder()
   .setName("assist")
-  .setDescription("Manage combat assist script tokens")
+  .setDescription("Generate combat assist script installation URL")
   .addSubcommand((subcommand) =>
     subcommand
       .setName("generate")
       .setDescription(
         "Generate a unique assist script installation URL for yourself",
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("revoke")
-      .setDescription(
-        "Revoke compromised assist token(s) for a user (admins only)",
-      )
-      .addUserOption((option) =>
-        option
-          .setName("user")
-          .setDescription("Discord user whose assist tokens should be revoked")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("manage")
-      .setDescription(
-        "Manage active assist script users (enable/disable/delete/blacklist)",
       ),
   );
 
@@ -1047,28 +1027,15 @@ export async function execute(
 
     const subcommand = interaction.options.getSubcommand();
 
-    switch (subcommand) {
-      case "generate": {
-        await handleGenerateSubcommand(interaction);
-        break;
-      }
-      case "revoke": {
-        await handleRevokeSubcommand(interaction);
-        break;
-      }
-      case "manage": {
-        await handleManageSubcommand(interaction);
-        break;
-      }
-      default: {
-        const errorEmbed = new EmbedBuilder()
-          .setColor(0xef4444)
-          .setTitle("❌ Unknown Subcommand")
-          .setDescription(`Unknown subcommand: ${subcommand}`);
+    if (subcommand === "generate") {
+      await handleGenerateSubcommand(interaction);
+    } else {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xef4444)
+        .setTitle("❌ Unknown Subcommand")
+        .setDescription(`Unknown subcommand: ${subcommand}`);
 
-        await interaction.editReply({ embeds: [errorEmbed] });
-        break;
-      }
+      await interaction.editReply({ embeds: [errorEmbed] });
     }
   } catch (error) {
     console.error("Error in assist command:", error);

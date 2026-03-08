@@ -19,6 +19,7 @@ import {
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
   type ChannelSelectMenuInteraction,
+  type UserSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { decrypt } from "../../../lib/encryption.js";
@@ -3818,4 +3819,46 @@ export async function handleAssistScriptRolesSelect(
   interaction: RoleSelectMenuInteraction,
 ): Promise<void> {
   return assistHandlers.handleAssistScriptRolesSelect(interaction);
+}
+
+export async function handleAssistManageUsers(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageUsers(interaction);
+}
+
+export async function handleAssistManagePageButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManagePageButton(interaction);
+}
+
+export async function handleAssistManageUserSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageUserSelect(interaction);
+}
+
+export async function handleAssistManageActionSelect(
+  interaction: StringSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageActionSelect(interaction);
+}
+
+export async function handleAssistManageBackButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistManageBackButton(interaction);
+}
+
+export async function handleAssistRevokeToken(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistRevokeToken(interaction);
+}
+
+export async function handleAssistRevokeUserSelect(
+  interaction: UserSelectMenuInteraction,
+): Promise<void> {
+  return assistHandlers.handleAssistRevokeUserSelect(interaction);
 }

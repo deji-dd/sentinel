@@ -143,6 +143,17 @@ export async function handleButtonInteraction(
     await configCommand.handleAssistSetPingRole(interaction);
   } else if (customId === "assist_set_script_roles") {
     await configCommand.handleAssistSetScriptRoles(interaction);
+  } else if (customId === "assist_manage_users") {
+    await configCommand.handleAssistManageUsers(interaction);
+  } else if (customId === "assist_revoke_token") {
+    await configCommand.handleAssistRevokeToken(interaction);
+  } else if (
+    customId.startsWith("assist_config_page_prev|") ||
+    customId.startsWith("assist_config_page_next|")
+  ) {
+    await configCommand.handleAssistManagePageButton(interaction);
+  } else if (customId.startsWith("assist_config_manage_back|")) {
+    await configCommand.handleAssistManageBackButton(interaction);
   } else if (
     customId.startsWith("assist_manage_page_prev|") ||
     customId.startsWith("assist_manage_page_next|")
@@ -261,6 +272,10 @@ export async function handleStringSelectMenuInteraction(
     await configCommand.handleEditReactionRoleMappingSelect(interaction);
   } else if (customId.startsWith("reaction_role_edit_remove_select|")) {
     await configCommand.handleEditReactionRoleRemoveMappingSelect(interaction);
+  } else if (customId.startsWith("assist_config_user_select|")) {
+    await configCommand.handleAssistManageUserSelect(interaction);
+  } else if (customId.startsWith("assist_config_action_select|")) {
+    await configCommand.handleAssistManageActionSelect(interaction);
   } else if (customId.startsWith("assist_manage_user_select|")) {
     await assistCommand.handleManageUserSelect(interaction);
   } else if (customId.startsWith("assist_manage_action_select|")) {
@@ -353,6 +368,27 @@ export async function handleChannelSelectMenuInteraction(
 }
 
 /**
+ * Handle all user select menu interactions
+ */
+export async function handleUserSelectMenuInteraction(
+  interaction: Interaction,
+): Promise<boolean> {
+  if (!interaction.isUserSelectMenu()) {
+    return false;
+  }
+
+  const { customId } = interaction;
+
+  if (customId === "assist_revoke_user_select") {
+    await configCommand.handleAssistRevokeUserSelect(interaction);
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Route interaction to appropriate handler
  */
 export async function routeInteractionHandler(
@@ -365,7 +401,9 @@ export async function routeInteractionHandler(
       if (!(await handleStringSelectMenuInteraction(interaction, client))) {
         if (!(await handleRoleSelectMenuInteraction(interaction))) {
           if (!(await handleChannelSelectMenuInteraction(interaction))) {
-            return false;
+            if (!(await handleUserSelectMenuInteraction(interaction))) {
+              return false;
+            }
           }
         }
       }
