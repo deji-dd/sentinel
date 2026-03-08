@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.9
+// @version      2.8.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -67,6 +67,7 @@ ${connectMetadata}
   const TOAST_ID = "sentinel-assist-toast";
   const ACTIVE_SESSION_STORAGE_KEY = "sentinel_assist_active_" + ASSIST_UUID;
   const LOG_PREFIX = "[Sentinel Assist]";
+  const ACTIVE_POLLING_INTERVAL_MS = 1000;
 
   let buttonMounted = false;
   let lastAttackerCount = null;
@@ -738,14 +739,14 @@ ${connectMetadata}
       characterData: true,
     });
 
-    // Mobile views can miss mutation events; poll as a fallback.
+    // Poll aggressively for mobile and background tabs where mutations may throttle.
     window.setInterval(() => {
       if (!hasActiveAssistSession()) {
         return;
       }
 
       tryAttach();
-    }, 1500);
+    }, ACTIVE_POLLING_INTERVAL_MS);
 
     tryAttach();
   }
@@ -843,6 +844,15 @@ ${connectMetadata}
       characterData: true,
     });
 
+    // Poll lifecycle for background tabs and third-party defeats.
+    window.setInterval(() => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      evaluateStatus();
+    }, ACTIVE_POLLING_INTERVAL_MS);
+
     evaluateStatus();
   }
 
@@ -910,6 +920,15 @@ ${connectMetadata}
       characterData: true,
     });
 
+    // Poll health for background tabs and mobile where mutations may fail.
+    window.setInterval(() => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      tryAttach();
+    }, ACTIVE_POLLING_INTERVAL_MS);
+
     tryAttach();
   }
 
@@ -951,7 +970,46 @@ ${connectMetadata}
 
   window.addEventListener("popstate", checkForNavigationAway);
   window.addEventListener("hashchange", checkForNavigationAway);
-  window.setInterval(checkForNavigationAway, 1000);
+  window.setInterval(checkForNavigationAway, ACTIVE_POLLING_INTERVAL_MS);
+
+  // Force immediate checks when tab regains visibility.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && hasActiveAssistSession()) {
+      logInfo("Tab became visible, forcing state checks");
+      checkForNavigationAway();
+      
+      // Give DOM a moment to settle after visibility change, then check all monitors.
+      window.setTimeout(() => {
+        if (!hasActiveAssistSession()) {
+          return;
+        }
+
+        const statsHeader = document.getElementById("stats-header");
+        if (statsHeader) {
+          const node = statsHeader.querySelector('[class*="titleNumber"]');
+          if (node) {
+            const current = Number.parseInt((node.textContent || "").trim(), 10);
+            if (Number.isFinite(current) && current !== lastAttackerCount) {
+              logInfo("Visibility check: attacker count changed during background");
+            }
+          }
+        }
+
+        const currentStatus = detectFightState();
+        if (currentStatus !== lastFightStatus) {
+          logInfo("Visibility check: fight status changed during background");
+        }
+
+        const health = readEnemyHealth();
+        if (health) {
+          const snapshot = String(Math.round(health.current)) + "/" + String(Math.round(health.max));
+          if (snapshot !== lastHealthSnapshot) {
+            logInfo("Visibility check: health changed during background");
+          }
+        }
+      }, 100);
+    }
+  });
 
   const mountLoop = window.setInterval(() => {
     injectButton();
