@@ -342,6 +342,18 @@ ${connectMetadata}
     }
   }
 
+  function clearCooldown() {
+    cooldownUntil = 0;
+    clearCooldownInterval();
+    setButtonState(false, "Yabba Dabba Doo!");
+
+    try {
+      window.localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
   function setCooldownUntil(nextCooldownUntil) {
     cooldownUntil = Math.max(cooldownUntil, nextCooldownUntil);
 
@@ -797,6 +809,10 @@ ${connectMetadata}
             String(currentStatus),
           result: "fight_ended",
           fight_status: normalizeFightStatus(currentStatus),
+        }).then((response) => {
+          if (response.ok) {
+            clearCooldown();
+          }
         });
         return;
       }

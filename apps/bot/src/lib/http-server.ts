@@ -216,23 +216,6 @@ function isValidUuid(value: string): boolean {
   );
 }
 
-function getRemainingWindowSeconds(
-  timestamp: string | null | undefined,
-  windowMs: number,
-): number {
-  if (!timestamp) {
-    return 0;
-  }
-
-  const parsed = new Date(timestamp).getTime();
-  if (!Number.isFinite(parsed)) {
-    return 0;
-  }
-
-  const remainingMs = windowMs - (Date.now() - parsed);
-  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
-}
-
 function hasValidProxySecret(req: Request): boolean {
   const expectedProxySecret = process.env.ASSIST_PROXY_SECRET;
   const providedProxySecret = req.header(ASSIST_PROXY_SECRET_HEADER);
@@ -892,20 +875,6 @@ export function initHttpServer(client: Client, port: number = 3001) {
         new Date(token.expires_at).getTime() <= Date.now()
       ) {
         return res.status(403).json({ error: "Assist token expired" });
-      }
-
-      if (req.method === "POST") {
-        const activeLockSeconds = getRemainingWindowSeconds(
-          token.last_used_at,
-          ASSIST_REQUEST_COOLDOWN_MS,
-        );
-        if (activeLockSeconds > 0) {
-          return res.status(409).json({
-            error:
-              "You already have an active assist alert. Wait for it to end before sending another one.",
-            retry_after_seconds: activeLockSeconds,
-          });
-        }
       }
 
       const guildConfig = await db
