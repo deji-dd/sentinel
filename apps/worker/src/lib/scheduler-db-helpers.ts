@@ -75,7 +75,9 @@ export async function fetchDueWorker(
     .selectAll()
     .where("worker_id", "=", workerId)
     .where("enabled", "=", 1)
-    .where((eb) => eb.or([eb("force_run", "=", 1), eb("next_run_at", "<=", now)]))
+    .where((eb) =>
+      eb.or([eb("force_run", "=", 1), eb("next_run_at", "<=", now)]),
+    )
     .where((eb) =>
       eb.or([eb("backoff_until", "is", null), eb("backoff_until", "<=", now)]),
     )
@@ -100,11 +102,23 @@ export async function fetchDueWorker(
 
 export async function claimWorker(workerId: string): Promise<boolean> {
   const db = getKysely();
+  const now = new Date().toISOString();
+
+  // Atomic claim: only update if not currently running (next_run_at is in the past/present)
+  // This prevents multiple instances from claiming the same job
   const result = await db
     .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
-    .set({ updated_at: new Date().toISOString() })
+    .set({
+      updated_at: now,
+      // Move next_run_at far into future to prevent other instances from claiming
+      next_run_at: new Date(
+        Date.now() + 365 * 24 * 60 * 60 * 1000,
+      ).toISOString(), // 1 year in future
+    })
     .where("worker_id", "=", workerId)
+    .where("next_run_at", "<=", now) // Only claim if actually due
     .executeTakeFirst();
+
   return Number(result.numUpdatedRows) > 0;
 }
 
@@ -178,6 +192,7 @@ export async function insertWorkerLog(row: WorkerLogRow): Promise<void> {
   await db
     .insertInto(TABLE_NAMES.WORKER_LOGS)
     .values({
+      id: randomUUID(),
       worker_id: row.worker_id,
       run_started_at: row.run_started_at ?? new Date().toISOString(),
       run_finished_at: row.run_finished_at ?? null,
