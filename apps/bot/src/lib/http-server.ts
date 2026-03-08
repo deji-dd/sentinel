@@ -45,6 +45,7 @@ const ASSIST_MAX_PAYLOAD_BYTES =
     ? parsedAssistMaxPayloadBytes
     : 16384;
 const ASSIST_REQUEST_COOLDOWN_MS = 30 * 1000; // 30 seconds between assist POSTs
+const ASSIST_SLOW_DELIVERY_WARN_MS = 1000; // Flag transport lag at 1s+
 
 const assistMessageTracking = new Map<
   string,
@@ -853,7 +854,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
       const clientToServerLagMs = getClientToServerLagMs(
         payload.client_sent_at,
       );
-      if (clientToServerLagMs !== null && clientToServerLagMs > 10_000) {
+      if (
+        clientToServerLagMs !== null &&
+        clientToServerLagMs >= ASSIST_SLOW_DELIVERY_WARN_MS
+      ) {
         console.warn(
           `[ASSIST] Slow client->server delivery for ${payload.uuid}: ${clientToServerLagMs}ms`,
         );
@@ -1119,9 +1123,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
         const remainingMs = ASSIST_REQUEST_COOLDOWN_MS - elapsedSinceCreationMs;
 
         if (remainingMs > 0) {
-          return res.status(409).json({
-            error:
-              "You already have an active assist alert. Wait for it to end before sending another one.",
+          return res.status(202).json({
+            success: true,
+            dropped: true,
+            reason: "active_assist_exists",
             retry_after_seconds: Math.max(1, Math.ceil(remainingMs / 1000)),
           });
         }

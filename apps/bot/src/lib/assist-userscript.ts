@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.5
+// @version      2.7.6
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -70,7 +70,6 @@ ${connectMetadata}
   const DEFAULT_COOLDOWN_MS = 30000;
   const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
   const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
-  const HEARTBEAT_INTERVAL_MS = 5000;
   const LOG_PREFIX = "[Sentinel Assist]";
 
   let buttonMounted = false;
@@ -84,7 +83,6 @@ ${connectMetadata}
   let lastAttackerSnapshot = null;
   let lastHealthSnapshot = null;
   let mountTargetMissingLogged = false;
-  let heartbeatIntervalId = null;
 
   function logInfo(...args) {
     console.log(LOG_PREFIX, ...args);
@@ -521,43 +519,6 @@ ${connectMetadata}
     });
   }
 
-  function startActiveSessionHeartbeat() {
-    if (heartbeatIntervalId !== null) {
-      return;
-    }
-
-    heartbeatIntervalId = window.setInterval(() => {
-      if (!hasActiveAssistSession()) {
-        return;
-      }
-
-      const payload = {
-        action: "session_heartbeat",
-        result: "heartbeat",
-      };
-
-      const health = readEnemyHealth();
-      const requestPayload = health
-        ? {
-            ...payload,
-            enemy_health_current: Math.round(health.current),
-            enemy_health_max: Math.round(health.max),
-            enemy_health_percent: Math.round(health.percent),
-          }
-        : payload;
-
-      sendAssistEvent("PATCH", requestPayload).then((response) => {
-        if (
-          response.status === 404 ||
-          response.status === 410 ||
-          response.status === 409
-        ) {
-          clearActiveAssistSession();
-        }
-      });
-    }, HEARTBEAT_INTERVAL_MS);
-  }
-
   function injectButton() {
     if (buttonMounted || document.getElementById(BUTTON_ID)) {
       buttonMounted = true;
@@ -649,12 +610,21 @@ ${connectMetadata}
         result: "button_click",
       });
 
-      if (response.ok) {
+      if (response.ok && !response.body?.dropped) {
         logInfo("Assist alert sent successfully");
         showToast("Assist alert sent", true);
         setActiveAssistSessionUntil(Date.now() + ACTIVE_SESSION_WINDOW_MS);
         lastFightStatus = detectFightState();
         setCooldownUntil(Date.now() + DEFAULT_COOLDOWN_MS);
+      } else if (response.ok && response.body?.dropped) {
+        const retryAfter = Number.parseInt(
+          String(response.body?.retry_after_seconds || "0"),
+          10,
+        );
+        if (Number.isFinite(retryAfter) && retryAfter > 0) {
+          setCooldownUntil(Date.now() + retryAfter * 1000);
+        }
+        showToast("Assist already active. Waiting before next alert.", false);
       } else if (response.status === 429 || response.status === 409) {
         const retryAfter = Number.parseInt(
           String(response.body?.retry_after_seconds || "0"),
@@ -979,14 +949,12 @@ ${connectMetadata}
     monitorAttackerCount();
     monitorFightLifecycle();
     monitorEnemyHealth();
-    startActiveSessionHeartbeat();
   } else {
     window.addEventListener("load", () => {
       injectButton();
       monitorAttackerCount();
       monitorFightLifecycle();
       monitorEnemyHealth();
-      startActiveSessionHeartbeat();
     });
   }
 })();
