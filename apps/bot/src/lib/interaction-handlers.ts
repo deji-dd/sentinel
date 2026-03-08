@@ -145,8 +145,6 @@ export async function handleButtonInteraction(
     await configCommand.handleAssistSetScriptRoles(interaction);
   } else if (customId === "assist_manage_users") {
     await configCommand.handleAssistManageUsers(interaction);
-  } else if (customId === "assist_revoke_token") {
-    await configCommand.handleAssistRevokeToken(interaction);
   } else if (
     customId.startsWith("assist_config_page_prev|") ||
     customId.startsWith("assist_config_page_next|")
@@ -368,27 +366,6 @@ export async function handleChannelSelectMenuInteraction(
 }
 
 /**
- * Handle all user select menu interactions
- */
-export async function handleUserSelectMenuInteraction(
-  interaction: Interaction,
-): Promise<boolean> {
-  if (!interaction.isUserSelectMenu()) {
-    return false;
-  }
-
-  const { customId } = interaction;
-
-  if (customId === "assist_revoke_user_select") {
-    await configCommand.handleAssistRevokeUserSelect(interaction);
-  } else {
-    return false;
-  }
-
-  return true;
-}
-
-/**
  * Route interaction to appropriate handler
  */
 export async function routeInteractionHandler(
@@ -401,9 +378,7 @@ export async function routeInteractionHandler(
       if (!(await handleStringSelectMenuInteraction(interaction, client))) {
         if (!(await handleRoleSelectMenuInteraction(interaction))) {
           if (!(await handleChannelSelectMenuInteraction(interaction))) {
-            if (!(await handleUserSelectMenuInteraction(interaction))) {
-              return false;
-            }
+            return false;
           }
         }
       }

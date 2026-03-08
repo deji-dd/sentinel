@@ -472,6 +472,53 @@ async function handleGenerateSubcommand(
     return;
   }
 
+  // Check if user is blacklisted by admin (permanent ban)
+  const adminBlacklist = await assistDb
+    .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+    .select(["blacklisted_reason"])
+    .where("guild_id", "=", guildId)
+    .where("discord_id", "=", userId)
+    .where("blacklisted_reason", "=", "blacklisted_by_admin")
+    .executeTakeFirst();
+
+  if (adminBlacklist) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle("❌ Blacklisted")
+      .setDescription(
+        "You have been blacklisted from generating assist scripts. Contact an admin to appeal.",
+      );
+
+    await interaction.editReply({ embeds: [errorEmbed] });
+    return;
+  }
+
+  // Check if most recent token is disabled by admin (temporary ban)
+  const latestToken = await assistDb
+    .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+    .select(["is_active", "blacklisted_at"])
+    .where("guild_id", "=", guildId)
+    .where("discord_id", "=", userId)
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  if (
+    latestToken &&
+    latestToken.is_active === toSqliteBoolean(false) &&
+    !latestToken.blacklisted_at
+  ) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xf59e0b)
+      .setTitle("❌ Disabled")
+      .setDescription(
+        "Your assist script access has been disabled. Contact an admin to re-enable it.",
+      );
+
+    await interaction.editReply({ embeds: [errorEmbed] });
+    return;
+  }
+
   const tokenUuid = randomUUID();
   let revokedActiveTokens = 0;
 

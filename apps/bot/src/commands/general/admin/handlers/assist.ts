@@ -8,13 +8,11 @@ import {
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  UserSelectMenuBuilder,
   type Guild,
   type ButtonInteraction,
   type ChannelSelectMenuInteraction,
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
-  type UserSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../../../lib/db-client.js";
@@ -201,11 +199,6 @@ export async function handleShowAssistSettings(
       .setLabel("Manage Script Users")
       .setStyle(ButtonStyle.Secondary);
 
-    const revokeTokenBtn = new ButtonBuilder()
-      .setCustomId("assist_revoke_token")
-      .setLabel("Revoke User Token")
-      .setStyle(ButtonStyle.Danger);
-
     const backBtn = new ButtonBuilder()
       .setCustomId("config_back_to_menu")
       .setLabel("Back")
@@ -219,14 +212,12 @@ export async function handleShowAssistSettings(
 
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       manageUsersBtn,
-      revokeTokenBtn,
+      backBtn,
     );
-
-    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
     await interaction.editReply({
       embeds: [embed],
-      components: [row1, row2, row3],
+      components: [row1, row2],
     });
   } catch (error) {
     console.error("Error showing assist settings:", error);
@@ -911,146 +902,5 @@ export async function handleAssistManageBackButton(
     await interaction.editReply({ embeds: [embed], components });
   } catch (error) {
     console.error("Error handling assist manage back button:", error);
-  }
-}
-
-// ========== TOKEN REVOCATION HANDLERS ==========
-
-export async function handleAssistRevokeToken(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const embed = new EmbedBuilder()
-      .setColor(0xdc2626)
-      .setTitle("Revoke User Assist Token")
-      .setDescription(
-        "Select a user to revoke all their active assist tokens. This is used for compromised tokens.\n\n" +
-          "**Warning:** This will disable all active tokens for the selected user.",
-      );
-
-    const userSelect =
-      new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
-        new UserSelectMenuBuilder()
-          .setCustomId("assist_revoke_user_select")
-          .setPlaceholder("Select user to revoke tokens for")
-          .setMinValues(1)
-          .setMaxValues(1),
-      );
-
-    const backBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("assist_settings_show")
-        .setLabel("Back to Assist Settings")
-        .setStyle(ButtonStyle.Secondary),
-    );
-
-    await interaction.editReply({
-      embeds: [embed],
-      components: [userSelect, backBtn],
-    });
-  } catch (error) {
-    console.error("Error in assist revoke token:", error);
-  }
-}
-
-export async function handleAssistRevokeUserSelect(
-  interaction: UserSelectMenuInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-    if (!guildId) {
-      return;
-    }
-
-    const targetUser = interaction.users.first();
-    if (!targetUser) {
-      return;
-    }
-
-    let tokens: Array<{ token_uuid: string }> = [];
-    try {
-      tokens = (await assistDb
-        .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
-        .select(["token_uuid"])
-        .where("guild_id", "=", guildId)
-        .where("discord_id", "=", targetUser.id)
-        .where("is_active", "=", toSqliteBoolean(true))
-        .orderBy("created_at", "desc")
-        .execute()) as Array<{ token_uuid: string }>;
-    } catch (tokensError) {
-      console.error("Error fetching active tokens for revoke:", tokensError);
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Failed to look up active tokens. Please try again.");
-
-      await interaction.editReply({ embeds: [errorEmbed], components: [] });
-      return;
-    }
-
-    if (tokens.length === 0) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xf59e0b)
-        .setTitle("No Active Tokens")
-        .setDescription(
-          `No active assist tokens found for ${targetUser.toString()} in this guild.`,
-        );
-
-      const backBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId("assist_revoke_token")
-          .setLabel("Back")
-          .setStyle(ButtonStyle.Secondary),
-      );
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [backBtn],
-      });
-      return;
-    }
-
-    try {
-      await assistDb
-        .deleteFrom(TABLE_NAMES.ASSIST_TOKENS)
-        .where("guild_id", "=", guildId)
-        .where("discord_id", "=", targetUser.id)
-        .where("is_active", "=", toSqliteBoolean(true))
-        .execute();
-    } catch (revokeError) {
-      console.error("Error deleting compromised assist tokens:", revokeError);
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Failed to revoke tokens. Please try again.");
-
-      await interaction.editReply({ embeds: [errorEmbed], components: [] });
-      return;
-    }
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x10b981)
-      .setTitle("Tokens Revoked")
-      .setDescription(
-        `Revoked ${tokens.length} compromised token(s) for ${targetUser.toString()}.`,
-      );
-
-    const backBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("assist_settings_show")
-        .setLabel("Back to Assist Settings")
-        .setStyle(ButtonStyle.Secondary),
-    );
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [backBtn],
-    });
-  } catch (error) {
-    console.error("Error in assist revoke user select:", error);
   }
 }

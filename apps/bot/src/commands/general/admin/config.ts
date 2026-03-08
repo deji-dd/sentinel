@@ -19,7 +19,6 @@ import {
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
   type ChannelSelectMenuInteraction,
-  type UserSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { decrypt } from "../../../lib/encryption.js";
@@ -3849,16 +3848,4 @@ export async function handleAssistManageBackButton(
   interaction: ButtonInteraction,
 ): Promise<void> {
   return assistHandlers.handleAssistManageBackButton(interaction);
-}
-
-export async function handleAssistRevokeToken(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return assistHandlers.handleAssistRevokeToken(interaction);
-}
-
-export async function handleAssistRevokeUserSelect(
-  interaction: UserSelectMenuInteraction,
-): Promise<void> {
-  return assistHandlers.handleAssistRevokeUserSelect(interaction);
 }
