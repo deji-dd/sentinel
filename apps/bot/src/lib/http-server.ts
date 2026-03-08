@@ -74,19 +74,18 @@ type AssistPayload = {
   enemy_health_current?: number;
   enemy_health_max?: number;
   enemy_health_percent?: number;
-  fight_timer?: string;
 };
 
 function normalizeFightStatus(
   value: string | undefined,
-): "Not Started" | "Ongoing" | "Ended" | null {
+): "Requester not started fight" | "Ongoing" | "Ended" | null {
   if (!value) {
     return null;
   }
 
   const normalized = value.trim().toLowerCase();
   if (normalized === "not started" || normalized === "not_started") {
-    return "Not Started";
+    return "Requester not started fight";
   }
 
   if (normalized === "ongoing" || normalized === "started") {
@@ -98,6 +97,61 @@ function normalizeFightStatus(
   }
 
   return null;
+}
+
+function normalizeFightOutcomeStatus(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return null;
+  }
+
+  const sentenceCase =
+    compact.charAt(0).toUpperCase() + compact.slice(1).toLowerCase();
+
+  const extract = (pattern: RegExp): string | null => {
+    const match = sentenceCase.match(pattern);
+    if (!match) {
+      return null;
+    }
+
+    const phrase = (match[0] || "").replace(/\s+/g, " ").trim();
+    return phrase || null;
+  };
+
+  const orderedPatterns = [
+    /you defeated [^.!?\n]+/i,
+    /you mugged [^.!?\n]+/i,
+    /you hospitalized [^.!?\n]+/i,
+    /you arrested [^.!?\n]+/i,
+    /you stalemated[^.!?\n]*/i,
+    /you lost[^.!?\n]*/i,
+    /[^.!?\n]+ took down your opponent/i,
+    /[^.!?\n]+ was defeated by [^.!?\n]+/i,
+    /[^.!?\n]+ was sent to hospital/i,
+    /[^.!?\n]+ was surrounded by police/i,
+  ];
+
+  for (const pattern of orderedPatterns) {
+    const phrase = extract(pattern);
+    if (phrase) {
+      return phrase;
+    }
+  }
+
+  return null;
+}
+
+function resolveStatusFieldValue(payload: AssistPayload): string | null {
+  const outcomeStatus = normalizeFightOutcomeStatus(payload.fight_status);
+  if (outcomeStatus) {
+    return outcomeStatus;
+  }
+
+  return normalizeFightStatus(payload.fight_status);
 }
 
 function isValidUuid(value: string): boolean {
@@ -158,8 +212,7 @@ function getAssistPayloadSizeBytes(req: Request): number {
 function buildInitialAssistEmbed(
   targetTornId: number | undefined,
   requesterDiscordId: string,
-  fightStatus: "Not Started" | "Ongoing" | "Ended",
-  initialFightTimer?: string,
+  fightStatus: string,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
@@ -173,13 +226,8 @@ function buildInitialAssistEmbed(
         value: targetTornId ? `Loading...` : "Unknown",
         inline: true,
       },
-      { name: "Attackers", value: "Monitoring...", inline: true },
+      { name: "Attackers", value: "Unavailable", inline: true },
       { name: "Enemy HP", value: "Unavailable", inline: true },
-      {
-        name: "Time Left",
-        value: initialFightTimer || "Unavailable",
-        inline: true,
-      },
     )
     .setTimestamp();
 
@@ -220,14 +268,6 @@ function getActiveTrackedAssist(uuid: string): {
   }
 
   return tracked;
-}
-
-function isValidFightTimer(value: string | undefined): boolean {
-  if (!value) {
-    return false;
-  }
-
-  return /^\d{2}:\d{2}$/.test(value.trim());
 }
 
 function scheduleAssistExpiry(uuid: string): void {
@@ -772,7 +812,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
         let hasChanges = false;
 
-        const normalizedStatus = normalizeFightStatus(payload.fight_status);
+        const normalizedStatus = resolveStatusFieldValue(payload);
         if (normalizedStatus) {
           const statusField = updatedEmbed.data.fields?.find(
             (field) => field.name === "Status",
@@ -834,25 +874,6 @@ export function initHttpServer(client: Client, port: number = 3001) {
           }
         }
 
-        if (isValidFightTimer(payload.fight_timer)) {
-          const normalizedTimer = payload.fight_timer!.trim();
-          const timerField = updatedEmbed.data.fields?.find(
-            (field) => field.name === "Time Left",
-          );
-          if (timerField?.value !== normalizedTimer) {
-            upsertEmbedField(updatedEmbed, "Time Left", normalizedTimer, true);
-            hasChanges = true;
-          }
-        } else if (payload.action === "enemy_health_updated") {
-          const timerField = updatedEmbed.data.fields?.find(
-            (field) => field.name === "Time Left",
-          );
-          if (timerField?.value !== "Unavailable") {
-            upsertEmbedField(updatedEmbed, "Time Left", "Unavailable", true);
-            hasChanges = true;
-          }
-        }
-
         if (hasChanges) {
           await tracked.message.edit({ embeds: [updatedEmbed] });
         }
@@ -893,7 +914,8 @@ export function initHttpServer(client: Client, port: number = 3001) {
           const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
             .setColor(0x6b7280)
             .setFooter({ text: "This assist alert has ended" });
-          upsertEmbedField(endedEmbed, "Status", "Ended", true);
+          const endedStatus = resolveStatusFieldValue(payload) || "Ended";
+          upsertEmbedField(endedEmbed, "Status", endedStatus, true);
           await tracked.message.edit({
             embeds: [endedEmbed],
             components: [],
@@ -937,14 +959,11 @@ export function initHttpServer(client: Client, port: number = 3001) {
         ? `<@&${assistConfig.ping_role_id}>`
         : "";
       const initialFightStatus =
-        normalizeFightStatus(payload.fight_status) || "Not Started";
+        resolveStatusFieldValue(payload) || "Requester not started fight";
       const embed = buildInitialAssistEmbed(
         payload.target_torn_id,
         token.discord_id,
         initialFightStatus,
-        isValidFightTimer(payload.fight_timer)
-          ? payload.fight_timer?.trim()
-          : undefined,
       );
       const button = buildAssistButton(payload.target_torn_id);
 

@@ -45,7 +45,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.5.1
+// @version      2.6.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -140,7 +140,66 @@ ${connectMetadata}
     return params.get("user2ID");
   }
 
+  function toSentenceCase(value) {
+    const compact = String(value || "").replace(/\s+/g, " ").trim();
+    if (!compact) {
+      return null;
+    }
+
+    const lower = compact.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }
+
+  function detectFightOutcomeStatus() {
+    const dialogText = toSentenceCase(
+      document.querySelector('[class*="dialogWrapper"]')?.textContent || "",
+    );
+
+    if (!dialogText) {
+      return null;
+    }
+
+    const compact = dialogText.replace(/\s+/g, " ").trim();
+
+    const extract = (pattern) => {
+      const match = compact.match(pattern);
+      if (!match) {
+        return null;
+      }
+
+      const phrase = (match[0] || "").replace(/\s+/g, " ").trim();
+      return phrase || null;
+    };
+
+    const orderedPatterns = [
+      /you defeated [^.!?\n]+/i,
+      /you mugged [^.!?\n]+/i,
+      /you hospitalized [^.!?\n]+/i,
+      /you arrested [^.!?\n]+/i,
+      /you stalemated[^.!?\n]*/i,
+      /you lost[^.!?\n]*/i,
+      /[^.!?\n]+ took down your opponent/i,
+      /[^.!?\n]+ was defeated by [^.!?\n]+/i,
+      /[^.!?\n]+ was sent to hospital/i,
+      /[^.!?\n]+ was surrounded by police/i,
+    ];
+
+    for (const pattern of orderedPatterns) {
+      const phrase = extract(pattern);
+      if (phrase) {
+        return phrase;
+      }
+    }
+
+    return null;
+  }
+
   function detectFightState() {
+    const outcomeStatus = detectFightOutcomeStatus();
+    if (outcomeStatus) {
+      return outcomeStatus;
+    }
+
     const startButton = document.querySelector(
       '[class*="dialogWrapper"] [class*="dialogButtons"] button[type="submit"]',
     );
@@ -188,37 +247,6 @@ ${connectMetadata}
       max,
       percent,
     };
-  }
-
-  function readFightTimer() {
-    const normalizeTimer = (raw) => {
-      const match = String(raw || "").trim().match(/^(\\d{1,2}):(\\d{2})$/);
-      if (!match) {
-        return null;
-      }
-
-      const minutes = Number.parseInt(match[1], 10);
-      const seconds = Number.parseInt(match[2], 10);
-      if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
-        return null;
-      }
-
-      if (minutes < 0 || minutes > 99 || seconds < 0 || seconds > 59) {
-        return null;
-      }
-
-      return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
-    };
-
-    const timerCandidates = document.querySelectorAll('[class*="labelTitle"] span');
-    for (const node of timerCandidates) {
-      const normalized = normalizeTimer(node.textContent || "");
-      if (normalized) {
-        return normalized;
-      }
-    }
-
-    return null;
   }
 
   function setButtonState(disabled, label) {
@@ -665,7 +693,10 @@ ${connectMetadata}
         return;
       }
 
-      if (currentStatus === "Ended") {
+      const looksEnded =
+        currentStatus !== "Not Started" && currentStatus !== "Ongoing";
+
+      if (looksEnded) {
         clearActiveAssistSession();
         sendAssistEvent("DELETE", {
           action: "session_end",
@@ -713,17 +744,13 @@ ${connectMetadata}
       }
 
       const health = readEnemyHealth();
-      const timer = readFightTimer();
 
-      if (!health && !timer) {
+      if (!health) {
         return;
       }
 
-      const healthSnapshot = health
-        ? String(Math.round(health.current)) + "/" + String(Math.round(health.max))
-        : "no-health";
-      const timerSnapshot = timer || "no-timer";
-      const snapshot = healthSnapshot + "|" + timerSnapshot;
+      const snapshot =
+        String(Math.round(health.current)) + "/" + String(Math.round(health.max));
       if (snapshot === lastHealthSnapshot) {
         return;
       }
@@ -732,10 +759,9 @@ ${connectMetadata}
       sendAssistEvent("PATCH", {
         action: "enemy_health_updated",
         result: "health_update",
-        enemy_health_current: health ? Math.round(health.current) : undefined,
-        enemy_health_max: health ? Math.round(health.max) : undefined,
-        enemy_health_percent: health ? Math.round(health.percent) : undefined,
-        fight_timer: timer || undefined,
+        enemy_health_current: Math.round(health.current),
+        enemy_health_max: Math.round(health.max),
+        enemy_health_percent: Math.round(health.percent),
       }).then((response) => {
         if (response.status === 404 || response.status === 410) {
           clearActiveAssistSession();
