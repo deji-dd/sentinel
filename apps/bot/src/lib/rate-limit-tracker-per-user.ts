@@ -39,7 +39,12 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
 
   await db
     .insertInto(TRACKER_TABLE)
-    .values({ id: randomUUID(), api_key_hash: keyHash, requested_at: now, user_id: userId })
+    .values({
+      id: randomUUID(),
+      api_key_hash: keyHash,
+      requested_at: now,
+      user_id: userId,
+    })
     .execute();
 }
 
