@@ -11,7 +11,7 @@ import {
   type PartialUser,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 
 const REACTION_FEEDBACK_TTL_MS = 10000;
 const REACTION_EVENT_LOCK_MS = 4000;
@@ -86,12 +86,12 @@ async function sendReactionLogEmbed(
   description: string,
 ): Promise<void> {
   try {
-    const db = getDB();
-    const guildConfig = db
-      .prepare(
-        `SELECT log_channel_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(guildId) as { log_channel_id: string | null } | undefined;
+    const guildConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["log_channel_id"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as { log_channel_id: string | null } | undefined;
 
     const logChannelId = guildConfig?.log_channel_id;
     if (!logChannelId) return;
@@ -261,12 +261,12 @@ export async function handleReactionRoleAdd(
     const emoji = fullReaction.emoji.toString();
     const reactionKey = getReactionKey(messageId, user.id, emoji);
 
-    const db = getDB();
-    const guildConfig = db
-      .prepare(
-        `SELECT enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(guildId) as { enabled_modules: unknown } | undefined;
+    const guildConfig = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["enabled_modules"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as { enabled_modules: unknown } | undefined;
 
     const enabledModules = parseTextArray(guildConfig?.enabled_modules);
     if (!enabledModules.includes("reaction_roles")) {
@@ -281,11 +281,12 @@ export async function handleReactionRoleAdd(
     const sourceChannelId = fullReaction.message.channelId;
 
     // Check if this message is registered as a reaction-role message
-    const message = db
-      .prepare(
-        `SELECT id FROM "${TABLE_NAMES.REACTION_ROLE_MESSAGES}" WHERE message_id = ? LIMIT 1`,
-      )
-      .get(messageId) as { id: string } | undefined;
+    const message = (await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select(["id"])
+      .where("message_id", "=", messageId)
+      .limit(1)
+      .executeTakeFirst()) as { id: number } | undefined;
 
     // Silently ignore reactions on non-reaction-role messages
     if (!message) {
@@ -293,11 +294,13 @@ export async function handleReactionRoleAdd(
     }
 
     // Find the role mapping for this emoji+message combo
-    const mapping = db
-      .prepare(
-        `SELECT role_id FROM "${TABLE_NAMES.REACTION_ROLE_MAPPINGS}" WHERE message_id = ? AND emoji = ? LIMIT 1`,
-      )
-      .get(messageId, emoji) as { role_id: string } | undefined;
+    const mapping = (await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .select(["role_id"])
+      .where("message_id", "=", messageId)
+      .where("emoji", "=", emoji)
+      .limit(1)
+      .executeTakeFirst()) as { role_id: string } | undefined;
 
     const removeUserReaction = async () => {
       await fullReaction.users.remove(user.id).catch(() => {
@@ -326,11 +329,12 @@ export async function handleReactionRoleAdd(
     if (!member) return;
 
     // Check if user is allowed to use reaction roles
-    const config = db
-      .prepare(
-        `SELECT allowed_role_ids FROM "${TABLE_NAMES.REACTION_ROLE_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(guildId) as { allowed_role_ids: unknown } | undefined;
+    const config = (await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_CONFIG)
+      .select(["allowed_role_ids"])
+      .where("guild_id", "=", guildId)
+      .limit(1)
+      .executeTakeFirst()) as { allowed_role_ids: unknown } | undefined;
 
     const allowedRoleIds = parseTextArray(config?.allowed_role_ids);
 

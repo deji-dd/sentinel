@@ -9,7 +9,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { TABLE_NAMES, getFactionNameCached } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import { tornApi } from "../../../services/torn-client.js";
 
@@ -56,12 +56,12 @@ export async function execute(
     // Fetch war ledger from last 90 days
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    const db = getDB();
-    const wars = db
-      .prepare(
-        `SELECT * FROM "${TABLE_NAMES.WAR_LEDGER}" WHERE start_time >= ? ORDER BY start_time DESC`,
-      )
-      .all(ninetyDaysAgo.toISOString()) as any[];
+    const wars = (await db
+      .selectFrom(TABLE_NAMES.WAR_LEDGER)
+      .selectAll()
+      .where("start_time", ">=", ninetyDaysAgo.toISOString())
+      .orderBy("start_time", "desc")
+      .execute()) as any[];
 
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -91,11 +91,11 @@ export async function execute(
     const infoNotes: string[] = [];
 
     // Get current territory count for faction
-    const ownedTerritories = db
-      .prepare(
-        `SELECT territory_id FROM "${TABLE_NAMES.TERRITORY_STATE}" WHERE faction_id = ?`,
-      )
-      .all(factionId) as any[];
+    const ownedTerritories = (await db
+      .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+      .select(["territory_id"])
+      .where("faction_id", "=", factionId)
+      .execute()) as any[];
 
     const currentTerritoryCount = ownedTerritories?.length || 0;
 

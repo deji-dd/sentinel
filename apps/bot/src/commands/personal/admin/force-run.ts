@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 export const data = new SlashCommandBuilder()
   .setName("force-run")
@@ -38,10 +38,12 @@ export async function execute(
     const workerName = interaction.options.getString("worker", true);
 
     // Look up worker ID by name
-    const db = getDB();
-    const worker = db
-      .prepare(`SELECT id FROM "${TABLE_NAMES.WORKERS}" WHERE name = ? LIMIT 1`)
-      .get(workerName) as { id: number } | undefined;
+    const worker = await db
+      .selectFrom(TABLE_NAMES.WORKERS)
+      .select("id")
+      .where("name", "=", workerName)
+      .limit(1)
+      .executeTakeFirst();
 
     if (!worker) {
       const errorEmbed = new EmbedBuilder()
@@ -56,13 +58,13 @@ export async function execute(
     }
 
     // Trigger the worker by setting force_run flag
-    const updateResult = db
-      .prepare(
-        `UPDATE "${TABLE_NAMES.WORKER_SCHEDULES}" SET force_run = 1 WHERE worker_id = ?`,
-      )
-      .run(worker.id);
+    const updateResult = await db
+      .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+      .set({ force_run: 1 })
+      .where("worker_id", "=", worker.id)
+      .executeTakeFirst();
 
-    if (updateResult.changes === 0) {
+    if (Number(updateResult.numUpdatedRows) === 0) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("❌ Failed to Trigger Worker")

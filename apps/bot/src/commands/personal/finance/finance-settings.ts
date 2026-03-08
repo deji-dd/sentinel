@@ -8,7 +8,7 @@ import {
   type ModalSubmitInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 import {
   runWithInteractionError,
   safeReply,
@@ -162,30 +162,27 @@ export async function handleModalSubmit(
       }
 
       try {
-        const db = getDB();
-        db.prepare(
-          `INSERT INTO "${TABLE_NAMES.FINANCE_SETTINGS}" (
-            player_id,
-            min_reserve,
-            split_bookie,
-            split_training,
-            split_gear,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(player_id) DO UPDATE SET
-            min_reserve = excluded.min_reserve,
-            split_bookie = excluded.split_bookie,
-            split_training = excluded.split_training,
-            split_gear = excluded.split_gear,
-            updated_at = excluded.updated_at`,
-        ).run(
-          userId,
-          minReserveValue,
-          splitBookieValue,
-          splitTrainingValue,
-          splitGearValue,
-          new Date().toISOString(),
-        );
+        const updatedAt = new Date().toISOString();
+        await db
+          .insertInto(TABLE_NAMES.FINANCE_SETTINGS)
+          .values({
+            player_id: Number(userId),
+            min_reserve: minReserveValue,
+            split_bookie: splitBookieValue,
+            split_training: splitTrainingValue,
+            split_gear: splitGearValue,
+            updated_at: updatedAt,
+          })
+          .onConflict((oc) =>
+            oc.column("player_id").doUpdateSet({
+              min_reserve: minReserveValue,
+              split_bookie: splitBookieValue,
+              split_training: splitTrainingValue,
+              split_gear: splitGearValue,
+              updated_at: updatedAt,
+            }),
+          )
+          .execute();
       } catch {
         await safeReply(
           interaction,

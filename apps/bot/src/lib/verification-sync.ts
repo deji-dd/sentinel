@@ -5,7 +5,7 @@ import {
   getNextApiKey,
   type TornApiComponents,
 } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
 import { upsertVerifiedUser } from "./verified-users.js";
@@ -27,7 +27,7 @@ interface GuildSyncJob {
   guild_id: string;
   last_sync_at: string | null;
   next_sync_at: string;
-  in_progress: boolean;
+  in_progress: boolean | number;
 }
 
 interface GuildConfigRecord {
@@ -126,31 +126,37 @@ export class GuildSyncScheduler {
    */
   private async pollAndSync(): Promise<void> {
     try {
-      const db = getDB();
-
       // Get all sync jobs that need to run
-      const jobs = db
-        .prepare(
-          `SELECT guild_id, last_sync_at, next_sync_at, in_progress
-           FROM "${TABLE_NAMES.GUILD_SYNC_JOBS}"
-           WHERE in_progress = 0 AND next_sync_at <= ?
-           ORDER BY next_sync_at ASC`,
-        )
-        .all(new Date().toISOString()) as GuildSyncJob[];
+      const jobsRaw = (await db
+        .selectFrom(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .select(["guild_id", "last_sync_at", "next_sync_at", "in_progress"])
+        .where("in_progress", "=", 0)
+        .where("next_sync_at", "<=", new Date().toISOString())
+        .orderBy("next_sync_at", "asc")
+        .execute()) as Array<{
+        guild_id: string;
+        last_sync_at: string | null;
+        next_sync_at: string;
+        in_progress: number;
+      }>;
+
+      const jobs: GuildSyncJob[] = jobsRaw.map((job) => ({
+        guild_id: job.guild_id,
+        last_sync_at: job.last_sync_at,
+        next_sync_at: job.next_sync_at,
+        in_progress: job.in_progress,
+      }));
 
       if (!jobs || jobs.length === 0) {
         return;
       }
 
       const jobGuildIds = jobs.map((job: GuildSyncJob) => job.guild_id);
-      const placeholders = jobGuildIds.map(() => "?").join(", ");
-      const guildConfigs = db
-        .prepare(
-          `SELECT guild_id, auto_verify
-           FROM "${TABLE_NAMES.GUILD_CONFIG}"
-           WHERE guild_id IN (${placeholders})`,
-        )
-        .all(...jobGuildIds) as Array<{
+      const guildConfigs = (await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .select(["guild_id", "auto_verify"])
+        .where("guild_id", "in", jobGuildIds)
+        .execute()) as Array<{
         guild_id: string;
         auto_verify: unknown;
       }>;
@@ -187,16 +193,15 @@ export class GuildSyncScheduler {
    * Sync a single guild
    */
   private async syncGuild(job: GuildSyncJob): Promise<void> {
-    const db = getDB();
-
     // Lock the job
-    const lockResult = db
-      .prepare(
-        `UPDATE "${TABLE_NAMES.GUILD_SYNC_JOBS}" SET in_progress = 1 WHERE guild_id = ? AND in_progress = 0`,
-      )
-      .run(job.guild_id);
+    const lockResult = await db
+      .updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
+      .set({ in_progress: 1 })
+      .where("guild_id", "=", job.guild_id)
+      .where("in_progress", "=", 0)
+      .executeTakeFirst();
 
-    if (lockResult.changes === 0) {
+    if (Number(lockResult.numUpdatedRows) === 0) {
       const lockErrorMessage = "Job is already in progress or missing";
       console.error(
         `[Guild Sync] Failed to lock job for guild ${job.guild_id}: ${lockErrorMessage}`,
@@ -212,11 +217,12 @@ export class GuildSyncScheduler {
     }
 
     try {
-      const guildConfig = db
-        .prepare(
-          `SELECT * FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-        )
-        .get(job.guild_id) as
+      const guildConfig = (await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .selectAll()
+        .where("guild_id", "=", job.guild_id)
+        .limit(1)
+        .executeTakeFirst()) as unknown as
         | (Partial<GuildConfigRecord> & {
             auto_verify?: unknown;
             nickname_template?: string | null;
@@ -279,33 +285,38 @@ export class GuildSyncScheduler {
       const allMembers = discord.members.cache;
 
       // Get faction role mappings for this guild
-      const factionMappings = db
-        .prepare(
-          `SELECT guild_id, faction_id, member_role_ids, leader_role_ids, enabled
-           FROM "${TABLE_NAMES.FACTION_ROLES}"
-           WHERE guild_id = ?`,
-        )
-        .all(job.guild_id)
-        .map((row) => {
-          const typed = row as {
-            guild_id: string;
-            faction_id: number;
-            member_role_ids: unknown;
-            leader_role_ids: unknown;
-            enabled: unknown;
-          };
+      const factionMappings = (
+        await db
+          .selectFrom(TABLE_NAMES.FACTION_ROLES)
+          .select([
+            "guild_id",
+            "faction_id",
+            "member_role_ids",
+            "leader_role_ids",
+            "enabled",
+          ])
+          .where("guild_id", "=", job.guild_id)
+          .execute()
+      ).map((row) => {
+        const typed = row as {
+          guild_id: string;
+          faction_id: number;
+          member_role_ids: unknown;
+          leader_role_ids: unknown;
+          enabled: unknown;
+        };
 
-          return {
-            guild_id: typed.guild_id,
-            faction_id: typed.faction_id,
-            member_role_ids: parseTextArray(typed.member_role_ids),
-            leader_role_ids: parseTextArray(typed.leader_role_ids),
-            enabled:
-              typed.enabled !== false &&
-              typed.enabled !== 0 &&
-              typed.enabled !== "0",
-          } as FactionRoleMapping;
-        });
+        return {
+          guild_id: typed.guild_id,
+          faction_id: typed.faction_id,
+          member_role_ids: parseTextArray(typed.member_role_ids),
+          leader_role_ids: parseTextArray(typed.leader_role_ids),
+          enabled:
+            typed.enabled !== false &&
+            typed.enabled !== 0 &&
+            typed.enabled !== "0",
+        } as FactionRoleMapping;
+      });
 
       // Cache faction members for leader detection
       // Map: factionId -> Set of leader player IDs
@@ -392,14 +403,12 @@ export class GuildSyncScheduler {
           }
 
           // Check if user exists in database
-          const existingUser = db
-            .prepare(
-              `SELECT discord_id, torn_name, faction_id, faction_tag
-               FROM "${TABLE_NAMES.VERIFIED_USERS}"
-               WHERE discord_id = ?
-               LIMIT 1`,
-            )
-            .get(member.id) as
+          const existingUser = (await db
+            .selectFrom(TABLE_NAMES.VERIFIED_USERS)
+            .select(["discord_id", "torn_name", "faction_id", "faction_tag"])
+            .where("discord_id", "=", member.id)
+            .limit(1)
+            .executeTakeFirst()) as
             | {
                 discord_id: string;
                 torn_name: string;
@@ -430,7 +439,7 @@ export class GuildSyncScheduler {
             );
 
           // Upsert to database
-          upsertVerifiedUser({
+          await upsertVerifiedUser({
             discordId: member.id,
             tornId: playerId,
             tornName: name,
@@ -611,12 +620,11 @@ export class GuildSyncScheduler {
           // Check if user has no linked Torn account or disconnected
           if (/Incorrect ID/i.test(msg) || /User not found/i.test(msg)) {
             // Remove from verified_users if they were previously verified
-            const removeResult = db
-              .prepare(
-                `DELETE FROM "${TABLE_NAMES.VERIFIED_USERS}" WHERE discord_id = ?`,
-              )
-              .run(member.id);
-            if (removeResult.changes > 0) {
+            const removeResult = await db
+              .deleteFrom(TABLE_NAMES.VERIFIED_USERS)
+              .where("discord_id", "=", member.id)
+              .executeTakeFirst();
+            if (Number(removeResult.numDeletedRows) > 0) {
               removedCount++;
             }
             continue;
@@ -644,11 +652,15 @@ export class GuildSyncScheduler {
       // Unlock job and schedule next sync (fixed 60-minute cycle)
       const nextSync = new Date(Date.now() + 3600 * 1000); // 60 minutes
 
-      db.prepare(
-        `UPDATE "${TABLE_NAMES.GUILD_SYNC_JOBS}"
-         SET in_progress = 0, last_sync_at = ?, next_sync_at = ?
-         WHERE guild_id = ?`,
-      ).run(new Date().toISOString(), nextSync.toISOString(), job.guild_id);
+      await db
+        .updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .set({
+          in_progress: 0,
+          last_sync_at: new Date().toISOString(),
+          next_sync_at: nextSync.toISOString(),
+        })
+        .where("guild_id", "=", job.guild_id)
+        .execute();
     }
   }
 

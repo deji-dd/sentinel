@@ -18,7 +18,7 @@ import {
 } from "@sentinel/shared";
 import { markSystemApiKeyInvalid } from "../lib/system-api-keys.js";
 import { getAllSystemApiKeys, getSystemApiKey } from "../lib/api-keys.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import {
   getOldestRequestPerUser,
   getRequestCountPerUser,
@@ -100,32 +100,29 @@ export const batchHandler = new BatchOperationHandler(rateLimiter);
  */
 async function clearStaleRateLimitData(_userIds: number[]): Promise<void> {
   try {
-    const db = getDB();
+    const db = getKysely();
 
     // Get count before delete
-    const beforeCount = (
-      db
-        .prepare(
-          `SELECT COUNT(*) as count FROM "${TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER}"`,
-        )
-        .get() as { count: number }
-    ).count;
+    const beforeCountRow = await db
+      .selectFrom(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
+      .select((eb) => eb.fn.count("id").as("count"))
+      .executeTakeFirst();
+    const beforeCount = Number(beforeCountRow?.count ?? 0);
 
     // Delete ALL rate limit entries (not just for specific users)
     // On startup, we want a completely clean slate to prevent false positives
     // from requests recorded before the worker was stopped
-    db.prepare(
-      `DELETE FROM "${TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER}" WHERE requested_at >= ?`,
-    ).run("1970-01-01T00:00:00Z"); // Delete all entries (gte oldest possible date)
+    await db
+      .deleteFrom(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
+      .where("requested_at", ">=", "1970-01-01T00:00:00Z")
+      .execute(); // Delete all entries (gte oldest possible date)
 
     // Verify cleanup
-    const afterCount = (
-      db
-        .prepare(
-          `SELECT COUNT(*) as count FROM "${TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER}"`,
-        )
-        .get() as { count: number }
-    ).count;
+    const afterCountRow = await db
+      .selectFrom(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
+      .select((eb) => eb.fn.count("id").as("count"))
+      .executeTakeFirst();
+    const afterCount = Number(afterCountRow?.count ?? 0);
 
     console.log(
       `[TornClient] ✓ Rate limit table cleared (${(beforeCount || 0) - (afterCount || 0)} entries)`,
@@ -145,19 +142,17 @@ async function clearStaleRateLimitData(_userIds: number[]): Promise<void> {
 async function ensureApiKeyMappedInSqlite(
   apiKey: string,
 ): Promise<{ userId: number | null; error: string | null }> {
-  const db = getDB();
+  const db = getKysely();
   const keyHash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   try {
-    const existing = db
-      .prepare(
-        `SELECT user_id
-         FROM "${TABLE_NAMES.API_KEY_USER_MAPPING}"
-         WHERE api_key_hash = ?
-           AND deleted_at IS NULL
-         LIMIT 1`,
-      )
-      .get(keyHash) as { user_id: number } | undefined;
+    const existing = await db
+      .selectFrom(TABLE_NAMES.API_KEY_USER_MAPPING)
+      .select("user_id")
+      .where("api_key_hash", "=", keyHash)
+      .where("deleted_at", "is", null)
+      .limit(1)
+      .executeTakeFirst();
 
     if (existing?.user_id) {
       return { userId: Number(existing.user_id), error: null };
@@ -171,14 +166,23 @@ async function ensureApiKeyMappedInSqlite(
       return { userId: null, error: "No player_id in Torn API response" };
     }
 
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.API_KEY_USER_MAPPING}" (api_key_hash, user_id, source, created_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(api_key_hash) DO UPDATE SET
-         user_id = excluded.user_id,
-         source = excluded.source,
-         deleted_at = NULL`,
-    ).run(keyHash, userId, "system", new Date().toISOString());
+    await db
+      .insertInto(TABLE_NAMES.API_KEY_USER_MAPPING)
+      .values({
+        api_key_hash: keyHash,
+        user_id: userId,
+        source: "system",
+        created_at: new Date().toISOString(),
+        deleted_at: null,
+      })
+      .onConflict((oc) =>
+        oc.column("api_key_hash").doUpdateSet({
+          user_id: userId,
+          source: "system",
+          deleted_at: null,
+        }),
+      )
+      .execute();
 
     return { userId, error: null };
   } catch (error) {

@@ -11,7 +11,7 @@ import {
   Routes,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 type GuildConfigRow = {
   guild_id: string;
@@ -69,15 +69,13 @@ export async function execute(
     }
 
     // Get list of configured guilds from database
-    const db = getDB();
     let configuredGuilds: GuildConfigRow[] = [];
     let queryError: string | null = null;
     try {
-      configuredGuilds = db
-        .prepare(
-          `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
-        )
-        .all() as GuildConfigRow[];
+      configuredGuilds = (await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .select(["guild_id", "enabled_modules"])
+        .execute()) as GuildConfigRow[];
     } catch (error) {
       queryError = error instanceof Error ? error.message : String(error);
     }
@@ -220,12 +218,12 @@ export async function handleTeardownGuildSelect(
     const selectedGuildId = interaction.values[0];
 
     // Check if guild is configured
-    const db = getDB();
-    const guildConfig = db
-      .prepare(
-        `SELECT guild_id FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ? LIMIT 1`,
-      )
-      .get(selectedGuildId) as { guild_id: string } | undefined;
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["guild_id"])
+      .where("guild_id", "=", selectedGuildId)
+      .limit(1)
+      .executeTakeFirst();
 
     const isConfigured = !!guildConfig;
 
@@ -281,9 +279,10 @@ export async function handleTeardownGuildSelect(
     if (isConfigured) {
       // Remove guild config from database
       try {
-        db.prepare(
-          `DELETE FROM "${TABLE_NAMES.GUILD_CONFIG}" WHERE guild_id = ?`,
-        ).run(selectedGuildId);
+        await db
+          .deleteFrom(TABLE_NAMES.GUILD_CONFIG)
+          .where("guild_id", "=", selectedGuildId)
+          .execute();
       } catch (deleteConfigError) {
         const errorEmbed = new EmbedBuilder()
           .setColor(0xef4444)
@@ -301,9 +300,10 @@ export async function handleTeardownGuildSelect(
 
       // Remove sync jobs for this guild
       try {
-        db.prepare(
-          `DELETE FROM "${TABLE_NAMES.GUILD_SYNC_JOBS}" WHERE guild_id = ?`,
-        ).run(selectedGuildId);
+        await db
+          .deleteFrom(TABLE_NAMES.GUILD_SYNC_JOBS)
+          .where("guild_id", "=", selectedGuildId)
+          .execute();
       } catch (deleteSyncError) {
         console.error(
           `Warning: Failed to remove sync jobs for guild ${selectedGuildId}:`,

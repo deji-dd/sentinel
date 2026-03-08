@@ -14,7 +14,7 @@ import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 interface TerritoryWar {
   territory_war_id: number;
@@ -107,7 +107,7 @@ export function startWarLedgerSyncWorker() {
         timeout: 60_000, // 1 minute max
         handler: async () => {
           const startTime = Date.now();
-          const db = getDB();
+          const db = getKysely();
 
           try {
             // Get system API keys and initialize rotator for load balancing
@@ -181,14 +181,11 @@ export function startWarLedgerSyncWorker() {
             const warIds = validWars.map((w) => w.territory_war_id);
             let existingWars: ExistingWarRow[] = [];
             if (warIds.length > 0) {
-              const warIdPlaceholders = warIds.map(() => "?").join(", ");
-              existingWars = db
-                .prepare(
-                  `SELECT war_id, territory_id
-                   FROM "${TABLE_NAMES.WAR_LEDGER}"
-                   WHERE war_id IN (${warIdPlaceholders})`,
-                )
-                .all(...warIds) as ExistingWarRow[];
+              existingWars = (await db
+                .selectFrom(TABLE_NAMES.WAR_LEDGER)
+                .select(["war_id", "territory_id"])
+                .where("war_id", "in", warIds)
+                .execute()) as ExistingWarRow[];
             }
 
             const existingWarIds = new Set(
@@ -197,13 +194,11 @@ export function startWarLedgerSyncWorker() {
 
             // Check if this is bootstrap mode (empty war ledger)
             // If so, don't send notifications for "new" wars - just sync the data
-            const totalWarCount = (
-              db
-                .prepare(
-                  `SELECT COUNT(*) as count FROM "${TABLE_NAMES.WAR_LEDGER}"`,
-                )
-                .get() as { count: number }
-            ).count;
+            const totalWarCountRow = await db
+              .selectFrom(TABLE_NAMES.WAR_LEDGER)
+              .select((eb) => eb.fn.count("war_id").as("count"))
+              .executeTakeFirst();
+            const totalWarCount = Number(totalWarCountRow?.count ?? 0);
 
             const isBootstrapMode = (totalWarCount || 0) === 0;
 
@@ -212,13 +207,17 @@ export function startWarLedgerSyncWorker() {
             );
 
             // Detect ended wars (wars in DB but not in API response)
-            const allActiveWars = db
-              .prepare(
-                `SELECT war_id, territory_id, assaulting_faction, defending_faction, start_time
-                 FROM "${TABLE_NAMES.WAR_LEDGER}"
-                 WHERE end_time IS NULL`,
-              )
-              .all() as ActiveWarRow[];
+            const allActiveWars = (await db
+              .selectFrom(TABLE_NAMES.WAR_LEDGER)
+              .select([
+                "war_id",
+                "territory_id",
+                "assaulting_faction",
+                "defending_faction",
+                "start_time",
+              ])
+              .where("end_time", "is", null)
+              .execute()) as ActiveWarRow[];
 
             const activeWarIds = new Set(
               validWars.map((w) => w.territory_war_id),
@@ -262,11 +261,12 @@ export function startWarLedgerSyncWorker() {
             // Add war ended notifications and update DB
             for (const war of endedWars) {
               // Get current owner to determine victor
-              const territoryState = db
-                .prepare(
-                  `SELECT faction_id FROM "${TABLE_NAMES.TERRITORY_STATE}" WHERE territory_id = ? LIMIT 1`,
-                )
-                .get(war.territory_id) as
+              const territoryState = (await db
+                .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+                .select("faction_id")
+                .where("territory_id", "=", war.territory_id)
+                .limit(1)
+                .executeTakeFirst()) as
                 | { faction_id: number | null }
                 | undefined;
 
@@ -307,16 +307,21 @@ export function startWarLedgerSyncWorker() {
               });
 
               // Mark war as ended in DB
-              db.prepare(
-                `UPDATE "${TABLE_NAMES.WAR_LEDGER}"
-                 SET end_time = ?, victor_faction = ?
-                 WHERE war_id = ?`,
-              ).run(new Date().toISOString(), victor, war.war_id);
+              await db
+                .updateTable(TABLE_NAMES.WAR_LEDGER)
+                .set({
+                  end_time: new Date().toISOString(),
+                  victor_faction: victor,
+                })
+                .where("war_id", "=", war.war_id)
+                .execute();
 
               // Mark territory as not warring
-              db.prepare(
-                `UPDATE "${TABLE_NAMES.TERRITORY_STATE}" SET is_warring = 0 WHERE territory_id = ?`,
-              ).run(war.territory_id);
+              await db
+                .updateTable(TABLE_NAMES.TERRITORY_STATE)
+                .set({ is_warring: 0 })
+                .where("territory_id", "=", war.territory_id)
+                .execute();
             }
 
             // Upsert war data
@@ -331,46 +336,24 @@ export function startWarLedgerSyncWorker() {
             }));
 
             try {
-              const upsertWarTx = db.transaction(
-                (
-                  rows: Array<{
-                    war_id: number;
-                    territory_id: string;
-                    assaulting_faction: number;
-                    defending_faction: number;
-                    victor_faction: number | null;
-                    start_time: string;
-                    end_time: string | null;
-                  }>,
-                ) => {
-                  const stmt = db.prepare(
-                    `INSERT INTO "${TABLE_NAMES.WAR_LEDGER}"
-                     (war_id, territory_id, assaulting_faction, defending_faction, victor_faction, start_time, end_time)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                     ON CONFLICT(war_id) DO UPDATE SET
-                       territory_id = excluded.territory_id,
-                       assaulting_faction = excluded.assaulting_faction,
-                       defending_faction = excluded.defending_faction,
-                       victor_faction = excluded.victor_faction,
-                       start_time = excluded.start_time,
-                       end_time = excluded.end_time`,
-                  );
-
-                  for (const row of rows) {
-                    stmt.run(
-                      row.war_id,
-                      row.territory_id,
-                      row.assaulting_faction,
-                      row.defending_faction,
-                      row.victor_faction,
-                      row.start_time,
-                      row.end_time,
-                    );
-                  }
-                },
-              );
-
-              upsertWarTx(warData);
+              await db.transaction().execute(async (trx) => {
+                for (const row of warData) {
+                  await trx
+                    .insertInto(TABLE_NAMES.WAR_LEDGER)
+                    .values(row)
+                    .onConflict((oc) =>
+                      oc.column("war_id").doUpdateSet({
+                        territory_id: row.territory_id,
+                        assaulting_faction: row.assaulting_faction,
+                        defending_faction: row.defending_faction,
+                        victor_faction: row.victor_faction,
+                        start_time: row.start_time,
+                        end_time: row.end_time,
+                      }),
+                    )
+                    .execute();
+                }
+              });
             } catch (error) {
               logError(
                 "war_ledger_sync",
@@ -385,16 +368,11 @@ export function startWarLedgerSyncWorker() {
 
             let existingStates: TerritoryStateRow[] = [];
             if (warringTerritories.length > 0) {
-              const territoryPlaceholders = warringTerritories
-                .map(() => "?")
-                .join(", ");
-              existingStates = db
-                .prepare(
-                  `SELECT territory_id, faction_id
-                   FROM "${TABLE_NAMES.TERRITORY_STATE}"
-                   WHERE territory_id IN (${territoryPlaceholders})`,
-                )
-                .all(...warringTerritories) as TerritoryStateRow[];
+              existingStates = (await db
+                .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+                .select(["territory_id", "faction_id"])
+                .where("territory_id", "in", warringTerritories)
+                .execute()) as TerritoryStateRow[];
             }
 
             const existingIds = new Set(
@@ -406,18 +384,14 @@ export function startWarLedgerSyncWorker() {
 
             if (missingIds.length > 0) {
               try {
-                const insertMissingTx = db.transaction(
-                  (territoryIds: string[]) => {
-                    const stmt = db.prepare(
-                      `INSERT INTO "${TABLE_NAMES.TERRITORY_STATE}" (territory_id, is_warring)
-                     VALUES (?, ?)`,
-                    );
-                    for (const territoryId of territoryIds) {
-                      stmt.run(territoryId, 1);
-                    }
-                  },
-                );
-                insertMissingTx(missingIds);
+                await db.transaction().execute(async (trx) => {
+                  for (const territoryId of missingIds) {
+                    await trx
+                      .insertInto(TABLE_NAMES.TERRITORY_STATE)
+                      .values({ territory_id: territoryId, is_warring: 1 })
+                      .execute();
+                  }
+                });
               } catch (error) {
                 logError(
                   "war_ledger_sync",
@@ -429,14 +403,11 @@ export function startWarLedgerSyncWorker() {
             // Mark all active-war territories as warring without touching faction ownership
             if (warringTerritories.length > 0) {
               try {
-                const updatePlaceholders = warringTerritories
-                  .map(() => "?")
-                  .join(", ");
-                db.prepare(
-                  `UPDATE "${TABLE_NAMES.TERRITORY_STATE}"
-                   SET is_warring = 1
-                   WHERE territory_id IN (${updatePlaceholders})`,
-                ).run(...warringTerritories);
+                await db
+                  .updateTable(TABLE_NAMES.TERRITORY_STATE)
+                  .set({ is_warring: 1 })
+                  .where("territory_id", "in", warringTerritories)
+                  .execute();
               } catch (error) {
                 logError(
                   "war_ledger_sync",

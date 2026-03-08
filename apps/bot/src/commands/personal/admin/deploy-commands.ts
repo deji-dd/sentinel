@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, REST, Routes } from "discord.js";
 import type { ChatInputCommandInteraction, Client } from "discord.js";
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../../../lib/db-client.js";
 
 type GuildConfigRow = {
   guild_id: string;
@@ -101,6 +101,7 @@ export async function execute(
     const burnMapSimulatorCommand =
       await import("../../general/territories/burn-map-simulator.js");
     const statsCommand = await import("../stats.js");
+    const assistCommand = await import("../../general/assist/assist.js");
     const forceRunCommand = await import("./force-run.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
     const setupGuildCommand = await import("./setup-guild.js");
@@ -120,6 +121,7 @@ export async function execute(
         burnMapCommand.data.toJSON(),
         burnMapSimulatorCommand.data.toJSON(),
       ],
+      assist: [assistCommand.data.toJSON()],
     };
 
     let successCount = 0;
@@ -153,6 +155,7 @@ export async function execute(
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
         statsCommand.data.toJSON(),
+        assistCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
@@ -177,12 +180,10 @@ export async function execute(
     }
 
     // Deploy to configured guilds based on enabled modules
-    const db = getDB();
-    const guildConfigs = db
-      .prepare(
-        `SELECT guild_id, enabled_modules FROM "${TABLE_NAMES.GUILD_CONFIG}"`,
-      )
-      .all() as GuildConfigRow[];
+    const guildConfigs = (await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["guild_id", "enabled_modules"])
+      .execute()) as GuildConfigRow[];
 
     if (guildConfigs && guildConfigs.length > 0) {
       for (const guildConfig of guildConfigs) {

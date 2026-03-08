@@ -12,7 +12,7 @@
 
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "./db-client.js";
 
 if (!process.env.ENCRYPTION_KEY) {
   throw new Error("ENCRYPTION_KEY environment variable is required");
@@ -47,16 +47,13 @@ function isUniqueConstraintError(error: unknown): boolean {
  * Returns decrypted keys for a specific guild
  */
 export async function getGuildApiKeys(guildId: string): Promise<string[]> {
-  const db = getDB();
-  const data = db
-    .prepare(
-      `SELECT api_key_encrypted
-       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
-       WHERE guild_id = ?
-         AND deleted_at IS NULL
-       ORDER BY is_primary DESC`,
-    )
-    .all(guildId) as Array<{ api_key_encrypted: string }>;
+  const data = (await db
+    .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+    .select(["api_key_encrypted"])
+    .where("guild_id", "=", guildId)
+    .where("deleted_at", "is", null)
+    .orderBy("is_primary", "desc")
+    .execute()) as Array<{ api_key_encrypted: string }>;
 
   const keys: string[] = [];
   for (const row of data) {
@@ -78,17 +75,14 @@ export async function getGuildApiKeys(guildId: string): Promise<string[]> {
 export async function getPrimaryGuildApiKey(
   guildId: string,
 ): Promise<string | null> {
-  const db = getDB();
-  const data = db
-    .prepare(
-      `SELECT api_key_encrypted
-       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
-       WHERE guild_id = ?
-         AND is_primary = 1
-         AND deleted_at IS NULL
-       LIMIT 1`,
-    )
-    .get(guildId) as { api_key_encrypted: string } | undefined;
+  const data = (await db
+    .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+    .select(["api_key_encrypted"])
+    .where("guild_id", "=", guildId)
+    .where("is_primary", "=", 1)
+    .where("deleted_at", "is", null)
+    .limit(1)
+    .executeTakeFirst()) as { api_key_encrypted: string } | undefined;
 
   if (!data) {
     return null;
@@ -118,29 +112,37 @@ export async function storeGuildApiKey(
   providedBy: string,
   isPrimary: boolean = false,
 ): Promise<void> {
-  const db = getDB();
   const encrypted = encryptApiKey(apiKey, ENCRYPTION_KEY);
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // If setting as primary, unset other primaries first
   if (isPrimary) {
-    db.prepare(
-      `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}" SET is_primary = 0 WHERE guild_id = ? AND is_primary = 1`,
-    ).run(guildId);
+    await db
+      .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+      .set({ is_primary: 0 })
+      .where("guild_id", "=", guildId)
+      .where("is_primary", "=", 1)
+      .execute();
   }
 
   // Store the encrypted key
-  db.prepare(
-    `INSERT INTO "${TABLE_NAMES.GUILD_API_KEYS}" (guild_id, user_id, api_key_encrypted, is_primary, provided_by)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(guildId, userId, encrypted, isPrimary ? 1 : 0, providedBy);
+  await db
+    .insertInto(TABLE_NAMES.GUILD_API_KEYS)
+    .values({
+      guild_id: guildId,
+      user_id: userId,
+      api_key_encrypted: encrypted,
+      is_primary: isPrimary ? 1 : 0,
+      provided_by: providedBy,
+    })
+    .execute();
 
   // Register in mapping table for rate limiting
   try {
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.API_KEY_USER_MAPPING}" (api_key_hash, user_id, source)
-       VALUES (?, ?, ?)`,
-    ).run(hash, userId, "guild");
+    await db
+      .insertInto(TABLE_NAMES.API_KEY_USER_MAPPING)
+      .values({ api_key_hash: hash, user_id: userId, source: "guild" })
+      .execute();
   } catch (error) {
     if (!isUniqueConstraintError(error)) {
       throw new Error(
@@ -160,16 +162,13 @@ export async function deleteGuildApiKey(
   guildId: string,
   apiKey: string,
 ): Promise<void> {
-  const db = getDB();
   // Find the key by decrypting and comparing
-  const data = db
-    .prepare(
-      `SELECT id, guild_id, user_id, api_key_encrypted, invalid_count
-       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
-       WHERE guild_id = ?
-         AND deleted_at IS NULL`,
-    )
-    .all(guildId) as GuildApiKeyRow[];
+  const data = (await db
+    .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+    .select(["id", "guild_id", "user_id", "api_key_encrypted", "invalid_count"])
+    .where("guild_id", "=", guildId)
+    .where("deleted_at", "is", null)
+    .execute()) as GuildApiKeyRow[];
 
   for (const row of data) {
     try {
@@ -177,15 +176,19 @@ export async function deleteGuildApiKey(
       if (decrypted === apiKey) {
         // Soft delete the key
         const now = new Date().toISOString();
-        db.prepare(
-          `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}" SET deleted_at = ? WHERE id = ?`,
-        ).run(now, row.id);
+        await db
+          .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+          .set({ deleted_at: now })
+          .where("id", "=", row.id)
+          .execute();
 
         // Also soft-delete from mapping
         const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
-        db.prepare(
-          `UPDATE "${TABLE_NAMES.API_KEY_USER_MAPPING}" SET deleted_at = ? WHERE api_key_hash = ?`,
-        ).run(now, hash);
+        await db
+          .updateTable(TABLE_NAMES.API_KEY_USER_MAPPING)
+          .set({ deleted_at: now })
+          .where("api_key_hash", "=", hash)
+          .execute();
 
         return;
       }
@@ -209,20 +212,17 @@ export async function markGuildApiKeyInvalid(
   apiKey: string,
   threshold: number = 3,
 ): Promise<void> {
-  const db = getDB();
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
 
   // Find the key by hash in mapping table
-  const mapping = db
-    .prepare(
-      `SELECT user_id
-       FROM "${TABLE_NAMES.API_KEY_USER_MAPPING}"
-       WHERE api_key_hash = ?
-         AND source = ?
-         AND deleted_at IS NULL
-       LIMIT 1`,
-    )
-    .get(hash, "guild") as { user_id: number } | undefined;
+  const mapping = (await db
+    .selectFrom(TABLE_NAMES.API_KEY_USER_MAPPING)
+    .select(["user_id"])
+    .where("api_key_hash", "=", hash)
+    .where("source", "=", "guild")
+    .where("deleted_at", "is", null)
+    .limit(1)
+    .executeTakeFirst()) as { user_id: number } | undefined;
 
   if (!mapping) {
     console.warn(`Could not find guild API key mapping for invalid key`);
@@ -232,14 +232,12 @@ export async function markGuildApiKeyInvalid(
   const userId = mapping.user_id;
 
   // Find the key record
-  const keys = db
-    .prepare(
-      `SELECT id, guild_id, user_id, api_key_encrypted, invalid_count
-       FROM "${TABLE_NAMES.GUILD_API_KEYS}"
-       WHERE user_id = ?
-         AND deleted_at IS NULL`,
-    )
-    .all(userId) as GuildApiKeyRow[];
+  const keys = (await db
+    .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+    .select(["id", "guild_id", "user_id", "api_key_encrypted", "invalid_count"])
+    .where("user_id", "=", userId)
+    .where("deleted_at", "is", null)
+    .execute()) as GuildApiKeyRow[];
 
   if (!keys || keys.length === 0) {
     console.warn("Could not find guild API key records");
@@ -263,21 +261,27 @@ export async function markGuildApiKeyInvalid(
           );
 
           // Also soft-delete from mapping
-          db.prepare(
-            `UPDATE "${TABLE_NAMES.API_KEY_USER_MAPPING}" SET deleted_at = ? WHERE api_key_hash = ?`,
-          ).run(now, hash);
+          await db
+            .updateTable(TABLE_NAMES.API_KEY_USER_MAPPING)
+            .set({ deleted_at: now })
+            .where("api_key_hash", "=", hash)
+            .execute();
 
-          db.prepare(
-            `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}"
-             SET invalid_count = ?, last_invalid_at = ?, deleted_at = ?
-             WHERE id = ?`,
-          ).run(newCount, now, now, row.id);
+          await db
+            .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+            .set({
+              invalid_count: newCount,
+              last_invalid_at: now,
+              deleted_at: now,
+            })
+            .where("id", "=", row.id)
+            .execute();
         } else {
-          db.prepare(
-            `UPDATE "${TABLE_NAMES.GUILD_API_KEYS}"
-             SET invalid_count = ?, last_invalid_at = ?
-             WHERE id = ?`,
-          ).run(newCount, now, row.id);
+          await db
+            .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+            .set({ invalid_count: newCount, last_invalid_at: now })
+            .where("id", "=", row.id)
+            .execute();
         }
 
         return;
@@ -300,12 +304,11 @@ export async function markGuildApiKeyInvalid(
 export async function getGuildsWithApiKeys(): Promise<
   Array<{ guildId: string; keyCount: number }>
 > {
-  const db = getDB();
-  const data = db
-    .prepare(
-      `SELECT guild_id FROM "${TABLE_NAMES.GUILD_API_KEYS}" WHERE deleted_at IS NULL`,
-    )
-    .all() as Array<{ guild_id: string }>;
+  const data = (await db
+    .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+    .select(["guild_id"])
+    .where("deleted_at", "is", null)
+    .execute()) as Array<{ guild_id: string }>;
 
   // Count keys per guild
   const guildCounts = new Map<string, number>();

@@ -24,17 +24,18 @@ import {
   type ChannelSelectMenuInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../../lib/db-client.js";
+import { db, finalizeReactionRoleMessage } from "../../../../lib/db-client.js";
 
 async function buildRoleMappingDescription(
   messageId: string,
   baseDescription: string | null,
 ): Promise<string> {
-  const { data: mappings } = await db
-    .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-    .select("emoji, role_id")
-    .eq("message_id", messageId)
-    .order("created_at", { ascending: true });
+  const mappings = await db
+    .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+    .select(["emoji", "role_id"])
+    .where("message_id", "=", messageId)
+    .orderBy("created_at", "asc")
+    .execute();
 
   let finalDescription =
     baseDescription || "React with the emojis below to assign yourself roles:";
@@ -99,25 +100,28 @@ export async function handleShowReactionRolesSettings(
     console.log(`[Reaction Roles] Loading settings for guild: ${guildId}`);
 
     // Fetch config
-    const { data: config } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const config = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     // Fetch existing reaction role messages (only posted ones, exclude pending)
-    const { data: messages } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .filter("message_id", "not.ilike", "pending_%")
-      .order("created_at", { ascending: false });
+    const messages = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .where("message_id", "not ilike", "pending_%")
+      .orderBy("created_at", "desc")
+      .execute();
 
     console.log(
       `[Reaction Roles] Found ${messages?.length || 0} posted messages for guild ${guildId}`,
     );
 
-    const allowedRoleIds = config?.allowed_role_ids || [];
+    const allowedRoleIds = config?.allowed_role_ids
+      ? JSON.parse(config.allowed_role_ids)
+      : [];
     const rolesDisplay =
       allowedRoleIds.length > 0
         ? allowedRoleIds.map((id: string) => `<@&${id}>`).join(", ")
@@ -245,14 +249,20 @@ export async function handleAllowedRolesSelect(
     if (!guildId) return;
 
     // Update or create config
-    await db.from(TABLE_NAMES.REACTION_ROLE_CONFIG).upsert(
-      {
+    await db
+      .insertInto(TABLE_NAMES.REACTION_ROLE_CONFIG)
+      .values({
         guild_id: guildId,
-        allowed_role_ids: selectedRoles,
+        allowed_role_ids: JSON.stringify(selectedRoles),
         updated_at: new Date().toISOString(),
-      },
-      { onConflict: "guild_id" },
-    );
+      })
+      .onConflict((oc) =>
+        oc.column("guild_id").doUpdateSet({
+          allowed_role_ids: JSON.stringify(selectedRoles),
+          updated_at: new Date().toISOString(),
+        }),
+      )
+      .execute();
 
     const confirmEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
@@ -339,20 +349,21 @@ export async function handleChannelSelect(
     // Use a combination of timestamp and user ID to ensure uniqueness
     const tempMessageId = `pending_${Date.now()}_${interaction.user.id}`;
 
-    const { data: messageRecord, error: insertError } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .insert({
+    const messageRecord = await db
+      .insertInto(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .values({
         guild_id: guildId,
         channel_id: selectedChannelId,
         message_id: tempMessageId,
         title: "Loading...",
         description: null,
+        created_at: new Date().toISOString(),
       })
-      .select()
-      .single();
+      .returningAll()
+      .executeTakeFirstOrThrow();
 
-    if (insertError || !messageRecord) {
-      console.error("Error creating message record:", insertError);
+    if (!messageRecord) {
+      console.error("Error creating message record");
       return;
     }
 
@@ -418,9 +429,10 @@ export async function handleCreateEmbedModal(
 
     // Update the message record with details
     await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .update({ title, description })
-      .eq("id", recordId);
+      .updateTable(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .set({ title, description })
+      .where("id", "=", recordId)
+      .execute();
 
     // Show UI for adding mappings
     const embed = new EmbedBuilder()
@@ -553,11 +565,11 @@ export async function handleMappingEmojiModal(
     }
 
     // Get the message record to ensure it exists
-    const { data: messageRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("id", recordId)
-      .single();
+    const messageRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     if (!messageRecord) {
       return;
@@ -613,11 +625,11 @@ export async function handleMappingRoleSelect(
     const selectedRoleId = interaction.values[0];
 
     // Get the message record
-    const { data: messageRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("id", recordId)
-      .single();
+    const messageRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     if (!messageRecord) {
       return;
@@ -627,20 +639,20 @@ export async function handleMappingRoleSelect(
     const currentMessageId = messageRecord.message_id;
 
     // Upsert mapping so existing emoji mappings can be edited
-    const { error } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .upsert(
-        {
-          message_id: currentMessageId,
-          emoji,
+    await db
+      .insertInto(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .values({
+        message_id: currentMessageId,
+        emoji,
+        role_id: selectedRoleId,
+        created_at: new Date().toISOString(),
+      })
+      .onConflict((oc) =>
+        oc.columns(["message_id", "emoji"]).doUpdateSet({
           role_id: selectedRoleId,
-        },
-        { onConflict: "message_id,emoji" },
-      );
-
-    if (error) {
-      throw error;
-    }
+        }),
+      )
+      .execute();
 
     if (isEditMode && !currentMessageId.startsWith("pending_")) {
       try {
@@ -751,11 +763,11 @@ export async function handlePostMessage(
     console.log(`[Reaction Roles] Posting message for recordId: ${recordId}`);
 
     // Get message record and mappings
-    const { data: messageRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("id", recordId)
-      .single();
+    const messageRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     if (!messageRecord) {
       console.error(
@@ -767,13 +779,12 @@ export async function handlePostMessage(
     console.log(`[Reaction Roles] Found message record:`, messageRecord);
 
     // Get mappings for this message
-    const { data: tempMappings } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .select("*")
-      .eq("message_id", messageRecord.message_id)
-      .order("created_at", { ascending: true });
-
-    const mappings = tempMappings || [];
+    const mappings = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .selectAll()
+      .where("message_id", "=", messageRecord.message_id)
+      .orderBy("created_at", "asc")
+      .execute();
     console.log(
       `[Reaction Roles] Found ${mappings.length} mappings for message_id: ${messageRecord.message_id}`,
     );
@@ -848,13 +859,16 @@ export async function handlePostMessage(
     }
 
     // Atomically finalize pending_* message_id -> real Discord message ID
-    const { data: finalizeData, error: finalizeError } = await db.rpc(
-      "sentinel_finalize_reaction_role_message",
-      {
-        p_record_id: recordId,
-        p_new_message_id: postedMessage.id,
-      },
-    );
+    let finalizeData;
+    let finalizeError;
+    try {
+      finalizeData = await finalizeReactionRoleMessage(
+        recordId,
+        postedMessage.id,
+      );
+    } catch (error) {
+      finalizeError = error;
+    }
 
     if (finalizeError) {
       console.error(
@@ -956,11 +970,11 @@ async function showEditMappingsForMessage(
   interaction: ButtonInteraction | StringSelectMenuInteraction,
   recordId: number,
 ): Promise<void> {
-  const { data: messageRecord } = await db
-    .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-    .select("*")
-    .eq("id", recordId)
-    .single();
+  const messageRecord = await db
+    .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+    .selectAll()
+    .where("id", "=", recordId)
+    .executeTakeFirst();
 
   if (!messageRecord) {
     const errorEmbed = new EmbedBuilder()
@@ -975,11 +989,12 @@ async function showEditMappingsForMessage(
     return;
   }
 
-  const { data: mappings } = await db
-    .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-    .select("*")
-    .eq("message_id", messageRecord.message_id)
-    .order("created_at", { ascending: true });
+  const mappings = await db
+    .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+    .selectAll()
+    .where("message_id", "=", messageRecord.message_id)
+    .orderBy("created_at", "asc")
+    .execute();
 
   const mappingLines =
     mappings && mappings.length > 0
@@ -1037,12 +1052,13 @@ export async function handleEditMappings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: messages } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .filter("message_id", "not.ilike", "pending_%")
-      .order("created_at", { ascending: false });
+    const messages = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .where("message_id", "not ilike", "pending_%")
+      .orderBy("created_at", "desc")
+      .execute();
 
     if (!messages || messages.length === 0) {
       const emptyEmbed = new EmbedBuilder()
@@ -1162,19 +1178,20 @@ export async function handleEditRemoveMapping(
     const recordId = parseInt(recordIdStr, 10);
     if (isNaN(recordId)) return;
 
-    const { data: messageRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("id", recordId)
-      .single();
+    const messageRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     if (!messageRecord) return;
 
-    const { data: mappings } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .select("*")
-      .eq("message_id", messageRecord.message_id)
-      .order("created_at", { ascending: true });
+    const mappings = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .selectAll()
+      .where("message_id", "=", messageRecord.message_id)
+      .orderBy("created_at", "asc")
+      .execute();
 
     if (!mappings || mappings.length === 0) {
       await showEditMappingsForMessage(interaction, recordId);
@@ -1233,22 +1250,22 @@ export async function handleEditRemoveMappingSelect(
       return;
     }
 
-    const { data: messageRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("id", recordId)
-      .single();
+    const messageRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
-    const { data: mappingRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .select("*")
-      .eq("id", mappingId)
-      .single();
+    const mappingRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .selectAll()
+      .where("id", "=", mappingId)
+      .executeTakeFirst();
 
     await db
-      .from(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .delete()
-      .eq("id", mappingId);
+      .deleteFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+      .where("id", "=", mappingId)
+      .execute();
 
     if (
       messageRecord &&
@@ -1316,12 +1333,13 @@ export async function handleViewMessages(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: messages } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .filter("message_id", "not.ilike", "pending_%")
-      .order("created_at", { ascending: false });
+    const messages = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .where("message_id", "not ilike", "pending_%")
+      .orderBy("created_at", "desc")
+      .execute();
 
     if (!messages || messages.length === 0) {
       const emptyEmbed = new EmbedBuilder()
@@ -1398,12 +1416,13 @@ export async function handleDeleteMessage(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const { data: messages } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("guild_id", guildId)
-      .filter("message_id", "not.ilike", "pending_%")
-      .order("created_at", { ascending: false });
+    const messages = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .where("message_id", "not ilike", "pending_%")
+      .orderBy("created_at", "desc")
+      .execute();
 
     if (!messages || messages.length === 0) {
       return;
@@ -1461,11 +1480,11 @@ export async function handleDeleteSelect(
     }
 
     // Get message to delete from Discord
-    const { data: messageRecord } = await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("*")
-      .eq("id", recordId)
-      .single();
+    const messageRecord = await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .selectAll()
+      .where("id", "=", recordId)
+      .executeTakeFirst();
 
     if (messageRecord && messageRecord.message_id !== "pending") {
       try {
@@ -1485,9 +1504,9 @@ export async function handleDeleteSelect(
 
     // Delete from database (cascades to mappings)
     await db
-      .from(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .delete()
-      .eq("id", recordId);
+      .deleteFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .where("id", "=", recordId)
+      .execute();
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)

@@ -26,11 +26,11 @@ export async function handleViewSelect(
 
     const selectedView = interaction.values[0];
 
-    const { data: guildConfig } = await db
-      .from(TABLE_NAMES.GUILD_CONFIG)
-      .select("*")
-      .eq("guild_id", guildId)
-      .single();
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
 
     if (!guildConfig) return;
 
@@ -58,9 +58,14 @@ export async function handleViewSelect(
         ? `<#${guildConfig.log_channel_id}>`
         : "Not configured";
 
+      // Parse admin_role_ids from JSON string (SQLite stores as JSON)
+      const adminRoleIds: string[] = guildConfig.admin_role_ids
+        ? JSON.parse(guildConfig.admin_role_ids)
+        : [];
+
       let adminRolesDisplay = "None configured";
-      if (guildConfig.admin_role_ids && guildConfig.admin_role_ids.length > 0) {
-        adminRolesDisplay = guildConfig.admin_role_ids
+      if (adminRoleIds.length > 0) {
+        adminRolesDisplay = adminRoleIds
           .map((roleId: string) => `<@&${roleId}>`)
           .join(", ");
       }

@@ -5,22 +5,23 @@
  * Persists across restarts and coordinates across multiple instances.
  */
 
-import { createHash, randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
 const API_KEY_USER_MAPPING_TABLE = TABLE_NAMES.API_KEY_USER_MAPPING;
 const WINDOW_MS = 60000; // 1 minute window
 const MAX_REQUESTS_PER_WINDOW = 50; // Per-user limit: 50 req/min (Torn allows 100 per key, use 50 for safety)
 
-function getMappedUserIdByApiKeyHash(keyHash: string): number {
-  const db = getDB();
-  const row = db
-    .prepare(
-      `SELECT user_id FROM "${API_KEY_USER_MAPPING_TABLE}" WHERE api_key_hash = ? LIMIT 1`,
-    )
-    .get(keyHash) as { user_id?: number | string } | undefined;
+async function getMappedUserIdByApiKeyHash(keyHash: string): Promise<number> {
+  const db = getKysely();
+  const row = await db
+    .selectFrom(API_KEY_USER_MAPPING_TABLE)
+    .select("user_id")
+    .where("api_key_hash", "=", keyHash)
+    .limit(1)
+    .executeTakeFirst();
 
   const parsed = Number(row?.user_id);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -47,15 +48,20 @@ function hashApiKey(apiKey: string): string {
  */
 export async function recordRequestPerUser(apiKey: string): Promise<void> {
   const keyHash = hashApiKey(apiKey);
-  const now = new Date();
+  const now = new Date().toISOString();
 
   try {
-    const db = getDB();
-    const userId = getMappedUserIdByApiKeyHash(keyHash);
-    db.prepare(
-      `INSERT INTO "${TRACKER_TABLE}" (id, api_key_hash, requested_at, user_id)
-       VALUES (?, ?, ?, ?)`,
-    ).run(randomUUID(), keyHash, now.toISOString(), userId);
+    const db = getKysely();
+    const userId = await getMappedUserIdByApiKeyHash(keyHash);
+
+    await db
+      .insertInto(TRACKER_TABLE)
+      .values({
+        api_key_hash: keyHash,
+        requested_at: now,
+        user_id: userId || null,
+      })
+      .execute();
   } catch (error) {
     console.error("Failed to record per-user request:", error);
   }
@@ -66,17 +72,18 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
  */
 export async function getRequestCountPerUser(apiKey: string): Promise<number> {
   const keyHash = hashApiKey(apiKey);
-  const windowStart = new Date(Date.now() - WINDOW_MS);
+  const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
   try {
-    const db = getDB();
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM "${TRACKER_TABLE}" WHERE api_key_hash = ? AND requested_at >= ?`,
-      )
-      .get(keyHash, windowStart.toISOString()) as { count: number };
+    const db = getKysely();
+    const row = await db
+      .selectFrom(TRACKER_TABLE)
+      .select((eb) => eb.fn.count("id").as("count"))
+      .where("api_key_hash", "=", keyHash)
+      .where("requested_at", ">=", windowStart)
+      .executeTakeFirst();
 
-    return row.count || 0;
+    return Number(row?.count ?? 0);
   } catch {
     return 0;
   }
@@ -97,17 +104,18 @@ export async function getOldestRequestPerUser(
   apiKey: string,
 ): Promise<Date | null> {
   const keyHash = hashApiKey(apiKey);
-  const windowStart = new Date(Date.now() - WINDOW_MS);
+  const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
   try {
-    const db = getDB();
-    const data = db
-      .prepare(
-        `SELECT requested_at FROM "${TRACKER_TABLE}" WHERE api_key_hash = ? AND requested_at >= ? ORDER BY requested_at ASC LIMIT 1`,
-      )
-      .get(keyHash, windowStart.toISOString()) as
-      | { requested_at: string }
-      | undefined;
+    const db = getKysely();
+    const data = await db
+      .selectFrom(TRACKER_TABLE)
+      .select("requested_at")
+      .where("api_key_hash", "=", keyHash)
+      .where("requested_at", ">=", windowStart)
+      .orderBy("requested_at", "asc")
+      .limit(1)
+      .executeTakeFirst();
 
     if (!data) {
       return null;
@@ -123,13 +131,14 @@ export async function getOldestRequestPerUser(
  * Clean up old request records for all keys (older than window)
  */
 export async function cleanupOldRequestsPerUser(): Promise<void> {
-  const windowStart = new Date(Date.now() - WINDOW_MS);
+  const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
   try {
-    const db = getDB();
-    db.prepare(`DELETE FROM "${TRACKER_TABLE}" WHERE requested_at < ?`).run(
-      windowStart.toISOString(),
-    );
+    const db = getKysely();
+    await db
+      .deleteFrom(TRACKER_TABLE)
+      .where("requested_at", "<", windowStart)
+      .execute();
   } catch (error) {
     console.error("Failed to cleanup per-user requests:", error);
   }

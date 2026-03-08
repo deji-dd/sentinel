@@ -4,7 +4,7 @@
  */
 
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { db } from "../lib/db-client.js";
 
 const TCT_OFFSET_MS = 0; // TCT = UTC (no offset needed)
 
@@ -83,16 +83,13 @@ export interface DailyStatsSummary {
 async function getSnapshotBefore(
   beforeUtcTime: Date,
 ): Promise<DailyStatsSnapshot | null> {
-  const db = getDB();
-  const snapshot = db
-    .prepare(
-      `SELECT strength, speed, defense, dexterity, total_stats
-       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
-       WHERE created_at < ?
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    )
-    .get(beforeUtcTime.toISOString()) as DailyStatsSnapshot | undefined;
+  const snapshot = (await db
+    .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+    .select(["strength", "speed", "defense", "dexterity", "total_stats"])
+    .where("created_at", "<", beforeUtcTime.toISOString())
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst()) as DailyStatsSnapshot | undefined;
 
   return snapshot ?? null;
 }
@@ -101,15 +98,12 @@ async function getSnapshotBefore(
  * Get the latest battlestats snapshot
  */
 async function getLatestSnapshot(): Promise<DailyStatsSnapshot | null> {
-  const db = getDB();
-  const snapshot = db
-    .prepare(
-      `SELECT strength, speed, defense, dexterity, total_stats
-       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    )
-    .get() as DailyStatsSnapshot | undefined;
+  const snapshot = (await db
+    .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+    .select(["strength", "speed", "defense", "dexterity", "total_stats"])
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst()) as DailyStatsSnapshot | undefined;
 
   return snapshot ?? null;
 }

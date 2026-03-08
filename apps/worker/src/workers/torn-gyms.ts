@@ -4,7 +4,7 @@ import { logDuration, logError } from "../lib/logger.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "torn_gyms_worker";
 const DAILY_CADENCE_SECONDS = 86400; // 24h
@@ -115,7 +115,7 @@ interface TornGymsResponse {
 
 async function syncTornGyms(): Promise<void> {
   const startTime = Date.now();
-  const db = getDB();
+  const db = getKysely();
 
   try {
     const apiKey = await getSystemApiKey("personal");
@@ -133,21 +133,12 @@ async function syncTornGyms(): Promise<void> {
     }
 
     // Fetch user stats from most recent battlestats snapshot
-    const snapshotData = db
-      .prepare(
-        `SELECT strength, speed, defense, dexterity
-         FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
-         ORDER BY created_at DESC
-         LIMIT 1`,
-      )
-      .get() as
-      | {
-          strength: number | null;
-          speed: number | null;
-          defense: number | null;
-          dexterity: number | null;
-        }
-      | undefined;
+    const snapshotData = await db
+      .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+      .select(["strength", "speed", "defense", "dexterity"])
+      .orderBy("created_at", "desc")
+      .limit(1)
+      .executeTakeFirst();
 
     if (!snapshotData) {
       logError(WORKER_NAME, "Failed to fetch user snapshot: no data");
@@ -195,35 +186,34 @@ async function syncTornGyms(): Promise<void> {
     }
 
     // Upsert gyms (replace existing)
-    const tx = db.transaction((rows: GymRow[]) => {
-      const stmt = db.prepare(
-        `INSERT INTO "${TABLE_NAMES.TORN_GYMS}" (id, name, energy, strength, speed, dexterity, defense, unlocked)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           energy = excluded.energy,
-           strength = excluded.strength,
-           speed = excluded.speed,
-           dexterity = excluded.dexterity,
-           defense = excluded.defense,
-           unlocked = excluded.unlocked`,
-      );
-
-      for (const gym of rows) {
-        stmt.run(
-          gym.id,
-          gym.name,
-          gym.energy,
-          gym.strength,
-          gym.speed,
-          gym.dexterity,
-          gym.defense,
-          gym.unlocked ? 1 : 0,
-        );
+    await db.transaction().execute(async (trx) => {
+      for (const gym of gyms) {
+        await trx
+          .insertInto(TABLE_NAMES.TORN_GYMS)
+          .values({
+            id: gym.id,
+            name: gym.name,
+            energy: gym.energy,
+            strength: gym.strength,
+            speed: gym.speed,
+            dexterity: gym.dexterity,
+            defense: gym.defense,
+            unlocked: gym.unlocked ? 1 : 0,
+          })
+          .onConflict((oc) =>
+            oc.column("id").doUpdateSet({
+              name: gym.name,
+              energy: gym.energy,
+              strength: gym.strength,
+              speed: gym.speed,
+              dexterity: gym.dexterity,
+              defense: gym.defense,
+              unlocked: gym.unlocked ? 1 : 0,
+            }),
+          )
+          .execute();
       }
     });
-
-    tx(gyms);
 
     const duration = Date.now() - startTime;
     logDuration(

@@ -13,7 +13,7 @@ import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import type { TornApiOperations } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { randomUUID } from "crypto";
 
 const WORKER_NAME = "battlestats_sync_worker";
@@ -28,23 +28,13 @@ async function getMostRecentSnapshot(): Promise<{
   dexterity: number;
   total_stats: number;
 } | null> {
-  const db = getDB();
-  const data = db
-    .prepare(
-      `SELECT strength, speed, defense, dexterity, total_stats
-       FROM "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}"
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    )
-    .get() as
-    | {
-        strength: number;
-        speed: number;
-        defense: number;
-        dexterity: number;
-        total_stats: number;
-      }
-    | undefined;
+  const db = getKysely();
+  const data = await db
+    .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+    .select(["strength", "speed", "defense", "dexterity", "total_stats"])
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst();
 
   return (data ?? null) as {
     strength: number;
@@ -132,18 +122,18 @@ async function syncBattlestats(): Promise<void> {
     }
 
     // Insert new snapshot
-    const db = getDB();
-    db.prepare(
-      `INSERT INTO "${TABLE_NAMES.BATTLESTATS_SNAPSHOTS}" (id, strength, speed, defense, dexterity, total_stats)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
-      randomUUID(),
-      newStats.strength,
-      newStats.speed,
-      newStats.defense,
-      newStats.dexterity,
-      newStats.total_stats,
-    );
+    const db = getKysely();
+    await db
+      .insertInto(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+      .values({
+        id: randomUUID(),
+        strength: newStats.strength,
+        speed: newStats.speed,
+        defense: newStats.defense,
+        dexterity: newStats.dexterity,
+        total_stats: newStats.total_stats,
+      })
+      .execute();
 
     const duration = Date.now() - startTime;
     logDuration(

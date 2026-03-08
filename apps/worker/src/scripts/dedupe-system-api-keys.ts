@@ -1,5 +1,5 @@
 import { decryptApiKey, hashApiKey } from "@sentinel/shared";
-import { getDB } from "@sentinel/shared/db/sqlite.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER;
@@ -19,14 +19,12 @@ interface SystemKeyRow {
 }
 
 async function run(): Promise<void> {
-  const db = getDB();
-  const rows = db
-    .prepare(
-      `SELECT id, api_key_encrypted, created_at
-       FROM "sentinel_system_api_keys"
-       WHERE deleted_at IS NULL`,
-    )
-    .all() as SystemKeyRow[];
+  const db = getKysely();
+  const rows = (await db
+    .selectFrom("sentinel_system_api_keys")
+    .select(["id", "api_key_encrypted", "created_at"])
+    .where("deleted_at", "is", null)
+    .execute()) as SystemKeyRow[];
 
   if (!rows.length) {
     console.log("No active system keys found.");
@@ -54,18 +52,21 @@ async function run(): Promise<void> {
     const keep = sorted[0];
     const duplicates = sorted.slice(1);
 
-    db.prepare(
-      `UPDATE "sentinel_system_api_keys" SET api_key_hash = ? WHERE id = ?`,
-    ).run(hash, keep.id);
+    await db
+      .updateTable("sentinel_system_api_keys")
+      .set({ api_key_hash: hash })
+      .where("id", "=", keep.id)
+      .execute();
 
     updated += 1;
 
     if (duplicates.length > 0) {
       const duplicateIds = duplicates.map((entry) => entry.id);
-      const placeholders = duplicateIds.map(() => "?").join(", ");
-      db.prepare(
-        `UPDATE "sentinel_system_api_keys" SET deleted_at = ? WHERE id IN (${placeholders})`,
-      ).run(new Date().toISOString(), ...duplicateIds);
+      await db
+        .updateTable("sentinel_system_api_keys")
+        .set({ deleted_at: new Date().toISOString() })
+        .where("id", "in", duplicateIds)
+        .execute();
 
       removed += duplicateIds.length;
     }
