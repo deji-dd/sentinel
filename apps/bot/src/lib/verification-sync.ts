@@ -41,6 +41,15 @@ interface GuildConfigRecord {
   updated_at: string;
 }
 
+interface VerifiedUserRecord {
+  discord_id: string;
+  torn_id: number;
+  torn_name: string;
+  faction_id: number | null;
+  faction_tag: string | null;
+  updated_at: string;
+}
+
 function parseTextArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string");
@@ -79,6 +88,8 @@ export class GuildSyncScheduler {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private tornApi: TornApiClient;
   private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
+  private readonly VERIFICATION_REFRESH_MS = 24 * 60 * 60 * 1000; // 24h
+  private readonly VERIFIED_USER_QUERY_CHUNK_SIZE = 500;
 
   constructor(client: Client) {
     this.client = client;
@@ -283,6 +294,13 @@ export class GuildSyncScheduler {
       // Fetch all guild members
       await discord.members.fetch();
       const allMembers = discord.members.cache;
+      const membersToSync = Array.from(allMembers.values()).filter(
+        (member) => !member.user.bot,
+      );
+
+      const existingVerifiedUsers = await this.loadVerifiedUsersByDiscordIds(
+        membersToSync.map((member) => member.id),
+      );
 
       // Get faction role mappings for this guild
       const factionMappings = (
@@ -318,31 +336,39 @@ export class GuildSyncScheduler {
         } as FactionRoleMapping;
       });
 
-      // Cache faction members for leader detection
+      // Cache faction members + leaders for mapped factions.
+      // Map: factionId -> Set of member player IDs
+      const factionMembersCache = new Map<number, Set<number>>();
       // Map: factionId -> Set of leader player IDs
       const factionLeadersCache = new Map<number, Set<number>>();
 
-      // Fetch faction members for all mapped factions that are enabled
-      if (factionMappings && factionMappings.length > 0) {
-        const enabledMappings = (
-          factionMappings as FactionRoleMapping[]
-        ).filter((m) => m.enabled !== false && m.leader_role_ids.length > 0);
+      // Fetch faction members for all mapped factions that are enabled.
+      // This powers hybrid verification so we only call /user when required.
+      const mappedFactionIds = [
+        ...new Set(
+          (factionMappings || [])
+            .filter((m) => m.enabled !== false)
+            .map((m) => m.faction_id),
+        ),
+      ];
 
-        for (const mapping of enabledMappings) {
+      if (mappedFactionIds.length > 0) {
+        for (const factionId of mappedFactionIds) {
           try {
             const membersResponse = await this.tornApi.get(
               "/faction/{id}/members",
               {
                 apiKey: getNextApiKey(job.guild_id, apiKeys),
-                pathParams: { id: mapping.faction_id },
+                pathParams: { id: factionId },
               },
             );
 
+            const memberIds = new Set<number>();
             const leaders = new Set<number>();
             const members = membersResponse.members;
 
-            // members is already an array, iterate directly
             for (const member of members) {
+              memberIds.add(member.id);
               if (
                 member.position === "Leader" ||
                 member.position === "Co-leader"
@@ -351,14 +377,15 @@ export class GuildSyncScheduler {
               }
             }
 
-            factionLeadersCache.set(mapping.faction_id, leaders);
+            factionMembersCache.set(factionId, memberIds);
+            factionLeadersCache.set(factionId, leaders);
 
             // Rate limiting delay
             await new Promise((resolve) => setTimeout(resolve, 100));
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error(
-              `[Guild Sync] Error fetching faction ${mapping.faction_id} members: ${msg}`,
+              `[Guild Sync] Error fetching faction ${factionId} members: ${msg}`,
             );
           }
         }
@@ -371,59 +398,89 @@ export class GuildSyncScheduler {
       let errorCount = 0;
 
       // Sync each guild member
-      for (const [, member] of allMembers) {
-        // Skip bots
-        if (member.user.bot) {
-          continue;
-        }
-
+      for (const member of membersToSync) {
         try {
-          // Try to fetch Torn data via Discord ID
-          const response = await this.tornApi.get<UserGenericResponse>(
-            `/user`,
-            {
-              apiKey: getNextApiKey(job.guild_id, apiKeys),
-              queryParams: {
-                selections: ["discord", "faction", "profile"],
-                id: member.id,
+          const existingUser = existingVerifiedUsers.get(member.id);
+
+          let name: string;
+          let playerId: number;
+          let normalizedFactionId: number | null;
+          let normalizedFactionTag: string | null;
+          let factionName: string | null = null;
+          let usedApiLookup = false;
+
+          const inferredMappedFactionId = existingUser
+            ? (mappedFactionIds.find((factionId) =>
+                factionMembersCache.get(factionId)?.has(existingUser.torn_id),
+              ) ?? null)
+            : null;
+
+          const staleRecord = existingUser
+            ? this.isVerificationRecordStale(existingUser.updated_at)
+            : false;
+
+          const mappedFactionMismatch = existingUser
+            ? existingUser.faction_id !== null &&
+              mappedFactionIds.includes(existingUser.faction_id) &&
+              !factionMembersCache
+                .get(existingUser.faction_id)
+                ?.has(existingUser.torn_id)
+            : false;
+
+          const shouldFetchFromApi =
+            !existingUser || staleRecord || mappedFactionMismatch;
+
+          if (shouldFetchFromApi) {
+            usedApiLookup = true;
+            const response = await this.tornApi.get<UserGenericResponse>(
+              `/user`,
+              {
+                apiKey: getNextApiKey(job.guild_id, apiKeys),
+                queryParams: {
+                  selections: ["discord", "faction", "profile"],
+                  id: member.id,
+                },
               },
-            },
-          );
-
-          const name = response.profile.name;
-          const playerId = response.profile.id;
-          const factionData = response.faction;
-
-          if (!name || !playerId) {
-            console.warn(
-              `[Guild Sync] Missing required fields for user ${member.id}`,
             );
-            errorCount++;
-            continue;
-          }
 
-          // Check if user exists in database
-          const existingUser = (await db
-            .selectFrom(TABLE_NAMES.VERIFIED_USERS)
-            .select(["discord_id", "torn_name", "faction_id", "faction_tag"])
-            .where("discord_id", "=", member.id)
-            .limit(1)
-            .executeTakeFirst()) as
-            | {
-                discord_id: string;
-                torn_name: string;
-                faction_id: number | null;
-                faction_tag: string | null;
-              }
-            | undefined;
+            name = response.profile.name;
+            playerId = response.profile.id;
+            normalizedFactionId = response.faction?.id || null;
+            normalizedFactionTag = response.faction?.tag || null;
+            factionName = response.faction?.name || null;
+
+            if (!name || !playerId) {
+              console.warn(
+                `[Guild Sync] Missing required fields for user ${member.id}`,
+              );
+              errorCount++;
+              continue;
+            }
+          } else {
+            // Existing verified users can be resolved from DB + mapped faction cache.
+            name = existingUser.torn_name;
+            playerId = existingUser.torn_id;
+
+            if (inferredMappedFactionId) {
+              normalizedFactionId = inferredMappedFactionId;
+              normalizedFactionTag =
+                existingUser.faction_id === inferredMappedFactionId
+                  ? existingUser.faction_tag
+                  : null;
+            } else if (
+              existingUser.faction_id !== null &&
+              !mappedFactionIds.includes(existingUser.faction_id)
+            ) {
+              normalizedFactionId = existingUser.faction_id;
+              normalizedFactionTag = existingUser.faction_tag;
+            } else {
+              normalizedFactionId = null;
+              normalizedFactionTag = null;
+            }
+          }
 
           const isNewUser = !existingUser;
           const nameChanged = existingUser && name !== existingUser.torn_name;
-
-          // Normalize faction data: handle both undefined and null values
-          // When user has no faction, Torn API returns {} not null
-          const normalizedFactionId = factionData?.id || null;
-          const normalizedFactionTag = factionData?.tag || null;
 
           const factionChanged =
             existingUser &&
@@ -438,14 +495,24 @@ export class GuildSyncScheduler {
               existingUser.faction_tag === null
             );
 
-          // Upsert to database
-          await upsertVerifiedUser({
-            discordId: member.id,
-            tornId: playerId,
-            tornName: name,
-            factionId: normalizedFactionId,
-            factionTag: normalizedFactionTag,
-          });
+          if (isNewUser || nameChanged || factionChanged || usedApiLookup) {
+            await upsertVerifiedUser({
+              discordId: member.id,
+              tornId: playerId,
+              tornName: name,
+              factionId: normalizedFactionId,
+              factionTag: normalizedFactionTag,
+            });
+
+            existingVerifiedUsers.set(member.id, {
+              discord_id: member.id,
+              torn_id: playerId,
+              torn_name: name,
+              faction_id: normalizedFactionId,
+              faction_tag: normalizedFactionTag,
+              updated_at: new Date().toISOString(),
+            });
+          }
 
           const rolesAdded: string[] = [];
           const rolesRemoved: string[] = [];
@@ -455,7 +522,7 @@ export class GuildSyncScheduler {
             guildConfig.nickname_template || "{name} [{id}]",
             name,
             playerId,
-            factionData?.tag,
+            normalizedFactionTag || undefined,
           );
           await member.setNickname(nickname).catch(() => {});
 
@@ -482,9 +549,9 @@ export class GuildSyncScheduler {
             const rolesUserShouldHave = new Set<string>();
 
             // Add member roles if they're in the mapped faction
-            if (factionData?.id) {
+            if (normalizedFactionId) {
               const currentFactionMapping = enabledMappings.find(
-                (m) => m.faction_id === factionData.id,
+                (m) => m.faction_id === normalizedFactionId,
               );
 
               if (currentFactionMapping) {
@@ -496,7 +563,7 @@ export class GuildSyncScheduler {
                 // Add leader roles if they are a leader
                 const isLeader =
                   currentFactionMapping.leader_role_ids.length > 0 &&
-                  factionLeadersCache.get(factionData.id)?.has(playerId);
+                  factionLeadersCache.get(normalizedFactionId)?.has(playerId);
 
                 if (isLeader) {
                   currentFactionMapping.leader_role_ids.forEach((roleId) => {
@@ -561,10 +628,18 @@ export class GuildSyncScheduler {
               },
             ];
 
-            if (factionData) {
+            if (
+              normalizedFactionId !== null ||
+              normalizedFactionTag !== null ||
+              factionName !== null
+            ) {
               logFields.push({
                 name: "Faction",
-                value: factionData.name || "Unknown",
+                value:
+                  factionName ||
+                  (normalizedFactionTag
+                    ? `[${normalizedFactionTag}]`
+                    : String(normalizedFactionId)),
                 inline: true,
               });
             }
@@ -612,8 +687,10 @@ export class GuildSyncScheduler {
             unchangedCount++;
           }
 
-          // Rate limiting delay
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          // Delay only after /user calls; cached-member processing is local.
+          if (usedApiLookup) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
 
@@ -625,6 +702,7 @@ export class GuildSyncScheduler {
               .where("discord_id", "=", member.id)
               .executeTakeFirst();
             if (Number(removeResult.numDeletedRows) > 0) {
+              existingVerifiedUsers.delete(member.id);
               removedCount++;
             }
             continue;
@@ -677,5 +755,57 @@ export class GuildSyncScheduler {
       .replace("{name}", name)
       .replace("{id}", id.toString())
       .replace("{tag}", factionTag || "");
+  }
+
+  private async loadVerifiedUsersByDiscordIds(
+    discordIds: string[],
+  ): Promise<Map<string, VerifiedUserRecord>> {
+    const users = new Map<string, VerifiedUserRecord>();
+
+    if (discordIds.length === 0) {
+      return users;
+    }
+
+    for (
+      let i = 0;
+      i < discordIds.length;
+      i += this.VERIFIED_USER_QUERY_CHUNK_SIZE
+    ) {
+      const chunk = discordIds.slice(
+        i,
+        i + this.VERIFIED_USER_QUERY_CHUNK_SIZE,
+      );
+      if (chunk.length === 0) {
+        continue;
+      }
+
+      const rows = (await db
+        .selectFrom(TABLE_NAMES.VERIFIED_USERS)
+        .select([
+          "discord_id",
+          "torn_id",
+          "torn_name",
+          "faction_id",
+          "faction_tag",
+          "updated_at",
+        ])
+        .where("discord_id", "in", chunk)
+        .execute()) as VerifiedUserRecord[];
+
+      for (const row of rows) {
+        users.set(row.discord_id, row);
+      }
+    }
+
+    return users;
+  }
+
+  private isVerificationRecordStale(updatedAt: string): boolean {
+    const updatedTimestamp = new Date(updatedAt).getTime();
+    if (Number.isNaN(updatedTimestamp)) {
+      return true;
+    }
+
+    return Date.now() - updatedTimestamp >= this.VERIFICATION_REFRESH_MS;
   }
 }
