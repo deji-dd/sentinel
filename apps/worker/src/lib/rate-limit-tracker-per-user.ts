@@ -5,7 +5,7 @@
  * Persists across restarts and coordinates across multiple instances.
  */
 
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
@@ -57,6 +57,7 @@ export async function recordRequestPerUser(apiKey: string): Promise<void> {
     await db
       .insertInto(TRACKER_TABLE)
       .values({
+        id: randomUUID(),
         api_key_hash: keyHash,
         requested_at: now,
         user_id: userId || null,

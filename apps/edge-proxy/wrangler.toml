@@ -9,3 +9,8 @@ ASSIST_MAX_JSON_BYTES = "16384"
 [env.dev.vars]
 BOT_ORIGIN = "http://127.0.0.1:3001"
 ASSIST_MAX_JSON_BYTES = "16384"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true

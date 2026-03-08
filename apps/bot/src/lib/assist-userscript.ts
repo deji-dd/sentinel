@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.1
+// @version      2.7.2
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -162,7 +162,6 @@ ${connectMetadata}
       .map((node) => (node.textContent || "").trim().toLowerCase())
       .filter(Boolean);
 
-    // When this action dialog appears, Torn has already ended the fight in the requester's favor.
     if (
       actionButtons.includes("leave") &&
       actionButtons.includes("mug") &&
@@ -241,7 +240,6 @@ ${connectMetadata}
 
     const lower = fightStatus.toLowerCase();
 
-    // Requester defeated outcomes
     if (
       lower.includes("target is down") ||
       lower.includes("you defeated") ||
@@ -252,7 +250,6 @@ ${connectMetadata}
       return "Target is down";
     }
 
-    // Requester lost outcomes
     if (lower.includes("you stalemated")) {
       return "Requester stalemated";
     }
@@ -261,7 +258,6 @@ ${connectMetadata}
       return "Requester is down";
     }
 
-    // Third party outcomes
     if (lower.includes("took down your opponent")) {
       return "Third party defeated target";
     }
@@ -345,7 +341,6 @@ ${connectMetadata}
     try {
       window.localStorage.setItem(COOLDOWN_STORAGE_KEY, String(cooldownUntil));
     } catch {
-      // Local storage can fail in private mode; proceed with in-memory cooldown.
     }
 
     clearCooldownInterval();
@@ -385,7 +380,6 @@ ${connectMetadata}
         window.localStorage.removeItem(COOLDOWN_STORAGE_KEY);
       }
     } catch {
-      // Ignore storage errors.
     }
   }
 
@@ -397,7 +391,6 @@ ${connectMetadata}
         String(assistSessionActiveUntil),
       );
     } catch {
-      // Ignore storage errors.
     }
   }
 
@@ -406,7 +399,6 @@ ${connectMetadata}
     try {
       window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
     } catch {
-      // Ignore storage errors.
     }
   }
 
@@ -435,7 +427,6 @@ ${connectMetadata}
         window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
       }
     } catch {
-      // Ignore storage errors.
     }
   }
 
@@ -779,7 +770,6 @@ ${connectMetadata}
         return;
       }
 
-      // If transitioning to "Ongoing", send initial health along with status
       if (previousStatus === "Not Started" && currentStatus === "Ongoing") {
         const initialHealth = readEnemyHealth();
         if (initialHealth) {

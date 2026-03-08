@@ -5,9 +5,10 @@
 
 import type { ColumnType } from "kysely";
 
-export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
-  ? ColumnType<S, I | undefined, U>
-  : ColumnType<T, T | undefined, T>;
+export type Generated<T> =
+  T extends ColumnType<infer S, infer I, infer U>
+    ? ColumnType<S, I | undefined, U>
+    : ColumnType<T, T | undefined, T>;
 
 export interface SentinelApiKeyUserMapping {
   api_key_hash: string;
@@ -143,7 +144,7 @@ export interface SentinelGuildSyncJobs {
 
 export interface SentinelRateLimitRequestsPerUser {
   api_key_hash: string;
-  id: Generated<number | null>;
+  id: Generated<string>;
   requested_at: Generated<string>;
   user_id: number | null;
 }
@@ -548,7 +549,7 @@ export interface SentinelWorkerLogs {
   created_at: Generated<string>;
   duration_ms: number | null;
   error_message: string | null;
-  id: Generated<number | null>;
+  id: Generated<string>;
   is_limited: Generated<number | null>;
   last_error_at: string | null;
   limited_until: string | null;
