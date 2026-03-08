@@ -102,11 +102,23 @@ export async function fetchDueWorker(
 
 export async function claimWorker(workerId: string): Promise<boolean> {
   const db = getKysely();
+  const now = new Date().toISOString();
+
+  // Atomic claim: only update if not currently running (next_run_at is in the past/present)
+  // This prevents multiple instances from claiming the same job
   const result = await db
     .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
-    .set({ updated_at: new Date().toISOString() })
+    .set({
+      updated_at: now,
+      // Move next_run_at far into future to prevent other instances from claiming
+      next_run_at: new Date(
+        Date.now() + 365 * 24 * 60 * 60 * 1000,
+      ).toISOString(), // 1 year in future
+    })
     .where("worker_id", "=", workerId)
+    .where("next_run_at", "<=", now) // Only claim if actually due
     .executeTakeFirst();
+
   return Number(result.numUpdatedRows) > 0;
 }
 

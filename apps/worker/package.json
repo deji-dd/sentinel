@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "task": "tsx --env-file=.env",
     "migrate:sqlite": "tsx --env-file=.env src/scripts/apply-sqlite-migrations.ts",
+    "check:schedules": "tsx --env-file=.env src/scripts/check-worker-schedules.ts",
     "repair-constraints": "tsx --env-file=.env src/scripts/repair-sqlite-constraints.ts",
     "add-key": "tsx --env-file=.env src/scripts/add-system-api-key.ts",
     "dedupe-keys": "tsx --env-file=.env src/scripts/dedupe-system-api-keys.ts",
