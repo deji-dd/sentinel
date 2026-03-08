@@ -111,7 +111,7 @@ export async function handleShowReactionRolesSettings(
       .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .where("message_id", "not ilike", "pending_%")
+      .where("message_id", "not like", "pending_%")
       .orderBy("created_at", "desc")
       .execute();
 
@@ -1056,7 +1056,7 @@ export async function handleEditMappings(
       .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .where("message_id", "not ilike", "pending_%")
+      .where("message_id", "not like", "pending_%")
       .orderBy("created_at", "desc")
       .execute();
 
@@ -1337,7 +1337,7 @@ export async function handleViewMessages(
       .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .where("message_id", "not ilike", "pending_%")
+      .where("message_id", "not like", "pending_%")
       .orderBy("created_at", "desc")
       .execute();
 
@@ -1420,7 +1420,7 @@ export async function handleDeleteMessage(
       .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .where("message_id", "not ilike", "pending_%")
+      .where("message_id", "not like", "pending_%")
       .orderBy("created_at", "desc")
       .execute();
 
