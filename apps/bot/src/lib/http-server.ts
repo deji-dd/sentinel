@@ -251,6 +251,8 @@ function buildInitialAssistEmbed(
   targetTornId: number | undefined,
   requesterDiscordId: string,
   fightStatus: string,
+  initialAttackerValue: string,
+  initialEnemyHpValue: string,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xdc2626)
@@ -264,8 +266,8 @@ function buildInitialAssistEmbed(
         value: targetTornId ? `Loading...` : "Unknown",
         inline: true,
       },
-      { name: "Attackers", value: "Unavailable", inline: true },
-      { name: "Enemy HP", value: "Unavailable", inline: true },
+      { name: "Attackers", value: initialAttackerValue, inline: true },
+      { name: "Enemy HP", value: initialEnemyHpValue, inline: true },
     )
     .setTimestamp();
 
@@ -1099,10 +1101,33 @@ export function initHttpServer(client: Client, port: number = 3001) {
         : "";
       const initialFightStatus =
         resolveStatusFieldValue(payload) || "Requester not started fight";
+
+      const initialAttackerCount = Number.isFinite(payload.attacker_count)
+        ? Number(payload.attacker_count)
+        : null;
+      const initialAttackerValue = Number.isFinite(initialAttackerCount)
+        ? String(initialAttackerCount)
+        : payload.attacker_count_state === "mobile_unavailable"
+          ? "Unavailable (mobile)"
+          : "Unavailable";
+
+      const healthCurrent = payload.enemy_health_current;
+      const healthMax = payload.enemy_health_max;
+      const healthPercent = payload.enemy_health_percent;
+      const initialEnemyHpValue =
+        Number.isFinite(healthCurrent) &&
+        Number.isFinite(healthMax) &&
+        healthMax &&
+        healthMax > 0
+          ? `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${Math.max(0, Math.min(100, Math.round(Number.isFinite(healthPercent) ? healthPercent : (healthCurrent / healthMax) * 100)))}%)`
+          : "Unavailable";
+
       const embed = buildInitialAssistEmbed(
         payload.target_torn_id,
         token.discord_id,
         initialFightStatus,
+        initialAttackerValue,
+        initialEnemyHpValue,
       );
       const button = buildAssistButton(payload.target_torn_id);
 
@@ -1118,7 +1143,9 @@ export function initHttpServer(client: Client, port: number = 3001) {
         message: sentMessage,
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
-        attackerCount: null,
+        attackerCount: Number.isFinite(initialAttackerCount)
+          ? initialAttackerCount
+          : null,
       });
 
       scheduleAssistExpiry(payload.uuid);

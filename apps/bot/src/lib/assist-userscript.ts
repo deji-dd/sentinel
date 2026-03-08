@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.8
+// @version      2.7.9
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -321,6 +321,37 @@ ${connectMetadata}
     };
   }
 
+  function readAttackerCountState() {
+    const statsHeader = document.getElementById("stats-header");
+    if (!statsHeader) {
+      return {
+        attackerCount: null,
+        attackerCountState: "mobile_unavailable",
+      };
+    }
+
+    const node = statsHeader.querySelector('[class*="titleNumber"]');
+    if (!node) {
+      return {
+        attackerCount: null,
+        attackerCountState: "mobile_unavailable",
+      };
+    }
+
+    const current = Number.parseInt((node.textContent || "").trim(), 10);
+    if (!Number.isFinite(current)) {
+      return {
+        attackerCount: null,
+        attackerCountState: "mobile_unavailable",
+      };
+    }
+
+    return {
+      attackerCount: current,
+      attackerCountState: "available",
+    };
+  }
+
   function setButtonState(disabled, label) {
     if (!assistButtonEl) {
       return;
@@ -551,16 +582,46 @@ ${connectMetadata}
       assistRequestInFlight = true;
       renderAssistButtonState();
 
-      const response = await sendAssistEvent("POST", {
+      const attackerState = readAttackerCountState();
+      const initialHealth = readEnemyHealth();
+      const initialPostPayload = {
         action: "manual_alert",
         result: "button_click",
-      });
+        attacker_count_state: attackerState.attackerCountState,
+      };
+
+      if (Number.isFinite(attackerState.attackerCount)) {
+        initialPostPayload.attacker_count = attackerState.attackerCount;
+      }
+
+      if (initialHealth) {
+        initialPostPayload.enemy_health_current = Math.round(initialHealth.current);
+        initialPostPayload.enemy_health_max = Math.round(initialHealth.max);
+        initialPostPayload.enemy_health_percent = Math.round(initialHealth.percent);
+      }
+
+      const response = await sendAssistEvent("POST", initialPostPayload);
 
       if (response.ok && !response.body?.dropped) {
         logInfo("Assist alert sent successfully");
         showToast("Assist alert sent", true);
         setActiveAssistSession();
         lastFightStatus = detectFightState();
+
+        if (Number.isFinite(attackerState.attackerCount)) {
+          lastAttackerCount = attackerState.attackerCount;
+          lastAttackerSnapshot = "count:" + String(attackerState.attackerCount);
+        } else {
+          lastAttackerCount = null;
+          lastAttackerSnapshot = "unavailable";
+        }
+
+        if (initialHealth) {
+          lastHealthSnapshot =
+            String(Math.round(initialHealth.current)) +
+            "/" +
+            String(Math.round(initialHealth.max));
+        }
       } else if (response.ok && response.body?.dropped) {
         setActiveAssistSession();
         showToast("Assist already active. Waiting before next alert.", false);
@@ -863,9 +924,6 @@ ${connectMetadata}
       result: "page_unload",
     });
   };
-
-  window.addEventListener("beforeunload", endActiveSession);
-  window.addEventListener("pagehide", endActiveSession);
 
   const checkForNavigationAway = () => {
     if (!hasActiveAssistSession()) {
