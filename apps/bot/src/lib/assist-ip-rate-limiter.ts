@@ -3,36 +3,7 @@
  * Tracks failed requests per IP to prevent abuse and brute force attacks
  */
 
-import type { Database } from "better-sqlite3";
-
-type IPRateLimitRecord = {
-  id: number;
-  ip_address: string;
-  uuid: string | null;
-  error_type: string;
-  request_path: string;
-  user_agent: string | null;
-  request_count: number;
-  first_occurrence_at: string;
-  last_occurrence_at: string;
-  is_blocked: number;
-  blocked_reason: string | null;
-  blocked_until: string | null;
-};
-
-type ScriptGenerationLimitRecord = {
-  id: number;
-  token_uuid: string;
-  generation_count: number;
-  last_generation_at: string | null;
-  last_generation_ip: string | null;
-  consecutive_failures: number;
-  last_failure_at: string | null;
-  is_rate_limited: number;
-  rate_limit_until: string | null;
-  created_at: string;
-  updated_at: string;
-};
+type KyselyDb = typeof import("./db-client.js").db;
 
 export const ASSIST_RATE_LIMIT_CONFIG = {
   // IP rate limiting for failed requests
@@ -60,7 +31,11 @@ export interface AssistIPRateLimiter {
     path?: string,
     userAgent?: string,
   ): Promise<void>;
-  recordSuccessfulGeneration(uuid: string, ip: string, tornId?: number): Promise<void>;
+  recordSuccessfulGeneration(
+    uuid: string,
+    ip: string,
+    tornId?: number,
+  ): Promise<void>;
   isUUIDRateLimited(uuid: string, tornId?: number): Promise<boolean>;
   canBypassRateLimit(tornId?: number): boolean;
   getIPFailureCount(ip: string): Promise<number>;
@@ -73,12 +48,12 @@ export interface AssistIPRateLimiter {
  * Database-backed IP rate limiter for assist endpoints
  */
 export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
-  private db: Database;
+  private db: KyselyDb;
   private ipRateLimitTable: string;
   private scriptGenerationLimitTable: string;
 
   constructor(
-    db: Database,
+    db: KyselyDb,
     ipRateLimitTable: string,
     scriptGenerationLimitTable: string,
   ) {
@@ -91,15 +66,13 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
    * Check if an IP is currently blocked
    */
   async isIPBlocked(ip: string): Promise<boolean> {
-    const record = this.db
-      .prepare(
-        `
-      SELECT is_blocked, blocked_until FROM ${this.ipRateLimitTable}
-      WHERE ip_address = ? AND is_blocked = 1
-      LIMIT 1
-    `,
-      )
-      .get(ip) as (IPRateLimitRecord & { outcome: "success" }) | undefined;
+    const record = await this.db
+      .selectFrom(this.ipRateLimitTable as "sentinel_assist_ip_rate_limits")
+      .select(["is_blocked", "blocked_until"])
+      .where("ip_address", "=", ip)
+      .where("is_blocked", "=", 1)
+      .orderBy("last_occurrence_at", "desc")
+      .executeTakeFirst();
 
     if (!record) {
       return false;
@@ -110,11 +83,14 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       const blockedUntil = new Date(record.blocked_until).getTime();
       if (blockedUntil <= Date.now()) {
         // Block has expired, unblock it
-        this.db
-          .prepare(
-            `UPDATE ${this.ipRateLimitTable} SET is_blocked = 0 WHERE ip_address = ?`,
+        await this.db
+          .updateTable(
+            this.ipRateLimitTable as "sentinel_assist_ip_rate_limits",
           )
-          .run(ip);
+          .set({ is_blocked: 0 })
+          .where("ip_address", "=", ip)
+          .where("is_blocked", "=", 1)
+          .execute();
         return false;
       }
     }
@@ -134,7 +110,9 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       return false;
     }
     // Parse comma-separated list of user IDs
-    const allowedIds = sentinelUserId.split(",").map((id) => Number.parseInt(id.trim(), 10));
+    const allowedIds = sentinelUserId
+      .split(",")
+      .map((id) => Number.parseInt(id.trim(), 10));
     return allowedIds.includes(tornId);
   }
 
@@ -147,15 +125,15 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       return false;
     }
 
-    const record = this.db
-      .prepare(
-        `
-      SELECT is_rate_limited, rate_limit_until FROM ${this.scriptGenerationLimitTable}
-      WHERE token_uuid = ? AND is_rate_limited = 1
-      LIMIT 1
-    `,
+    const record = await this.db
+      .selectFrom(
+        this
+          .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
       )
-      .get(uuid) as (ScriptGenerationLimitRecord & { outcome: "success" }) | undefined;
+      .select(["is_rate_limited", "rate_limit_until"])
+      .where("token_uuid", "=", uuid)
+      .where("is_rate_limited", "=", 1)
+      .executeTakeFirst();
 
     if (!record) {
       return false;
@@ -166,13 +144,14 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       const limitUntil = new Date(record.rate_limit_until).getTime();
       if (limitUntil <= Date.now()) {
         // Rate limit has expired, reset it
-        this.db
-          .prepare(
-            `UPDATE ${this.scriptGenerationLimitTable} 
-           SET is_rate_limited = 0, generation_count = 0 
-           WHERE token_uuid = ?`,
+        await this.db
+          .updateTable(
+            this
+              .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
           )
-          .run(uuid);
+          .set({ is_rate_limited: 0, generation_count: 0 })
+          .where("token_uuid", "=", uuid)
+          .execute();
         return false;
       }
     }
@@ -194,42 +173,44 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       const now = new Date().toISOString();
 
       // Check if this IP/UUID combo already exists
-      const existing = this.db
-        .prepare(
-          `
-        SELECT id, request_count, consecutive_failures FROM ${this.ipRateLimitTable}
-        WHERE ip_address = ? AND uuid = ? AND error_type = ?
-        LIMIT 1
-      `,
-        )
-        .get(ip, uuid || null, errorType) as
-        | (IPRateLimitRecord & { consecutive_failures?: number })
-        | undefined;
+      const existing = await this.db
+        .selectFrom(this.ipRateLimitTable as "sentinel_assist_ip_rate_limits")
+        .select(["id", "request_count"])
+        .where("ip_address", "=", ip)
+        .where("uuid", "=", uuid || null)
+        .where("error_type", "=", errorType)
+        .executeTakeFirst();
 
       if (existing) {
         // Update existing record
-        this.db
-          .prepare(
-            `
-          UPDATE ${this.ipRateLimitTable}
-          SET request_count = request_count + 1,
-              last_occurrence_at = ?
-          WHERE id = ?
-        `,
+        await this.db
+          .updateTable(
+            this.ipRateLimitTable as "sentinel_assist_ip_rate_limits",
           )
-          .run(now, existing.id);
+          .set({
+            request_count: existing.request_count + 1,
+            last_occurrence_at: now,
+          })
+          .where("id", "=", existing.id)
+          .execute();
       } else {
         // Insert new record
-        this.db
-          .prepare(
-            `
-          INSERT INTO ${this.ipRateLimitTable} (
-            ip_address, uuid, error_type, request_path, user_agent,
-            first_occurrence_at, last_occurrence_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `,
-          )
-          .run(ip, uuid || null, errorType, path || null, userAgent || null, now, now);
+        await this.db
+          .insertInto(this.ipRateLimitTable as "sentinel_assist_ip_rate_limits")
+          .values({
+            ip_address: ip,
+            uuid: uuid || null,
+            error_type: errorType,
+            request_path: path || "",
+            user_agent: userAgent || null,
+            request_count: 1,
+            first_occurrence_at: now,
+            last_occurrence_at: now,
+            is_blocked: 0,
+            blocked_reason: null,
+            blocked_until: null,
+          })
+          .execute();
       }
 
       // Check if we should auto-block this IP
@@ -247,7 +228,7 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
 
       // Update UUID failure tracking if provided
       if (uuid) {
-        this.updateUUIDFailureTracking(uuid, now);
+        await this.updateUUIDFailureTracking(uuid, now);
       }
     } catch (error) {
       console.error("[AssistIPRateLimiter] Error recording failure:", error);
@@ -258,62 +239,84 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
   /**
    * Record a successful script generation for a UUID
    */
-  async recordSuccessfulGeneration(uuid: string, ip: string, tornId?: number): Promise<void> {
+  async recordSuccessfulGeneration(
+    uuid: string,
+    ip: string,
+    tornId?: number,
+  ): Promise<void> {
     try {
       const now = new Date().toISOString();
+      const windowStartMs =
+        Date.now() -
+        ASSIST_RATE_LIMIT_CONFIG.SCRIPT_GENERATION_RATE_LIMIT_WINDOW_MS;
 
       // Check if limit record exists
-      const existing = this.db
-        .prepare(
-          `
-        SELECT id FROM ${this.scriptGenerationLimitTable}
-        WHERE token_uuid = ?
-        LIMIT 1
-      `,
+      const existing = await this.db
+        .selectFrom(
+          this
+            .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
         )
-        .get(uuid) as { id: number } | undefined;
+        .select(["id", "generation_count", "last_generation_at"])
+        .where("token_uuid", "=", uuid)
+        .executeTakeFirst();
+
+      let windowGenerationCount = 1;
 
       if (existing) {
+        const lastGenerationMs = existing.last_generation_at
+          ? new Date(existing.last_generation_at).getTime()
+          : 0;
+        const isSameWindow =
+          Number.isFinite(lastGenerationMs) &&
+          lastGenerationMs >= windowStartMs;
+        windowGenerationCount = isSameWindow
+          ? existing.generation_count + 1
+          : 1;
+
         // Update existing record
-        this.db
-          .prepare(
-            `
-          UPDATE ${this.scriptGenerationLimitTable}
-          SET generation_count = generation_count + 1,
-              last_generation_at = ?,
-              last_generation_ip = ?,
-              consecutive_failures = 0,
-              updated_at = ?
-          WHERE id = ?
-        `,
+        await this.db
+          .updateTable(
+            this
+              .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
           )
-          .run(now, ip, now, existing.id);
+          .set({
+            generation_count: windowGenerationCount,
+            last_generation_at: now,
+            last_generation_ip: ip,
+            consecutive_failures: 0,
+            updated_at: now,
+          })
+          .where("id", "=", existing.id)
+          .execute();
       } else {
         // Insert new record
-        this.db
-          .prepare(
-            `
-          INSERT INTO ${this.scriptGenerationLimitTable} (
-            token_uuid, generation_count, last_generation_at, last_generation_ip, updated_at
-          ) VALUES (?, 1, ?, ?, ?)
-        `,
+        await this.db
+          .insertInto(
+            this
+              .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
           )
-          .run(uuid, now, ip, now);
+          .values({
+            token_uuid: uuid,
+            generation_count: 1,
+            last_generation_at: now,
+            last_generation_ip: ip,
+            consecutive_failures: 0,
+            last_failure_at: null,
+            is_rate_limited: 0,
+            rate_limit_until: null,
+            updated_at: now,
+          })
+          .execute();
       }
 
-      // Check if we should rate limit based on generation count
-      const generationCount = await this.getUUIDGenerationCount(
-        uuid,
-        ASSIST_RATE_LIMIT_CONFIG.SCRIPT_GENERATION_RATE_LIMIT_WINDOW_MS,
-      );
-
       if (
-        generationCount > ASSIST_RATE_LIMIT_CONFIG.MAX_GENERATIONS_PER_10_MINUTES_PER_UUID &&
+        windowGenerationCount >
+          ASSIST_RATE_LIMIT_CONFIG.MAX_GENERATIONS_PER_10_MINUTES_PER_UUID &&
         !(await this.isUUIDRateLimited(uuid, tornId))
       ) {
         await this.blockUUID(
           uuid,
-          `Rate limit exceeded: ${generationCount} generations per 10 minutes`,
+          `Rate limit exceeded: ${windowGenerationCount} generations per 10 minutes`,
           ASSIST_RATE_LIMIT_CONFIG.SCRIPT_GENERATION_BLOCK_DURATION_MS,
         );
       }
@@ -334,17 +337,14 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       Date.now() - ASSIST_RATE_LIMIT_CONFIG.IP_FAILURE_WINDOW_MS,
     ).toISOString();
 
-    const result = this.db
-      .prepare(
-        `
-      SELECT COALESCE(SUM(request_count), 0) as total
-      FROM ${this.ipRateLimitTable}
-      WHERE ip_address = ? AND last_occurrence_at >= ?
-    `,
-      )
-      .get(ip, oneHourAgo) as { total: number };
+    const rows = await this.db
+      .selectFrom(this.ipRateLimitTable as "sentinel_assist_ip_rate_limits")
+      .select(["request_count"])
+      .where("ip_address", "=", ip)
+      .where("last_occurrence_at", ">=", oneHourAgo)
+      .execute();
 
-    return result.total;
+    return rows.reduce((sum, row) => sum + row.request_count, 0);
   }
 
   /**
@@ -354,33 +354,14 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
     uuid: string,
     windowMs: number = ASSIST_RATE_LIMIT_CONFIG.SCRIPT_GENERATION_RATE_LIMIT_WINDOW_MS,
   ): Promise<number> {
-    const record = this.db
-      .prepare(
-        `
-      SELECT COUNT(*) as count, last_generation_at
-      FROM (
-        -- For now, we'll track via a simple counter in the script_generation table
-        -- In the future, this could be expanded to track individual requests
+    const limiterRecord = await this.db
+      .selectFrom(
+        this
+          .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
       )
-    `,
-      )
-      .get() as { count: number; last_generation_at: string | null };
-
-    const limiterRecord = this.db
-      .prepare(
-        `
-      SELECT generation_count, last_generation_at
-      FROM ${this.scriptGenerationLimitTable}
-      WHERE token_uuid = ?
-      LIMIT 1
-    `,
-      )
-      .get(uuid) as
-      | {
-          generation_count: number;
-          last_generation_at: string | null;
-        }
-      | undefined;
+      .select(["generation_count", "last_generation_at"])
+      .where("token_uuid", "=", uuid)
+      .executeTakeFirst();
 
     if (!limiterRecord) {
       return 0;
@@ -401,45 +382,56 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
   /**
    * Block an IP for a specified duration
    */
-  async blockIP(ip: string, reason: string, durationMs?: number): Promise<void> {
+  async blockIP(
+    ip: string,
+    reason: string,
+    durationMs?: number,
+  ): Promise<void> {
     try {
       const now = new Date().toISOString();
       const blockedUntil = new Date(
-        Date.now() + (durationMs || ASSIST_RATE_LIMIT_CONFIG.IP_BLOCK_DURATION_MS),
+        Date.now() +
+          (durationMs || ASSIST_RATE_LIMIT_CONFIG.IP_BLOCK_DURATION_MS),
       ).toISOString();
 
       // Check if IP already has a record
-      const existing = this.db
-        .prepare(
-          `
-        SELECT id FROM ${this.ipRateLimitTable}
-        WHERE ip_address = ? AND is_blocked = 1
-        LIMIT 1
-      `,
-        )
-        .get(ip) as { id: number } | undefined;
+      const existing = await this.db
+        .selectFrom(this.ipRateLimitTable as "sentinel_assist_ip_rate_limits")
+        .select(["id"])
+        .where("ip_address", "=", ip)
+        .where("is_blocked", "=", 1)
+        .executeTakeFirst();
 
       if (existing) {
-        this.db
-          .prepare(
-            `
-          UPDATE ${this.ipRateLimitTable}
-          SET is_blocked = 1, blocked_reason = ?, blocked_until = ?
-          WHERE id = ?
-        `,
+        await this.db
+          .updateTable(
+            this.ipRateLimitTable as "sentinel_assist_ip_rate_limits",
           )
-          .run(reason, blockedUntil, existing.id);
+          .set({
+            is_blocked: 1,
+            blocked_reason: reason,
+            blocked_until: blockedUntil,
+            last_occurrence_at: now,
+          })
+          .where("id", "=", existing.id)
+          .execute();
       } else {
-        this.db
-          .prepare(
-            `
-          INSERT INTO ${this.ipRateLimitTable} (
-            ip_address, error_type, is_blocked, blocked_reason, blocked_until,
-            first_occurrence_at, last_occurrence_at
-          ) VALUES (?, ?, 1, ?, ?, ?, ?)
-        `,
-          )
-          .run(ip, "BLOCKED", reason, blockedUntil, now, now);
+        await this.db
+          .insertInto(this.ipRateLimitTable as "sentinel_assist_ip_rate_limits")
+          .values({
+            ip_address: ip,
+            uuid: null,
+            error_type: "BLOCKED",
+            request_path: "",
+            user_agent: null,
+            request_count: 1,
+            first_occurrence_at: now,
+            last_occurrence_at: now,
+            is_blocked: 1,
+            blocked_reason: reason,
+            blocked_until: blockedUntil,
+          })
+          .execute();
       }
 
       console.log(`[AssistIPRateLimiter] Blocked IP ${ip}: ${reason}`);
@@ -452,7 +444,11 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
   /**
    * Block a UUID for a specified duration
    */
-  async blockUUID(uuid: string, reason: string, durationMs?: number): Promise<void> {
+  async blockUUID(
+    uuid: string,
+    reason: string,
+    durationMs?: number,
+  ): Promise<void> {
     try {
       const now = new Date().toISOString();
       const limitUntil = new Date(
@@ -462,36 +458,46 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       ).toISOString();
 
       // Check if UUID already has a record
-      const existing = this.db
-        .prepare(
-          `
-        SELECT id FROM ${this.scriptGenerationLimitTable}
-        WHERE token_uuid = ?
-        LIMIT 1
-      `,
+      const existing = await this.db
+        .selectFrom(
+          this
+            .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
         )
-        .get(uuid) as { id: number } | undefined;
+        .select(["id"])
+        .where("token_uuid", "=", uuid)
+        .executeTakeFirst();
 
       if (existing) {
-        this.db
-          .prepare(
-            `
-          UPDATE ${this.scriptGenerationLimitTable}
-          SET is_rate_limited = 1, rate_limit_until = ?, updated_at = ?
-          WHERE id = ?
-        `,
+        await this.db
+          .updateTable(
+            this
+              .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
           )
-          .run(limitUntil, now, existing.id);
+          .set({
+            is_rate_limited: 1,
+            rate_limit_until: limitUntil,
+            updated_at: now,
+          })
+          .where("id", "=", existing.id)
+          .execute();
       } else {
-        this.db
-          .prepare(
-            `
-          INSERT INTO ${this.scriptGenerationLimitTable} (
-            token_uuid, is_rate_limited, rate_limit_until
-          ) VALUES (?, 1, ?)
-        `,
+        await this.db
+          .insertInto(
+            this
+              .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
           )
-          .run(uuid, limitUntil);
+          .values({
+            token_uuid: uuid,
+            generation_count: 0,
+            last_generation_at: null,
+            last_generation_ip: null,
+            consecutive_failures: 0,
+            last_failure_at: null,
+            is_rate_limited: 1,
+            rate_limit_until: limitUntil,
+            updated_at: now,
+          })
+          .execute();
       }
 
       console.log(`[AssistIPRateLimiter] Rate limited UUID ${uuid}: ${reason}`);
@@ -504,38 +510,51 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
   /**
    * Internal: Update failure tracking for a UUID
    */
-  private updateUUIDFailureTracking(uuid: string, now: string): void {
-    const existing = this.db
-      .prepare(
-        `
-      SELECT id, consecutive_failures FROM ${this.scriptGenerationLimitTable}
-      WHERE token_uuid = ?
-      LIMIT 1
-    `,
+  private async updateUUIDFailureTracking(
+    uuid: string,
+    now: string,
+  ): Promise<void> {
+    const existing = await this.db
+      .selectFrom(
+        this
+          .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
       )
-      .get(uuid) as { id: number; consecutive_failures: number } | undefined;
+      .select(["id", "consecutive_failures"])
+      .where("token_uuid", "=", uuid)
+      .executeTakeFirst();
 
     if (existing) {
       const newFailures = existing.consecutive_failures + 1;
-      this.db
-        .prepare(
-          `
-        UPDATE ${this.scriptGenerationLimitTable}
-        SET consecutive_failures = ?, last_failure_at = ?, updated_at = ?
-        WHERE id = ?
-      `,
+      await this.db
+        .updateTable(
+          this
+            .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
         )
-        .run(newFailures, now, now, existing.id);
+        .set({
+          consecutive_failures: newFailures,
+          last_failure_at: now,
+          updated_at: now,
+        })
+        .where("id", "=", existing.id)
+        .execute();
     } else {
-      this.db
-        .prepare(
-          `
-        INSERT INTO ${this.scriptGenerationLimitTable} (
-          token_uuid, consecutive_failures, last_failure_at
-        ) VALUES (?, 1, ?)
-      `,
+      await this.db
+        .insertInto(
+          this
+            .scriptGenerationLimitTable as "sentinel_assist_script_generation_limits",
         )
-        .run(uuid, now);
+        .values({
+          token_uuid: uuid,
+          generation_count: 0,
+          last_generation_at: null,
+          last_generation_ip: null,
+          consecutive_failures: 1,
+          last_failure_at: now,
+          is_rate_limited: 0,
+          rate_limit_until: null,
+          updated_at: now,
+        })
+        .execute();
     }
   }
 }

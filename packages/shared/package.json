@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/generated/torn-api.ts"
+    "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/generated/torn-api.ts",
+    "generate:kysely-types": "kysely-codegen --dialect sqlite --url ../../data/sentinel-local.db --out-file src/db/kysely-types.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

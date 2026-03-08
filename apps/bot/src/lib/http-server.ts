@@ -8,7 +8,7 @@ import {
   type Message,
 } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
-import { db, rawDb } from "./db-client.js";
+import { db } from "./db-client.js";
 import { buildAssistUserscript } from "./assist-userscript.js";
 import {
   generateAssistEventAuthToken,
@@ -425,7 +425,7 @@ async function incrementAssistStrikeByUuid(
 export function initHttpServer(client: Client, port: number = 3001) {
   discordClient = client;
   ipRateLimiter = new DatabaseIPRateLimiter(
-    rawDb,
+    db,
     TABLE_NAMES.ASSIST_IP_RATE_LIMITS,
     TABLE_NAMES.ASSIST_SCRIPT_GENERATION_LIMITS,
   );
@@ -587,8 +587,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
           return res.status(401).json({ error: "Unauthorized proxy" });
         }
 
-        const clientIp = req.header("X-Assist-Client-IP") || req.ip || "unknown";
-        const clientUA = req.header("X-Assist-Client-UA") || req.get("user-agent") || null;
+        const clientIp =
+          req.header("X-Assist-Client-IP") || req.ip || "unknown";
+        const clientUA =
+          req.header("X-Assist-Client-UA") || req.get("user-agent") || null;
 
         // Check if this IP is blocked
         if (await ipRateLimiter.isIPBlocked(clientIp)) {
@@ -672,7 +674,6 @@ export function initHttpServer(client: Client, port: number = 3001) {
           });
         }
 
-
         const token = await db
           .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
           .select([
@@ -724,13 +725,13 @@ export function initHttpServer(client: Client, port: number = 3001) {
           return res.status(403).json({ error: "Assist token expired" });
         }
 
-          // Check if UUID is rate limited (now we have torn_id for bypass check)
-          if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
-            return res.status(429).json({
-              error: "Script generation rate limit exceeded for this UUID",
-              retry_after: 600,
-            });
-          }
+        // Check if UUID is rate limited (now we have torn_id for bypass check)
+        if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
+          return res.status(429).json({
+            error: "Script generation rate limit exceeded for this UUID",
+            retry_after: 600,
+          });
+        }
         const proxyOrigin = req.header("X-Assist-Proxy-Origin");
         const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
 
@@ -761,7 +762,11 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .execute();
 
         // Record successful generation for rate limiting
-          await ipRateLimiter.recordSuccessfulGeneration(uuid, clientIp, token.torn_id);
+        await ipRateLimiter.recordSuccessfulGeneration(
+          uuid,
+          clientIp,
+          token.torn_id,
+        );
 
         res.setHeader("Content-Type", "application/javascript; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
