@@ -39,12 +39,12 @@ export const ASSIST_RATE_LIMIT_CONFIG = {
   MAX_FAILURES_PER_HOUR_PER_IP: 50, // Max failed requests from one IP per hour
   IP_BLOCK_DURATION_MS: 3600000, // 1 hour block after threshold
   IP_BLOCK_THRESHOLD: 50, // Consecutive failures before auto-block
+  IP_FAILURE_WINDOW_MS: 3600000, // 1 hour window for tracking IP failures
 
   // Script generation rate limiting per UUID
-  MAX_GENERATIONS_PER_MINUTE_PER_UUID: 10, // Max script generations per UUID per minute
-  MAX_GENERATIONS_PER_HOUR_PER_UUID: 100, // Max script generations per UUID per hour
-  SCRIPT_GENERATION_RATE_LIMIT_WINDOW_MS: 60000, // 1 minute
-  SCRIPT_GENERATION_HOURLY_WINDOW_MS: 3600000, // 1 hour
+  // Each script lasts 10 minutes, so hard limit is 1 generation per 10 minutes
+  MAX_GENERATIONS_PER_10_MINUTES_PER_UUID: 1, // Max script generations per UUID per 10-minute window
+  SCRIPT_GENERATION_RATE_LIMIT_WINDOW_MS: 600000, // 10 minutes
   SCRIPT_GENERATION_BLOCK_DURATION_MS: 600000, // 10 minute block after hitting limit
 
   // Failure tracking
@@ -60,8 +60,9 @@ export interface AssistIPRateLimiter {
     path?: string,
     userAgent?: string,
   ): Promise<void>;
-  recordSuccessfulGeneration(uuid: string, ip: string): Promise<void>;
-  isUUIDRateLimited(uuid: string): Promise<boolean>;
+  recordSuccessfulGeneration(uuid: string, ip: string, tornId?: number): Promise<void>;
+  isUUIDRateLimited(uuid: string, tornId?: number): Promise<boolean>;
+  canBypassRateLimit(tornId?: number): boolean;
   getIPFailureCount(ip: string): Promise<number>;
   getUUIDGenerationCount(uuid: string, windowMs?: number): Promise<number>;
   blockIP(ip: string, reason: string, durationMs?: number): Promise<void>;
@@ -122,9 +123,30 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
   }
 
   /**
+   * Check if a torn user can bypass rate limits (admin bypass)
+   */
+  canBypassRateLimit(tornId?: number): boolean {
+    if (!tornId) {
+      return false;
+    }
+    const sentinelUserId = process.env.SENTINEL_USER_ID;
+    if (!sentinelUserId) {
+      return false;
+    }
+    // Parse comma-separated list of user IDs
+    const allowedIds = sentinelUserId.split(",").map((id) => Number.parseInt(id.trim(), 10));
+    return allowedIds.includes(tornId);
+  }
+
+  /**
    * Check if a UUID is currently rate limited for script generation
    */
-  async isUUIDRateLimited(uuid: string): Promise<boolean> {
+  async isUUIDRateLimited(uuid: string, tornId?: number): Promise<boolean> {
+    // Check if user can bypass rate limits
+    if (this.canBypassRateLimit(tornId)) {
+      return false;
+    }
+
     const record = this.db
       .prepare(
         `
@@ -236,7 +258,7 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
   /**
    * Record a successful script generation for a UUID
    */
-  async recordSuccessfulGeneration(uuid: string, ip: string): Promise<void> {
+  async recordSuccessfulGeneration(uuid: string, ip: string, tornId?: number): Promise<void> {
     try {
       const now = new Date().toISOString();
 
@@ -286,12 +308,12 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
       );
 
       if (
-        generationCount > ASSIST_RATE_LIMIT_CONFIG.MAX_GENERATIONS_PER_MINUTE_PER_UUID &&
-        !(await this.isUUIDRateLimited(uuid))
+        generationCount > ASSIST_RATE_LIMIT_CONFIG.MAX_GENERATIONS_PER_10_MINUTES_PER_UUID &&
+        !(await this.isUUIDRateLimited(uuid, tornId))
       ) {
         await this.blockUUID(
           uuid,
-          `Rate limit exceeded: ${generationCount} generations per minute`,
+          `Rate limit exceeded: ${generationCount} generations per 10 minutes`,
           ASSIST_RATE_LIMIT_CONFIG.SCRIPT_GENERATION_BLOCK_DURATION_MS,
         );
       }
@@ -309,7 +331,7 @@ export class DatabaseIPRateLimiter implements AssistIPRateLimiter {
    */
   async getIPFailureCount(ip: string): Promise<number> {
     const oneHourAgo = new Date(
-      Date.now() - ASSIST_RATE_LIMIT_CONFIG.SCRIPT_GENERATION_HOURLY_WINDOW_MS,
+      Date.now() - ASSIST_RATE_LIMIT_CONFIG.IP_FAILURE_WINDOW_MS,
     ).toISOString();
 
     const result = this.db

@@ -672,13 +672,6 @@ export function initHttpServer(client: Client, port: number = 3001) {
           });
         }
 
-        // Check if UUID is rate limited
-        if (await ipRateLimiter.isUUIDRateLimited(uuid)) {
-          return res.status(429).json({
-            error: "Script generation rate limit exceeded for this UUID",
-            retry_after: 600,
-          });
-        }
 
         const token = await db
           .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
@@ -731,6 +724,13 @@ export function initHttpServer(client: Client, port: number = 3001) {
           return res.status(403).json({ error: "Assist token expired" });
         }
 
+          // Check if UUID is rate limited (now we have torn_id for bypass check)
+          if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
+            return res.status(429).json({
+              error: "Script generation rate limit exceeded for this UUID",
+              retry_after: 600,
+            });
+          }
         const proxyOrigin = req.header("X-Assist-Proxy-Origin");
         const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
 
@@ -761,7 +761,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .execute();
 
         // Record successful generation for rate limiting
-        await ipRateLimiter.recordSuccessfulGeneration(uuid, clientIp);
+          await ipRateLimiter.recordSuccessfulGeneration(uuid, clientIp, token.torn_id);
 
         res.setHeader("Content-Type", "application/javascript; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
