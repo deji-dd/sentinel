@@ -44,7 +44,6 @@ const ASSIST_MAX_PAYLOAD_BYTES =
   parsedAssistMaxPayloadBytes > 0
     ? parsedAssistMaxPayloadBytes
     : 16384;
-const ASSIST_REQUEST_COOLDOWN_MS = 30 * 1000; // 30 seconds between assist POSTs
 const ASSIST_SLOW_DELIVERY_WARN_MS = 1000; // Flag transport lag at 1s+
 
 const assistMessageTracking = new Map<
@@ -1088,20 +1087,11 @@ export function initHttpServer(client: Client, port: number = 3001) {
       // Handle POST method for new assist alerts
       const activeTracked = getActiveTrackedAssist(payload.uuid);
       if (activeTracked) {
-        const elapsedSinceCreationMs = Date.now() - activeTracked.createdAt;
-        const remainingMs = ASSIST_REQUEST_COOLDOWN_MS - elapsedSinceCreationMs;
-
-        if (remainingMs > 0) {
-          return res.status(202).json({
-            success: true,
-            dropped: true,
-            reason: "active_assist_exists",
-            retry_after_seconds: Math.max(1, Math.ceil(remainingMs / 1000)),
-          });
-        }
-
-        // After the cooldown window, allow a fresh alert and retire stale in-memory tracking.
-        assistMessageTracking.delete(payload.uuid);
+        return res.status(202).json({
+          success: true,
+          dropped: true,
+          reason: "active_assist_exists",
+        });
       }
 
       const mention = assistConfig.ping_role_id
