@@ -44,6 +44,7 @@ const ASSIST_MAX_PAYLOAD_BYTES =
   parsedAssistMaxPayloadBytes > 0
     ? parsedAssistMaxPayloadBytes
     : 16384;
+const ASSIST_REQUEST_COOLDOWN_MS = 30 * 1000; // 30 seconds between assist POSTs
 
 const assistMessageTracking = new Map<
   string,
@@ -71,6 +72,7 @@ type _AssistTokenRecord = {
 type AssistPayload = {
   uuid: string;
   auth_token?: string;
+  client_sent_at?: string;
   action?: string;
   source?: string;
   attacker_name?: string;
@@ -87,6 +89,20 @@ type AssistPayload = {
   enemy_health_max?: number;
   enemy_health_percent?: number;
 };
+
+function getClientToServerLagMs(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const lagMs = Date.now() - parsed;
+  return lagMs >= 0 ? lagMs : null;
+}
 
 function normalizeFightStatus(value: string | undefined): string | null {
   if (!value) {
@@ -834,6 +850,15 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
+      const clientToServerLagMs = getClientToServerLagMs(
+        payload.client_sent_at,
+      );
+      if (clientToServerLagMs !== null && clientToServerLagMs > 10_000) {
+        console.warn(
+          `[ASSIST] Slow client->server delivery for ${payload.uuid}: ${clientToServerLagMs}ms`,
+        );
+      }
+
       const token = await db
         .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
         .select([
@@ -868,7 +893,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
       if (req.method === "POST") {
         const activeLockSeconds = getRemainingWindowSeconds(
           token.last_used_at,
-          ASSIST_EMBED_TIMEOUT_MS,
+          ASSIST_REQUEST_COOLDOWN_MS,
         );
         if (activeLockSeconds > 0) {
           return res.status(409).json({
@@ -1090,13 +1115,19 @@ export function initHttpServer(client: Client, port: number = 3001) {
       // Handle POST method for new assist alerts
       const activeTracked = getActiveTrackedAssist(payload.uuid);
       if (activeTracked) {
-        const remainingMs =
-          ASSIST_EMBED_TIMEOUT_MS - (Date.now() - activeTracked.lastActivityAt);
-        return res.status(409).json({
-          error:
-            "You already have an active assist alert. Wait for it to end before sending another one.",
-          retry_after_seconds: Math.max(1, Math.ceil(remainingMs / 1000)),
-        });
+        const elapsedSinceCreationMs = Date.now() - activeTracked.createdAt;
+        const remainingMs = ASSIST_REQUEST_COOLDOWN_MS - elapsedSinceCreationMs;
+
+        if (remainingMs > 0) {
+          return res.status(409).json({
+            error:
+              "You already have an active assist alert. Wait for it to end before sending another one.",
+            retry_after_seconds: Math.max(1, Math.ceil(remainingMs / 1000)),
+          });
+        }
+
+        // After the cooldown window, allow a fresh alert and retire stale in-memory tracking.
+        assistMessageTracking.delete(payload.uuid);
       }
 
       const mention = assistConfig.ping_role_id

@@ -48,7 +48,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.7.4
+// @version      2.7.5
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -70,6 +70,7 @@ ${connectMetadata}
   const DEFAULT_COOLDOWN_MS = 30000;
   const ASSIST_UNAVAILABLE_COOLDOWN_MS = 2 * 60 * 1000;
   const ACTIVE_SESSION_WINDOW_MS = 5 * 60 * 1000;
+  const HEARTBEAT_INTERVAL_MS = 5000;
   const LOG_PREFIX = "[Sentinel Assist]";
 
   let buttonMounted = false;
@@ -83,6 +84,7 @@ ${connectMetadata}
   let lastAttackerSnapshot = null;
   let lastHealthSnapshot = null;
   let mountTargetMissingLogged = false;
+  let heartbeatIntervalId = null;
 
   function logInfo(...args) {
     console.log(LOG_PREFIX, ...args);
@@ -474,6 +476,7 @@ ${connectMetadata}
 
   function sendAssistEvent(method, payload) {
     const detectedFightStatus = detectFightState();
+    const clientSentAt = new Date().toISOString();
 
     return new Promise((resolve) => {
       GM_xmlhttpRequest({
@@ -486,7 +489,8 @@ ${connectMetadata}
           uuid: ASSIST_UUID,
           auth_token: ASSIST_EVENT_AUTH_TOKEN,
           source: "tampermonkey",
-          occurred_at: new Date().toISOString(),
+          occurred_at: clientSentAt,
+          client_sent_at: clientSentAt,
           fight_status: detectedFightStatus,
           target_torn_id: Number.parseInt(getTargetId() || "0", 10) || undefined,
           ...payload,
@@ -515,6 +519,43 @@ ${connectMetadata}
         },
       });
     });
+  }
+
+  function startActiveSessionHeartbeat() {
+    if (heartbeatIntervalId !== null) {
+      return;
+    }
+
+    heartbeatIntervalId = window.setInterval(() => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      const payload = {
+        action: "session_heartbeat",
+        result: "heartbeat",
+      };
+
+      const health = readEnemyHealth();
+      const requestPayload = health
+        ? {
+            ...payload,
+            enemy_health_current: Math.round(health.current),
+            enemy_health_max: Math.round(health.max),
+            enemy_health_percent: Math.round(health.percent),
+          }
+        : payload;
+
+      sendAssistEvent("PATCH", requestPayload).then((response) => {
+        if (
+          response.status === 404 ||
+          response.status === 410 ||
+          response.status === 409
+        ) {
+          clearActiveAssistSession();
+        }
+      });
+    }, HEARTBEAT_INTERVAL_MS);
   }
 
   function injectButton() {
@@ -740,6 +781,15 @@ ${connectMetadata}
       characterData: true,
     });
 
+    // Mobile views can miss mutation events; poll as a fallback.
+    window.setInterval(() => {
+      if (!hasActiveAssistSession()) {
+        return;
+      }
+
+      tryAttach();
+    }, 1500);
+
     tryAttach();
   }
 
@@ -902,7 +952,7 @@ ${connectMetadata}
     tryAttach();
   }
 
-  window.addEventListener("beforeunload", () => {
+  const endActiveSession = () => {
     if (!hasActiveAssistSession()) {
       return;
     }
@@ -912,7 +962,10 @@ ${connectMetadata}
       action: "session_end",
       result: "page_unload",
     });
-  });
+  };
+
+  window.addEventListener("beforeunload", endActiveSession);
+  window.addEventListener("pagehide", endActiveSession);
 
   const mountLoop = window.setInterval(() => {
     injectButton();
@@ -926,12 +979,14 @@ ${connectMetadata}
     monitorAttackerCount();
     monitorFightLifecycle();
     monitorEnemyHealth();
+    startActiveSessionHeartbeat();
   } else {
     window.addEventListener("load", () => {
       injectButton();
       monitorAttackerCount();
       monitorFightLifecycle();
       monitorEnemyHealth();
+      startActiveSessionHeartbeat();
     });
   }
 })();
