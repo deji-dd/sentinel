@@ -174,16 +174,16 @@ ${connectMetadata}
     };
 
     const orderedPatterns = [
-      /you defeated [^.!?\n]+/i,
-      /you mugged [^.!?\n]+/i,
-      /you hospitalized [^.!?\n]+/i,
-      /you arrested [^.!?\n]+/i,
-      /you stalemated[^.!?\n]*/i,
-      /you lost[^.!?\n]*/i,
-      /[^.!?\n]+ took down your opponent/i,
-      /[^.!?\n]+ was defeated by [^.!?\n]+/i,
-      /[^.!?\n]+ was sent to hospital/i,
-      /[^.!?\n]+ was surrounded by police/i,
+      /you defeated .+?(?=[.!?]|$)/i,
+      /you mugged .+?(?=[.!?]|$)/i,
+      /you hospitalized .+?(?=[.!?]|$)/i,
+      /you arrested .+?(?=[.!?]|$)/i,
+      /you stalemated(?=[.!?]|$)/i,
+      /you lost(?=[.!?]|$)/i,
+      /.+? took down your opponent/i,
+      /.+? was defeated by .+?(?=[.!?]|$)/i,
+      /.+? was sent to hospital/i,
+      /.+? was surrounded by police/i,
     ];
 
     for (const pattern of orderedPatterns) {
