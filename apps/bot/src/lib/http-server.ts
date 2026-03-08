@@ -10,7 +10,10 @@ import {
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { db } from "./db-client.js";
 import { buildAssistUserscript } from "./assist-userscript.js";
-import { verifyLinkSignature } from "./assist-link-signing.js";
+import {
+  generateAssistEventAuthToken,
+  verifyLinkSignature,
+} from "./assist-link-signing.js";
 import {
   logProxyAuthFailure,
   logPayloadTooLarge,
@@ -61,6 +64,7 @@ type _AssistTokenRecord = {
 
 type AssistPayload = {
   uuid: string;
+  auth_token?: string;
   action?: string;
   source?: string;
   attacker_name?: string;
@@ -628,6 +632,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         const script = buildAssistUserscript({
           uuid,
           apiBaseUrl,
+          eventAuthToken: generateAssistEventAuthToken(uuid),
         });
 
         await db

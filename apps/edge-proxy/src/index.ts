@@ -1,6 +1,7 @@
 const PROXY_SECRET_HEADER = "Proxy-Secret-Header";
 const ALLOWED_API_PATHS = new Set(["/api/assist-events"]);
 const ALLOWED_API_METHODS = new Set(["POST", "PATCH", "DELETE"]);
+const ASSIST_EVENT_AUTH_CONTEXT = "assist_event_v1";
 const UUID_PATH_RE =
   /^\/install\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.user\.js$/i;
 
@@ -59,6 +60,44 @@ async function verifyInstallLinkSignature(
     return { valid: true };
   } catch (error) {
     return { valid: false, reason: "Signature verification failed" };
+  }
+}
+
+async function verifyAssistEventAuthToken(
+  uuid: string,
+  providedToken: string,
+  secret: string,
+): Promise<boolean> {
+  if (!uuid || !providedToken) {
+    return false;
+  }
+
+  try {
+    const encoder = new TextEncoder();
+    const message = encoder.encode(`${uuid}.${ASSIST_EVENT_AUTH_CONTEXT}`);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+
+    const expectedSignatureBuffer = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      message,
+    );
+    const expectedToken = btoa(
+      String.fromCharCode(...new Uint8Array(expectedSignatureBuffer)),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    return expectedToken === providedToken;
+  } catch {
+    return false;
   }
 }
 
@@ -188,6 +227,22 @@ async function proxyApi(
 
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return jsonResponse(400, { error: "JSON body must be an object" });
+  }
+
+  const payload = parsed as Record<string, unknown>;
+  const uuid = typeof payload.uuid === "string" ? payload.uuid : "";
+  const authToken =
+    typeof payload.auth_token === "string" ? payload.auth_token : "";
+
+  const isValidEventAuth = await verifyAssistEventAuthToken(
+    uuid,
+    authToken,
+    env.ASSIST_PROXY_SECRET,
+  );
+  if (!isValidEventAuth) {
+    return jsonResponse(401, {
+      error: "Unauthorized assist payload",
+    });
   }
 
   const internalPath = url.pathname.replace(/^\/api\//, "/internal/");

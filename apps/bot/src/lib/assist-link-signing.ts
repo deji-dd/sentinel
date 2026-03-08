@@ -11,6 +11,7 @@ const LINK_VALIDITY_SECONDS = Number.parseInt(
 );
 
 const HMAC_ALGORITHM = "sha256";
+const ASSIST_EVENT_AUTH_CONTEXT = "assist_event_v1";
 
 function getSigningSecret(): string {
   const secret = process.env.ASSIST_PROXY_SECRET;
@@ -29,6 +30,17 @@ function getSigningSecret(): string {
 export function generateLinkSignature(uuid: string, expiresAt: number): string {
   const secret = getSigningSecret();
   const message = `${uuid}.${expiresAt}`;
+  const hmac = createHmac(HMAC_ALGORITHM, secret);
+  hmac.update(message);
+  return hmac.digest("base64url");
+}
+
+/**
+ * Generate stable HMAC token used by userscript assist event payloads.
+ */
+export function generateAssistEventAuthToken(uuid: string): string {
+  const secret = getSigningSecret();
+  const message = `${uuid}.${ASSIST_EVENT_AUTH_CONTEXT}`;
   const hmac = createHmac(HMAC_ALGORITHM, secret);
   hmac.update(message);
   return hmac.digest("base64url");

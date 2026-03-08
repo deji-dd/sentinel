@@ -1,6 +1,7 @@
 type AssistUserscriptOptions = {
   uuid: string;
   apiBaseUrl: string;
+  eventAuthToken: string;
 };
 
 function stripTrailingSlash(value: string): string {
@@ -38,6 +39,7 @@ function buildConnectMetadata(normalizedApiBaseUrl: string): string {
 export function buildAssistUserscript({
   uuid,
   apiBaseUrl,
+  eventAuthToken,
 }: AssistUserscriptOptions): string {
   const normalizedApiBaseUrl = stripTrailingSlash(apiBaseUrl);
   const connectMetadata = buildConnectMetadata(normalizedApiBaseUrl);
@@ -45,7 +47,7 @@ export function buildAssistUserscript({
   return `// ==UserScript==
 // @name         Sentinel Assist
 // @namespace    https://sentinel.assist
-// @version      2.6.0
+// @version      2.7.0
 // @description  Send assist alerts from Torn attack pages.
 // @author       Blasted [1934909]
 // @match        https://www.torn.com/loader.php?sid=attack*
@@ -58,6 +60,7 @@ ${connectMetadata}
   "use strict";
 
   const ASSIST_UUID = ${JSON.stringify(uuid)};
+  const ASSIST_EVENT_AUTH_TOKEN = ${JSON.stringify(eventAuthToken)};
   const API_URL = ${JSON.stringify(`${normalizedApiBaseUrl}/api/assist-events`)};
   const BUTTON_ID = "sentinel-assist-button";
   const TOAST_ID = "sentinel-assist-toast";
@@ -419,6 +422,7 @@ ${connectMetadata}
         },
         data: JSON.stringify({
           uuid: ASSIST_UUID,
+          auth_token: ASSIST_EVENT_AUTH_TOKEN,
           source: "tampermonkey",
           occurred_at: new Date().toISOString(),
           fight_status: detectedFightStatus,
