@@ -81,6 +81,8 @@ type AssistPayload = {
   details?: string;
   occurred_at?: string;
   fight_status?: string;
+  attacker_count?: number;
+  attacker_count_state?: string;
   enemy_health_current?: number;
   enemy_health_max?: number;
   enemy_health_percent?: number;
@@ -932,7 +934,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
         tracked.lastActivityAt = Date.now();
 
-        // Extract attacker count from details
+        // Support both explicit attacker payload fields and legacy details parsing.
         const details = payload.details || "";
         const match = details.match(/(\d+)\s*->\s*(\d+)/);
         const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
@@ -949,8 +951,17 @@ export function initHttpServer(client: Client, port: number = 3001) {
           }
         }
 
-        if (match) {
-          const newCount = Number.parseInt(match[2], 10);
+        const explicitCount = Number.isFinite(payload.attacker_count)
+          ? Number(payload.attacker_count)
+          : null;
+        const parsedCountFromDetails = match
+          ? Number.parseInt(match[2], 10)
+          : null;
+        const newCount = Number.isFinite(explicitCount)
+          ? explicitCount
+          : parsedCountFromDetails;
+
+        if (Number.isFinite(newCount)) {
           if (Number.isFinite(newCount) && newCount !== tracked.attackerCount) {
             upsertEmbedField(updatedEmbed, "Attackers", String(newCount), true);
             tracked.attackerCount = newCount;
@@ -958,12 +969,19 @@ export function initHttpServer(client: Client, port: number = 3001) {
           }
         }
 
-        if (payload.action === "attacker_count_unavailable") {
+        if (
+          payload.action === "attacker_count_unavailable" ||
+          payload.attacker_count_state === "mobile_unavailable"
+        ) {
           const attackersField = updatedEmbed.data.fields?.find(
             (field) => field.name === "Attackers",
           );
-          if (attackersField?.value !== "Unavailable") {
-            upsertEmbedField(updatedEmbed, "Attackers", "Unavailable", true);
+          const unavailableLabel =
+            payload.attacker_count_state === "mobile_unavailable"
+              ? "Unavailable (mobile)"
+              : "Unavailable";
+          if (attackersField?.value !== unavailableLabel) {
+            upsertEmbedField(updatedEmbed, "Attackers", unavailableLabel, true);
             tracked.attackerCount = null;
             hasChanges = true;
           }
