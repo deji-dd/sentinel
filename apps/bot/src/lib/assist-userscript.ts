@@ -216,6 +216,52 @@ ${connectMetadata}
     return "Ongoing";
   }
 
+  function normalizeFightStatus(fightStatus) {
+    if (!fightStatus || typeof fightStatus !== "string") {
+      return "Unknown";
+    }
+
+    const lower = fightStatus.toLowerCase();
+
+    // Requester defeated outcomes
+    if (
+      lower.includes("you defeated") ||
+      lower.includes("you mugged") ||
+      lower.includes("you hospitalized") ||
+      lower.includes("you arrested")
+    ) {
+      return "Target is down";
+    }
+
+    // Requester lost outcomes
+    if (lower.includes("you stalemated")) {
+      return "Requester stalemated";
+    }
+
+    if (lower.includes("you lost")) {
+      return "Requester is down";
+    }
+
+    // Third party outcomes
+    if (lower.includes("took down your opponent")) {
+      return "Third party defeated target";
+    }
+
+    if (lower.includes("was defeated by")) {
+      return "Third party defeated target";
+    }
+
+    if (lower.includes("was sent to hospital")) {
+      return "Third party hospitalized target";
+    }
+
+    if (lower.includes("was surrounded by police")) {
+      return "Third party arrested target";
+    }
+
+    return "Fight ended";
+  }
+
   function parseIntText(value) {
     const cleaned = String(value || "").replace(/[^0-9-]/g, "");
     const parsed = Number.parseInt(cleaned, 10);
@@ -709,9 +755,38 @@ ${connectMetadata}
             " -> " +
             String(currentStatus),
           result: "fight_ended",
-          fight_status: currentStatus,
+          fight_status: normalizeFightStatus(currentStatus),
         });
         return;
+      }
+
+      // If transitioning to "Ongoing", send initial health along with status
+      if (previousStatus === "Not Started" && currentStatus === "Ongoing") {
+        const initialHealth = readEnemyHealth();
+        if (initialHealth) {
+          lastHealthSnapshot =
+            String(Math.round(initialHealth.current)) +
+            "/" +
+            String(Math.round(initialHealth.max));
+          sendAssistEvent("PATCH", {
+            action: "fight_started",
+            details:
+              "Fight status changed: " +
+              String(previousStatus) +
+              " -> " +
+              String(currentStatus),
+            result: "status_changed",
+            fight_status: currentStatus,
+            enemy_health_current: Math.round(initialHealth.current),
+            enemy_health_max: Math.round(initialHealth.max),
+            enemy_health_percent: Math.round(initialHealth.percent),
+          }).then((response) => {
+            if (response.status === 404 || response.status === 410) {
+              clearActiveAssistSession();
+            }
+          });
+          return;
+        }
       }
 
       sendAssistEvent("PATCH", {
