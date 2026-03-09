@@ -521,6 +521,7 @@ async function buildNotificationEmbeds(
 
       case "racket_spawned": {
         for (const notif of events) {
+          const occupiedValue = faction_id ? factionNameLinked : "No one";
           embeds.push({
             title: `Racket Spawned • ${notif.territory_id}`,
             description: `**${notif.racket_name}**`,
@@ -537,7 +538,7 @@ async function buildNotificationEmbeds(
               },
               {
                 name: "Occupied by",
-                value: factionNameLinked,
+                value: occupiedValue,
                 inline: true,
               },
             ],
@@ -568,6 +569,7 @@ async function buildNotificationEmbeds(
             ? `Racket Upgraded • ${notif.territory_id}`
             : `Racket Downgraded • ${notif.territory_id}`;
           const changeText = isLevelUp ? "leveled up" : "leveled down";
+          const occupiedValue = faction_id ? factionNameLinked : "No one";
 
           embeds.push({
             title,
@@ -575,7 +577,7 @@ async function buildNotificationEmbeds(
             fields: [
               {
                 name: "Occupied by",
-                value: factionNameLinked,
+                value: occupiedValue,
                 inline: true,
               },
             ],
