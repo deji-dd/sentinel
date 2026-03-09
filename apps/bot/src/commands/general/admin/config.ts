@@ -681,7 +681,11 @@ export async function handleBackToVerifySettings(
       .selectFrom(TABLE_NAMES.FACTION_ROLES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .orderBy("faction_name", "asc");
+      .orderBy("faction_name", "asc")
+      .orderBy("faction_id", "asc")
+      .execute();
+
+    const apiKeys = await getStoredGuildApiKeys(guildId);
     const hasApiKey = apiKeys.length > 0;
 
     let factionRolesDisplay = "None configured";
