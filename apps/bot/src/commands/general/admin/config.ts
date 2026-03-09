@@ -20,6 +20,7 @@ import {
   type StringSelectMenuInteraction,
   type ChannelSelectMenuInteraction,
 } from "discord.js";
+import { randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { decrypt } from "../../../lib/encryption.js";
 import {
@@ -504,6 +505,7 @@ async function showVerifySettings(
     .selectFrom(TABLE_NAMES.FACTION_ROLES)
     .selectAll()
     .where("guild_id", "=", interaction.guildId)
+    .orderBy("faction_name", "asc")
     .orderBy("faction_id", "asc")
     .execute();
 
@@ -679,10 +681,7 @@ export async function handleBackToVerifySettings(
       .selectFrom(TABLE_NAMES.FACTION_ROLES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .orderBy("faction_id", "asc")
-      .execute();
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
+      .orderBy("faction_name", "asc");
     const hasApiKey = apiKeys.length > 0;
 
     let factionRolesDisplay = "None configured";
@@ -1132,7 +1131,8 @@ async function showFactionRoleMenu(
       .selectFrom(TABLE_NAMES.FACTION_ROLES)
       .selectAll()
       .where("guild_id", "=", guildId)
-      .orderBy("created_at", "asc")
+      .orderBy("faction_name", "asc")
+      .orderBy("faction_id", "asc")
       .execute();
 
     let factionRolesDisplay =
@@ -1171,6 +1171,7 @@ async function showFactionRoleMenu(
               "in",
               pageFactionRoles.map((fr) => fr.faction_id),
             )
+            .orderBy("faction_name", "asc")
             .orderBy("faction_id", "asc")
             .execute();
 
@@ -2191,6 +2192,7 @@ export async function handleAddFactionRoleModalSubmit(
       await db
         .insertInto(TABLE_NAMES.FACTION_ROLES)
         .values({
+          id: randomUUID(),
           guild_id: guildId,
           faction_id: factionId,
           faction_name: factionDetails.name,

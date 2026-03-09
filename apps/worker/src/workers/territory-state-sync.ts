@@ -628,11 +628,38 @@ export function startTerritoryStateSyncWorker() {
                     racket_old_level: oldRacketLevel ?? undefined,
                   });
                 }
+                // Racket type changed (different racket spawned)
+                else if (
+                  oldRacketName &&
+                  newRacketName &&
+                  oldRacketName !== newRacketName
+                ) {
+                  // Send both despawn and spawn notifications
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: "racket_despawned",
+                    occupying_faction: oldFaction,
+                    racket_name: oldRacketName,
+                    racket_old_level: oldRacketLevel ?? undefined,
+                  });
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: "racket_spawned",
+                    occupying_faction: newFaction,
+                    racket_name: newRacketName,
+                    racket_new_level: newRacketLevel,
+                  });
+                }
                 // Racket level changed
                 else if (
                   oldRacketName === newRacketName &&
                   oldRacketLevel !== newRacketLevel
                 ) {
+                  console.log(
+                    `[DEBUG] Racket level changed detected: TT ${tt.id}, ${oldRacketName}, ${oldRacketLevel} -> ${newRacketLevel}`,
+                  );
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -798,6 +825,15 @@ export function startTerritoryStateSyncWorker() {
                 "racket_level_changed",
               ].includes(n.event_type),
             ).length;
+            const racketSpawned = notifications.filter(
+              (n) => n.event_type === "racket_spawned",
+            ).length;
+            const racketDespawned = notifications.filter(
+              (n) => n.event_type === "racket_despawned",
+            ).length;
+            const racketLevelChanged = notifications.filter(
+              (n) => n.event_type === "racket_level_changed",
+            ).length;
 
             // Store new hash and reset consecutive no-change counter
             await updateWorkerMetadata({
@@ -808,7 +844,7 @@ export function startTerritoryStateSyncWorker() {
             const duration = Date.now() - startTime;
             logDuration(
               "territory_state_sync",
-              `Sync completed for ${allOwnershipData.length} territories (${ownershipChanges} ownership, ${racketChanges} racket changes, ${changedTerritories.size} DB updates)`,
+              `Sync completed for ${allOwnershipData.length} territories (${ownershipChanges} ownership, ${racketChanges} racket changes [${racketSpawned} spawned, ${racketDespawned} despawned, ${racketLevelChanged} level changed], ${changedTerritories.size} DB updates)`,
               duration,
             );
           } catch (error) {
