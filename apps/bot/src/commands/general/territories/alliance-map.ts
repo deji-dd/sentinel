@@ -14,21 +14,20 @@ type TerritoryOwnershipRow = {
   faction_id: number | null;
 };
 
-const COLOR_UNALIGNED = "#94a3b8";
-
-type Rgb = { r: number; g: number; b: number };
-
-const LEGEND_SWATCHES: Array<{ emoji: string; rgb: Rgb }> = [
-  { emoji: "🟥", rgb: { r: 239, g: 68, b: 68 } },
-  { emoji: "🟧", rgb: { r: 249, g: 115, b: 22 } },
-  { emoji: "🟨", rgb: { r: 234, g: 179, b: 8 } },
-  { emoji: "🟩", rgb: { r: 34, g: 197, b: 94 } },
-  { emoji: "🟦", rgb: { r: 59, g: 130, b: 246 } },
-  { emoji: "🟪", rgb: { r: 168, g: 85, b: 247 } },
-  { emoji: "🟫", rgb: { r: 146, g: 64, b: 14 } },
-  { emoji: "⬜", rgb: { r: 241, g: 245, b: 249 } },
-  { emoji: "⬛", rgb: { r: 31, g: 41, b: 55 } },
+const DISTINCT_COLORS = [
+  "#e74c3c", // red
+  "#27ae60", // green
+  "#3498db", // blue
+  "#f39c12", // orange
+  "#9b59b6", // purple
+  "#e91e63", // pink
+  "#795548", // brown
+  "#1abc9c", // teal
+  "#f1c40f", // yellow
+  "#34495e", // slate
 ];
+
+const COLOR_UNALIGNED = "#95a5a6"; // neutral gray
 
 function hashString(input: string): number {
   let hash = 0;
@@ -39,89 +38,13 @@ function hashString(input: string): number {
   return Math.abs(hash);
 }
 
-function hslToHex(h: number, s: number, l: number): string {
-  const sat = s / 100;
-  const light = l / 100;
-
-  const c = (1 - Math.abs(2 * light - 1)) * sat;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = light - c / 2;
-
-  let r = 0;
-  let g = 0;
-  let b = 0;
-
-  if (h < 60) {
-    r = c;
-    g = x;
-  } else if (h < 120) {
-    r = x;
-    g = c;
-  } else if (h < 180) {
-    g = c;
-    b = x;
-  } else if (h < 240) {
-    g = x;
-    b = c;
-  } else if (h < 300) {
-    r = x;
-    b = c;
-  } else {
-    r = c;
-    b = x;
-  }
-
-  const toHex = (value: number) =>
-    Math.round((value + m) * 255)
-      .toString(16)
-      .padStart(2, "0");
-
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
 function colorForAllianceName(name: string): string {
   if (name === "Unaligned") {
     return COLOR_UNALIGNED;
   }
 
   const hash = hashString(name);
-  const hue = hash % 360;
-  const saturation = 38 + (hash % 14); // 38-51 (softer)
-  const lightness = 56 + (hash % 10); // 56-65 (softer)
-  return hslToHex(hue, saturation, lightness);
-}
-
-function hexToRgb(hex: string): Rgb {
-  const clean = hex.replace("#", "");
-  if (clean.length !== 6) {
-    return { r: 148, g: 163, b: 184 };
-  }
-
-  return {
-    r: parseInt(clean.slice(0, 2), 16),
-    g: parseInt(clean.slice(2, 4), 16),
-    b: parseInt(clean.slice(4, 6), 16),
-  };
-}
-
-function colorDistance(a: Rgb, b: Rgb): number {
-  return (a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2;
-}
-
-function getLegendSwatch(hexColor: string): string {
-  const rgb = hexToRgb(hexColor);
-  let best = LEGEND_SWATCHES[0];
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const candidate of LEGEND_SWATCHES) {
-    const distance = colorDistance(rgb, candidate.rgb);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = candidate;
-    }
-  }
-
-  return best.emoji;
+  return DISTINCT_COLORS[hash % DISTINCT_COLORS.length];
 }
 
 function buildLegendChunks(lines: string[]): string[] {
@@ -201,8 +124,7 @@ export async function execute(
       );
 
     const legendLines = rankedAlliances.map(
-      (entry) =>
-        `${getLegendSwatch(entry.color)} ${entry.alliance} (${entry.territories})`,
+      (entry) => `${entry.alliance}: ${entry.territories} territories`,
     );
     const legendChunks = buildLegendChunks(legendLines);
 
@@ -217,7 +139,7 @@ export async function execute(
       .setTitle("Territory Alliance Control Map")
       .setImage("attachment://alliance-map.png")
       .setDescription(
-        "Map colors represent alliance ownership. Legend is listed below.",
+        "Territories are color-coded by alliance. Each alliance uses a distinct color for easy identification.",
       )
       .addFields(
         {
@@ -231,7 +153,7 @@ export async function execute(
           inline: true,
         },
         {
-          name: "Neutral (No Owner)",
+          name: "No Owner",
           value: `${neutralCount}`,
           inline: true,
         },
@@ -241,7 +163,7 @@ export async function execute(
           inline: true,
         },
         {
-          name: "Unaligned (Not In Alliance List)",
+          name: "Not In Alliance List",
           value: `${unalignedControlledCount}`,
           inline: true,
         },
@@ -253,14 +175,17 @@ export async function execute(
 
     if (legendChunks.length === 0) {
       embed.addFields({
-        name: "Legend",
+        name: "Alliance Territory Count",
         value: "No currently controlled territories found.",
         inline: false,
       });
     } else {
       for (let i = 0; i < legendChunks.length; i++) {
         embed.addFields({
-          name: legendChunks.length === 1 ? "Legend" : `Legend ${i + 1}`,
+          name:
+            legendChunks.length === 1
+              ? "Alliance Territory Count"
+              : `Territory Count ${i + 1}`,
           value: `\`\`\`${legendChunks[i]}\`\`\``,
           inline: false,
         });
