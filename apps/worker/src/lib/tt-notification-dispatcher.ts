@@ -327,22 +327,38 @@ async function buildNotificationEmbeds(
 
     switch (firstEvent.event_type) {
       case "claimed": {
-        embeds.push({
-          title: "Territory Claimed",
-          description: `${factionNameLinked} claimed the sovereignty of ${territoryList}`,
-          color: 0x0099ff, // Blue
-          timestamp: new Date().toISOString(),
-        });
+        for (const notif of events) {
+          embeds.push({
+            title: `Territory Claimed • ${notif.territory_id}`,
+            fields: [
+              {
+                name: "Claimed by",
+                value: factionNameLinked,
+                inline: false,
+              },
+            ],
+            color: 0x0099ff, // Blue
+            timestamp: new Date().toISOString(),
+          });
+        }
         break;
       }
 
       case "dropped": {
-        embeds.push({
-          title: "Territory Abandoned",
-          description: `${factionNameLinked} abandoned ${territoryList}`,
-          color: 0xffff00, // Yellow
-          timestamp: new Date().toISOString(),
-        });
+        for (const notif of events) {
+          embeds.push({
+            title: `Territory Abandoned • ${notif.territory_id}`,
+            fields: [
+              {
+                name: "Abandoned by",
+                value: factionNameLinked,
+                inline: false,
+              },
+            ],
+            color: 0xffff00, // Yellow
+            timestamp: new Date().toISOString(),
+          });
+        }
         break;
       }
 
@@ -364,26 +380,55 @@ async function buildNotificationEmbeds(
           ? factionLink(defenderNameWithCount, firstEvent.defending_faction)
           : defenderNameWithCount;
 
-        const embed: Record<string, unknown> = {
-          title: "Assault Successful",
-          description: `${factionNameLinked} successfully assaulted ${defenderNameLinked} and claimed the sovereignty of ${territoryList}`,
-          color: 0x00ff00, // Green
-          timestamp: new Date().toISOString(),
-        };
+        for (const notif of events) {
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Assaulting Faction",
+              value: factionNameLinked,
+              inline: true,
+            },
+            {
+              name: "Defending Faction",
+              value: defenderNameLinked,
+              inline: true,
+            },
+          ];
 
-        if (firstEvent.war_duration_hours !== undefined) {
-          embed.footer = {
-            text: formatWarDuration(firstEvent.war_duration_hours),
-          };
+          if (notif.war_duration_hours !== undefined) {
+            fields.push({
+              name: "Time Taken",
+              value: formatWarDuration(notif.war_duration_hours),
+              inline: false,
+            });
+          }
+
+          embeds.push({
+            title: `Assault Successful • ${notif.territory_id}`,
+            fields,
+            color: 0x00ff00, // Green
+            timestamp: new Date().toISOString(),
+          });
         }
-
-        embeds.push(embed);
         break;
       }
 
       case "desectored": {
         for (const notif of events) {
-          let details = `${factionNameLinked} has become desectored after losing their last territory (${territoryLink(notif.territory_id)})`;
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Faction",
+              value: factionNameLinked,
+              inline: true,
+            },
+          ];
 
           if (notif.occupying_faction) {
             const newOwnerData = await getFactionData(
@@ -401,12 +446,17 @@ async function buildNotificationEmbeds(
               newOwnerNameWithCount,
               notif.occupying_faction,
             );
-            details = `${factionNameLinked} has become desectored after losing their last territory (${territoryLink(notif.territory_id)}) to ${newOwnerLinked}`;
+
+            fields.push({
+              name: "Lost to",
+              value: newOwnerLinked,
+              inline: true,
+            });
           }
 
           embeds.push({
-            title: "Faction Desectored",
-            description: details,
+            title: `Faction Desectored • ${notif.territory_id}`,
+            fields,
             color: 0xc0392b,
             timestamp: new Date().toISOString(),
           });
@@ -432,12 +482,25 @@ async function buildNotificationEmbeds(
           ? factionLink(attackerNameWithCount, firstEvent.assaulting_faction)
           : attackerNameWithCount;
 
-        embeds.push({
-          title: "Assault Failed",
-          description: `${attackerNameLinked} failed in its assault against ${factionNameLinked} over the sovereignty of ${territoryList}`,
-          color: 0xff0000, // Red
-          timestamp: new Date().toISOString(),
-        });
+        for (const notif of events) {
+          embeds.push({
+            title: `Assault Failed • ${notif.territory_id}`,
+            fields: [
+              {
+                name: "Assaulting Faction",
+                value: attackerNameLinked,
+                inline: true,
+              },
+              {
+                name: "Defending Faction",
+                value: factionNameLinked,
+                inline: true,
+              },
+            ],
+            color: 0xff0000, // Red
+            timestamp: new Date().toISOString(),
+          });
+        }
         break;
       }
 
@@ -459,12 +522,25 @@ async function buildNotificationEmbeds(
           ? factionLink(defenderNameWithCount, firstEvent.defending_faction)
           : defenderNameWithCount;
 
-        embeds.push({
-          title: "Assault Begun",
-          description: `${factionNameLinked} initiated an assault on ${defenderNameLinked} over the sovereignty of ${territoryList}`,
-          color: 0xff6b00, // Orange
-          timestamp: new Date().toISOString(),
-        });
+        for (const notif of events) {
+          embeds.push({
+            title: `Assault Begun • ${notif.territory_id}`,
+            fields: [
+              {
+                name: "Assaulting Faction",
+                value: factionNameLinked,
+                inline: true,
+              },
+              {
+                name: "Defending Faction",
+                value: defenderNameLinked,
+                inline: true,
+              },
+            ],
+            color: 0xff6b00, // Orange
+            timestamp: new Date().toISOString(),
+          });
+        }
         break;
       }
 
@@ -502,20 +578,39 @@ async function buildNotificationEmbeds(
           ? factionLink(defenderNameWithCount, firstEvent.defending_faction)
           : defenderNameWithCount;
 
-        const embed: Record<string, unknown> = {
-          title: "Peace Treaty",
-          description: `The territory war between ${attackerNameLinked} and ${defenderNameLinked} over the sovereignty of ${territoryList} has ended in a truce`,
-          color: 0x808080, // Gray
-          timestamp: new Date().toISOString(),
-        };
+        for (const notif of events) {
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Assaulting Faction",
+              value: attackerNameLinked,
+              inline: true,
+            },
+            {
+              name: "Defending Faction",
+              value: defenderNameLinked,
+              inline: true,
+            },
+          ];
 
-        if (firstEvent.war_duration_hours !== undefined) {
-          embed.footer = {
-            text: formatWarDuration(firstEvent.war_duration_hours),
-          };
+          if (notif.war_duration_hours !== undefined) {
+            fields.push({
+              name: "Time Taken",
+              value: formatWarDuration(notif.war_duration_hours),
+              inline: false,
+            });
+          }
+
+          embeds.push({
+            title: `Peace Treaty • ${notif.territory_id}`,
+            fields,
+            color: 0x808080, // Gray
+            timestamp: new Date().toISOString(),
+          });
         }
-
-        embeds.push(embed);
         break;
       }
 
@@ -526,11 +621,6 @@ async function buildNotificationEmbeds(
             title: `Racket Spawned • ${notif.territory_id}`,
             description: `**${notif.racket_name}**`,
             fields: [
-              {
-                name: "Territory",
-                value: territoryLink(notif.territory_id),
-                inline: true,
-              },
               {
                 name: "Level",
                 value: `Level ${notif.racket_new_level}`,
@@ -551,9 +641,22 @@ async function buildNotificationEmbeds(
 
       case "racket_despawned": {
         for (const notif of events) {
+          const occupiedValue = faction_id ? factionNameLinked : "No one";
           embeds.push({
             title: `Racket Vanished • ${notif.territory_id}`,
-            description: `**${notif.racket_name}** (Level ${notif.racket_old_level}) • ${territoryLink(notif.territory_id)}`,
+            description: `**${notif.racket_name}**`,
+            fields: [
+              {
+                name: "Level",
+                value: `Level ${notif.racket_old_level}`,
+                inline: true,
+              },
+              {
+                name: "Occupied by",
+                value: occupiedValue,
+                inline: true,
+              },
+            ],
             color: 0xe74c3c, // Red
             timestamp: new Date().toISOString(),
           });
@@ -573,8 +676,13 @@ async function buildNotificationEmbeds(
 
           embeds.push({
             title,
-            description: `**${notif.racket_name}** ${changeText} from **Level ${notif.racket_old_level}** to **Level ${notif.racket_new_level}** • ${territoryLink(notif.territory_id)}`,
+            description: `**${notif.racket_name}** ${changeText}`,
             fields: [
+              {
+                name: "Level Change",
+                value: `Level ${notif.racket_old_level} → Level ${notif.racket_new_level}`,
+                inline: true,
+              },
               {
                 name: "Occupied by",
                 value: occupiedValue,
