@@ -385,8 +385,11 @@ export async function handleModuleRemove(
         await import("../../general/territories/assault-check.js");
       const burnMapCommand =
         await import("../../general/territories/burn-map.js");
+      const allianceMapCommand =
+        await import("../../general/territories/alliance-map.js");
       commands.push(assaultCheckCommand.data.toJSON());
       commands.push(burnMapCommand.data.toJSON());
+      commands.push(allianceMapCommand.data.toJSON());
     }
 
     if (modulesToEnable.includes("assist")) {

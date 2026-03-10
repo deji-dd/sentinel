@@ -12,6 +12,7 @@ import * as verifyallCommand from "../commands/general/verification/verifyall.js
 import * as configCommand from "../commands/general/admin/config.js";
 import * as assaultCheckCommand from "../commands/general/territories/assault-check.js";
 import * as burnMapCommand from "../commands/general/territories/burn-map.js";
+import * as allianceMapCommand from "../commands/general/territories/alliance-map.js";
 import * as assistCommand from "../commands/general/assist/assist.js";
 
 /**
@@ -26,6 +27,7 @@ const REGULAR_COMMAND_NAMES = [
   "config",
   "assault-check",
   "burn-map",
+  "alliance-map",
   "assist",
 ];
 
@@ -72,6 +74,9 @@ export async function handleRegularCommand(
       break;
     case "burn-map":
       await burnMapCommand.execute(interaction);
+      break;
+    case "alliance-map":
+      await allianceMapCommand.execute(interaction);
       break;
     case "assist":
       await assistCommand.execute(interaction);
