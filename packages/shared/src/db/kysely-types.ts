@@ -315,6 +315,18 @@ export interface SentinelTerritoryState {
   updated_at: Generated<string | null>;
 }
 
+export interface SentinelRacketTenure {
+  created_at: Generated<string>;
+  ended_at: number | null;
+  faction_id: number;
+  id: string;
+  racket_name: string;
+  reward: string;
+  started_at: number;
+  territory_id: string;
+  updated_at: Generated<string>;
+}
+
 export interface SentinelTornCategories {
   created_at: Generated<string>;
   id: number;
@@ -630,6 +642,7 @@ export interface DB {
   sentinel_reaction_role_messages: SentinelReactionRoleMessages;
   sentinel_revive_config: SentinelReviveConfig;
   sentinel_revive_requests: SentinelReviveRequests;
+  sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_schema_migrations: SentinelSchemaMigrations;
   sentinel_stat_build_configurations: SentinelStatBuildConfigurations;
   sentinel_stat_builds: SentinelStatBuilds;

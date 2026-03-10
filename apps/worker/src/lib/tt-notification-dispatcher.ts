@@ -34,6 +34,8 @@ export interface TTEventNotification {
   racket_old_level?: number;
   racket_new_level?: number;
   racket_reward?: string;
+  losing_faction_id?: number | null; // Faction that lost the racket
+  losing_faction_accumulated_reward?: string | null; // Formatted like "$50M (5 days)"
   war_id?: number;
   victor_faction?: number;
   war_duration_hours?: number;
@@ -329,15 +331,33 @@ async function buildNotificationEmbeds(
     switch (firstEvent.event_type) {
       case "claimed": {
         for (const notif of events) {
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Claimed by",
+              value: factionNameLinked,
+              inline: false,
+            },
+          ];
+
+          if (
+            notif.losing_faction_accumulated_reward &&
+            notif.losing_faction_id
+          ) {
+            const losingFactionName = `Faction ${notif.losing_faction_id}`;
+            fields.push({
+              name: `${losingFactionName} earned`,
+              value: notif.losing_faction_accumulated_reward,
+              inline: false,
+            });
+          }
+
           embeds.push({
             title: `Territory Claimed • ${notif.territory_id}`,
-            fields: [
-              {
-                name: "Claimed by",
-                value: factionNameLinked,
-                inline: false,
-              },
-            ],
+            fields,
             color: 0x0099ff, // Blue
             timestamp: new Date().toISOString(),
           });
@@ -347,15 +367,29 @@ async function buildNotificationEmbeds(
 
       case "dropped": {
         for (const notif of events) {
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Abandoned by",
+              value: factionNameLinked,
+              inline: false,
+            },
+          ];
+
+          if (notif.losing_faction_accumulated_reward) {
+            fields.push({
+              name: "Earned from racket",
+              value: notif.losing_faction_accumulated_reward,
+              inline: false,
+            });
+          }
+
           embeds.push({
             title: `Territory Abandoned • ${notif.territory_id}`,
-            fields: [
-              {
-                name: "Abandoned by",
-                value: factionNameLinked,
-                inline: false,
-              },
-            ],
+            fields,
             color: 0xffff00, // Yellow
             timestamp: new Date().toISOString(),
           });
@@ -678,6 +712,14 @@ async function buildNotificationEmbeds(
             fields.push({
               name: "Reward",
               value: notif.racket_reward,
+              inline: false,
+            });
+          }
+
+          if (notif.losing_faction_accumulated_reward) {
+            fields.push({
+              name: "Accumulated",
+              value: notif.losing_faction_accumulated_reward,
               inline: false,
             });
           }

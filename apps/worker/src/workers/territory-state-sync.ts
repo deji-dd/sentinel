@@ -32,7 +32,11 @@
  */
 
 import { createHash } from "crypto";
-import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
+import {
+  TABLE_NAMES,
+  ApiKeyRotator,
+  formatAccumulatedReward,
+} from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import { logDuration, logError } from "../lib/logger.js";
@@ -195,6 +199,83 @@ async function updateWorkerMetadata(metadata: {
     .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
     .set({ metadata: JSON.stringify(metadata) })
     .where("worker_id", "=", workerId)
+    .execute();
+}
+
+/**
+ * Get active racket tenure for a faction on a territory
+ * Returns null if no active tenure found
+ */
+async function getActiveTenure(
+  db: ReturnType<typeof getKysely>,
+  territoryId: string,
+  factionId: number,
+): Promise<{
+  id: string;
+  faction_id: number;
+  racket_name: string;
+  reward: string;
+  started_at: number;
+} | null> {
+  const tenure = (await db
+    .selectFrom(TABLE_NAMES.RACKET_TENURE)
+    .select(["id", "faction_id", "racket_name", "reward", "started_at"])
+    .where("territory_id", "=", territoryId)
+    .where("faction_id", "=", factionId)
+    .where("ended_at", "is", null)
+    .limit(1)
+    .executeTakeFirst()) as
+    | {
+        id: string;
+        faction_id: number;
+        racket_name: string;
+        reward: string;
+        started_at: number;
+      }
+    | undefined;
+
+  return tenure || null;
+}
+
+/**
+ * End an active racket tenure (faction lost the racket)
+ */
+async function endTenure(
+  db: ReturnType<typeof getKysely>,
+  tenureId: string,
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .updateTable(TABLE_NAMES.RACKET_TENURE)
+    .set({ ended_at: now })
+    .where("id", "=", tenureId)
+    .execute();
+}
+
+/**
+ * Create a new racket tenure (faction acquired a racket)
+ */
+async function createTenure(
+  db: ReturnType<typeof getKysely>,
+  territoryId: string,
+  factionId: number,
+  racketName: string,
+  reward: string,
+): Promise<void> {
+  const id = `${territoryId}_${factionId}_${Date.now()}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .insertInto(TABLE_NAMES.RACKET_TENURE)
+    .values({
+      id,
+      territory_id: territoryId,
+      faction_id: factionId,
+      racket_name: racketName,
+      reward,
+      started_at: now,
+      ended_at: null,
+    })
     .execute();
 }
 
@@ -575,6 +656,37 @@ export function startTerritoryStateSyncWorker() {
                   new_faction_id: newFaction,
                 });
 
+                // Handle racket tenure if old faction had a racket
+                let losingFactionAccumulatedReward: string | null = null;
+                if (oldFaction !== null && oldRacketName) {
+                  const oldTenure = await getActiveTenure(
+                    db,
+                    tt.id,
+                    oldFaction,
+                  );
+                  if (oldTenure) {
+                    const now = Math.floor(Date.now() / 1000);
+                    await endTenure(db, oldTenure.id);
+                    losingFactionAccumulatedReward = formatAccumulatedReward(
+                      oldTenure.reward,
+                      oldTenure.started_at,
+                      now,
+                    );
+                  }
+                }
+
+                // Create new tenure for new faction if they're taking over a racket
+                if (newFaction !== null && oldRacketName) {
+                  // Moving to new faction's ownership
+                  await createTenure(
+                    db,
+                    tt.id,
+                    newFaction,
+                    oldRacketName,
+                    oldRacketReward || "",
+                  );
+                }
+
                 // Check for active war to determine event type(s)
                 const activeWar = warsByTerritory.get(tt.id);
 
@@ -588,7 +700,7 @@ export function startTerritoryStateSyncWorker() {
                 // Add notifications for all detected events
                 // (can be multiple events: e.g., faction A dropped + faction B claimed)
                 for (const event of events) {
-                  notifications.push({
+                  const notif: TTEventNotification = {
                     guild_id: "",
                     territory_id: tt.id,
                     event_type: event.type,
@@ -600,7 +712,16 @@ export function startTerritoryStateSyncWorker() {
                       event.type === "claimed" ? newFaction : null,
                     previous_faction:
                       event.type === "dropped" ? event.factionId : undefined,
-                  });
+                  };
+
+                  // Add accumulated reward info if losing faction had a racket
+                  if (losingFactionAccumulatedReward && oldRacketName) {
+                    notif.losing_faction_id = oldFaction;
+                    notif.losing_faction_accumulated_reward =
+                      losingFactionAccumulatedReward;
+                  }
+
+                  notifications.push(notif);
                 }
               }
 
@@ -622,6 +743,16 @@ export function startTerritoryStateSyncWorker() {
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {
                   console.log(`[RACKET] TT ${tt.id}: Racket spawned`);
+                  // Create tenure for the faction that now occupies this territory with the racket
+                  if (newFaction !== null) {
+                    await createTenure(
+                      db,
+                      tt.id,
+                      newFaction,
+                      newRacketName,
+                      newRacketReward || "",
+                    );
+                  }
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -635,6 +766,21 @@ export function startTerritoryStateSyncWorker() {
                 // Racket despawned
                 else if (oldRacketName && !newRacketName) {
                   console.log(`[RACKET] TT ${tt.id}: Racket despawned`);
+                  // End tenure and calculate accumulated reward
+                  let losingFactionAccumulatedReward: string | null = null;
+                  if (oldFaction !== null) {
+                    const tenure = await getActiveTenure(db, tt.id, oldFaction);
+                    if (tenure) {
+                      const now = Math.floor(Date.now() / 1000);
+                      await endTenure(db, tenure.id);
+                      losingFactionAccumulatedReward = formatAccumulatedReward(
+                        tenure.reward,
+                        tenure.started_at,
+                        now,
+                      );
+                    }
+                  }
+
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -643,6 +789,9 @@ export function startTerritoryStateSyncWorker() {
                     racket_name: oldRacketName,
                     racket_old_level: oldRacketLevel ?? undefined,
                     racket_reward: oldRacketReward ?? undefined,
+                    losing_faction_id: oldFaction,
+                    losing_faction_accumulated_reward:
+                      losingFactionAccumulatedReward,
                   });
                 }
                 // Racket level changed (must be checked BEFORE type changed)
@@ -673,7 +822,27 @@ export function startTerritoryStateSyncWorker() {
                   console.log(
                     `[RACKET] TT ${tt.id}: Racket type changed (despawn + spawn)`,
                   );
-                  // Send both despawn and spawn notifications
+
+                  // End old tenure and calculate what faction earned
+                  let oldTenureAccumulated: string | null = null;
+                  if (oldFaction !== null) {
+                    const oldTenure = await getActiveTenure(
+                      db,
+                      tt.id,
+                      oldFaction,
+                    );
+                    if (oldTenure) {
+                      const now = Math.floor(Date.now() / 1000);
+                      await endTenure(db, oldTenure.id);
+                      oldTenureAccumulated = formatAccumulatedReward(
+                        oldTenure.reward,
+                        oldTenure.started_at,
+                        now,
+                      );
+                    }
+                  }
+
+                  // Send despawn notification for old racket
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -682,7 +851,22 @@ export function startTerritoryStateSyncWorker() {
                     racket_name: oldRacketName,
                     racket_old_level: oldRacketLevel ?? undefined,
                     racket_reward: oldRacketReward ?? undefined,
+                    losing_faction_id: oldFaction,
+                    losing_faction_accumulated_reward: oldTenureAccumulated,
                   });
+
+                  // Create tenure for new racket with current owning faction
+                  if (newFaction !== null) {
+                    await createTenure(
+                      db,
+                      tt.id,
+                      newFaction,
+                      newRacketName,
+                      newRacketReward || "",
+                    );
+                  }
+
+                  // Send spawn notification for new racket
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
