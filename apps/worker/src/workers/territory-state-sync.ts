@@ -606,8 +606,18 @@ export function startTerritoryStateSyncWorker() {
                 oldRacketLevel !== newRacketLevel
               ) {
                 changedTerritories.add(tt.id); // Track this territory changed
+
+                // Debug logging for racket changes
+                console.log(
+                  `[RACKET DEBUG] TT ${tt.id}:`,
+                  `Old: "${oldRacketName}" (lvl ${oldRacketLevel})`,
+                  `New: "${newRacketName}" (lvl ${newRacketLevel})`,
+                  `Names match: ${oldRacketName === newRacketName}`,
+                );
+
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {
+                  console.log(`[RACKET] TT ${tt.id}: Racket spawned`);
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -619,6 +629,7 @@ export function startTerritoryStateSyncWorker() {
                 }
                 // Racket despawned
                 else if (oldRacketName && !newRacketName) {
+                  console.log(`[RACKET] TT ${tt.id}: Racket despawned`);
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -628,12 +639,33 @@ export function startTerritoryStateSyncWorker() {
                     racket_old_level: oldRacketLevel ?? undefined,
                   });
                 }
+                // Racket level changed (must be checked BEFORE type changed)
+                else if (
+                  oldRacketName &&
+                  newRacketName &&
+                  oldRacketName === newRacketName &&
+                  oldRacketLevel !== newRacketLevel
+                ) {
+                  console.log(`[RACKET] TT ${tt.id}: Racket level changed`);
+                  notifications.push({
+                    guild_id: "",
+                    territory_id: tt.id,
+                    event_type: "racket_level_changed",
+                    occupying_faction: newFaction,
+                    racket_name: newRacketName,
+                    racket_old_level: oldRacketLevel ?? undefined,
+                    racket_new_level: newRacketLevel,
+                  });
+                }
                 // Racket type changed (different racket spawned)
                 else if (
                   oldRacketName &&
                   newRacketName &&
                   oldRacketName !== newRacketName
                 ) {
+                  console.log(
+                    `[RACKET] TT ${tt.id}: Racket type changed (despawn + spawn)`,
+                  );
                   // Send both despawn and spawn notifications
                   notifications.push({
                     guild_id: "",
@@ -649,24 +681,6 @@ export function startTerritoryStateSyncWorker() {
                     event_type: "racket_spawned",
                     occupying_faction: newFaction,
                     racket_name: newRacketName,
-                    racket_new_level: newRacketLevel,
-                  });
-                }
-                // Racket level changed
-                else if (
-                  oldRacketName === newRacketName &&
-                  oldRacketLevel !== newRacketLevel
-                ) {
-                  console.log(
-                    `[DEBUG] Racket level changed detected: TT ${tt.id}, ${oldRacketName}, ${oldRacketLevel} -> ${newRacketLevel}`,
-                  );
-                  notifications.push({
-                    guild_id: "",
-                    territory_id: tt.id,
-                    event_type: "racket_level_changed",
-                    occupying_faction: newFaction,
-                    racket_name: newRacketName,
-                    racket_old_level: oldRacketLevel ?? undefined,
                     racket_new_level: newRacketLevel,
                   });
                 }
