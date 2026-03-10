@@ -83,7 +83,10 @@ export function calculateAccumulatedReward(
   }
 
   const endTime = endedAt || Math.floor(Date.now() / 1000);
-  const daysHeld = Math.max(1, Math.ceil((endTime - startedAt) / 86400));
+
+  // Torn pays racket rewards at 00:00 UTC. Count how many UTC midnight
+  // boundaries are inside the ownership window [startedAt, endTime).
+  const daysHeld = countUtcMidnightPayouts(startedAt, endTime);
   const totalAccumulated = rewardInfo.amount * daysHeld;
 
   let formattedValue: string;
@@ -100,6 +103,28 @@ export function calculateAccumulatedReward(
     value: formattedValue,
     days: daysHeld,
   };
+}
+
+function countUtcMidnightPayouts(startedAt: number, endedAt: number): number {
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) {
+    return 0;
+  }
+
+  if (endedAt <= startedAt) {
+    return 0;
+  }
+
+  const SECONDS_PER_DAY = 86400;
+  const firstPayoutAt =
+    Math.ceil(startedAt / SECONDS_PER_DAY) * SECONDS_PER_DAY;
+
+  // Window is [startedAt, endedAt): payout at endedAt itself is not earned.
+  if (firstPayoutAt >= endedAt) {
+    return 0;
+  }
+
+  const lastIncluded = endedAt - 1;
+  return Math.floor((lastIncluded - firstPayoutAt) / SECONDS_PER_DAY) + 1;
 }
 
 /**
