@@ -14,7 +14,7 @@ import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
-import * as burnMapSimulatorCommand from "./commands/general/territories/burn-map-simulator.js";
+import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -53,7 +53,7 @@ const commands = [
   verifyallCommand.data.toJSON(),
   assaultCheckCommand.data.toJSON(),
   burnMapCommand.data.toJSON(),
-  burnMapSimulatorCommand.data.toJSON(),
+  allianceMapCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

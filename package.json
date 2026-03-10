@@ -9,7 +9,7 @@
     "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build",
     "sqlite:migrate": "pnpm --filter worker migrate:sqlite",
     "sqlite:new-migration": "node scripts/new-sqlite-migration.js",
-    "sqlite:regenerate-schema": "node scripts/convert-schema-to-sqlite.js"
+    "alliances:refresh-snapshot": "node scripts/refresh-faction-alliances-snapshot.js"
   },
   "devDependencies": {
     "openapi-typescript": "^7.10.1"
