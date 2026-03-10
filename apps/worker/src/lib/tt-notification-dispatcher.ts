@@ -33,6 +33,7 @@ export interface TTEventNotification {
   racket_name?: string;
   racket_old_level?: number;
   racket_new_level?: number;
+  racket_reward?: string;
   war_id?: number;
   victor_faction?: number;
   war_duration_hours?: number;
@@ -617,21 +618,35 @@ async function buildNotificationEmbeds(
       case "racket_spawned": {
         for (const notif of events) {
           const occupiedValue = faction_id ? factionNameLinked : "No one";
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Level",
+              value: `Level ${notif.racket_new_level}`,
+              inline: true,
+            },
+            {
+              name: "Occupied by",
+              value: occupiedValue,
+              inline: true,
+            },
+          ];
+
+          if (notif.racket_reward) {
+            fields.push({
+              name: "Reward",
+              value: notif.racket_reward,
+              inline: false,
+            });
+          }
+
           embeds.push({
             title: `Racket Spawned • ${notif.territory_id}`,
             description: `**${notif.racket_name}**`,
-            fields: [
-              {
-                name: "Level",
-                value: `Level ${notif.racket_new_level}`,
-                inline: true,
-              },
-              {
-                name: "Occupied by",
-                value: occupiedValue,
-                inline: true,
-              },
-            ],
+            fields,
             color: 0x2ecc71, // Green
             timestamp: new Date().toISOString(),
           });
@@ -642,21 +657,35 @@ async function buildNotificationEmbeds(
       case "racket_despawned": {
         for (const notif of events) {
           const occupiedValue = faction_id ? factionNameLinked : "No one";
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Level",
+              value: `Level ${notif.racket_old_level}`,
+              inline: true,
+            },
+            {
+              name: "Occupied by",
+              value: occupiedValue,
+              inline: true,
+            },
+          ];
+
+          if (notif.racket_reward) {
+            fields.push({
+              name: "Reward",
+              value: notif.racket_reward,
+              inline: false,
+            });
+          }
+
           embeds.push({
             title: `Racket Vanished • ${notif.territory_id}`,
             description: `**${notif.racket_name}**`,
-            fields: [
-              {
-                name: "Level",
-                value: `Level ${notif.racket_old_level}`,
-                inline: true,
-              },
-              {
-                name: "Occupied by",
-                value: occupiedValue,
-                inline: true,
-              },
-            ],
+            fields,
             color: 0xe74c3c, // Red
             timestamp: new Date().toISOString(),
           });
@@ -674,21 +703,35 @@ async function buildNotificationEmbeds(
           const changeText = isLevelUp ? "leveled up" : "leveled down";
           const occupiedValue = faction_id ? factionNameLinked : "No one";
 
+          const fields: Array<{
+            name: string;
+            value: string;
+            inline: boolean;
+          }> = [
+            {
+              name: "Level Change",
+              value: `Level ${notif.racket_old_level} → Level ${notif.racket_new_level}`,
+              inline: true,
+            },
+            {
+              name: "Occupied by",
+              value: occupiedValue,
+              inline: true,
+            },
+          ];
+
+          if (notif.racket_reward) {
+            fields.push({
+              name: "Reward",
+              value: notif.racket_reward,
+              inline: false,
+            });
+          }
+
           embeds.push({
             title,
             description: `**${notif.racket_name}** ${changeText}`,
-            fields: [
-              {
-                name: "Level Change",
-                value: `Level ${notif.racket_old_level} → Level ${notif.racket_new_level}`,
-                inline: true,
-              },
-              {
-                name: "Occupied by",
-                value: occupiedValue,
-                inline: true,
-              },
-            ],
+            fields,
             color: isLevelUp ? 0xf39c12 : 0xe67e22,
             timestamp: new Date().toISOString(),
           });

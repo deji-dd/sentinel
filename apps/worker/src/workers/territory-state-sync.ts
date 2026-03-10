@@ -67,6 +67,7 @@ interface TerritoryStateFullRow {
   faction_id: number | null;
   racket_name: string | null;
   racket_level: number | null;
+  racket_reward: string | null;
   racket_created_at: number | null;
   racket_changed_at: number | null;
 }
@@ -520,6 +521,7 @@ export function startTerritoryStateSyncWorker() {
                 "faction_id",
                 "racket_name",
                 "racket_level",
+                "racket_reward",
                 "racket_created_at",
                 "racket_changed_at",
               ])
@@ -559,8 +561,10 @@ export function startTerritoryStateSyncWorker() {
               const racket = racketsByTerritory[tt.id];
               const oldRacketName = currentState?.racket_name ?? null;
               const oldRacketLevel = currentState?.racket_level ?? null;
+              const oldRacketReward = currentState?.racket_reward ?? null;
               const newRacketName = racket?.name ?? null;
               const newRacketLevel = racket?.level ?? null;
+              const newRacketReward = racket?.reward ?? null;
 
               // Detect ownership changes
               if (oldFaction !== newFaction) {
@@ -625,6 +629,7 @@ export function startTerritoryStateSyncWorker() {
                     occupying_faction: newFaction,
                     racket_name: newRacketName,
                     racket_new_level: newRacketLevel,
+                    racket_reward: newRacketReward ?? undefined,
                   });
                 }
                 // Racket despawned
@@ -637,6 +642,7 @@ export function startTerritoryStateSyncWorker() {
                     occupying_faction: oldFaction,
                     racket_name: oldRacketName,
                     racket_old_level: oldRacketLevel ?? undefined,
+                    racket_reward: oldRacketReward ?? undefined,
                   });
                 }
                 // Racket level changed (must be checked BEFORE type changed)
@@ -655,6 +661,7 @@ export function startTerritoryStateSyncWorker() {
                     racket_name: newRacketName,
                     racket_old_level: oldRacketLevel ?? undefined,
                     racket_new_level: newRacketLevel,
+                    racket_reward: newRacketReward ?? undefined,
                   });
                 }
                 // Racket type changed (different racket spawned)
@@ -674,6 +681,7 @@ export function startTerritoryStateSyncWorker() {
                     occupying_faction: oldFaction,
                     racket_name: oldRacketName,
                     racket_old_level: oldRacketLevel ?? undefined,
+                    racket_reward: oldRacketReward ?? undefined,
                   });
                   notifications.push({
                     guild_id: "",
@@ -682,6 +690,7 @@ export function startTerritoryStateSyncWorker() {
                     occupying_faction: newFaction,
                     racket_name: newRacketName,
                     racket_new_level: newRacketLevel,
+                    racket_reward: newRacketReward ?? undefined,
                   });
                 }
               }
