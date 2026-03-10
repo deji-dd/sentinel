@@ -32,7 +32,7 @@ const SVG_PATH = resolveSvgPath();
 const DEFAULT_NEUTRAL_FILL = "#2c2c2c";
 const DEFAULT_NEUTRAL_STROKE = "#444444";
 const DEFAULT_NEUTRAL_OPACITY = "0.8";
-const DEFAULT_FILLED_OPACITY = "0.95";
+const DEFAULT_FILLED_OPACITY = "0.84";
 
 function darkenHex(hex: string, factor: number): string {
   const clean = hex.replace("#", "");
@@ -97,7 +97,7 @@ export function generateAllianceMapSvg(
       territoryFillById.get(territoryCode) ?? DEFAULT_NEUTRAL_FILL;
     const hasAllianceColor = territoryFillById.has(territoryCode);
     const strokeColor = hasAllianceColor
-      ? darkenHex(fillColor, 0.62)
+      ? darkenHex(fillColor, 0.78)
       : DEFAULT_NEUTRAL_STROKE;
     const opacity = hasAllianceColor
       ? DEFAULT_FILLED_OPACITY

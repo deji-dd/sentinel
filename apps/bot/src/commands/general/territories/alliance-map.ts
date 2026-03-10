@@ -16,6 +16,20 @@ type TerritoryOwnershipRow = {
 
 const COLOR_UNALIGNED = "#94a3b8";
 
+type Rgb = { r: number; g: number; b: number };
+
+const LEGEND_SWATCHES: Array<{ emoji: string; rgb: Rgb }> = [
+  { emoji: "🟥", rgb: { r: 239, g: 68, b: 68 } },
+  { emoji: "🟧", rgb: { r: 249, g: 115, b: 22 } },
+  { emoji: "🟨", rgb: { r: 234, g: 179, b: 8 } },
+  { emoji: "🟩", rgb: { r: 34, g: 197, b: 94 } },
+  { emoji: "🟦", rgb: { r: 59, g: 130, b: 246 } },
+  { emoji: "🟪", rgb: { r: 168, g: 85, b: 247 } },
+  { emoji: "🟫", rgb: { r: 146, g: 64, b: 14 } },
+  { emoji: "⬜", rgb: { r: 241, g: 245, b: 249 } },
+  { emoji: "⬛", rgb: { r: 31, g: 41, b: 55 } },
+];
+
 function hashString(input: string): number {
   let hash = 0;
   for (let i = 0; i < input.length; i++) {
@@ -72,9 +86,42 @@ function colorForAllianceName(name: string): string {
 
   const hash = hashString(name);
   const hue = hash % 360;
-  const saturation = 58 + (hash % 18); // 58-75
-  const lightness = 44 + (hash % 12); // 44-55
+  const saturation = 38 + (hash % 14); // 38-51 (softer)
+  const lightness = 56 + (hash % 10); // 56-65 (softer)
   return hslToHex(hue, saturation, lightness);
+}
+
+function hexToRgb(hex: string): Rgb {
+  const clean = hex.replace("#", "");
+  if (clean.length !== 6) {
+    return { r: 148, g: 163, b: 184 };
+  }
+
+  return {
+    r: parseInt(clean.slice(0, 2), 16),
+    g: parseInt(clean.slice(2, 4), 16),
+    b: parseInt(clean.slice(4, 6), 16),
+  };
+}
+
+function colorDistance(a: Rgb, b: Rgb): number {
+  return (a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2;
+}
+
+function getLegendSwatch(hexColor: string): string {
+  const rgb = hexToRgb(hexColor);
+  let best = LEGEND_SWATCHES[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const candidate of LEGEND_SWATCHES) {
+    const distance = colorDistance(rgb, candidate.rgb);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+
+  return best.emoji;
 }
 
 function buildLegendChunks(lines: string[]): string[] {
@@ -154,7 +201,8 @@ export async function execute(
       );
 
     const legendLines = rankedAlliances.map(
-      (entry) => `${entry.color} ${entry.alliance} (${entry.territories})`,
+      (entry) =>
+        `${getLegendSwatch(entry.color)} ${entry.alliance} (${entry.territories})`,
     );
     const legendChunks = buildLegendChunks(legendLines);
 
@@ -162,6 +210,7 @@ export async function execute(
       (row) => row.faction_id !== null,
     ).length;
     const neutralCount = ownershipRows.length - totalControlled;
+    const unalignedControlledCount = allianceCounts.get("Unaligned") || 0;
 
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -177,12 +226,12 @@ export async function execute(
           inline: true,
         },
         {
-          name: "Controlled",
+          name: "Occupied",
           value: `${totalControlled}`,
           inline: true,
         },
         {
-          name: "Neutral",
+          name: "Neutral (No Owner)",
           value: `${neutralCount}`,
           inline: true,
         },
@@ -192,13 +241,13 @@ export async function execute(
           inline: true,
         },
         {
-          name: "Unaligned Color",
-          value: `${COLOR_UNALIGNED}`,
+          name: "Unaligned (Not In Alliance List)",
+          value: `${unalignedControlledCount}`,
           inline: true,
         },
       )
       .setFooter({
-        text: "Alliance data: remote GitHub with local snapshot fallback",
+        text: "Neutral = no owning faction | Unaligned = faction not mapped to an alliance",
       })
       .setTimestamp();
 
