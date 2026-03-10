@@ -343,6 +343,28 @@ async function buildNotificationEmbeds(
             },
           ];
 
+          // Add racket info if present
+          if (notif.racket_name) {
+            fields.push({
+              name: "Racket",
+              value: `${notif.racket_name}${notif.racket_old_level ? ` (lvl ${notif.racket_old_level})` : ""}`,
+              inline: true,
+            });
+            if (notif.racket_reward) {
+              fields.push({
+                name: "Reward",
+                value: notif.racket_reward,
+                inline: true,
+              });
+            }
+          } else {
+            fields.push({
+              name: "Racket",
+              value: "None",
+              inline: false,
+            });
+          }
+
           if (
             notif.losing_faction_accumulated_reward &&
             notif.losing_faction_id
@@ -378,6 +400,28 @@ async function buildNotificationEmbeds(
               inline: false,
             },
           ];
+
+          // Add racket info if present
+          if (notif.racket_name) {
+            fields.push({
+              name: "Racket",
+              value: `${notif.racket_name}${notif.racket_old_level ? ` (lvl ${notif.racket_old_level})` : ""}`,
+              inline: true,
+            });
+            if (notif.racket_reward) {
+              fields.push({
+                name: "Reward",
+                value: notif.racket_reward,
+                inline: true,
+              });
+            }
+          } else {
+            fields.push({
+              name: "Racket",
+              value: "None",
+              inline: false,
+            });
+          }
 
           if (notif.losing_faction_accumulated_reward) {
             fields.push({

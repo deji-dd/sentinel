@@ -714,6 +714,13 @@ export function startTerritoryStateSyncWorker() {
                       event.type === "dropped" ? event.factionId : undefined,
                   };
 
+                  // Add racket info if present in the territory
+                  if (oldRacketName) {
+                    notif.racket_name = oldRacketName;
+                    notif.racket_old_level = oldRacketLevel ?? undefined;
+                    notif.racket_reward = oldRacketReward ?? undefined;
+                  }
+
                   // Add accumulated reward info if losing faction had a racket
                   if (losingFactionAccumulatedReward && oldRacketName) {
                     notif.losing_faction_id = oldFaction;
