@@ -35,6 +35,7 @@ export const TABLE_NAMES = {
   FACTION_ROLES: "sentinel_faction_roles",
   TERRITORY_BLUEPRINT: "sentinel_territory_blueprint",
   TERRITORY_STATE: "sentinel_territory_state",
+  RACKET_TENURE: "sentinel_racket_tenure",
   WAR_LEDGER: "sentinel_war_ledger",
   WAR_TRACKERS: "sentinel_war_trackers",
   TORN_FACTIONS: "sentinel_torn_factions",
