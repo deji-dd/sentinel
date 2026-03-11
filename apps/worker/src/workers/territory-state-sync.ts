@@ -549,6 +549,7 @@ export function startTerritoryStateSyncWorker() {
             // Fetch racket data from v1 API
             // TornApiClient throws errors on API failures - caught by outer try-catch
             const racketResponse = await tornApi.getRaw<{
+              error?: { code: number; error: string };
               rackets?: Record<
                 string,
                 {
@@ -562,7 +563,17 @@ export function startTerritoryStateSyncWorker() {
               >;
             }>("/torn", keyRotator.getNextKey(), { selections: "rackets" });
 
-            const racketsByTerritory = racketResponse.rackets || {};
+            if (racketResponse.error) {
+              logError(
+                "territory_state_sync",
+                `Racket API error ${racketResponse.error.code}: ${racketResponse.error.error} - skipping racket sync this run`,
+              );
+              // Store old hash and return early for racket processing if we want to skip it
+              // But we already processed ownership. To keep it simple, we just use old rackets.
+            }
+
+            const racketsByTerritory = racketResponse.rackets || (racketResponse.error ? {} : {});
+            const skipRackets = !!racketResponse.error;
 
             // OPTIMIZATION: Hash-based detection
             // Compute hash of API responses to detect if anything changed
@@ -734,18 +745,11 @@ export function startTerritoryStateSyncWorker() {
 
               // Detect racket changes
               if (
-                oldRacketName !== newRacketName ||
-                oldRacketLevel !== newRacketLevel
+                !skipRackets &&
+                (oldRacketName !== newRacketName ||
+                  oldRacketLevel !== newRacketLevel)
               ) {
                 changedTerritories.add(tt.id); // Track this territory changed
-
-                // Debug logging for racket changes
-                console.log(
-                  `[RACKET DEBUG] TT ${tt.id}:`,
-                  `Old: "${oldRacketName}" (lvl ${oldRacketLevel})`,
-                  `New: "${newRacketName}" (lvl ${newRacketLevel})`,
-                  `Names match: ${oldRacketName === newRacketName}`,
-                );
 
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {

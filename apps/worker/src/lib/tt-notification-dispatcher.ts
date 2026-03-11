@@ -178,23 +178,7 @@ function territoryLink(territoryId: string): string {
   return `[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})`;
 }
 
-/**
- * Format territory list with commas and "and" for the last item
- */
-function formatTerritoryList(territories: string[]): string {
-  if (territories.length === 0) return "";
-  if (territories.length === 1) return territoryLink(territories[0]);
-  if (territories.length === 2)
-    return `${territoryLink(territories[0])} & ${territoryLink(territories[1])}`;
-  return (
-    territories
-      .slice(0, -1)
-      .map((territory) => territoryLink(territory))
-      .join(", ") +
-    " & " +
-    territoryLink(territories[territories.length - 1])
-  );
-}
+
 
 /**
  * Format war duration from hours to "after X days Y hours at war"
@@ -308,8 +292,7 @@ async function buildNotificationEmbeds(
   // Build embeds for each group
   for (const [_groupKey, { faction_id, events }] of groups) {
     const firstEvent = events[0];
-    const territories = events.map((e) => e.territory_id);
-    const territoryList = formatTerritoryList(territories);
+
 
     let factionData: TornFactionData | null = null;
     if (faction_id) {
@@ -337,9 +320,14 @@ async function buildNotificationEmbeds(
             inline: boolean;
           }> = [
             {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
+            {
               name: "Claimed by",
               value: factionNameLinked,
-              inline: false,
+              inline: true,
             },
           ];
 
@@ -395,9 +383,14 @@ async function buildNotificationEmbeds(
             inline: boolean;
           }> = [
             {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
+            {
               name: "Abandoned by",
               value: factionNameLinked,
-              inline: false,
+              inline: true,
             },
           ];
 
@@ -466,6 +459,11 @@ async function buildNotificationEmbeds(
             inline: boolean;
           }> = [
             {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
+            {
               name: "Assaulting Faction",
               value: factionNameLinked,
               inline: true,
@@ -502,6 +500,11 @@ async function buildNotificationEmbeds(
             value: string;
             inline: boolean;
           }> = [
+            {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
             {
               name: "Faction",
               value: factionNameLinked,
@@ -566,6 +569,11 @@ async function buildNotificationEmbeds(
             title: `Assault Failed • ${notif.territory_id}`,
             fields: [
               {
+                name: "Territory",
+                value: territoryLink(notif.territory_id),
+                inline: true,
+              },
+              {
                 name: "Assaulting Faction",
                 value: attackerNameLinked,
                 inline: true,
@@ -605,6 +613,11 @@ async function buildNotificationEmbeds(
           embeds.push({
             title: `Assault Begun • ${notif.territory_id}`,
             fields: [
+              {
+                name: "Territory",
+                value: territoryLink(notif.territory_id),
+                inline: true,
+              },
               {
                 name: "Assaulting Faction",
                 value: factionNameLinked,
@@ -664,6 +677,11 @@ async function buildNotificationEmbeds(
             inline: boolean;
           }> = [
             {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
+            {
               name: "Assaulting Faction",
               value: attackerNameLinked,
               inline: true,
@@ -701,6 +719,11 @@ async function buildNotificationEmbeds(
             value: string;
             inline: boolean;
           }> = [
+            {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
             {
               name: "Level",
               value: `Level ${notif.racket_new_level}`,
@@ -740,6 +763,11 @@ async function buildNotificationEmbeds(
             value: string;
             inline: boolean;
           }> = [
+            {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
             {
               name: "Level",
               value: `Level ${notif.racket_old_level}`,
@@ -794,6 +822,11 @@ async function buildNotificationEmbeds(
             value: string;
             inline: boolean;
           }> = [
+            {
+              name: "Territory",
+              value: territoryLink(notif.territory_id),
+              inline: true,
+            },
             {
               name: "Level Change",
               value: `Level ${notif.racket_old_level} → Level ${notif.racket_new_level}`,
