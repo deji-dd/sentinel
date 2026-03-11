@@ -77,24 +77,22 @@ function toSqliteBoolean(value: boolean): number {
 }
 
 function getScriptUrlBase(): string {
-  const configuredProd = process.env.ASSIST_INSTALL_BASE_URL;
-  const configuredLocal = process.env.ASSIST_INSTALL_BASE_URL_LOCAL;
+  const configuredProd = process.env.BOT_ORIGIN;
+  const configuredLocal = process.env.BOT_ORIGIN_LOCAL;
 
   if (!isDev && !configuredProd) {
-    throw new Error(
-      "Missing ASSIST_INSTALL_BASE_URL for production environment",
-    );
+    throw new Error("Missing BOT_ORIGIN for production environment");
   }
 
   const rawValue = isDev
-    ? configuredLocal || configuredProd || "http://127.0.0.1:8787/install"
+    ? configuredLocal || configuredProd || "http://127.0.0.1:3001"
     : configuredProd!;
 
   try {
     const parsed = new URL(rawValue);
-    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+    return `${parsed.origin}/install`;
   } catch {
-    throw new Error(`Invalid assist install base URL configured: ${rawValue}`);
+    throw new Error(`Invalid bot origin URL configured: ${rawValue}`);
   }
 }
 
@@ -177,27 +175,7 @@ async function canGenerateScript(
   return scriptRoleIds.some((roleId) => userRoles.includes(roleId));
 }
 
-/**
- * Check if user is admin (for revoke command)
- */
-async function isAdmin(
-  guildId: string,
-  userId: string,
-  userRoles: string[],
-): Promise<boolean> {
-  if (userId === botOwnerId) {
-    return true;
-  }
 
-  const guildConfig = await db
-    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-    .select(["admin_role_ids"])
-    .where("guild_id", "=", guildId)
-    .executeTakeFirst();
-
-  const adminRoleIds = parseStringArray(guildConfig?.admin_role_ids);
-  return adminRoleIds.some((roleId) => userRoles.includes(roleId));
-}
 
 /**
  * Get user's Torn ID from verified users table
@@ -663,183 +641,9 @@ async function handleGenerateSubcommand(
   }
 }
 
-async function handleRevokeSubcommand(
-  interaction: ChatInputCommandInteraction,
-): Promise<void> {
-  const guildId = interaction.guildId;
-  const userId = interaction.user.id;
-  const targetUser = interaction.options.getUser("user", true);
 
-  if (!guildId) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("❌ Error")
-      .setDescription("This command can only be used in a guild.");
 
-    await interaction.editReply({ embeds: [errorEmbed] });
-    return;
-  }
 
-  const guildConfig = await db
-    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-    .select(["enabled_modules"])
-    .where("guild_id", "=", guildId)
-    .executeTakeFirst();
-
-  const enabledModules = parseStringArray(guildConfig?.enabled_modules);
-  if (!enabledModules.includes("assist")) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xf59e0b)
-      .setTitle("Assist Module Disabled")
-      .setDescription(
-        "This guild has not enabled the assist module yet. Contact an admin to enable it.",
-      );
-
-    await interaction.editReply({ embeds: [errorEmbed] });
-    return;
-  }
-
-  const userRoles = interaction.member?.roles;
-  const userRoleIds =
-    userRoles && "cache" in userRoles ? Array.from(userRoles.cache.keys()) : [];
-
-  const userIsAdmin = await isAdmin(guildId, userId, userRoleIds);
-  if (!userIsAdmin) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("❌ Not Authorized")
-      .setDescription(
-        "Only admins can revoke assist tokens. This command is for managing compromised tokens.",
-      );
-
-    await interaction.editReply({ embeds: [errorEmbed] });
-    return;
-  }
-
-  let tokens: Array<{ token_uuid: string }> = [];
-  try {
-    tokens = (await assistDb
-      .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
-      .select(["token_uuid"])
-      .where("guild_id", "=", guildId)
-      .where("discord_id", "=", targetUser.id)
-      .where("is_active", "=", toSqliteBoolean(true))
-      .orderBy("created_at", "desc")
-      .execute()) as Array<{ token_uuid: string }>;
-  } catch (tokensError) {
-    console.error("Error fetching active tokens for revoke:", tokensError);
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("❌ Error")
-      .setDescription("Failed to look up active tokens. Please try again.");
-
-    await interaction.editReply({ embeds: [errorEmbed] });
-    return;
-  }
-
-  if (tokens.length === 0) {
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xf59e0b)
-      .setTitle("No Active Tokens")
-      .setDescription(
-        `No active assist tokens found for ${targetUser.toString()} in this guild.`,
-      );
-
-    await interaction.editReply({ embeds: [errorEmbed] });
-    return;
-  }
-
-  try {
-    await assistDb
-      .deleteFrom(TABLE_NAMES.ASSIST_TOKENS)
-      .where("guild_id", "=", guildId)
-      .where("discord_id", "=", targetUser.id)
-      .where("is_active", "=", toSqliteBoolean(true))
-      .execute();
-  } catch (revokeError) {
-    console.error("Error deleting compromised assist tokens:", revokeError);
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("❌ Error")
-      .setDescription("Failed to revoke tokens. Please try again.");
-
-    await interaction.editReply({ embeds: [errorEmbed] });
-    return;
-  }
-
-  const successEmbed = new EmbedBuilder()
-    .setColor(0x10b981)
-    .setTitle("✅ Tokens Revoked")
-    .setDescription(
-      `Revoked ${tokens.length} compromised token(s) for ${targetUser.toString()}.`,
-    );
-
-  await interaction.editReply({ embeds: [successEmbed], components: [] });
-}
-
-async function handleManageSubcommand(
-  interaction: ChatInputCommandInteraction,
-): Promise<void> {
-  const guildId = interaction.guildId;
-  const userId = interaction.user.id;
-
-  if (!guildId) {
-    await interaction.editReply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0xef4444)
-          .setTitle("❌ Error")
-          .setDescription("This command can only be used in a guild."),
-      ],
-    });
-    return;
-  }
-
-  const guildConfig = await db
-    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-    .select(["enabled_modules"])
-    .where("guild_id", "=", guildId)
-    .executeTakeFirst();
-
-  const enabledModules = parseStringArray(guildConfig?.enabled_modules);
-  if (!enabledModules.includes("assist")) {
-    await interaction.editReply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0xf59e0b)
-          .setTitle("Assist Module Disabled")
-          .setDescription(
-            "This guild has not enabled the assist module yet. Contact an admin to enable it.",
-          ),
-      ],
-    });
-    return;
-  }
-
-  const userRoles = interaction.member?.roles;
-  const userRoleIds =
-    userRoles && "cache" in userRoles ? Array.from(userRoles.cache.keys()) : [];
-
-  const userIsAdmin = await isAdmin(guildId, userId, userRoleIds);
-  if (!userIsAdmin) {
-    await interaction.editReply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0xef4444)
-          .setTitle("❌ Not Authorized")
-          .setDescription("Only admins can manage assist script users."),
-      ],
-    });
-    return;
-  }
-
-  const { embed, components } = await buildManageUsersView(
-    guildId,
-    0,
-    interaction.guild,
-  );
-  await interaction.editReply({ embeds: [embed], components });
-}
 
 export async function handleManagePageButton(
   interaction: ButtonInteraction,
