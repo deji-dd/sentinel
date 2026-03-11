@@ -149,6 +149,9 @@ export interface SentinelGuildConfig {
   auto_verify: Generated<number | null>;
   created_at: Generated<string>;
   enabled_modules: Generated<string | null>;
+  faction_list_channel_id: string | null;
+  faction_list_message_ids: Generated<string | null>;
+  faction_list_updated_at: Generated<string | null>;
   guild_id: string;
   log_channel_id: string | null;
   nickname_template: Generated<string | null>;

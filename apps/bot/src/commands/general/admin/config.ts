@@ -40,6 +40,7 @@ import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
 import * as assistHandlers from "./handlers/assist.js";
 import { db } from "../../../lib/db-client.js";
+import { updateFactionList } from "../../../lib/faction-list-manager.js";
 
 interface StoredGuildApiKey {
   id: string;
@@ -54,6 +55,7 @@ interface GuildConfigView {
   auto_verify: number | null;
   verified_role_id: string | null;
   nickname_template: string | null;
+  faction_list_channel_id: string | null;
 }
 
 async function getStoredGuildApiKeys(
@@ -497,7 +499,13 @@ async function showAdminSettings(
 }
 
 async function showVerifySettings(
-  interaction: StringSelectMenuInteraction | ButtonInteraction,
+  interaction:
+    | StringSelectMenuInteraction
+    | ChatInputCommandInteraction
+    | ButtonInteraction
+    | ChannelSelectMenuInteraction
+    | RoleSelectMenuInteraction
+    | ModalSubmitInteraction,
   guildConfig: GuildConfigView,
 ): Promise<void> {
   // Fetch faction role mappings
@@ -541,6 +549,13 @@ async function showVerifySettings(
         value: `\`${guildConfig.nickname_template || "{name}#{id}"}\``,
         inline: false,
       },
+      {
+        name: "Faction List Channel",
+        value: guildConfig.faction_list_channel_id
+          ? `<#${guildConfig.faction_list_channel_id}>`
+          : "Not configured",
+        inline: false,
+      },
     );
 
   verifyEmbed.addFields(
@@ -576,6 +591,10 @@ async function showVerifySettings(
       .setLabel("Nickname Template")
       .setValue("edit_nickname")
       .setDescription("e.g., {name}#{id}"),
+    new StringSelectMenuOptionBuilder()
+      .setLabel("Faction List Channel")
+      .setValue("edit_faction_list_channel")
+      .setDescription("Channel for faction role map output"),
   ];
 
   settingOptions.push(
@@ -1102,6 +1121,29 @@ export async function handleVerifySettingsEdit(
 
       const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
         roleSelect,
+      );
+
+      await interaction.editReply({
+        embeds: [embed],
+        components: [row],
+      });
+    } else if (selectedSetting === "edit_faction_list_channel") {
+      await interaction.deferUpdate();
+      // Show channel selector for faction list
+      const embed = new EmbedBuilder()
+        .setColor(0x3b82f6)
+        .setTitle("Select Faction List Channel")
+        .setDescription(
+          "Choose a channel where the bot will post and update the list of mapped factions.\nFactions will be sorted alphabetically.",
+        );
+
+      const channelSelect = new ChannelSelectMenuBuilder()
+        .setCustomId("config_faction_list_channel_select")
+        .setPlaceholder("Select a channel for faction list")
+        .addChannelTypes(ChannelType.GuildText);
+
+      const row = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+        channelSelect,
       );
 
       await interaction.editReply({
@@ -2215,6 +2257,9 @@ export async function handleAddFactionRoleModalSubmit(
           factionName: factionDetails.name,
         },
       });
+
+      // Trigger faction list update
+      await updateFactionList(guildId, interaction.client);
     }
 
     // Show faction management page
@@ -2347,6 +2392,9 @@ export async function handleRemoveFactionRoleModalSubmit(
         factionId,
       },
     });
+
+    // Trigger faction list update
+    await updateFactionList(guildId, interaction.client);
 
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
@@ -2484,6 +2532,55 @@ export async function handleFactionRoleSelect(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in faction role select handler:", errorMsg);
+  }
+}
+
+export async function handleFactionListChannelSelect(
+  interaction: ChannelSelectMenuInteraction,
+): Promise<void> {
+  try {
+    await interaction.deferUpdate();
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const channelId = interaction.values[0];
+
+    // Update guild config
+    await db
+      .updateTable(TABLE_NAMES.GUILD_CONFIG)
+      .set({
+        faction_list_channel_id: channelId,
+        faction_list_message_ids: JSON.stringify([]), // Reset message IDs when channel changes
+      })
+      .where("guild_id", "=", guildId)
+      .execute();
+
+    await logGuildAudit({
+      guildId,
+      actorId: interaction.user.id,
+      action: "faction_list_channel_updated",
+      details: {
+        channelId,
+      },
+    });
+
+    // Trigger immediate update
+    await updateFactionList(guildId, interaction.client);
+
+    // Refresh settings view
+    const guildConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
+
+    if (guildConfig) {
+      await showVerifySettings(interaction, guildConfig);
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error in faction list channel select handler:", errorMsg);
   }
 }
 
@@ -3310,6 +3407,9 @@ export async function handleFactionToggle(
       action: newEnabled ? "faction_enabled" : "faction_disabled",
       details: { factionId },
     });
+
+    // Trigger faction list update
+    await updateFactionList(guildId, interaction.client);
 
     const apiKey = await getActiveGuildApiKey(guildId);
 
