@@ -14,9 +14,9 @@ const HMAC_ALGORITHM = "sha256";
 const ASSIST_EVENT_AUTH_CONTEXT = "assist_event_v1";
 
 function getSigningSecret(): string {
-  const secret = process.env.ASSIST_PROXY_SECRET;
+  const secret = process.env.ASSIST_SIGNING_SECRET || process.env.ASSIST_PROXY_SECRET;
   if (!secret) {
-    throw new Error("ASSIST_PROXY_SECRET is required for signed install links");
+    throw new Error("ASSIST_SIGNING_SECRET (or ASSIST_PROXY_SECRET) is required for signed install links");
   }
   return secret;
 }

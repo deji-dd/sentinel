@@ -1,2 +1,0 @@
-# Copy to .dev.vars for local `wrangler dev` runs
-ASSIST_PROXY_SECRET=replace_with_shared_secret

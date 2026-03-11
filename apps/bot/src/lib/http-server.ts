@@ -14,15 +14,8 @@ import {
   generateAssistEventAuthToken,
   verifyLinkSignature,
 } from "./assist-link-signing.js";
-import {
-  logProxyAuthFailure,
-  logPayloadTooLarge,
-  logRateLimitHit,
-} from "./assist-monitoring.js";
-import {
-  DatabaseIPRateLimiter,
-  ASSIST_RATE_LIMIT_CONFIG,
-} from "./assist-ip-rate-limiter.js";
+import { logPayloadTooLarge, logRateLimitHit } from "./assist-monitoring.js";
+import { DatabaseIPRateLimiter } from "./assist-ip-rate-limiter.js";
 import { fetchTornProfileData } from "./torn-api.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 
@@ -32,7 +25,7 @@ app.use(express.json());
 let discordClient: Client;
 let ipRateLimiter: DatabaseIPRateLimiter;
 
-const ASSIST_PROXY_SECRET_HEADER = "Proxy-Secret-Header";
+// Proxy header removed
 const ASSIST_STRIKE_BLACKLIST_THRESHOLD = 5;
 const ASSIST_ALLOWED_PROXY_METHODS = new Set(["POST", "PATCH", "DELETE"]);
 const parsedAssistMaxPayloadBytes = Number.parseInt(
@@ -215,27 +208,14 @@ function isValidUuid(value: string): boolean {
   );
 }
 
-function hasValidProxySecret(req: Request): boolean {
-  const expectedProxySecret = process.env.ASSIST_PROXY_SECRET;
-  const providedProxySecret = req.header(ASSIST_PROXY_SECRET_HEADER);
-
-  if (!expectedProxySecret) {
-    return false;
+function getClientIp(req: Request): string {
+  // Cloudflared passes the original IP in CF-Connecting-IP
+  let ip =
+    req.header("CF-Connecting-IP") || req.header("X-Forwarded-For") || req.ip;
+  if (ip && ip.includes(",")) {
+    ip = ip.split(",")[0].trim();
   }
-
-  const isValid = Boolean(
-    providedProxySecret && providedProxySecret === expectedProxySecret,
-  );
-
-  if (!isValid) {
-    logProxyAuthFailure(
-      req.path,
-      req.header("X-Assist-Client-IP") || req.ip || null,
-      req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
-    );
-  }
-
-  return isValid;
+  return ip || "unknown";
 }
 
 function getAssistPayloadSizeBytes(req: Request): number {
@@ -588,227 +568,211 @@ export function initHttpServer(client: Client, port: number = 3001) {
     }
   });
 
-  // Internal userscript installation endpoint. Traffic should arrive via Cloudflare worker.
-  app.get(
-    "/internal/assist-install/:fileName",
-    async (req: Request, res: Response) => {
-      try {
-        if (!process.env.ASSIST_PROXY_SECRET) {
-          return res.status(500).json({
-            error: "Server misconfigured: ASSIST_PROXY_SECRET is not set",
-          });
-        }
-
-        if (!hasValidProxySecret(req)) {
-          return res.status(401).json({ error: "Unauthorized proxy" });
-        }
-
-        const clientIp =
-          req.header("X-Assist-Client-IP") || req.ip || "unknown";
-        const clientUA =
-          req.header("X-Assist-Client-UA") || req.get("user-agent") || null;
-
-        // Check if this IP is blocked
-        if (await ipRateLimiter.isIPBlocked(clientIp)) {
-          return res.status(429).json({
-            error: "Too many requests from this IP",
-            retry_after: 3600,
-          });
-        }
-
-        const fileParam = req.params.fileName;
-        const fileName = Array.isArray(fileParam)
-          ? fileParam[0] || ""
-          : fileParam || "";
-        if (!fileName.endsWith(".user.js")) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "invalid_script_extension",
-            undefined,
-            req.path,
-            clientUA,
-          );
-          return res.status(400).json({ error: "Invalid script path" });
-        }
-
-        const uuid = fileName.replace(/\.user\.js$/i, "");
-        if (!isValidUuid(uuid)) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "invalid_uuid",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          return res.status(400).json({ error: "Invalid UUID in script path" });
-        }
-
-        // Verify signed link
-        const expParam = req.query.exp;
-        const sigParam = req.query.sig;
-
-        if (!expParam || !sigParam) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "missing_signature_params",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          return res.status(400).json({
-            error: "Missing signature parameters",
-            hint: "Install links must include exp and sig query params",
-          });
-        }
-
-        const expiresAt = Number.parseInt(String(expParam), 10);
-        const signature = String(sigParam);
-
-        if (!Number.isFinite(expiresAt)) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "invalid_expiry_timestamp",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          return res.status(400).json({ error: "Invalid expiry timestamp" });
-        }
-
-        const verification = verifyLinkSignature(uuid, expiresAt, signature);
-        if (!verification.valid) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "invalid_signature",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          logRateLimitHit(req.path, clientIp, clientUA, uuid);
-          return res.status(403).json({
-            error: verification.reason || "Invalid install link",
-          });
-        }
-
-        const token = await db
-          .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
-          .select([
-            "id",
-            "guild_id",
-            "discord_id",
-            "torn_id",
-            "strike_count",
-            "is_active",
-            "blacklisted_at",
-            "expires_at",
-          ])
-          .where("token_uuid", "=", uuid)
-          .executeTakeFirst();
-
-        if (!token) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "token_not_found",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          return res.status(404).json({ error: "Assist token not found" });
-        }
-
-        if (!token.is_active || token.blacklisted_at) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "token_inactive_or_blacklisted",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          return res.status(403).json({ error: "Assist token is inactive" });
-        }
-
-        if (
-          token.expires_at &&
-          new Date(token.expires_at).getTime() <= Date.now()
-        ) {
-          await ipRateLimiter.recordFailure(
-            clientIp,
-            "token_expired",
-            uuid,
-            req.path,
-            clientUA,
-          );
-          return res.status(403).json({ error: "Assist token expired" });
-        }
-
-        // Check if UUID is rate limited (now we have torn_id for bypass check)
-        if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
-          return res.status(429).json({
-            error: "Script generation rate limit exceeded for this UUID",
-            retry_after: 600,
-          });
-        }
-        const proxyOrigin = req.header("X-Assist-Proxy-Origin");
-        const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
-
-        let apiBaseUrl = fallbackOrigin;
-        if (proxyOrigin) {
-          try {
-            apiBaseUrl = new URL(proxyOrigin).origin;
-          } catch {
-            apiBaseUrl = fallbackOrigin;
-          }
-        }
-
-        const script = buildAssistUserscript({
-          uuid,
-          apiBaseUrl,
-          eventAuthToken: generateAssistEventAuthToken(uuid),
-        });
-
-        await db
-          .updateTable(TABLE_NAMES.ASSIST_TOKENS)
-          .set({
-            // Install/download should not start the active-assist lock window.
-            last_seen_ip: clientIp,
-            last_seen_user_agent: clientUA,
-            updated_at: new Date().toISOString(),
-          })
-          .where("id", "=", token.id)
-          .execute();
-
-        // Record successful generation for rate limiting
-        await ipRateLimiter.recordSuccessfulGeneration(
-          uuid,
-          clientIp,
-          token.torn_id,
-        );
-
-        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-        res.setHeader("Cache-Control", "no-store");
-        res.setHeader("X-Content-Type-Options", "nosniff");
-
-        return res.status(200).send(script);
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        console.error("[HTTP] Error generating assist userscript:", error);
-        return res
-          .status(500)
-          .json({ error: "Failed to generate assist script", message });
-      }
-    },
-  );
-
-  // Internal assist ingestion endpoint. Traffic should arrive via Cloudflare worker.
-  app.all("/internal/assist-events", async (req: Request, res: Response) => {
+  // Public userscript installation endpoint. Traffic expected via Cloudflared.
+  app.get("/install/:fileName", async (req: Request, res: Response) => {
     try {
-      if (!process.env.ASSIST_PROXY_SECRET) {
-        return res.status(500).json({
-          error: "Server misconfigured: ASSIST_PROXY_SECRET is not set",
+      const clientIp = getClientIp(req);
+      const clientUA = req.get("user-agent") || null;
+
+      // Check if this IP is blocked
+      if (await ipRateLimiter.isIPBlocked(clientIp)) {
+        return res.status(429).json({
+          error: "Too many requests from this IP",
+          retry_after: 3600,
         });
       }
 
+      const fileParam = req.params.fileName;
+      const fileName = Array.isArray(fileParam)
+        ? fileParam[0] || ""
+        : fileParam || "";
+      if (!fileName.endsWith(".user.js")) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "invalid_script_extension",
+          undefined,
+          req.path,
+          clientUA,
+        );
+        return res.status(400).json({ error: "Invalid script path" });
+      }
+
+      const uuid = fileName.replace(/\.user\.js$/i, "");
+      if (!isValidUuid(uuid)) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "invalid_uuid",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        return res.status(400).json({ error: "Invalid UUID in script path" });
+      }
+
+      // Verify signed link
+      const expParam = req.query.exp;
+      const sigParam = req.query.sig;
+
+      if (!expParam || !sigParam) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "missing_signature_params",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        return res.status(400).json({
+          error: "Missing signature parameters",
+          hint: "Install links must include exp and sig query params",
+        });
+      }
+
+      const expiresAt = Number.parseInt(String(expParam), 10);
+      const signature = String(sigParam);
+
+      if (!Number.isFinite(expiresAt)) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "invalid_expiry_timestamp",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        return res.status(400).json({ error: "Invalid expiry timestamp" });
+      }
+
+      const verification = verifyLinkSignature(uuid, expiresAt, signature);
+      if (!verification.valid) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "invalid_signature",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        logRateLimitHit(req.path, clientIp, clientUA, uuid);
+        return res.status(403).json({
+          error: verification.reason || "Invalid install link",
+        });
+      }
+
+      const token = await db
+        .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+        .select([
+          "id",
+          "guild_id",
+          "discord_id",
+          "torn_id",
+          "strike_count",
+          "is_active",
+          "blacklisted_at",
+          "expires_at",
+        ])
+        .where("token_uuid", "=", uuid)
+        .executeTakeFirst();
+
+      if (!token) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "token_not_found",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        return res.status(404).json({ error: "Assist token not found" });
+      }
+
+      if (!token.is_active || token.blacklisted_at) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "token_inactive_or_blacklisted",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        return res.status(403).json({ error: "Assist token is inactive" });
+      }
+
+      if (
+        token.expires_at &&
+        new Date(token.expires_at).getTime() <= Date.now()
+      ) {
+        await ipRateLimiter.recordFailure(
+          clientIp,
+          "token_expired",
+          uuid,
+          req.path,
+          clientUA,
+        );
+        return res.status(403).json({ error: "Assist token expired" });
+      }
+
+      // Check if UUID is rate limited (now we have torn_id for bypass check)
+      if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
+        return res.status(429).json({
+          error: "Script generation rate limit exceeded for this UUID",
+          retry_after: 600,
+        });
+      }
+      const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
+
+      const configuredProd = process.env.BOT_ORIGIN;
+      const configuredLocal = process.env.BOT_ORIGIN_LOCAL;
+      const rawBase =
+        process.env.NODE_ENV === "development"
+          ? configuredLocal || configuredProd || `http://127.0.0.1:${port}`
+          : configuredProd;
+
+      let apiBaseUrl = fallbackOrigin;
+      if (rawBase) {
+        try {
+          apiBaseUrl = new URL(rawBase).origin;
+        } catch {
+          apiBaseUrl = fallbackOrigin;
+        }
+      }
+
+      const script = buildAssistUserscript({
+        uuid,
+        apiBaseUrl,
+        eventAuthToken: generateAssistEventAuthToken(uuid),
+      });
+
+      await db
+        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+        .set({
+          // Install/download should not start the active-assist lock window.
+          last_seen_ip: clientIp,
+          last_seen_user_agent: clientUA,
+          updated_at: new Date().toISOString(),
+        })
+        .where("id", "=", token.id)
+        .execute();
+
+      // Record successful generation for rate limiting
+      await ipRateLimiter.recordSuccessfulGeneration(
+        uuid,
+        clientIp,
+        token.torn_id,
+      );
+
+      res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+
+      return res.status(200).send(script);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("[HTTP] Error generating assist userscript:", error);
+      return res
+        .status(500)
+        .json({ error: "Failed to generate assist script", message });
+    }
+  });
+
+  // Public assist ingestion endpoint. Traffic expected via Cloudflared.
+  app.all("/api/assist-events", async (req: Request, res: Response) => {
+    try {
       if (!ASSIST_ALLOWED_PROXY_METHODS.has(req.method)) {
         return res.status(405).json({
           error: "Method not allowed",
@@ -816,16 +780,15 @@ export function initHttpServer(client: Client, port: number = 3001) {
         });
       }
 
-      if (!hasValidProxySecret(req)) {
-        return res.status(401).json({ error: "Unauthorized proxy" });
-      }
+      const clientIp = getClientIp(req);
+      const clientUA = req.get("user-agent") || null;
 
       const payloadSize = getAssistPayloadSizeBytes(req);
       if (payloadSize > ASSIST_MAX_PAYLOAD_BYTES) {
         logPayloadTooLarge(
           req.path,
-          req.header("X-Assist-Client-IP") || req.ip || null,
-          req.header("X-Assist-Client-UA") || req.get("user-agent") || null,
+          clientIp,
+          clientUA,
           payloadSize,
           ASSIST_MAX_PAYLOAD_BYTES,
         );
@@ -1038,8 +1001,8 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .updateTable(TABLE_NAMES.ASSIST_TOKENS)
           .set({
             last_used_at: new Date().toISOString(),
-            last_seen_ip: req.ip,
-            last_seen_user_agent: req.get("user-agent") || null,
+            last_seen_ip: clientIp,
+            last_seen_user_agent: clientUA,
             updated_at: new Date().toISOString(),
           })
           .where("id", "=", token.id)

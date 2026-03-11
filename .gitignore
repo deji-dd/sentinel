@@ -65,3 +65,10 @@ logs/
 .dev.vars
 
 .archive/
+
+
+# Agent Guidelines
+.agents/
+.agent/
+_agents/
+_agent/
