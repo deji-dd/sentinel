@@ -4,7 +4,6 @@
  */
 
 import { EmbedBuilder } from "discord.js";
-import { db } from "./db-client.js";
 import { getFactionNameCached, type TornApiComponents } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
@@ -123,6 +122,11 @@ export function buildWarTrackerEmbed(
     .setTitle(`${display.territoryId} Territory War`)
     .setDescription(`[View Territory](${territoryUrl})`)
     .addFields(
+      {
+        name: "Territory",
+        value: `[${display.territoryId}](${territoryUrl})`,
+        inline: true,
+      },
       {
         name: "Score",
         value: `${war.score}/${war.required_score}`,

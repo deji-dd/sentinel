@@ -33,10 +33,16 @@ async function getActiveApiKey(guildId: string): Promise<string | null> {
 }
 
 function buildEndedEmbed(territoryId: string): EmbedBuilder {
+  const territoryUrl = `https://www.torn.com/city.php#terrName=${territoryId}`;
   return new EmbedBuilder()
     .setColor(0xf59e0b)
     .setTitle(`⚔️ ${territoryId} War Ended`)
-    .setDescription("This war is no longer active. Tracking disabled.");
+    .setDescription("This war is no longer active. Tracking disabled.")
+    .addFields({
+      name: "Territory",
+      value: `[${territoryId}](${territoryUrl})`,
+      inline: true,
+    });
 }
 
 export class WarTrackerScheduler {
