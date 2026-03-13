@@ -100,6 +100,8 @@ export async function execute(
       await import("../../general/territories/burn-map.js");
     const allianceMapCommand =
       await import("../../general/territories/alliance-map.js");
+    const ttSelectorCommand =
+      await import("../../general/territories/tt-selector.js");
     const statsCommand = await import("../stats.js");
     const assistCommand = await import("../../general/assist/assist.js");
     const forceRunCommand = await import("./force-run.js");
@@ -120,6 +122,7 @@ export async function execute(
         assaultCheckCommand.data.toJSON(),
         burnMapCommand.data.toJSON(),
         allianceMapCommand.data.toJSON(),
+        ttSelectorCommand.data.toJSON(),
       ],
       assist: [assistCommand.data.toJSON()],
     };
@@ -152,6 +155,7 @@ export async function execute(
         assaultCheckCommand.data.toJSON(),
         burnMapCommand.data.toJSON(),
         allianceMapCommand.data.toJSON(),
+        ttSelectorCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
         statsCommand.data.toJSON(),

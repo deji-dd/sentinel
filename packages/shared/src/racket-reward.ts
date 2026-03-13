@@ -6,6 +6,7 @@
 export interface RewardInfo {
   amount: number;
   type: "cash" | "items" | "points";
+  itemName?: string; // e.g. "Bottle of Moonshine"
   displayString: string;
 }
 
@@ -44,19 +45,23 @@ export function parseRewardString(
       return {
         amount,
         type: "points",
+        itemName: "Points",
         displayString: rewardString,
       };
     }
   }
 
   // Try to match items format: "XXXx ItemName daily"
-  const itemsMatch = rewardString.match(/^([0-9,]+)x\s+.+\s+daily$/i);
+  // Example: "160x Bottle of Moonshine daily"
+  const itemsMatch = rewardString.match(/^([0-9,]+)x\s+(.+)\s+daily$/i);
   if (itemsMatch) {
     const amount = parseInt(itemsMatch[1].replace(/,/g, ""), 10);
+    const itemName = itemsMatch[2].trim();
     if (!Number.isNaN(amount)) {
       return {
         amount,
         type: "items",
+        itemName,
         displayString: rewardString,
       };
     }
@@ -142,6 +147,25 @@ export function formatAccumulatedReward(
   }
 
   return `${accumulated.value} (${accumulated.days} day${accumulated.days === 1 ? "" : "s"})`;
+}
+
+/**
+ * Calculate the estimated daily cash value of a reward
+ * @param reward Info from parseRewardString
+ * @param prices Optional map of item/point names to their cash value
+ */
+export function calculateDailyValue(
+  reward: RewardInfo | null,
+  prices: Record<string, number> = {},
+): number {
+  if (!reward) return 0;
+
+  if (reward.type === "cash") {
+    return reward.amount;
+  }
+
+  const unitPrice = prices[reward.itemName || ""] || 0;
+  return reward.amount * unitPrice;
 }
 
 /**

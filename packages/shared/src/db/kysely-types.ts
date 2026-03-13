@@ -5,10 +5,9 @@
 
 import type { ColumnType } from "kysely";
 
-export type Generated<T> =
-  T extends ColumnType<infer S, infer I, infer U>
-    ? ColumnType<S, I | undefined, U>
-    : ColumnType<T, T | undefined, T>;
+export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S, I | undefined, U>
+  : ColumnType<T, T | undefined, T>;
 
 export interface SentinelApiKeyUserMapping {
   api_key_hash: string;
@@ -150,8 +149,7 @@ export interface SentinelGuildConfig {
   created_at: Generated<string>;
   enabled_modules: Generated<string | null>;
   faction_list_channel_id: string | null;
-  faction_list_message_ids: Generated<string | null>;
-  faction_list_updated_at: Generated<string | null>;
+  faction_list_message_ids: string | null;
   guild_id: string;
   log_channel_id: string | null;
   nickname_template: Generated<string | null>;
@@ -172,6 +170,49 @@ export interface SentinelGuildSyncJobs {
   last_sync_at: string | null;
   next_sync_at: Generated<string>;
   updated_at: Generated<string | null>;
+}
+
+export interface SentinelMapLabels {
+  color_hex: string;
+  created_at: Generated<string | null>;
+  id: string | null;
+  label_text: string;
+  map_id: string;
+}
+
+export interface SentinelMaps {
+  created_at: Generated<string | null>;
+  created_by: string;
+  guild_id: string;
+  id: string | null;
+  name: string;
+  updated_at: Generated<string | null>;
+}
+
+export interface SentinelMapSessions {
+  created_at: Generated<string | null>;
+  expires_at: string;
+  map_id: string;
+  token: string | null;
+  user_id: string;
+}
+
+export interface SentinelMapTerritories {
+  label_id: string;
+  map_id: string;
+  territory_id: string;
+}
+
+export interface SentinelRacketTenure {
+  created_at: Generated<string>;
+  ended_at: number | null;
+  faction_id: number;
+  id: string | null;
+  racket_name: string;
+  reward: string;
+  started_at: number;
+  territory_id: string;
+  updated_at: Generated<string>;
 }
 
 export interface SentinelRateLimitRequestsPerUser {
@@ -316,18 +357,6 @@ export interface SentinelTerritoryState {
   racket_reward: string | null;
   territory_id: string | null;
   updated_at: Generated<string | null>;
-}
-
-export interface SentinelRacketTenure {
-  created_at: Generated<string>;
-  ended_at: number | null;
-  faction_id: number;
-  id: string;
-  racket_name: string;
-  reward: string;
-  started_at: number;
-  territory_id: string;
-  updated_at: Generated<string>;
 }
 
 export interface SentinelTornCategories {
@@ -639,13 +668,17 @@ export interface DB {
   sentinel_guild_audit: SentinelGuildAudit;
   sentinel_guild_config: SentinelGuildConfig;
   sentinel_guild_sync_jobs: SentinelGuildSyncJobs;
+  sentinel_map_labels: SentinelMapLabels;
+  sentinel_map_sessions: SentinelMapSessions;
+  sentinel_map_territories: SentinelMapTerritories;
+  sentinel_maps: SentinelMaps;
+  sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;
   sentinel_reaction_role_config: SentinelReactionRoleConfig;
   sentinel_reaction_role_mappings: SentinelReactionRoleMappings;
   sentinel_reaction_role_messages: SentinelReactionRoleMessages;
   sentinel_revive_config: SentinelReviveConfig;
   sentinel_revive_requests: SentinelReviveRequests;
-  sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_schema_migrations: SentinelSchemaMigrations;
   sentinel_stat_build_configurations: SentinelStatBuildConfigurations;
   sentinel_stat_builds: SentinelStatBuilds;

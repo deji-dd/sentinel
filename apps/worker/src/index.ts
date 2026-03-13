@@ -1,7 +1,3 @@
-// import { startTravelDataWorker } from "./workers/travel-data.js";
-// import { startTravelStockCacheWorker } from "./workers/travel-stock-cache.js";
-// import { startTravelRecommendationsWorker } from "./workers/travel-recommendations.js";
-// import { startTravelAlerts } from "./workers/travel-alerts.js";
 import {
   startUserDataWorker,
   startTornGymsWorker,
@@ -87,12 +83,6 @@ async function startAllWorkers(): Promise<void> {
       startWarLedgerPruningWorker(); // prune wars older than 95 days daily
       startWorkerLogsPruningWorker(); // prune worker logs older than 30 days daily
     }
-
-    // ⚠️  DISABLED: Travel module workers (on backburner)
-    // - startTravelStockCacheWorker(); // every 5 minutes
-    // - startTravelDataWorker(); // fixed 30s cadence
-    // - startTravelRecommendationsWorker(); // every 5 minutes
-    // - startTravelAlerts(); // every 5 minutes
 
     logSection("✅ All workers started");
   } catch (error) {

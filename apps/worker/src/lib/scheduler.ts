@@ -5,7 +5,6 @@ import {
   failWorker,
   ensureWorkerRegistered,
   insertWorkerLog,
-  updateWorkerCadence,
 } from "./scheduler-db-helpers.js";
 import { logError, logWarn } from "./logger.js";
 
@@ -24,7 +23,7 @@ export function startDbScheduledRunner(
   const {
     worker,
     defaultCadenceSeconds,
-    pollIntervalMs = 2000, // Check every 2s for faster capacity response
+    pollIntervalMs = 1000, // Check every second for faster capacity response
     handler,
     initialNextRunAt,
     getDynamicCadence,
@@ -77,7 +76,8 @@ export function startDbScheduledRunner(
         if (getDynamicCadence) {
           try {
             nextCadence = await getDynamicCadence();
-          } catch (_err) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          } catch (err) {
             // Silently ignore cadence calculation errors - use existing cadence
           }
         }

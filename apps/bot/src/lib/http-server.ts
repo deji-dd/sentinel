@@ -1,4 +1,7 @@
 import express, { type Request, type Response } from "express";
+import cors from "cors";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import {
   EmbedBuilder,
   ActionRowBuilder,
@@ -9,6 +12,7 @@ import {
 } from "discord.js";
 import { TABLE_NAMES, getNextApiKey } from "@sentinel/shared";
 import { db } from "./db-client.js";
+import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { buildAssistUserscript } from "./assist-userscript.js";
 import {
   generateAssistEventAuthToken,
@@ -16,11 +20,41 @@ import {
 } from "./assist-link-signing.js";
 import { logPayloadTooLarge, logRateLimitHit } from "./assist-monitoring.js";
 import { DatabaseIPRateLimiter } from "./assist-ip-rate-limiter.js";
-import { fetchTornProfileData } from "./torn-api.js";
+import { fetchTornProfileData, fetchPointPrice, fetchMarketPrices } from "./torn-api.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
+import { parseRewardString } from "@sentinel/shared";
 
 const app = express();
+app.set('trust proxy', 1);
+
+// Health check - BEFORE any middleware to diagnose hangs
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+app.use(helmet({
+  contentSecurityPolicy: false, 
+}));
 app.use(express.json());
+app.use(cors({ origin: process.env.UI_ORIGIN || "http://localhost:3000" }));
+
+// Rate limiting for Map Painter API
+const mapRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 1000, 
+  message: { error: "Too many requests from this IP for Map Painter, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting for Assist API (general flood protection)
+const assistRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, 
+  max: 300, 
+  message: { error: "Too many requests from this IP for Assist API, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 let discordClient: Client;
 let ipRateLimiter: DatabaseIPRateLimiter;
@@ -569,7 +603,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
   });
 
   // Public userscript installation endpoint. Traffic expected via Cloudflared.
-  app.get("/install/:fileName", async (req: Request, res: Response) => {
+  app.get("/install/:fileName", assistRateLimiter, async (req: Request, res: Response) => {
     try {
       const clientIp = getClientIp(req);
       const clientUA = req.get("user-agent") || null;
@@ -771,7 +805,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
   });
 
   // Public assist ingestion endpoint. Traffic expected via Cloudflared.
-  app.all("/api/assist-events", async (req: Request, res: Response) => {
+  app.all("/api/assist-events", assistRateLimiter, async (req: Request, res: Response) => {
     try {
       if (!ASSIST_ALLOWED_PROXY_METHODS.has(req.method)) {
         return res.status(405).json({
@@ -1189,6 +1223,290 @@ export function initHttpServer(client: Client, port: number = 3001) {
       return res
         .status(500)
         .json({ error: "Failed to process assist event", message });
+    }
+  });
+
+  app.get("/api/map", mapRateLimiter, async (req: Request, res: Response) => {
+    const start = Date.now();
+    console.log(`[HTTP] GET /api/map - Start`);
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        return res.status(401).json({ error: "Missing token" });
+      }
+
+      const sqlDb = getKysely();
+
+      console.log(`[HTTP] /api/map - Validating token: ${token.substring(0, 8)}...`);
+      const session = await sqlDb
+        .selectFrom(TABLE_NAMES.MAP_SESSIONS)
+        .selectAll()
+        .where("token", "=", token)
+        .where("expires_at", ">", new Date().toISOString())
+        .executeTakeFirst();
+
+      if (!session) {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      // Extend session expiry on access (30 min)
+      await sqlDb
+        .updateTable(TABLE_NAMES.MAP_SESSIONS)
+        .set({ expires_at: new Date(Date.now() + 1000 * 60 * 30).toISOString() })
+        .where("token", "=", token)
+        .execute();
+
+      const map = await sqlDb
+        .selectFrom(TABLE_NAMES.MAPS)
+        .selectAll()
+        .where("id", "=", session.map_id)
+        .executeTakeFirst();
+
+      if (!map) {
+        return res.status(404).json({ error: "Configuration not found" });
+      }
+
+      const labels = await sqlDb
+        .selectFrom(TABLE_NAMES.MAP_LABELS)
+        .selectAll()
+        .where("map_id", "=", session.map_id)
+        .execute();
+
+      const assignmentsRows = await sqlDb
+        .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+        .select(["territory_id", "label_id"])
+        .where("map_id", "=", session.map_id)
+        .execute();
+
+      const assignments: Record<string, string> = {};
+      assignmentsRows.forEach(row => {
+        assignments[row.territory_id] = row.label_id;
+      });
+
+      const blueprints = await sqlDb
+        .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
+        .leftJoin(TABLE_NAMES.TERRITORY_STATE, `${TABLE_NAMES.TERRITORY_STATE}.territory_id`, `${TABLE_NAMES.TERRITORY_BLUEPRINT}.id`)
+        .select([
+          `${TABLE_NAMES.TERRITORY_BLUEPRINT}.id`,
+          `${TABLE_NAMES.TERRITORY_BLUEPRINT}.sector`,
+          `${TABLE_NAMES.TERRITORY_BLUEPRINT}.respect`,
+          `${TABLE_NAMES.TERRITORY_BLUEPRINT}.size`,
+          `${TABLE_NAMES.TERRITORY_BLUEPRINT}.slots`,
+          `${TABLE_NAMES.TERRITORY_STATE}.racket_name`,
+          `${TABLE_NAMES.TERRITORY_STATE}.racket_reward`,
+          `${TABLE_NAMES.TERRITORY_STATE}.racket_level`
+        ])
+        .execute();
+
+      const territoryMetadata: Record<string, {
+        sector: number;
+        respect: number;
+        size: number;
+        slots: number;
+        racket: { name: string; reward: string; level: number } | null;
+      }> = {};
+      
+      const itemNames = new Set<string>();
+      let hasPoints = false;
+
+      blueprints.forEach(bp => {
+        if (bp.id) {
+          territoryMetadata[bp.id] = {
+            sector: bp.sector as number,
+            respect: bp.respect as number,
+            size: bp.size as number,
+            slots: bp.slots as number,
+            racket: bp.racket_name ? {
+              name: bp.racket_name as string,
+              reward: bp.racket_reward as string,
+              level: bp.racket_level as number
+            } : null
+          };
+
+          if (bp.racket_reward) {
+            const parsed = parseRewardString(bp.racket_reward);
+            if (parsed) {
+              if (parsed.type === 'items' && parsed.itemName) {
+                itemNames.add(parsed.itemName);
+              } else if (parsed.type === 'points') {
+                hasPoints = true;
+              }
+            }
+          }
+        }
+      });
+
+      console.log(`[HTTP] /api/map - Metadata assembled for ${blueprints.length} territories. ${itemNames.size} items to check price.`);
+
+      // Fetch market prices if we have a guild API key
+      const guildApiKeys = await getGuildApiKeys(map.guild_id);
+      const prices: { items: Record<string, number>; points: number } = { items: {}, points: 0 };
+
+      if (guildApiKeys.length > 0) {
+        const apiKey = getNextApiKey(map.guild_id, guildApiKeys);
+        
+        // Map item names to IDs and get existing values
+        if (itemNames.size > 0) {
+          const itemRecords = await sqlDb
+            .selectFrom(TABLE_NAMES.TORN_ITEMS)
+            .select(["item_id", "name", "value"])
+            .where("name", "in", Array.from(itemNames))
+            .execute();
+          
+          const itemIdMap: Record<number, string> = {};
+          const missingPriceIds: number[] = [];
+
+          itemRecords.forEach(r => {
+            const name = r.name as string;
+            const id = r.item_id as number;
+            itemIdMap[id] = name;
+            
+            if (r.value !== null && r.value !== undefined) {
+              prices.items[name] = r.value as number;
+            } else {
+              missingPriceIds.push(id);
+            }
+          });
+          
+          if (missingPriceIds.length > 0) {
+            console.log(`[HTTP] /api/map - Fetching ${missingPriceIds.length} missing market prices...`);
+            const marketPrices = await fetchMarketPrices(apiKey, missingPriceIds);
+            Object.entries(marketPrices).forEach(([id, price]) => {
+              const name = itemIdMap[Number(id)];
+              if (name) prices.items[name] = price;
+            });
+          }
+        }
+
+        if (hasPoints) {
+          const pointStart = Date.now();
+          prices.points = await fetchPointPrice(apiKey);
+          if (Date.now() - pointStart > 5000) {
+            console.log(`[HTTP] /api/map - Point price fetch took ${Date.now() - pointStart}ms`);
+          }
+        }
+      }
+
+      console.log(`[HTTP] /api/map success - ${Date.now() - start}ms`);
+      return res.json({
+        map,
+        labels: labels.map(l => ({
+          id: l.id,
+          text: l.label_text,
+          color: l.color_hex,
+          respect: 0,
+          sectors: 0,
+          rackets: 0
+        })),
+        assignments,
+        territoryMetadata,
+        prices
+      });
+    } catch (error) {
+      console.error("[HTTP] Error fetching configuration:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // TT Selector Configuration Save Endpoint
+  app.post("/api/map", mapRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        return res.status(401).json({ error: "Missing token" });
+      }
+
+      const sqlDb = getKysely();
+
+      const session = await sqlDb
+        .selectFrom(TABLE_NAMES.MAP_SESSIONS)
+        .selectAll()
+        .where("token", "=", token)
+        .where("expires_at", ">", new Date().toISOString())
+        .executeTakeFirst();
+
+      if (!session) {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      // Extend session expiry on save (30 min)
+      await sqlDb
+        .updateTable(TABLE_NAMES.MAP_SESSIONS)
+        .set({ expires_at: new Date(Date.now() + 1000 * 60 * 30).toISOString() })
+        .where("token", "=", token)
+        .execute();
+
+      const { labels, assignments } = req.body;
+
+      await sqlDb.transaction().execute(async (trx) => {
+        // Delete territories first to avoid FK violation with labels
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
+          .where("map_id", "=", session.map_id)
+          .execute();
+
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_LABELS)
+          .where("map_id", "=", session.map_id)
+          .execute();
+
+        if (labels && labels.length > 0) {
+          await trx
+            .insertInto(TABLE_NAMES.MAP_LABELS)
+            .values(labels.map((l: { id: string; text: string; color: string }) => ({
+              id: l.id,
+              map_id: session.map_id,
+              label_text: l.text,
+              color_hex: l.color
+            })))
+            .execute();
+        }
+
+        // Already deleted above to avoid FK violation
+        /*
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
+          .where("map_id", "=", session.map_id)
+          .execute();
+        */
+
+        if (assignments && labels) {
+          const validLabelIds = new Set(labels.map((l: { id: string }) => l.id));
+          const assignmentEntries = Object.entries(assignments).filter(([_, lid]) => 
+            validLabelIds.has(lid as string)
+          );
+
+          if (assignmentEntries.length > 0) {
+            const chunks = [];
+            const chunkSize = 500;
+            for (let i = 0; i < assignmentEntries.length; i += chunkSize) {
+              chunks.push(assignmentEntries.slice(i, i + chunkSize));
+            }
+
+            for (const chunk of chunks) {
+              await trx
+                .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+                .values(chunk.map(([tid, lid]) => ({
+                  map_id: session.map_id,
+                  territory_id: tid,
+                  label_id: lid as string
+                })))
+                .execute();
+            }
+          }
+        }
+
+        await trx
+          .updateTable(TABLE_NAMES.MAPS)
+          .set({ updated_at: new Date().toISOString() })
+          .where("id", "=", session.map_id)
+          .execute();
+      });
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[HTTP] Error saving map:", error);
+      return res.status(500).json({ error: "Server error" });
     }
   });
 

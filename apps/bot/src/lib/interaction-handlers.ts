@@ -11,6 +11,7 @@ import * as removeModuleCommand from "../commands/personal/admin/remove-module.j
 import * as configCommand from "../commands/general/admin/config.js";
 import * as statsCommand from "../commands/personal/stats.js";
 import * as assistCommand from "../commands/general/assist/assist.js";
+import * as ttSelectorCommand from "../commands/general/territories/tt-selector.js";
 
 /**
  * Handle all button interactions
@@ -159,8 +160,16 @@ export async function handleButtonInteraction(
     await assistCommand.handleManagePageButton(interaction);
   } else if (customId.startsWith("assist_manage_back|")) {
     await assistCommand.handleManageBackButton(interaction);
-  } else {
-    return false;
+  }
+  
+  // TT Selector buttons
+  if (
+    customId.startsWith("tt_selector_") ||
+    customId.startsWith("tt_selector_edit_session|") ||
+    customId.startsWith("tt_selector_publish_confirm|")
+  ) {
+    await ttSelectorCommand.handleButtonInteraction(interaction);
+    return true;
   }
 
   return true;
@@ -203,8 +212,12 @@ export async function handleModalSubmitInteraction(
     await configCommand.handleReviveSetMinHospModal(interaction);
   } else if (customId === "revive_request_other_modal") {
     await configCommand.handleReviveRequestOtherModal(interaction);
-  } else {
-    return false;
+  }
+  
+  // TT Selector modals
+  if (customId === "tt_selector_create_modal") {
+    await ttSelectorCommand.handleModalSubmitInteraction(interaction);
+    return true;
   }
 
   return true;
@@ -278,6 +291,11 @@ export async function handleStringSelectMenuInteraction(
     await assistCommand.handleManageUserSelect(interaction);
   } else if (customId.startsWith("assist_manage_action_select|")) {
     await assistCommand.handleManageActionSelect(interaction);
+  }
+  // TT Selector selects
+  else if (customId.startsWith("tt_selector_")) {
+    await ttSelectorCommand.handleStringSelectMenuInteraction(interaction);
+    return true;
   }
   // Stats command
   else if (customId === "stats_timeframe_select") {
@@ -358,6 +376,9 @@ export async function handleChannelSelectMenuInteraction(
     await configCommand.handleReviveOutputChannelSelect(interaction);
   } else if (customId === "assist_channel_select") {
     await configCommand.handleAssistChannelSelect(interaction);
+  } else if (customId.startsWith("tt_selector_")) {
+    await ttSelectorCommand.handleChannelSelectMenuInteraction(interaction);
+    return true;
   } else {
     return false;
   }

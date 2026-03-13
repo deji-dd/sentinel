@@ -170,7 +170,9 @@ export async function claimWorker(workerId: string): Promise<boolean> {
       ).toISOString(), // 1 year in future
     })
     .where("worker_id", "=", workerId)
-    .where("next_run_at", "<=", now) // Only claim if actually due
+    .where((eb) =>
+      eb.or([eb("force_run", "=", 1), eb("next_run_at", "<=", now)]),
+    ) // Claim if due OR forced
     .executeTakeFirst();
 
   return Number(result.numUpdatedRows) > 0;

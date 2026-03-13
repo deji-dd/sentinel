@@ -16,14 +16,18 @@
     "@sentinel/shared": "workspace:*",
     "@types/express": "^5.0.6",
     "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
     "discord.js": "^14.25.1",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
     "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
     "@types/node": "^20",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",

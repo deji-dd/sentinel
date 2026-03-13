@@ -1,4 +1,5 @@
 import { TornApiClient, type TornApiComponents } from "@sentinel/shared";
+import { tornApi } from "../services/torn-client.js";
 
 /**
  * Torn API client for the bot
@@ -7,6 +8,8 @@ export const botTornApi = new TornApiClient();
 
 type UserProfileResponse = TornApiComponents["schemas"]["UserProfileResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"];
+
+type TornItemsResponse = TornApiComponents["schemas"]["TornItemsResponse"];
 
 /**
  * Fetch Torn user profile data (name, faction)
@@ -31,5 +34,66 @@ export async function fetchTornProfileData(
   } catch (error) {
     console.error(`[TornAPI] Failed to fetch profile for ${tornId}:`, error);
     return null;
+  }
+}
+
+/**
+ * Fetch the current point cost from the Torn market
+ */
+export async function fetchPointPrice(apiKey: string): Promise<number> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await tornApi.get<any>(`/market`, {
+      apiKey,
+      queryParams: {
+        selections: ["pointsmarket"],
+      },
+    });
+
+    // Points market response is an object with unique IDs as keys
+    const entries = Object.values(response.pointsmarket || {});
+    if (entries.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (entries[0] as any).cost || 0;
+    }
+    return 0;
+  } catch (error) {
+    console.error(`[TornAPI] Failed to fetch point price:`, error);
+    return 0;
+  }
+}
+
+/**
+ * Fetch market prices for a list of item IDs
+ */
+export async function fetchMarketPrices(
+  apiKey: string,
+  itemIds: number[],
+): Promise<Record<number, number>> {
+  if (itemIds.length === 0) return {};
+
+  try {
+    const response = await tornApi.get<TornItemsResponse>(`/torn/{ids}/items`, {
+      apiKey,
+      pathParams: { ids: itemIds.join(",") },
+      queryParams: {
+        selections: ["items"],
+      },
+    });
+
+    const prices: Record<number, number> = {};
+    const items = response.items;
+
+    Object.entries(items).forEach(([id, item]) => {
+      prices[parseInt(id)] = item.value?.market_price || 0;
+    });
+
+    return prices;
+  } catch (error) {
+    console.error(
+      `[TornAPI] Failed to fetch market prices for ${itemIds.join(",")}:`,
+      error,
+    );
+    return {};
   }
 }

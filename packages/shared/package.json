@@ -20,6 +20,10 @@
     "./db/sqlite.js": {
       "types": "./dist/db/sqlite.d.ts",
       "import": "./dist/db/sqlite.js"
+    },
+    "./racket-reward": {
+      "types": "./dist/racket-reward.d.ts",
+      "import": "./dist/racket-reward.js"
     }
   },
   "scripts": {

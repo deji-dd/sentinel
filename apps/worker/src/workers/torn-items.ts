@@ -63,19 +63,15 @@ function mapTypeToCooldown(type: string | null): string | null {
   return null;
 }
 
+import { TornApiComponents } from "@sentinel/shared";
+
+type TornItemsResponse = TornApiComponents["schemas"]["TornItemsResponse"];
+
 function normalizeItems(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  response: any,
+  response: TornItemsResponse,
   categoryNameToId: Map<string, number>,
 ): TornItemRow[] {
-  const container = response.items;
-  if (!container) return [];
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const itemsArray: any[] = Array.isArray(container)
-    ? container
-    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      Object.values(container as Record<string, any>);
+  const itemsArray = response.items;
 
   return itemsArray
     .map((item) => {
@@ -87,10 +83,9 @@ function normalizeItems(
       const type = typeof item.type === "string" ? item.type : null;
       const category_id = type ? categoryNameToId.get(type) || null : null;
       const effect = typeof item.effect === "string" ? item.effect : null;
-      const value =
-        typeof item.value === "number"
-          ? item.value
-          : Number(item.value) || null;
+
+      // Fix: value in API is an object { vendor, buy_price, sell_price, market_price }
+      const value = item.value.market_price;
 
       return {
         item_id: id,
@@ -128,11 +123,7 @@ async function syncTornItems(): Promise<void> {
 
     // Extract unique categories from items
     const categories = new Set<string>();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const itemsArray: any[] = Array.isArray(response.items)
-      ? response.items
-      : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        Object.values(response.items as Record<string, any>);
+    const itemsArray = response.items;
 
     for (const item of itemsArray) {
       if (item.type && typeof item.type === "string") {
