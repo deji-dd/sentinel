@@ -49,6 +49,10 @@ export const TABLE_NAMES = {
   ASSIST_TOKENS: "sentinel_assist_tokens",
   ASSIST_IP_RATE_LIMITS: "sentinel_assist_ip_rate_limits",
   ASSIST_SCRIPT_GENERATION_LIMITS: "sentinel_assist_script_generation_limits",
+  MAPS: "sentinel_maps",
+  MAP_LABELS: "sentinel_map_labels",
+  MAP_TERRITORIES: "sentinel_map_territories",
+  MAP_SESSIONS: "sentinel_map_sessions",
 } as const;
 
 /** Alert module types */

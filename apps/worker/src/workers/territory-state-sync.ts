@@ -311,7 +311,7 @@ async function calculateCadence(): Promise<number> {
   );
 
   // Clamp between 4s (minimum safe for rate limits) and 120s (reasonable max)
-  return Math.max(4, Math.min(120, dynamicCadence));
+  return Math.max(3, Math.min(120, dynamicCadence));
 }
 
 /**
@@ -573,7 +573,8 @@ export function startTerritoryStateSyncWorker() {
               // But we already processed ownership. To keep it simple, we just use old rackets.
             }
 
-            const racketsByTerritory = racketResponse.rackets || (racketResponse.error ? {} : {});
+            const racketsByTerritory =
+              racketResponse.rackets || (racketResponse.error ? {} : {});
             const skipRackets = !!racketResponse.error;
 
             // OPTIMIZATION: Hash-based detection

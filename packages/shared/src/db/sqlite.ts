@@ -104,6 +104,14 @@ class SQLiteDB {
     // CRITICAL: Enable WAL mode for concurrent reads/writes
     this.db.pragma("journal_mode = WAL");
 
+    // Proactive WAL cleanup on initialization to prevent bloating and I/O errors
+    // TRUNCATE checkpoint will attempt to shrink the WAL file back to zero
+    try {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+    } catch (e) {
+      // Ignore if checkpoint fails due to other active processes
+    }
+
     // Additional performance optimizations
     this.db.pragma("synchronous = NORMAL"); // Faster writes, still safe with WAL
     this.db.pragma("cache_size = -64000"); // 64MB cache

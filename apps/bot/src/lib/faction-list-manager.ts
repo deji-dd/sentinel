@@ -123,13 +123,13 @@ export async function updateFactionList(
       }
     }
 
-    // 7. Store new message IDs and update timestamp
     await db
       .updateTable(TABLE_NAMES.GUILD_CONFIG)
       .set({
         faction_list_message_ids: JSON.stringify(newMessageIds),
         faction_list_updated_at: new Date().toISOString(),
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
       .where("guild_id", "=", guildId)
       .execute();
 
