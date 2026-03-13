@@ -21,6 +21,8 @@ import {
   handleReactionRoleRemove,
 } from "./lib/reaction-roles.js";
 import { startDailySummaryTask } from "./tasks/daily-summary-task.js";
+import { startDatabaseBackupTask } from "./tasks/db-backup-task.js";
+
 
 // Initialize configuration
 initializeDatabaseConfig();
@@ -136,5 +138,7 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 
 // Start scheduled tasks
 startDailySummaryTask(client);
+startDatabaseBackupTask(client);
+
 
 await client.login(discordToken);
