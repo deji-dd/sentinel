@@ -250,8 +250,21 @@ export async function handleStringSelectMenuInteraction(
     const token = await createSession(mapId, user.id);
     const painterUrl = `${process.env.MAP_PAINTER_URL || "http://localhost:3000"}/selector?token=${token}`;
 
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle("TT Selector Access Generated")
+      .setDescription(
+        `Your secure access link for editing the TT configuration is ready.\n\n[Click here to open the TT Selector](${painterUrl})`,
+      )
+      .addFields({
+        name: "Security Info",
+        value: "• This link is unique to your session\n• Access token is valid for 30 minutes",
+        inline: false,
+      })
+      .setTimestamp();
+
     await interaction.reply({
-      content: `**TT Selector Access Generated**\n[Click here to open the TT Selector](${painterUrl})\n*Access token is valid for 30 minutes.*`,
+      embeds: [embed],
       flags: MessageFlags.Ephemeral,
     });
   } else if (customId === "tt_selector_publish_select") {

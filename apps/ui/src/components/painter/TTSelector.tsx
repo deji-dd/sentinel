@@ -498,9 +498,9 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
   };
 
   return (
-    <div className="flex h-screen bg-black text-white relative">
+    <div className="flex h-screen bg-slate-950 text-white relative">
       {/* Sidebar */}
-      <div className="w-80 border-r border-zinc-800 flex flex-col p-4 space-y-4">
+      <div className="w-80 border-r border-slate-800/80 flex flex-col p-4 space-y-4 shadow-xl">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2 uppercase tracking-tight">
@@ -520,7 +520,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
         <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
           <div className="space-y-2">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold uppercase text-zinc-500">Labels</span>
+              <span className="text-xs font-semibold uppercase text-slate-500">Labels</span>
               <button
                 onClick={handleAddLabel}
                 className="text-[10px] bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30 flex items-center gap-1 cursor-pointer transition-colors"
@@ -533,10 +533,10 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
               {/* Eraser */}
               <button
                 onClick={() => setSelectedLabelId(null)}
-                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all cursor-pointer ${selectedLabelId === null ? "bg-zinc-800 border border-zinc-700 shadow-inner" : "hover:bg-zinc-900 border border-transparent text-zinc-400"
+                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all cursor-pointer ${selectedLabelId === null ? "bg-slate-900 border border-slate-700 shadow-inner" : "hover:bg-slate-900/50 border border-transparent text-slate-400"
                   }`}
               >
-                <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${selectedLabelId === null ? "bg-zinc-700 text-white" : "bg-zinc-800/50"}`}>
+                <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${selectedLabelId === null ? "bg-slate-700 text-white" : "bg-slate-800/50"}`}>
                   <Eraser size={14} />
                 </div>
                 <span className="text-sm font-medium">Erase Assignment</span>
@@ -549,12 +549,12 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                 return (
                   <div key={label.id} className="space-y-1">
                     <div
-                      className={`group relative flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${selectedLabelId === label.id ? "bg-zinc-800 border border-zinc-700 shadow-lg" : "hover:bg-zinc-900 border border-transparent"
+                      className={`group relative flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${selectedLabelId === label.id ? "bg-slate-900 border border-slate-700 shadow-lg" : "hover:bg-slate-900/50 border border-transparent"
                         }`}
                       onClick={() => setSelectedLabelId(label.id)}
                     >
                       <div
-                        className={`w-3 h-3 rounded-full shrink-0 transition-all ${selectedLabelId === label.id ? "scale-125 ring-2 ring-white ring-offset-2 ring-offset-zinc-800" : "group-hover:scale-110 ring-1 ring-white/10"}`}
+                        className={`w-3 h-3 rounded-full shrink-0 transition-all ${selectedLabelId === label.id ? "scale-125 ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "group-hover:scale-110 ring-1 ring-white/10"}`}
                         style={{ backgroundColor: label.color }}
                       />
                       <div className="flex-1 min-w-0">
@@ -646,7 +646,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
           </div>
         </div>
 
-        <div className="pt-4 border-t border-zinc-800">
+        <div className="pt-4 border-t border-slate-800/80">
           <div className="flex items-center gap-2 text-[10px] text-zinc-500">
             <Info size={14} className="text-blue-500" />
             <span>Select a label then click territories to assign them. Changes are saved automatically.</span>
@@ -690,7 +690,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
         {/* Hover Tooltip */}
         {hoveredInfo && (
           <div
-            className="fixed z-10000 pointer-events-none bg-zinc-900/95 border border-zinc-700/50 rounded-lg p-2.5 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 min-w-[120px]"
+            className="fixed z-10000 pointer-events-none bg-slate-900/95 border border-slate-700/50 rounded-lg p-2.5 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 min-w-[120px]"
             style={{
               left: mousePos.x + 15,
               top: mousePos.y + 15

@@ -47,29 +47,6 @@ function colorForAllianceName(name: string): string {
   return DISTINCT_COLORS[hash % DISTINCT_COLORS.length];
 }
 
-function buildLegendChunks(lines: string[]): string[] {
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const line of lines) {
-    const next = current ? `${current}\n${line}` : line;
-    if (next.length > 1000) {
-      if (current) {
-        chunks.push(current);
-      }
-      current = line;
-    } else {
-      current = next;
-    }
-  }
-
-  if (current) {
-    chunks.push(current);
-  }
-
-  return chunks.slice(0, 3);
-}
-
 export const data = new SlashCommandBuilder()
   .setName("alliance-map")
   .setDescription("Generate territory map color-coded by alliance control");
@@ -123,24 +100,16 @@ export async function execute(
           b.territories - a.territories || a.alliance.localeCompare(b.alliance),
       );
 
-    const legendLines = rankedAlliances.map(
-      (entry) => `${entry.alliance}: ${entry.territories} territories`,
-    );
-    const legendChunks = buildLegendChunks(legendLines);
-
     const totalControlled = ownershipRows.filter(
       (row) => row.faction_id !== null,
     ).length;
     const neutralCount = ownershipRows.length - totalControlled;
-    const unalignedControlledCount = allianceCounts.get("Unaligned") || 0;
 
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
       .setTitle("Territory Alliance Control Map")
       .setImage("attachment://alliance-map.png")
-      .setDescription(
-        "Territories are color-coded by alliance. Each alliance uses a distinct color for easy identification.",
-      )
+      .setDescription("Territories are color-coded by alliance.")
       .addFields(
         {
           name: "Territories",
@@ -162,31 +131,44 @@ export async function execute(
           value: `${rankedAlliances.length}`,
           inline: true,
         },
-        {
-          name: "Not In Alliance List",
-          value: `${unalignedControlledCount}`,
-          inline: true,
-        },
       )
       .setFooter({
-        text: "Neutral = no owning faction | Unaligned = faction not mapped to an alliance",
+        text: "Unaligned = faction not mapped to an alliance",
       })
       .setTimestamp();
 
-    if (legendChunks.length === 0) {
+    if (rankedAlliances.length === 0) {
       embed.addFields({
         name: "Alliance Territory Count",
         value: "No currently controlled territories found.",
         inline: false,
       });
     } else {
-      for (let i = 0; i < legendChunks.length; i++) {
+      // Add each alliance as a field, up to the Discord limit (25 total fields)
+      // We already have 5 fields above, so we can add up to 20 alliance fields.
+      const MAX_ALLIANCE_FIELDS = 18;
+      const displayAlliances = rankedAlliances.slice(0, MAX_ALLIANCE_FIELDS);
+
+      for (const entry of displayAlliances) {
         embed.addFields({
-          name:
-            legendChunks.length === 1
-              ? "Alliance Territory Count"
-              : `Territory Count ${i + 1}`,
-          value: `\`\`\`${legendChunks[i]}\`\`\``,
+          name: entry.alliance,
+          value: `${entry.territories} territories`,
+          inline: true,
+        });
+      }
+
+      if (rankedAlliances.length > MAX_ALLIANCE_FIELDS) {
+        const remaining = rankedAlliances.slice(MAX_ALLIANCE_FIELDS);
+        const remainingText = remaining
+          .map((e) => `• ${e.alliance}: ${e.territories}`)
+          .join("\n");
+
+        embed.addFields({
+          name: "Other Alliances",
+          value:
+            remainingText.length > 1024
+              ? remainingText.substring(0, 1021) + "..."
+              : remainingText,
           inline: false,
         });
       }

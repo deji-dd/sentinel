@@ -1,7 +1,7 @@
 import { useEffect, useState, Suspense, lazy, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { MapPainterState } from "@/types/painter";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldAlert } from "lucide-react";
 
 const TTSelector = lazy(() => import("@/components/painter/TTSelector"));
 
@@ -98,19 +98,36 @@ export default function SelectorPage() {
   }, [token]);
 
   if (loading) return (
-    <div className="h-screen flex flex-col items-center justify-center bg-[#0a0a0a] text-white">
+    <div className="h-screen flex flex-col items-center justify-center bg-slate-950 text-white">
       <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-      <p className="text-zinc-400 font-medium">Initializing Sentinel...</p>
+      <p className="text-slate-400 font-medium tracking-tight">Initializing Sentinel...</p>
     </div>
   );
-  if (error) return <div className="h-screen flex items-center justify-center bg-[#0a0a0a] text-red-500">{error}</div>;
+
+  if (error) return (
+    <div className="h-screen flex items-center justify-center bg-slate-950 p-6 text-center">
+      <div className="max-w-md w-full space-y-4">
+        <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+           <ShieldAlert className="w-8 h-8 text-red-500" />
+        </div>
+        <h2 className="text-xl font-bold text-white">Initialization Error</h2>
+        <p className="text-slate-400 leading-relaxed">{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg transition-colors"
+        >
+          Try Again
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="w-full h-screen overflow-hidden">
+    <div className="w-full h-screen overflow-hidden bg-slate-950">
       <Suspense fallback={
-        <div className="h-screen flex flex-col items-center justify-center bg-[#0a0a0a] text-white">
+        <div className="h-screen flex flex-col items-center justify-center bg-slate-950 text-white">
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-2" />
-          <p className="text-zinc-500 text-sm">Loading Map Assets...</p>
+          <p className="text-slate-500 text-sm italic tracking-wide">Loading Map Assets...</p>
         </div>
       }>
         <TTSelector initialState={initialState || {}} onSave={handleSave} />

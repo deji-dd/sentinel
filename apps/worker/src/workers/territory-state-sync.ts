@@ -757,6 +757,7 @@ export function startTerritoryStateSyncWorker() {
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {
                   console.log(`[RACKET] TT ${tt.id}: Racket spawned`);
+                  changedTerritories.add(tt.id);
                   // Create tenure for the faction that now occupies this territory with the racket
                   if (newFaction !== null) {
                     await createTenure(
@@ -780,6 +781,7 @@ export function startTerritoryStateSyncWorker() {
                 // Racket despawned
                 else if (oldRacketName && !newRacketName) {
                   console.log(`[RACKET] TT ${tt.id}: Racket despawned`);
+                  changedTerritories.add(tt.id);
                   // End tenure and calculate accumulated reward
                   let losingFactionAccumulatedReward: string | null = null;
                   if (oldFaction !== null) {
@@ -818,6 +820,7 @@ export function startTerritoryStateSyncWorker() {
                     oldRacketLevel !== newRacketLevel)
                 ) {
                   console.log(`[RACKET] TT ${tt.id}: Racket level changed`);
+                  changedTerritories.add(tt.id);
                   notifications.push({
                     guild_id: "",
                     territory_id: tt.id,
@@ -838,6 +841,7 @@ export function startTerritoryStateSyncWorker() {
                   console.log(
                     `[RACKET] TT ${tt.id}: Racket type changed (despawn + spawn)`,
                   );
+                  changedTerritories.add(tt.id);
 
                   // End old tenure and calculate what faction earned
                   let oldTenureAccumulated: string | null = null;
