@@ -143,3 +143,15 @@ export function formatAccumulatedReward(
 
   return `${accumulated.value} (${accumulated.days} day${accumulated.days === 1 ? "" : "s"})`;
 }
+
+/**
+ * Strips level suffix (Roman numerals) from a racket name to get the base identifier
+ * Example: "Money Launderer III" -> "Money Launderer"
+ */
+export function getRacketBaseName(
+  name: string | null | undefined,
+): string | null {
+  if (!name) return null;
+  // Matches a space followed by Roman numerals at the end of the string (Levels I-V)
+  return name.replace(/\s+(I|II|III|IV|V)$/i, "").trim();
+}

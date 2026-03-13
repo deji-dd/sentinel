@@ -335,7 +335,7 @@ export async function execute(
                   },
                 );
 
-                const members = membersResponse.members;
+                const members = membersResponse.members || [];
                 const factionMember = members.find(
                   (m) => m.id === response.profile?.id,
                 );

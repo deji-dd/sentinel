@@ -36,6 +36,7 @@ import {
   TABLE_NAMES,
   ApiKeyRotator,
   formatAccumulatedReward,
+  getRacketBaseName,
 } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
@@ -749,7 +750,8 @@ export function startTerritoryStateSyncWorker() {
                 (oldRacketName !== newRacketName ||
                   oldRacketLevel !== newRacketLevel)
               ) {
-                changedTerritories.add(tt.id); // Track this territory changed
+                const oldBaseName = getRacketBaseName(oldRacketName);
+                const newBaseName = getRacketBaseName(newRacketName);
 
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {
@@ -806,11 +808,13 @@ export function startTerritoryStateSyncWorker() {
                   });
                 }
                 // Racket level changed (must be checked BEFORE type changed)
+                // Use base name comparison to detect level changes even if name differs (e.g. "Launderer II" -> "Launderer III")
                 else if (
                   oldRacketName &&
                   newRacketName &&
-                  oldRacketName === newRacketName &&
-                  oldRacketLevel !== newRacketLevel
+                  oldBaseName === newBaseName &&
+                  (oldRacketName !== newRacketName ||
+                    oldRacketLevel !== newRacketLevel)
                 ) {
                   console.log(`[RACKET] TT ${tt.id}: Racket level changed`);
                   notifications.push({
@@ -828,7 +832,7 @@ export function startTerritoryStateSyncWorker() {
                 else if (
                   oldRacketName &&
                   newRacketName &&
-                  oldRacketName !== newRacketName
+                  oldBaseName !== newBaseName
                 ) {
                   console.log(
                     `[RACKET] TT ${tt.id}: Racket type changed (despawn + spawn)`,

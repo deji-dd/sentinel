@@ -15,6 +15,10 @@ type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
   TornApiComponents["schemas"]["UserProfileResponse"];
 
+type factionGenericResponse =
+  TornApiComponents["schemas"]["FactionBasicResponse"] &
+    TornApiComponents["schemas"]["FactionMembersResponse"];
+
 interface FactionRoleMapping {
   guild_id: string;
   faction_id: number;
@@ -30,16 +34,7 @@ interface GuildSyncJob {
   in_progress: boolean | number;
 }
 
-interface GuildConfigRecord {
-  guild_id: string;
-  nickname_template: string;
-  enabled_modules: string[];
-  admin_role_ids: string[];
-  verified_role_ids: string[];
-  auto_verify?: boolean;
-  created_at: string;
-  updated_at: string;
-}
+
 
 interface VerifiedUserRecord {
   discord_id: string;
@@ -137,6 +132,9 @@ export class GuildSyncScheduler {
    */
   private async pollAndSync(): Promise<void> {
     try {
+      // Clear any jobs that have been stuck in_progress for over 30 minutes
+      await this.clearStuckJobs();
+
       // Get all sync jobs that need to run
       const jobsRaw = (await db
         .selectFrom(TABLE_NAMES.GUILD_SYNC_JOBS)
@@ -207,7 +205,7 @@ export class GuildSyncScheduler {
     // Lock the job
     const lockResult = await db
       .updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
-      .set({ in_progress: 1 })
+      .set({ in_progress: 1, updated_at: new Date().toISOString() })
       .where("guild_id", "=", job.guild_id)
       .where("in_progress", "=", 0)
       .executeTakeFirst();
@@ -227,21 +225,20 @@ export class GuildSyncScheduler {
       return;
     }
 
+
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let guildConfig: any = undefined;
+
     try {
-      const guildConfig = (await db
+      const configRow = await db
         .selectFrom(TABLE_NAMES.GUILD_CONFIG)
         .selectAll()
         .where("guild_id", "=", job.guild_id)
         .limit(1)
-        .executeTakeFirst()) as unknown as
-        | (Partial<GuildConfigRecord> & {
-            auto_verify?: unknown;
-            nickname_template?: string | null;
-            verified_role_id?: string | null;
-          })
-        | undefined;
+        .executeTakeFirst();
 
-      if (!guildConfig) {
+      if (!configRow) {
         console.error(`[Guild Sync] Guild ${job.guild_id} config not found`);
         await logGuildError(
           job.guild_id,
@@ -253,12 +250,20 @@ export class GuildSyncScheduler {
         return;
       }
 
-      if (!isTruthyBoolean(guildConfig.auto_verify)) {
+      if (!isTruthyBoolean(configRow.auto_verify)) {
         console.log(
           `[Guild Sync] Auto verification disabled for guild ${job.guild_id}. Skipping sync.`,
         );
         return;
       }
+
+      // Prepare a clean config object with parsed arrays
+      guildConfig = {
+        ...configRow,
+        admin_role_ids: parseTextArray(configRow.admin_role_ids),
+        verified_role_ids: parseTextArray(configRow.verified_role_ids),
+        enabled_modules: parseTextArray(configRow.enabled_modules),
+      };
 
       // Get API keys from new guild-api-keys table
       const apiKeys = await getGuildApiKeys(job.guild_id);
@@ -294,12 +299,11 @@ export class GuildSyncScheduler {
       // Fetch all guild members
       await discord.members.fetch();
       const allMembers = discord.members.cache;
-      const membersToSync = Array.from(allMembers.values()).filter(
-        (member) => !member.user.bot,
-      );
 
+      // Load verified users for all members in the guild
+      // This allows us to identify who IS verified versus who just has managed roles
       const existingVerifiedUsers = await this.loadVerifiedUsersByDiscordIds(
-        membersToSync.map((member) => member.id),
+        Array.from(allMembers.keys()),
       );
 
       // Get faction role mappings for this guild
@@ -336,11 +340,37 @@ export class GuildSyncScheduler {
         } as FactionRoleMapping;
       });
 
-      // Cache faction members + leaders for mapped factions.
-      // Map: factionId -> Set of member player IDs
+      // Get managed roles (verified role + all faction roles)
+      const managedRoleIds = new Set<string>();
+      if (guildConfig.verified_role_id) {
+        managedRoleIds.add(guildConfig.verified_role_id);
+      }
+      for (const mapping of factionMappings) {
+        mapping.member_role_ids.forEach((id) => managedRoleIds.add(id));
+        mapping.leader_role_ids.forEach((id) => managedRoleIds.add(id));
+      }
+
+      // Filter members to sync: only those who ARE verified OR carry a managed role
+      // This prevents hammering the API for thousands of unverified users while still
+      // ensuring role security (removing roles from people who shouldn't have them)
+      const membersToSync = Array.from(allMembers.values()).filter((member) => {
+        if (member.user.bot) return false;
+
+        const isVerified = existingVerifiedUsers.has(member.id);
+        const hasManagedRole = Array.from(managedRoleIds).some((roleId) =>
+          member.roles.cache.has(roleId),
+        );
+
+        return isVerified || hasManagedRole;
+      });
+
+      // Cache faction members + profiles for mapped factions.
       const factionMembersCache = new Map<number, Set<number>>();
-      // Map: factionId -> Set of leader player IDs
       const factionLeadersCache = new Map<number, Set<number>>();
+      const factionProfilesCache = new Map<
+        number,
+        { name: string; tag: string }
+      >();
 
       // Fetch faction members for all mapped factions that are enabled.
       // This powers hybrid verification so we only call /user when required.
@@ -355,25 +385,35 @@ export class GuildSyncScheduler {
       if (mappedFactionIds.length > 0) {
         for (const factionId of mappedFactionIds) {
           try {
-            const membersResponse = await this.tornApi.get(
-              "/faction/{id}/members",
-              {
+            // Fetch basic info (name/tag) AND members list
+            // Using selections: "basic,members" to get all required data in one call
+            const factionResponse =
+              await this.tornApi.get<factionGenericResponse>("/faction/{id}", {
                 apiKey: getNextApiKey(job.guild_id, apiKeys),
                 pathParams: { id: factionId },
-              },
-            );
+                queryParams: { selections: ["basic", "members"] },
+              });
+
+            if (factionResponse.basic.name) {
+              factionProfilesCache.set(factionId, {
+                name: factionResponse.basic.name,
+                tag: factionResponse.basic.tag || "",
+              });
+            }
 
             const memberIds = new Set<number>();
             const leaders = new Set<number>();
-            const members = membersResponse.members;
+            const members = factionResponse.members || [];
 
-            for (const member of members) {
-              memberIds.add(member.id);
+            // Torn API v2 returns members selection as an array of objects
+            for (const memberInfo of members) {
+              const id = memberInfo.id;
+              memberIds.add(id);
               if (
-                member.position === "Leader" ||
-                member.position === "Co-leader"
+                memberInfo.position === "Leader" ||
+                memberInfo.position === "Co-leader"
               ) {
-                leaders.add(member.id);
+                leaders.add(id);
               }
             }
 
@@ -463,10 +503,9 @@ export class GuildSyncScheduler {
 
             if (inferredMappedFactionId) {
               normalizedFactionId = inferredMappedFactionId;
-              normalizedFactionTag =
-                existingUser.faction_id === inferredMappedFactionId
-                  ? existingUser.faction_tag
-                  : null;
+              const profile = factionProfilesCache.get(inferredMappedFactionId);
+              normalizedFactionTag = profile?.tag || null;
+              factionName = profile?.name || null;
             } else if (
               existingUser.faction_id !== null &&
               !mappedFactionIds.includes(existingUser.faction_id)
@@ -727,8 +766,9 @@ export class GuildSyncScheduler {
         );
       }
     } finally {
-      // Unlock job and schedule next sync (fixed 60-minute cycle)
-      const nextSync = new Date(Date.now() + 3600 * 1000); // 60 minutes
+      // Unlock job and schedule next sync (default 60 minutes)
+      const syncInterval = Number(guildConfig?.sync_interval_seconds || 3600);
+      const nextSync = new Date(Date.now() + syncInterval * 1000);
 
       await db
         .updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
@@ -736,6 +776,7 @@ export class GuildSyncScheduler {
           in_progress: 0,
           last_sync_at: new Date().toISOString(),
           next_sync_at: nextSync.toISOString(),
+          updated_at: new Date().toISOString(),
         })
         .where("guild_id", "=", job.guild_id)
         .execute();
@@ -807,5 +848,34 @@ export class GuildSyncScheduler {
     }
 
     return Date.now() - updatedTimestamp >= this.VERIFICATION_REFRESH_MS;
+  }
+
+  /**
+   * Reset sync jobs that have been stuck in progress for over 30 minutes
+   * (likely due to process crash/restart during a sync run)
+   */
+  private async clearStuckJobs(): Promise<void> {
+    try {
+      const thirtyMinutesAgo = new Date(
+        Date.now() - 30 * 60 * 1000,
+      ).toISOString();
+
+      const result = await db
+        .updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
+        .set({ in_progress: 0 })
+        .where("in_progress", "=", 1)
+        .where("updated_at", "<", thirtyMinutesAgo)
+        .executeTakeFirst();
+
+      if (Number(result.numUpdatedRows) > 0) {
+        console.log(
+          `[Guild Sync] Cleared ${result.numUpdatedRows} stuck sync job(s)`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[Guild Sync] Error clearing stuck jobs: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }
