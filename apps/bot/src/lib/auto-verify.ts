@@ -316,10 +316,8 @@ async function attemptAutoVerification(
               pathParams: { id: response.faction.id },
             });
 
-            const members = membersResponse.members;
-            const factionMember = members.find(
-              (m) => m.id === response.profile.id,
-            );
+            const members = membersResponse.members || {};
+            const factionMember = members[response.profile.id.toString()];
 
             if (
               factionMember &&

@@ -188,15 +188,16 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
           });
 
           const leaders = new Set<number>();
-          const members = membersResponse.members;
+          const members = membersResponse.members || [];
 
-          // members is already an array, iterate directly
-          for (const member of members) {
+          // Torn API v2 returns members as an array of objects
+          for (const memberInfo of members) {
+            const id = memberInfo.id;
             if (
-              member.position === "Leader" ||
-              member.position === "Co-leader"
+              memberInfo.position === "Leader" ||
+              memberInfo.position === "Co-leader"
             ) {
-              leaders.add(member.id);
+              leaders.add(id);
             }
           }
 

@@ -172,7 +172,11 @@ export async function resolveEnemyUsers(
     return [];
   }
 
-  const members: FactionMember[] = factionMembersResponse.members || [];
+  // Torn API v2 returns members as an array: [{ "id": 123, "name": "...", "position": "..." }, ... ]
+  const members = (factionMembersResponse.members || []) as (FactionMember & {
+    id: number;
+  })[];
+
   const enemyIdSet = new Set(enemyIds);
   const filtered = members.filter((member) => {
     if (!member.is_on_wall) {
