@@ -1461,7 +1461,13 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       const { labels } = req.body;
 
+      if (!Array.isArray(labels) || labels.length === 0) {
+        console.warn(`[HTTP] /api/map - Rejecting save: labels is missing or empty for map ${session.map_id}`);
+        return res.status(400).json({ error: "Invalid configuration: labels must be a non-empty array" });
+      }
+
       await sqlDb.transaction().execute(async (trx) => {
+        // Since labels is validated to be non-empty above, we proceed with the wipe-and-replace
         // Delete territories first to avoid FK violation with labels
         await trx
           .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
@@ -1473,46 +1479,44 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .where("map_id", "=", session.map_id)
           .execute();
 
-        if (labels && labels.length > 0) {
-          await trx
-            .insertInto(TABLE_NAMES.MAP_LABELS)
-            .values(labels.map((l: { id: string; text: string; color: string; enabled: boolean }) => ({
-              id: l.id,
-              map_id: session.map_id,
-              label_text: l.text,
-              color_hex: l.color,
-              is_enabled: l.enabled ? 1 : 0
-            })))
-            .execute();
+        await trx
+          .insertInto(TABLE_NAMES.MAP_LABELS)
+          .values(labels.map((l: { id: string; text: string; color: string; enabled: boolean }) => ({
+            id: l.id,
+            map_id: session.map_id,
+            label_text: l.text,
+            color_hex: l.color,
+            is_enabled: l.enabled ? 1 : 0
+          })))
+          .execute();
 
-          // Insert territories from each label
-          const territoryValues: { map_id: string; territory_id: string; label_id: string }[] = [];
-          
-          labels.forEach((l: { id: string; territories: string[] }) => {
-            if (l.territories && l.territories.length > 0) {
-              l.territories.forEach(tid => {
-                territoryValues.push({
-                  map_id: session.map_id as string,
-                  territory_id: tid,
-                  label_id: l.id
-                });
+        // Insert territories from each label
+        const territoryValues: { map_id: string; territory_id: string; label_id: string }[] = [];
+        
+        labels.forEach((l: { id: string; territories: string[] }) => {
+          if (l.territories && l.territories.length > 0) {
+            l.territories.forEach(tid => {
+              territoryValues.push({
+                map_id: session.map_id as string,
+                territory_id: tid,
+                label_id: l.id
               });
-            }
-          });
+            });
+          }
+        });
 
-          if (territoryValues.length > 0) {
-            const chunks = [];
-            const chunkSize = 500;
-            for (let i = 0; i < territoryValues.length; i += chunkSize) {
-              chunks.push(territoryValues.slice(i, i + chunkSize));
-            }
+        if (territoryValues.length > 0) {
+          const chunks = [];
+          const chunkSize = 500;
+          for (let i = 0; i < territoryValues.length; i += chunkSize) {
+            chunks.push(territoryValues.slice(i, i + chunkSize));
+          }
 
-            for (const chunk of chunks) {
-              await trx
-                .insertInto(TABLE_NAMES.MAP_TERRITORIES)
-                .values(chunk)
-                .execute();
-            }
+          for (const chunk of chunks) {
+            await trx
+              .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+              .values(chunk)
+              .execute();
           }
         }
 
