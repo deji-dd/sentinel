@@ -2742,7 +2742,7 @@ export async function handleNicknameTemplateModalSubmit(
       await interaction.reply({
         embeds: [errorEmbed],
         components: [],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   }
@@ -3189,6 +3189,7 @@ async function logGuildAudit(entry: {
     await db
       .insertInto(TABLE_NAMES.GUILD_AUDIT)
       .values({
+        id: randomUUID(),
         guild_id: entry.guildId,
         actor_discord_id: entry.actorId,
         action: entry.action,

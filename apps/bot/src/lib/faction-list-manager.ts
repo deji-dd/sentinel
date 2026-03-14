@@ -56,7 +56,7 @@ export async function updateFactionList(
       const chunk = sortedFactions.slice(i, i + FACTIONS_PER_EMBED);
       const embed = new EmbedBuilder()
         .setColor(0x10b981)
-        .setTitle(i === 0 ? "Mapped Factions" : "Mapped Factions (cont.)")
+        .setTitle(i === 0 ? "List of Factions" : "List of Factions (cont.)")
         .setTimestamp();
 
       const description = chunk
@@ -75,7 +75,7 @@ export async function updateFactionList(
       embeds.push(
         new EmbedBuilder()
           .setColor(0xf59e0b)
-          .setTitle("Mapped Factions")
+          .setTitle("List of Factions")
           .setDescription("No factions currently mapped.")
           .setTimestamp(),
       );
@@ -127,9 +127,8 @@ export async function updateFactionList(
       .updateTable(TABLE_NAMES.GUILD_CONFIG)
       .set({
         faction_list_message_ids: JSON.stringify(newMessageIds),
-        faction_list_updated_at: new Date().toISOString(),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any)
+        updated_at: new Date().toISOString(),
+      })
       .where("guild_id", "=", guildId)
       .execute();
 

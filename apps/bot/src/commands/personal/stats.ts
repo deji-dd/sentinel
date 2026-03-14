@@ -5,6 +5,7 @@ import {
   ActionRowBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
+  MessageFlags,
 } from "discord.js";
 import {
   calculateStatsSummaryForTimeframe,
@@ -121,7 +122,7 @@ export async function handleTimeframeSelect(
       if (!timeframeConfig) {
         await safeReply(interaction, {
           content: "Invalid timeframe selected",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }

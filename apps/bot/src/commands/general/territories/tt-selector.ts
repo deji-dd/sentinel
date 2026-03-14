@@ -114,7 +114,7 @@ export async function execute(
       .setDisabled(maps.length === 0),
   );
 
-  await interaction.reply({ embeds: [embed], components: [row] });
+  await interaction.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
 
 export async function handleButtonInteraction(

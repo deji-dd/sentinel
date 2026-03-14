@@ -362,6 +362,8 @@ export async function handleChannelSelectMenuInteraction(
 
   if (customId === "config_log_channel_select") {
     await configCommand.handleLogChannelSelect(interaction);
+  } else if (customId === "config_faction_list_channel_select") {
+    await configCommand.handleFactionListChannelSelect(interaction);
   } else if (customId === "tt_full_channel_select") {
     await configCommand.handleTTFullChannelSelect(interaction);
   } else if (customId === "tt_filtered_channel_select") {

@@ -3,6 +3,7 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  MessageFlags,
 } from "discord.js";
 import {
   TABLE_NAMES,
@@ -41,7 +42,7 @@ interface VerificationResult {
 
 export async function execute(interaction: CommandInteraction): Promise<void> {
   try {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guildId = interaction.guildId;
     if (!guildId) {
@@ -560,7 +561,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
       await interaction.reply({
         embeds: [errorEmbed],
         components: [],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   }

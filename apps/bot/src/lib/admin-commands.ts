@@ -12,6 +12,7 @@ import * as addBotCommand from "../commands/personal/admin/add-bot.js";
 import * as enableModuleCommand from "../commands/personal/admin/enable-module.js";
 import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as guildStatusCommand from "../commands/personal/admin/guild-status.js";
+import * as dbBackupCommand from "../commands/personal/admin/db-backup.js";
 
 /**
  * Create an "Not Authorized" error embed
@@ -84,6 +85,9 @@ export async function handleAdminCommand(
     case "guild-status":
       await guildStatusCommand.execute(interaction, client);
       break;
+    case "db-backup":
+      await dbBackupCommand.execute(interaction, client);
+      break;
     case "test-verification-dms":
       // Placeholder for test command
       break;
@@ -105,6 +109,7 @@ export function isAdminCommandName(commandName: string): boolean {
     "enable-module",
     "remove-module",
     "guild-status",
+    "db-backup",
     "test-verification-dms",
   ].includes(commandName);
 }
