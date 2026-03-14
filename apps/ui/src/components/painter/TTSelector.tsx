@@ -497,11 +497,16 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
 
     // Only save if data actually changed
     if (currentData !== prevDataRef.current) {
-      const timer = setTimeout(() => {
-        onSave({ currentMapId: null, labels, assignments });
-        prevDataRef.current = currentData;
-        setLastSaved(new Date().toLocaleTimeString());
-        // No toast for auto-saves as requested
+      const timer = setTimeout(async () => {
+        try {
+          if (onSave) {
+            await (onSave as any)({ currentMapId: null, labels, assignments });
+            prevDataRef.current = currentData;
+            setLastSaved(new Date().toLocaleTimeString());
+          }
+        } catch (err) {
+          console.error("[TTSelector] Auto-save failed:", err);
+        }
       }, 2000);
       return () => clearTimeout(timer);
     }

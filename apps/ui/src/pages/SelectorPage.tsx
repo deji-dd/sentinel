@@ -89,12 +89,13 @@ export default function SelectorPage() {
       if (!res.ok) {
         if (res.status === 401) {
           window.location.reload(); // Trigger re-auth/error screen
-          return;
+          throw new Error("Session expired");
         }
         throw new Error("Failed to save configuration");
       }
     } catch (err) {
       console.error("[SelectorPage] Save error:", err);
+      throw err;
     }
   }, [token]);
 
