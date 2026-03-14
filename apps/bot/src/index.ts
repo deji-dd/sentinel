@@ -22,6 +22,7 @@ import {
 } from "./lib/reaction-roles.js";
 import { startDailySummaryTask } from "./tasks/daily-summary-task.js";
 import { startDatabaseBackupTask } from "./tasks/db-backup-task.js";
+import { startTokenCleanupTask } from "./tasks/token-cleanup-task.js";
 
 
 // Initialize configuration
@@ -139,6 +140,7 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 // Start scheduled tasks
 startDailySummaryTask(client);
 startDatabaseBackupTask(client);
+startTokenCleanupTask(client);
 
 
 await client.login(discordToken);

@@ -4,7 +4,7 @@
  * Snapshots the DB and sends it to the admin DM
  */
 
-import { Client, AttachmentBuilder } from "discord.js";
+import { Client, AttachmentBuilder, EmbedBuilder } from "discord.js";
 import { rawDb } from "../lib/db-client.js";
 import { logDuration, logError } from "../lib/logger.js";
 import fs from "fs";
@@ -42,7 +42,7 @@ function getTimeUntilNextRun(): number {
 /**
  * Perform the database backup and send to admin DM
  */
-async function performBackup(client: Client): Promise<void> {
+export async function performBackup(client: Client): Promise<void> {
   const startTime = Date.now();
   const tempDir = path.join(process.cwd(), "tmp");
 
@@ -81,8 +81,20 @@ async function performBackup(client: Client): Promise<void> {
     });
 
     // Send the backup via DM
+    const embed = new EmbedBuilder()
+      .setColor(0x10b981)
+      .setTitle("Daily Database Backup")
+      .setDescription(
+        "Total database state snapshot captured and verified."
+      )
+      .setFields({
+        name: "Time",
+        value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+      })
+      .setTimestamp();
+
     await adminUser.send({
-      content: `📦 **Daily Database Backup**\nTotal database state snapshot captured and verified.\nTime: <t:${Math.floor(Date.now() / 1000)}:F>`,
+      embeds: [embed],
       files: [attachment],
     });
 

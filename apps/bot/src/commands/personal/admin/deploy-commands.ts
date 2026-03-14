@@ -112,6 +112,7 @@ export async function execute(
     const enableModuleCommand = await import("./enable-module.js");
     const removeModuleCommand = await import("./remove-module.js");
     const guildStatusCommand = await import("./guild-status.js");
+    const dbBackupCommand = await import("./db-backup.js");
 
     // Map of module names to commands
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -151,6 +152,7 @@ export async function execute(
         enableModuleCommand.data.toJSON(),
         removeModuleCommand.data.toJSON(),
         guildStatusCommand.data.toJSON(),
+        dbBackupCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),
         burnMapCommand.data.toJSON(),
