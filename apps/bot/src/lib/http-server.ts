@@ -1,3 +1,4 @@
+import { randomUUID, randomBytes } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -23,6 +24,7 @@ import { DatabaseIPRateLimiter } from "./assist-ip-rate-limiter.js";
 import { fetchTornProfileData, fetchPointPrice, fetchMarketPrices } from "./torn-api.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { parseRewardString } from "@sentinel/shared";
+import { getAllowedOrigins } from "./bot-config.js";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -36,7 +38,17 @@ app.use(helmet({
   contentSecurityPolicy: false, 
 }));
 app.use(express.json());
-app.use(cors({ origin: process.env.UI_ORIGIN || "http://localhost:3000" }));
+app.use(cors({ 
+  origin: (origin, callback) => {
+    const allowed = getAllowedOrigins();
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 
 // Rate limiting for Map Painter API
 const mapRateLimiter = rateLimit({
@@ -1278,8 +1290,17 @@ export function initHttpServer(client: Client, port: number = 3001) {
         .where("map_id", "=", session.map_id)
         .execute();
 
+      const labelTerritories: Record<string, string[]> = {};
       const assignments: Record<string, string> = {};
+      
+      // Separate loop for clarity: 1. Record all territories per label for the UI
+      // 2. Identify active assignment (last one wins if multiple)
       assignmentsRows.forEach(row => {
+        if (!labelTerritories[row.label_id]) labelTerritories[row.label_id] = [];
+        labelTerritories[row.label_id].push(row.territory_id);
+        
+        // In the assignments map (backward compatibility/rendering helper), 
+        // we still want one "active" owner.
         assignments[row.territory_id] = row.label_id;
       });
 
@@ -1391,9 +1412,11 @@ export function initHttpServer(client: Client, port: number = 3001) {
       return res.json({
         map,
         labels: labels.map(l => ({
-          id: l.id,
+          id: l.id as string,
           text: l.label_text,
           color: l.color_hex,
+          enabled: (l.is_enabled ?? 1) === 1,
+          territories: labelTerritories[l.id as string] || [],
           respect: 0,
           sectors: 0,
           rackets: 0
@@ -1436,7 +1459,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         .where("token", "=", token)
         .execute();
 
-      const { labels, assignments } = req.body;
+      const { labels } = req.body;
 
       await sqlDb.transaction().execute(async (trx) => {
         // Delete territories first to avoid FK violation with labels
@@ -1453,44 +1476,41 @@ export function initHttpServer(client: Client, port: number = 3001) {
         if (labels && labels.length > 0) {
           await trx
             .insertInto(TABLE_NAMES.MAP_LABELS)
-            .values(labels.map((l: { id: string; text: string; color: string }) => ({
+            .values(labels.map((l: { id: string; text: string; color: string; enabled: boolean }) => ({
               id: l.id,
               map_id: session.map_id,
               label_text: l.text,
-              color_hex: l.color
+              color_hex: l.color,
+              is_enabled: l.enabled ? 1 : 0
             })))
             .execute();
-        }
 
-        // Already deleted above to avoid FK violation
-        /*
-        await trx
-          .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
-          .where("map_id", "=", session.map_id)
-          .execute();
-        */
+          // Insert territories from each label
+          const territoryValues: { map_id: string; territory_id: string; label_id: string }[] = [];
+          
+          labels.forEach((l: { id: string; territories: string[] }) => {
+            if (l.territories && l.territories.length > 0) {
+              l.territories.forEach(tid => {
+                territoryValues.push({
+                  map_id: session.map_id as string,
+                  territory_id: tid,
+                  label_id: l.id
+                });
+              });
+            }
+          });
 
-        if (assignments && labels) {
-          const validLabelIds = new Set(labels.map((l: { id: string }) => l.id));
-          const assignmentEntries = Object.entries(assignments).filter(([_, lid]) => 
-            validLabelIds.has(lid as string)
-          );
-
-          if (assignmentEntries.length > 0) {
+          if (territoryValues.length > 0) {
             const chunks = [];
             const chunkSize = 500;
-            for (let i = 0; i < assignmentEntries.length; i += chunkSize) {
-              chunks.push(assignmentEntries.slice(i, i + chunkSize));
+            for (let i = 0; i < territoryValues.length; i += chunkSize) {
+              chunks.push(territoryValues.slice(i, i + chunkSize));
             }
 
             for (const chunk of chunks) {
               await trx
                 .insertInto(TABLE_NAMES.MAP_TERRITORIES)
-                .values(chunk.map(([tid, lid]) => ({
-                  map_id: session.map_id,
-                  territory_id: tid,
-                  label_id: lid as string
-                })))
+                .values(chunk)
                 .execute();
             }
           }
@@ -1506,6 +1526,117 @@ export function initHttpServer(client: Client, port: number = 3001) {
       return res.json({ success: true });
     } catch (error) {
       console.error("[HTTP] Error saving map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Duplicate Map Endpoint
+  app.post("/api/map/duplicate", mapRateLimiter, async (req: Request, res: Response) => {
+    try {
+      const token = req.query.token as string;
+      const { name } = req.body;
+      
+      if (!token) return res.status(401).json({ error: "Missing token" });
+      if (!name) return res.status(400).json({ error: "Missing new name" });
+
+      const sqlDb = getKysely();
+      const session = await sqlDb
+        .selectFrom(TABLE_NAMES.MAP_SESSIONS)
+        .selectAll()
+        .where("token", "=", token)
+        .where("expires_at", ">", new Date().toISOString())
+        .executeTakeFirst();
+
+      if (!session) return res.status(401).json({ error: "Invalid session" });
+
+      const oldMapId = session.map_id;
+      const newMapId = randomUUID();
+
+      // Get old map metadata
+      const oldMap = await sqlDb
+        .selectFrom(TABLE_NAMES.MAPS)
+        .selectAll()
+        .where("id", "=", oldMapId)
+        .executeTakeFirst();
+
+      if (!oldMap) return res.status(404).json({ error: "Map not found" });
+
+      await sqlDb.transaction().execute(async (trx) => {
+        // Create new map
+        await trx
+          .insertInto(TABLE_NAMES.MAPS)
+          .values({
+            id: newMapId,
+            guild_id: oldMap.guild_id,
+            name: name,
+            created_by: oldMap.created_by,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .execute();
+
+        // Copy labels
+        const oldLabels = await trx
+          .selectFrom(TABLE_NAMES.MAP_LABELS)
+          .selectAll()
+          .where("map_id", "=", oldMapId)
+          .execute();
+
+        const labelIdMap: Record<string, string> = {};
+        if (oldLabels.length > 0) {
+          const newLabels = oldLabels.map(ol => {
+            const newId = `label-${randomBytes(8).toString("hex")}`;
+            labelIdMap[ol.id] = newId;
+            return {
+              id: newId,
+              map_id: newMapId,
+              label_text: ol.label_text,
+              color_hex: ol.color_hex,
+              is_enabled: ol.is_enabled,
+              created_at: new Date().toISOString()
+            };
+          });
+          await trx.insertInto(TABLE_NAMES.MAP_LABELS).values(newLabels).execute();
+        }
+
+        // Copy territories
+        const oldTerritories = await trx
+          .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+          .selectAll()
+          .where("map_id", "=", oldMapId)
+          .execute();
+
+        if (oldTerritories.length > 0) {
+          const newTerritories = oldTerritories.map(ot => ({
+            map_id: newMapId,
+            territory_id: ot.territory_id,
+            label_id: labelIdMap[ot.label_id] || ot.label_id
+          }));
+
+          for (let i = 0; i < newTerritories.length; i += 500) {
+            await trx
+              .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+              .values(newTerritories.slice(i, i + 500))
+              .execute();
+          }
+        }
+      });
+
+      // Create new session for the copy
+      const newToken = randomBytes(32).toString("hex");
+      await sqlDb
+        .insertInto(TABLE_NAMES.MAP_SESSIONS)
+        .values({
+          token: newToken,
+          map_id: newMapId,
+          user_id: session.user_id,
+          expires_at: new Date(Date.now() + 1000 * 60 * 30).toISOString()
+        })
+        .execute();
+
+      return res.json({ token: newToken });
+    } catch (error) {
+      console.error("[HTTP] Error duplicating map:", error);
       return res.status(500).json({ error: "Server error" });
     }
   });

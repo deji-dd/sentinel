@@ -17,11 +17,18 @@ export interface MapPainterState {
     id: string;
     text: string;
     color: string;
+    enabled: boolean;
+    territories: string[];
     respect: number;
     sectors: number;
     rackets: number;
   }[];
-  assignments: Record<string, string>; // territoryId -> labelId
+  assignments?: Record<string, string>; // Derived helper in UI, stored for compatibility
+  map?: {
+    id: string;
+    name: string;
+    guild_id: string;
+  };
   territoryMetadata?: Record<string, { 
     sector: number; 
     respect: number; 

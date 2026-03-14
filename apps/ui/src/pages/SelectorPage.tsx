@@ -42,6 +42,7 @@ export default function SelectorPage() {
       .then(data => {
         if (cancelled) return;
         setInitialState({
+          map: data.map,
           labels: data.labels,
           assignments: data.assignments,
           territoryMetadata: data.territoryMetadata,

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPainterState } from "@/types/painter";
-import { Plus, Trash2, Eraser, Info, ChevronDown, ChevronRight, LayoutGrid, Zap, DollarSign } from "lucide-react";
+import { Plus, Trash2, Eraser, Info, ChevronDown, ChevronRight, LayoutGrid, Zap, DollarSign, Eye, EyeOff, Copy, X, AlertTriangle } from "lucide-react";
 import { parseRewardString, calculateDailyValue } from "@sentinel/shared/racket-reward";
 
 // @ts-ignore
@@ -24,8 +24,8 @@ interface TTSelectorProps {
 }
 
 const DEFAULT_LABELS = [
-  { id: "label-1", text: "Faction A", color: "#3b82f6", respect: 0, sectors: 0, rackets: 0 },
-  { id: "label-2", text: "Faction B", color: "#ef4444", respect: 0, sectors: 0, rackets: 0 },
+  { id: "label-1", text: "Faction A", color: "#3b82f6", enabled: true, territories: [] as string[], respect: 0, sectors: 0, rackets: 0 },
+  { id: "label-2", text: "Faction B", color: "#ef4444", enabled: true, territories: [] as string[], respect: 0, sectors: 0, rackets: 0 },
 ];
 
 export default function TTSelector({ initialState, onSave, territoryData }: TTSelectorProps) {
@@ -39,10 +39,35 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(DEFAULT_LABELS[0].id);
   const [expandedLabelId, setExpandedLabelId] = useState<string | null>(null);
   const [initialPathsReady, setInitialPathsReady] = useState(false);
-  const [labels, setLabels] = useState(initialState?.labels || DEFAULT_LABELS);
-  const [assignments, setAssignments] = useState<Record<string, string>>(initialState?.assignments || {});
+  const [labels, setLabels] = useState(() => {
+    const raw = initialState?.labels || DEFAULT_LABELS;
+    return raw.map(l => ({
+      ...l,
+      enabled: l.enabled ?? true,
+      territories: l.territories || []
+    }));
+  });
+
+  // Conflict solver state
+  const [conflictData, setConflictData] = useState<{
+    labelId: string;
+    conflicts: { territoryId: string; currentLabelId: string }[];
+  } | null>(null);
+
   const [hoveredInfo, setHoveredInfo] = useState<{ id: string; sector: number; respect: number; racket?: string } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+  // Assignments derived from ENABLED labels
+  // Note: if multiple labels claim a territory, the one LATER in the labels array wins visually.
+  const assignments = useMemo(() => {
+    const active: Record<string, string> = {};
+    labels.filter(l => l.enabled).forEach(l => {
+      l.territories.forEach(tid => {
+        active[tid] = l.id;
+      });
+    });
+    return active;
+  }, [labels]);
 
   // Stats aggregation
   const stats = useMemo(() => {
@@ -64,35 +89,32 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
         sectors: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 },
         territories: []
       };
-    });
 
-    // Use live prices from bot if available
-    const livePrices: Record<string, number> = {
-      ...(initialState as any)?.prices?.items || {},
-      "Points": (initialState as any)?.prices?.points || 0
-    };
+      const livePrices: Record<string, number> = {
+        ...(initialState as any)?.prices?.items || {},
+        "Points": (initialState as any)?.prices?.points || 0
+      };
 
-    Object.entries(assignments).forEach(([territoryId, labelId]) => {
-      if (aggregate[labelId]) {
+      l.territories.forEach(territoryId => {
         const metadata = territoryData?.[territoryId] || initialState?.territoryMetadata?.[territoryId];
-        aggregate[labelId].count += 1;
-        aggregate[labelId].respect += metadata?.respect || 0;
-        aggregate[labelId].territories.push(territoryId);
+        aggregate[l.id].count += 1;
+        aggregate[l.id].respect += metadata?.respect || 0;
+        aggregate[l.id].territories.push(territoryId);
 
         if (metadata?.sector) {
-          aggregate[labelId].sectors[metadata.sector] = (aggregate[labelId].sectors[metadata.sector] || 0) + 1;
+          aggregate[l.id].sectors[metadata.sector] = (aggregate[l.id].sectors[metadata.sector] || 0) + 1;
         }
 
         if (metadata?.racket) {
-          aggregate[labelId].rackets += 1;
+          aggregate[l.id].rackets += 1;
           const rewardInfo = parseRewardString(metadata.racket.reward);
-          aggregate[labelId].dailyValue += calculateDailyValue(rewardInfo, livePrices);
+          aggregate[l.id].dailyValue += calculateDailyValue(rewardInfo, livePrices);
         }
-      }
+      });
     });
 
     return aggregate;
-  }, [assignments, labels, territoryData, initialState?.territoryMetadata]);
+  }, [labels, territoryData, initialState?.territoryMetadata]);
 
   // Initialization
   useEffect(() => {
@@ -339,15 +361,26 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
       const { territoryId } = customEvent.detail;
       const labelId = selectedLabelId;
 
-      setAssignments(prev => {
-        const next = { ...prev };
-        if (labelId) {
-          next[territoryId] = labelId;
-        } else {
-          delete next[territoryId];
+      setLabels(prev => prev.map(l => {
+        // If we're assigning to THIS label
+        if (l.id === labelId) {
+          if (l.territories.includes(territoryId)) return l; // Already here
+          return { ...l, territories: [...l.territories, territoryId] };
         }
-        return next;
-      });
+
+        // If we're ERASING (labelId is null), or if this territory was assigned to another label,
+        // we might want to remove it from other labels? 
+        // User rule: One territory per map usually, but we support overlapping.
+        // However, if the user explicitly assigns it to Label B, they probably want it 
+        // removed from Label A IF Label A is enabled? 
+        // Let's stick to the simplest: Assigning to B adds to B's list. 
+        // If they want it removed from A, they can erase it while A is selected.
+        if (labelId === null && l.territories.includes(territoryId)) {
+          return { ...l, territories: l.territories.filter(tid => tid !== territoryId) };
+        }
+
+        return l;
+      }));
     };
 
     document.addEventListener("territoryClick", handleTerritoryClick);
@@ -450,7 +483,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
   // Sync initial state to ref once loaded
   useEffect(() => {
     if (initialPathsReady) {
-      prevDataRef.current = JSON.stringify({ labels, assignments });
+      prevDataRef.current = JSON.stringify({ labels });
     }
   }, [initialPathsReady]);
 
@@ -459,7 +492,8 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
     // Skip if not ready or no save handler
     if (!initialPathsReady || !onSave) return;
 
-    const currentData = JSON.stringify({ labels, assignments });
+    const currentData = JSON.stringify({ labels });
+
 
     // Only save if data actually changed
     if (currentData !== prevDataRef.current) {
@@ -481,6 +515,8 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
       id: newId,
       text: "New Label",
       color: "#" + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+      enabled: true,
+      territories: [],
       respect: 0, sectors: 0, rackets: 0
     }]);
   };
@@ -488,14 +524,95 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
   const handleRemoveLabel = (id: string) => {
     setLabels(labels.filter(l => l.id !== id));
     if (selectedLabelId === id) setSelectedLabelId(null);
-    setAssignments(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(tid => {
-        if (next[tid] === id) delete next[tid];
-      });
-      return next;
-    });
   };
+
+  const handleToggleLabel = (id: string) => {
+    const label = labels.find(l => l.id === id);
+    if (!label) return;
+
+    // If we're enabling, check for conflicts
+    if (!label.enabled) {
+      const conflicts: { territoryId: string; currentLabelId: string }[] = [];
+      label.territories.forEach(tid => {
+        // If it's currently assigned to an ENABLED label other than this one
+        const currentOwnerId = assignments[tid];
+        if (currentOwnerId && currentOwnerId !== id) {
+          conflicts.push({ territoryId: tid, currentLabelId: currentOwnerId });
+        }
+      });
+
+      if (conflicts.length > 0) {
+        setConflictData({ labelId: id, conflicts });
+        return;
+      }
+    }
+
+    setLabels(prev => prev.map(l => l.id === id ? { ...l, enabled: !l.enabled } : l));
+  };
+
+  const resolveConflicts = (takeOver: boolean) => {
+    if (!conflictData) return;
+    const { labelId, conflicts } = conflictData;
+
+    setLabels(prev => prev.map(l => {
+      // Enable the target label
+      if (l.id === labelId) {
+        return { ...l, enabled: true };
+      }
+
+      // If taking over, remove territories from their previous owners
+      if (takeOver) {
+        const conflictingIds = new Set(conflicts.map(c => c.territoryId));
+        const filtered = l.territories.filter(tid => !conflictingIds.has(tid));
+        if (filtered.length !== l.territories.length) {
+          return { ...l, territories: filtered };
+        }
+      }
+
+      return l;
+    }));
+
+    setConflictData(null);
+  };
+
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateTitle, setDuplicateTitle] = useState("");
+  const [isDuplicating, setIsDuplicating] = useState(false);
+
+  const handleDuplicateMap = async () => {
+    if (!duplicateTitle) return;
+    setIsDuplicating(true);
+    try {
+      const token = new URLSearchParams(window.location.search).get("token");
+      const res = await fetch(`${API_BASE}/api/map/duplicate?token=${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: duplicateTitle })
+      });
+      const data = await res.json();
+      if (data.token) {
+        window.open(`/selector?token=${data.token}`, "_blank");
+        setShowDuplicateModal(false);
+        setDuplicateTitle("");
+      }
+    } catch (err) {
+      console.error("Failed to duplicate map:", err);
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
+  const handleDuplicateLabel = (label: typeof labels[0]) => {
+    const newId = `label-${Date.now()}`;
+    setLabels([...labels, {
+      ...label,
+      id: newId,
+      text: `${label.text} (Copy)`,
+      enabled: true // Default enabled on copy
+    }]);
+  };
+
+
 
   return (
     <div className="flex h-screen bg-slate-950 text-white relative">
@@ -506,14 +623,25 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
             <h2 className="text-xl font-bold flex items-center gap-2 uppercase tracking-tight">
               Map Painter
             </h2>
-            {lastSaved && (
-              <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                LAST SAVED: {lastSaved}
-              </p>
-            )}
+            <div className="flex items-center gap-2">
+              {lastSaved && (
+                <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                  LAST SAVED: {lastSaved}
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
-            {/* Manual save removed as it's automatic now */}
+            <button
+              onClick={() => {
+                setDuplicateTitle(`${initialState?.map?.name || "New Map"} (Copy)`);
+                setShowDuplicateModal(true);
+              }}
+              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer border border-transparent hover:border-slate-700"
+              title="Duplicate Map"
+            >
+              <Copy size={18} />
+            </button>
           </div>
         </div>
 
@@ -558,15 +686,24 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                         style={{ backgroundColor: label.color }}
                       />
                       <div className="flex-1 min-w-0">
-                        <input
-                          type="text"
-                          value={label.text}
-                          onChange={(e) => {
-                            setLabels(labels.map(l => l.id === label.id ? { ...l, text: e.target.value } : l));
-                          }}
-                          className="bg-transparent border-none p-0 text-sm focus:ring-0 w-full font-medium"
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={label.text}
+                            onChange={(e) => {
+                              setLabels(labels.map(l => l.id === label.id ? { ...l, text: e.target.value } : l));
+                            }}
+                            className={`bg-transparent border-none p-0 text-sm focus:ring-0 w-full font-medium ${!label.enabled ? "text-zinc-600 line-through decoration-zinc-700" : ""}`}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleToggleLabel(label.id); }}
+                            className={`p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer ${label.enabled ? "text-blue-400" : "text-zinc-600"}`}
+                            title={label.enabled ? "Disable Label" : "Enable Label"}
+                          >
+                            {label.enabled ? <Eye size={14} /> : <EyeOff size={14} />}
+                          </button>
+                        </div>
                         <div className="flex gap-2 text-[10px] text-zinc-500 mt-0.5 font-mono uppercase tracking-tight">
                           <span className="flex items-center gap-0.5"><LayoutGrid size={10} /> {labelStats?.count || 0} TTs</span>
                           <span className="flex items-center gap-0.5"><Zap size={10} /> {labelStats?.respect || 0} Respect</span>
@@ -574,6 +711,13 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                       </div>
 
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDuplicateLabel(label); }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity cursor-pointer"
+                          title="Duplicate Label"
+                        >
+                          <Copy size={14} />
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -715,6 +859,128 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
           </div>
         )}
       </div>
+
+      {/* Conflict Resolver Modal */}
+      {conflictData && (
+        <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-[440px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900/50">
+              <div className="flex items-center gap-2 text-amber-500 font-bold uppercase tracking-tight text-sm">
+                <AlertTriangle size={18} />
+                Conflict Detected
+              </div>
+              <button
+                onClick={() => setConflictData(null)}
+                className="text-slate-500 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-300 leading-relaxed">
+                The label you are enabling has territories that are already assigned to other
+                <span className="text-white font-semibold"> active labels</span>. How would you like to proceed?
+              </p>
+
+              <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800/50 max-h-40 overflow-y-auto scrollbar-thin">
+                <div className="space-y-2">
+                  {conflictData.conflicts.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-blue-400 font-bold">{c.territoryId}</span>
+                      <div className="flex items-center gap-1.5 text-slate-500">
+                        <span>Managed by</span>
+                        <span
+                          className="px-1.5 py-0.5 rounded text-white text-[10px]"
+                          style={{ backgroundColor: labels.find(l => l.id === c.currentLabelId)?.color || '#333' }}
+                        >
+                          {labels.find(l => l.id === c.currentLabelId)?.text || 'Unknown'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  onClick={() => resolveConflicts(false)}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg transition-all"
+                >
+                  Enable Anyway
+                  <span className="block text-[10px] text-slate-500 font-normal">Keep existing owners</span>
+                </button>
+                <button
+                  onClick={() => resolveConflicts(true)}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg shadow-lg shadow-blue-900/20 transition-all border border-blue-400/20"
+                >
+                  Take Control
+                  <span className="block text-[10px] text-blue-200/60 font-normal">Move to this label</span>
+                </button>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-950/30 border-t border-slate-800 text-center">
+              <button
+                onClick={() => setConflictData(null)}
+                className="text-xs text-slate-500 hover:text-slate-300 font-medium underline underline-offset-4"
+              >
+                Cancel Operation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Map Duplication Modal */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-[400px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900/50">
+              <div className="flex items-center gap-2 text-blue-400 font-bold uppercase tracking-tight text-sm">
+                <Copy size={18} />
+                Duplicate Configuration
+              </div>
+              <button
+                onClick={() => setShowDuplicateModal(false)}
+                className="text-slate-500 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">New Title</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={duplicateTitle}
+                  onChange={(e) => setDuplicateTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleDuplicateMap()}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                  placeholder="Enter new configuration title..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  onClick={() => setShowDuplicateModal(false)}
+                  className="px-4 py-2 text-slate-400 hover:text-white text-sm font-semibold rounded-lg transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={!duplicateTitle || isDuplicating}
+                  onClick={handleDuplicateMap}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow-lg shadow-blue-900/20 transition-all"
+                >
+                  {isDuplicating ? "Duplicating..." : "Duplicate"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

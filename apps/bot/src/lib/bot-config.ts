@@ -79,3 +79,23 @@ export function createDiscordClient(): Client {
 export function getHttpPort(): number {
   return isDev ? 3001 : parseInt(process.env.HTTP_PORT || "3001");
 }
+
+/**
+ * Get the Map Painter base URL
+ */
+export function getPainterUrl(): string {
+  if (isDev) {
+    return process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000";
+  }
+  return process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
+}
+/**
+ * Get the allowed origins for CORS
+ */
+export function getAllowedOrigins(): string[] {
+  const prodOrigin = process.env.UI_ORIGIN || "https://hub.blasted-labs.tech";
+  if (isDev) {
+    return ["http://localhost:3000", prodOrigin];
+  }
+  return [prodOrigin];
+}
