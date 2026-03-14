@@ -21,6 +21,7 @@ import {
 } from "discord.js";
 import { db } from "../../../lib/db-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { getPainterUrl } from "../../../lib/bot-config.js";
 import { randomBytes, randomUUID } from "crypto";
 
 export const data = new SlashCommandBuilder()
@@ -111,6 +112,11 @@ export async function execute(
       .setCustomId("tt_selector_publish_list")
       .setLabel("Publish Config")
       .setStyle(ButtonStyle.Success)
+      .setDisabled(maps.length === 0),
+    new ButtonBuilder()
+      .setCustomId("tt_selector_duplicate_list")
+      .setLabel("Duplicate Config")
+      .setStyle(ButtonStyle.Secondary)
       .setDisabled(maps.length === 0),
   );
 
@@ -222,6 +228,48 @@ export async function handleButtonInteraction(
       components: [selectRow],
       flags: MessageFlags.Ephemeral,
     });
+  } else if (customId === "tt_selector_duplicate_list") {
+    const maps = await db
+      .selectFrom(TABLE_NAMES.MAPS)
+      .selectAll()
+      .where("guild_id", "=", guildId!)
+      .where("created_by", "=", interaction.user.id)
+      .execute();
+
+    if (maps.length === 0) {
+      await interaction.reply({
+        content: "No configurations found to duplicate.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0x6366f1)
+      .setTitle("Select TT Config to Duplicate")
+      .setDescription(
+        "Choose a configuration to create an identical copy with a new title.",
+      );
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId("tt_selector_duplicate_select")
+      .setPlaceholder("Choose a configuration to duplicate...")
+      .addOptions(
+        maps.map((m) =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(m.name || "Unnamed Config")
+            .setDescription(`ID: ${m.id.slice(0, 8)}`)
+            .setValue(m.id),
+        ),
+      );
+
+    const selectRow =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    await interaction.reply({
+      embeds: [embed],
+      components: [selectRow],
+      flags: MessageFlags.Ephemeral,
+    });
   }
 }
 
@@ -248,7 +296,7 @@ export async function handleStringSelectMenuInteraction(
     }
 
     const token = await createSession(mapId, user.id);
-    const painterUrl = `${process.env.MAP_PAINTER_URL || "http://localhost:3000"}/selector?token=${token}`;
+    const painterUrl = `${getPainterUrl()}/selector?token=${token}`;
 
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -295,6 +343,30 @@ export async function handleStringSelectMenuInteraction(
       embeds: [],
       components: [row],
     });
+  } else if (customId === "tt_selector_duplicate_select") {
+    const map = await db
+      .selectFrom(TABLE_NAMES.MAPS)
+      .select(["id", "name"])
+      .where("id", "=", mapId)
+      .executeTakeFirst();
+
+    if (!map) return;
+
+    const modal = new ModalBuilder()
+      .setCustomId(`tt_selector_duplicate_modal:${mapId}`)
+      .setTitle(`Duplicate: ${map.name}`);
+
+    const nameInput = new TextInputBuilder()
+      .setCustomId("new_map_name")
+      .setLabel("New Config Name")
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder(`${map.name} (Copy)`)
+      .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput)
+    );
+    await interaction.showModal(modal);
   }
 }
 
@@ -462,7 +534,7 @@ export async function handleModalSubmitInteraction(
       .execute();
 
     const token = await createSession(mapId, user.id);
-    const painterUrl = `${process.env.MAP_PAINTER_URL || "http://localhost:3000"}/selector?token=${token}`;
+    const painterUrl = `${getPainterUrl()}/selector?token=${token}`;
 
     const embed = new EmbedBuilder()
       .setColor(0x22c55e)
@@ -471,6 +543,93 @@ export async function handleModalSubmitInteraction(
       .addFields({
         name: "Access Link",
         value: `[Open TT Selector](${painterUrl})`,
+      })
+      .setFooter({ text: "Token expires in 30 minutes" });
+
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  } else if (customId.startsWith("tt_selector_duplicate_modal:")) {
+    const oldMapId = customId.split(":")[1];
+    const newName = interaction.fields.getTextInputValue("new_map_name");
+    const newMapId = randomUUID();
+
+    // Copy map metadata
+    await db
+      .insertInto(TABLE_NAMES.MAPS)
+      .values({
+        id: newMapId,
+        guild_id: guildId!,
+        name: newName,
+        created_by: user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .execute();
+
+    // Copy labels
+    const oldLabels = await db
+      .selectFrom(TABLE_NAMES.MAP_LABELS)
+      .selectAll()
+      .where("map_id", "=", oldMapId)
+      .execute();
+
+    // Map old label IDs to new ones if we want to change them, 
+    // but we can keep them the same if they are UUIDs or just unique strings.
+    // However, the database might have unique constraints? No, PK is just 'id'.
+    // If we keep IDs same, we'll have duplicate IDs across maps? 
+    // The DB PK for labels is just 'id' (TEXT PRIMARY KEY).
+    // This means label IDs MUST be globally unique.
+    
+    const labelIdMap: Record<string, string> = {};
+    if (oldLabels.length > 0) {
+      const newLabels = oldLabels.map(ol => {
+        const newId = `label-${randomBytes(8).toString("hex")}`;
+        labelIdMap[ol.id] = newId;
+        return {
+          id: newId,
+          map_id: newMapId,
+          label_text: ol.label_text,
+          color_hex: ol.color_hex,
+          is_enabled: ol.is_enabled,
+          created_at: new Date().toISOString()
+        };
+      });
+
+      await db.insertInto(TABLE_NAMES.MAP_LABELS).values(newLabels).execute();
+    }
+
+    // Copy territories
+    const oldTerritories = await db
+      .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+      .selectAll()
+      .where("map_id", "=", oldMapId)
+      .execute();
+
+    if (oldTerritories.length > 0) {
+      const newTerritories = oldTerritories.map(ot => ({
+        map_id: newMapId,
+        territory_id: ot.territory_id,
+        label_id: labelIdMap[ot.label_id] || ot.label_id
+      }));
+
+      // Chunked insert
+      for (let i = 0; i < newTerritories.length; i += 500) {
+        await db
+          .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+          .values(newTerritories.slice(i, i + 500))
+          .execute();
+      }
+    }
+
+    const token = await createSession(newMapId, user.id);
+    const painterUrl = `${getPainterUrl()}/selector?token=${token}`;
+
+    const embed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("TT Config Duplicated")
+      .setDescription(`Successfully created configuration "**${newName}**" as a copy.`)
+      .addFields({
+        name: "Access Link",
+        value: `[Open New TT Selector](${painterUrl})`,
       })
       .setFooter({ text: "Token expires in 30 minutes" });
 

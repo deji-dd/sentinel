@@ -176,6 +176,7 @@ export interface SentinelMapLabels {
   color_hex: string;
   created_at: Generated<string | null>;
   id: string | null;
+  is_enabled: Generated<number | null>;
   label_text: string;
   map_id: string;
 }
