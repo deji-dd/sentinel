@@ -113,6 +113,7 @@ export async function execute(
     const removeModuleCommand = await import("./remove-module.js");
     const guildStatusCommand = await import("./guild-status.js");
     const dbBackupCommand = await import("./db-backup.js");
+    const revokeWebAccessCommand = await import("./revoke-web-access.js");
 
     // Map of module names to commands
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -162,6 +163,7 @@ export async function execute(
         verifyallCommand.data.toJSON(),
         statsCommand.data.toJSON(),
         assistCommand.data.toJSON(),
+        revokeWebAccessCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {

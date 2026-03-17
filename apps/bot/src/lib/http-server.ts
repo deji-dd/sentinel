@@ -21,49 +21,66 @@ import {
 } from "./assist-link-signing.js";
 import { logPayloadTooLarge, logRateLimitHit } from "./assist-monitoring.js";
 import { DatabaseIPRateLimiter } from "./assist-ip-rate-limiter.js";
-import { fetchTornProfileData, fetchPointPrice, fetchMarketPrices } from "./torn-api.js";
-import { getGuildApiKeys } from "./guild-api-keys.js";
+import {
+  fetchTornProfileData,
+  fetchPointPrice,
+  fetchMarketPrices,
+} from "./torn-api.js";
+import { getGuildApiKeys, storeGuildApiKey } from "./guild-api-keys.js";
 import { parseRewardString } from "@sentinel/shared";
-import { getAllowedOrigins } from "./bot-config.js";
+import { getAllowedOrigins, getUiUrl } from "./bot-config.js";
+import { MagicLinkService } from "./services/magic-link-service.js";
+import { validateTornApiKey } from "../services/torn-client.js";
+import { logGuildSuccess, logGuildAction } from "./guild-logger.js";
 
 const app = express();
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 
 // Health check - BEFORE any middleware to diagnose hangs
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
-app.use(helmet({
-  contentSecurityPolicy: false, 
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+  }),
+);
 app.use(express.json());
-app.use(cors({ 
-  origin: (origin, callback) => {
-    const allowed = getAllowedOrigins();
-    if (!origin || allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowed = getAllowedOrigins();
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  }),
+);
 
 // Rate limiting for Map Painter API
 const mapRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 1000, 
-  message: { error: "Too many requests from this IP for Map Painter, please try again later." },
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  message: {
+    error:
+      "Too many requests from this IP for Map Painter, please try again later.",
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 // Rate limiting for Assist API (general flood protection)
 const assistRateLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, 
-  max: 300, 
-  message: { error: "Too many requests from this IP for Assist API, please try again later." },
+  windowMs: 5 * 60 * 1000,
+  max: 300,
+  message: {
+    error:
+      "Too many requests from this IP for Assist API, please try again later.",
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -615,438 +632,182 @@ export function initHttpServer(client: Client, port: number = 3001) {
   });
 
   // Public userscript installation endpoint. Traffic expected via Cloudflared.
-  app.get("/install/:fileName", assistRateLimiter, async (req: Request, res: Response) => {
-    try {
-      const clientIp = getClientIp(req);
-      const clientUA = req.get("user-agent") || null;
+  app.get(
+    "/install/:fileName",
+    assistRateLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const clientIp = getClientIp(req);
+        const clientUA = req.get("user-agent") || null;
 
-      // Check if this IP is blocked
-      if (await ipRateLimiter.isIPBlocked(clientIp)) {
-        return res.status(429).json({
-          error: "Too many requests from this IP",
-          retry_after: 3600,
-        });
-      }
-
-      const fileParam = req.params.fileName;
-      const fileName = Array.isArray(fileParam)
-        ? fileParam[0] || ""
-        : fileParam || "";
-      if (!fileName.endsWith(".user.js")) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "invalid_script_extension",
-          undefined,
-          req.path,
-          clientUA,
-        );
-        return res.status(400).json({ error: "Invalid script path" });
-      }
-
-      const uuid = fileName.replace(/\.user\.js$/i, "");
-      if (!isValidUuid(uuid)) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "invalid_uuid",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        return res.status(400).json({ error: "Invalid UUID in script path" });
-      }
-
-      // Verify signed link
-      const expParam = req.query.exp;
-      const sigParam = req.query.sig;
-
-      if (!expParam || !sigParam) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "missing_signature_params",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        return res.status(400).json({
-          error: "Missing signature parameters",
-          hint: "Install links must include exp and sig query params",
-        });
-      }
-
-      const expiresAt = Number.parseInt(String(expParam), 10);
-      const signature = String(sigParam);
-
-      if (!Number.isFinite(expiresAt)) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "invalid_expiry_timestamp",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        return res.status(400).json({ error: "Invalid expiry timestamp" });
-      }
-
-      const verification = verifyLinkSignature(uuid, expiresAt, signature);
-      if (!verification.valid) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "invalid_signature",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        logRateLimitHit(req.path, clientIp, clientUA, uuid);
-        return res.status(403).json({
-          error: verification.reason || "Invalid install link",
-        });
-      }
-
-      const token = await db
-        .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
-        .select([
-          "id",
-          "guild_id",
-          "discord_id",
-          "torn_id",
-          "strike_count",
-          "is_active",
-          "blacklisted_at",
-          "expires_at",
-        ])
-        .where("token_uuid", "=", uuid)
-        .executeTakeFirst();
-
-      if (!token) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "token_not_found",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        return res.status(404).json({ error: "Assist token not found" });
-      }
-
-      if (!token.is_active || token.blacklisted_at) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "token_inactive_or_blacklisted",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        return res.status(403).json({ error: "Assist token is inactive" });
-      }
-
-      if (
-        token.expires_at &&
-        new Date(token.expires_at).getTime() <= Date.now()
-      ) {
-        await ipRateLimiter.recordFailure(
-          clientIp,
-          "token_expired",
-          uuid,
-          req.path,
-          clientUA,
-        );
-        return res.status(403).json({ error: "Assist token expired" });
-      }
-
-      // Check if UUID is rate limited (now we have torn_id for bypass check)
-      if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
-        return res.status(429).json({
-          error: "Script generation rate limit exceeded for this UUID",
-          retry_after: 600,
-        });
-      }
-      const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
-
-      const configuredProd = process.env.BOT_ORIGIN;
-      const configuredLocal = process.env.BOT_ORIGIN_LOCAL;
-      const rawBase =
-        process.env.NODE_ENV === "development"
-          ? configuredLocal || configuredProd || `http://127.0.0.1:${port}`
-          : configuredProd;
-
-      let apiBaseUrl = fallbackOrigin;
-      if (rawBase) {
-        try {
-          apiBaseUrl = new URL(rawBase).origin;
-        } catch {
-          apiBaseUrl = fallbackOrigin;
-        }
-      }
-
-      const script = buildAssistUserscript({
-        uuid,
-        apiBaseUrl,
-        eventAuthToken: generateAssistEventAuthToken(uuid),
-      });
-
-      await db
-        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
-        .set({
-          // Install/download should not start the active-assist lock window.
-          last_seen_ip: clientIp,
-          last_seen_user_agent: clientUA,
-          updated_at: new Date().toISOString(),
-        })
-        .where("id", "=", token.id)
-        .execute();
-
-      // Record successful generation for rate limiting
-      await ipRateLimiter.recordSuccessfulGeneration(
-        uuid,
-        clientIp,
-        token.torn_id,
-      );
-
-      res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-      res.setHeader("Cache-Control", "no-store");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-
-      return res.status(200).send(script);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      console.error("[HTTP] Error generating assist userscript:", error);
-      return res
-        .status(500)
-        .json({ error: "Failed to generate assist script", message });
-    }
-  });
-
-  // Public assist ingestion endpoint. Traffic expected via Cloudflared.
-  app.all("/api/assist-events", assistRateLimiter, async (req: Request, res: Response) => {
-    try {
-      if (!ASSIST_ALLOWED_PROXY_METHODS.has(req.method)) {
-        return res.status(405).json({
-          error: "Method not allowed",
-          allowed_methods: Array.from(ASSIST_ALLOWED_PROXY_METHODS),
-        });
-      }
-
-      const clientIp = getClientIp(req);
-      const clientUA = req.get("user-agent") || null;
-
-      const payloadSize = getAssistPayloadSizeBytes(req);
-      if (payloadSize > ASSIST_MAX_PAYLOAD_BYTES) {
-        logPayloadTooLarge(
-          req.path,
-          clientIp,
-          clientUA,
-          payloadSize,
-          ASSIST_MAX_PAYLOAD_BYTES,
-        );
-        return res.status(413).json({
-          error: "Payload too large",
-          max_bytes: ASSIST_MAX_PAYLOAD_BYTES,
-        });
-      }
-
-      const payload = req.body as AssistPayload;
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-        return res
-          .status(400)
-          .json({ error: "JSON payload must be an object" });
-      }
-
-      if (!payload?.uuid || !isValidUuid(payload.uuid)) {
-        return res.status(400).json({
-          error: "Missing or invalid uuid in payload",
-        });
-      }
-
-      const clientToServerLagMs = getClientToServerLagMs(
-        payload.client_sent_at,
-      );
-      if (
-        clientToServerLagMs !== null &&
-        clientToServerLagMs >= ASSIST_SLOW_DELIVERY_WARN_MS
-      ) {
-        console.warn(
-          `[ASSIST] Slow client->server delivery for ${payload.uuid}: ${clientToServerLagMs}ms`,
-        );
-      }
-
-      const token = await db
-        .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
-        .select([
-          "id",
-          "guild_id",
-          "discord_id",
-          "torn_id",
-          "strike_count",
-          "is_active",
-          "blacklisted_at",
-          "expires_at",
-          "last_used_at",
-        ])
-        .where("token_uuid", "=", payload.uuid)
-        .executeTakeFirst();
-
-      if (!token) {
-        return res.status(401).json({ error: "Invalid assist token" });
-      }
-
-      if (!token.is_active || token.blacklisted_at) {
-        return res.status(403).json({ error: "Assist token is inactive" });
-      }
-
-      if (
-        token.expires_at &&
-        new Date(token.expires_at).getTime() <= Date.now()
-      ) {
-        return res.status(403).json({ error: "Assist token expired" });
-      }
-
-      const guildConfig = await db
-        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-        .select(["enabled_modules"])
-        .where("guild_id", "=", token.guild_id)
-        .executeTakeFirst();
-
-      const enabledModules: string[] = guildConfig?.enabled_modules
-        ? typeof guildConfig.enabled_modules === "string"
-          ? JSON.parse(guildConfig.enabled_modules)
-          : guildConfig.enabled_modules
-        : [];
-      if (!enabledModules.includes("assist")) {
-        return res.status(403).json({ error: "Assist module disabled" });
-      }
-
-      const assistConfig = await db
-        .selectFrom(TABLE_NAMES.ASSIST_CONFIG)
-        .select(["assist_channel_id", "ping_role_id", "is_active"])
-        .where("guild_id", "=", token.guild_id)
-        .executeTakeFirst();
-
-      if (!assistConfig?.is_active || !assistConfig.assist_channel_id) {
-        return res.status(412).json({
-          error:
-            "Assist is not set up for this Discord server yet. Ask a server admin to configure Assist in Discord and try again.",
-        });
-      }
-
-      const guild = await discordClient.guilds.fetch(token.guild_id);
-      const channel = await guild.channels.fetch(
-        assistConfig.assist_channel_id,
-      );
-
-      if (!channel || !channel.isTextBased()) {
-        return res
-          .status(404)
-          .json({ error: "Configured assist channel not found" });
-      }
-
-      // Handle PATCH method for attacker count updates
-      if (req.method === "PATCH") {
-        const tracked = getActiveTrackedAssist(payload.uuid);
-        if (!tracked) {
-          await incrementAssistStrikeByUuid(
-            payload.uuid,
-            "invalid_patch_without_active_assist",
-          );
-          return res.status(409).json({
-            error:
-              "No active assist request exists for this token. Repeated invalid lifecycle updates will deactivate this token.",
+        // Check if this IP is blocked
+        if (await ipRateLimiter.isIPBlocked(clientIp)) {
+          return res.status(429).json({
+            error: "Too many requests from this IP",
+            retry_after: 3600,
           });
         }
 
-        tracked.lastActivityAt = Date.now();
-
-        // Support both explicit attacker payload fields and legacy details parsing.
-        const details = payload.details || "";
-        const match = details.match(/(\d+)\s*->\s*(\d+)/);
-        const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
-        let hasChanges = false;
-
-        const normalizedStatus = resolveStatusFieldValue(payload);
-        if (normalizedStatus) {
-          const statusField = updatedEmbed.data.fields?.find(
-            (field) => field.name === "Status",
+        const fileParam = req.params.fileName;
+        const fileName = Array.isArray(fileParam)
+          ? fileParam[0] || ""
+          : fileParam || "";
+        if (!fileName.endsWith(".user.js")) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "invalid_script_extension",
+            undefined,
+            req.path,
+            clientUA,
           );
-          if (statusField?.value !== normalizedStatus) {
-            upsertEmbedField(updatedEmbed, "Status", normalizedStatus, true);
-            hasChanges = true;
-          }
+          return res.status(400).json({ error: "Invalid script path" });
         }
 
-        const explicitCount = Number.isFinite(payload.attacker_count)
-          ? Number(payload.attacker_count)
-          : null;
-        const parsedCountFromDetails = match
-          ? Number.parseInt(match[2], 10)
-          : null;
-        const newCount = Number.isFinite(explicitCount)
-          ? explicitCount
-          : parsedCountFromDetails;
+        const uuid = fileName.replace(/\.user\.js$/i, "");
+        if (!isValidUuid(uuid)) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "invalid_uuid",
+            uuid,
+            req.path,
+            clientUA,
+          );
+          return res.status(400).json({ error: "Invalid UUID in script path" });
+        }
 
-        if (Number.isFinite(newCount)) {
-          if (Number.isFinite(newCount) && newCount !== tracked.attackerCount) {
-            upsertEmbedField(updatedEmbed, "Attackers", String(newCount), true);
-            tracked.attackerCount = newCount;
-            hasChanges = true;
-          }
+        // Verify signed link
+        const expParam = req.query.exp;
+        const sigParam = req.query.sig;
+
+        if (!expParam || !sigParam) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "missing_signature_params",
+            uuid,
+            req.path,
+            clientUA,
+          );
+          return res.status(400).json({
+            error: "Missing signature parameters",
+            hint: "Install links must include exp and sig query params",
+          });
+        }
+
+        const expiresAt = Number.parseInt(String(expParam), 10);
+        const signature = String(sigParam);
+
+        if (!Number.isFinite(expiresAt)) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "invalid_expiry_timestamp",
+            uuid,
+            req.path,
+            clientUA,
+          );
+          return res.status(400).json({ error: "Invalid expiry timestamp" });
+        }
+
+        const verification = verifyLinkSignature(uuid, expiresAt, signature);
+        if (!verification.valid) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "invalid_signature",
+            uuid,
+            req.path,
+            clientUA,
+          );
+          logRateLimitHit(req.path, clientIp, clientUA, uuid);
+          return res.status(403).json({
+            error: verification.reason || "Invalid install link",
+          });
+        }
+
+        const token = await db
+          .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+          .select([
+            "id",
+            "guild_id",
+            "discord_id",
+            "torn_id",
+            "strike_count",
+            "is_active",
+            "blacklisted_at",
+            "expires_at",
+          ])
+          .where("token_uuid", "=", uuid)
+          .executeTakeFirst();
+
+        if (!token) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "token_not_found",
+            uuid,
+            req.path,
+            clientUA,
+          );
+          return res.status(404).json({ error: "Assist token not found" });
+        }
+
+        if (!token.is_active || token.blacklisted_at) {
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "token_inactive_or_blacklisted",
+            uuid,
+            req.path,
+            clientUA,
+          );
+          return res.status(403).json({ error: "Assist token is inactive" });
         }
 
         if (
-          payload.action === "attacker_count_unavailable" ||
-          payload.attacker_count_state === "mobile_unavailable"
+          token.expires_at &&
+          new Date(token.expires_at).getTime() <= Date.now()
         ) {
-          const attackersField = updatedEmbed.data.fields?.find(
-            (field) => field.name === "Attackers",
+          await ipRateLimiter.recordFailure(
+            clientIp,
+            "token_expired",
+            uuid,
+            req.path,
+            clientUA,
           );
-          const unavailableLabel =
-            payload.attacker_count_state === "mobile_unavailable"
-              ? "Unavailable (mobile)"
-              : "Unavailable";
-          if (attackersField?.value !== unavailableLabel) {
-            upsertEmbedField(updatedEmbed, "Attackers", unavailableLabel, true);
-            tracked.attackerCount = null;
-            hasChanges = true;
+          return res.status(403).json({ error: "Assist token expired" });
+        }
+
+        // Check if UUID is rate limited (now we have torn_id for bypass check)
+        if (await ipRateLimiter.isUUIDRateLimited(uuid, token.torn_id)) {
+          return res.status(429).json({
+            error: "Script generation rate limit exceeded for this UUID",
+            retry_after: 600,
+          });
+        }
+        const fallbackOrigin = `${req.protocol}://${req.get("host")}`;
+
+        const configuredProd = process.env.BOT_ORIGIN;
+        const configuredLocal = process.env.BOT_ORIGIN_LOCAL;
+        const rawBase =
+          process.env.NODE_ENV === "development"
+            ? configuredLocal || configuredProd || `http://127.0.0.1:${port}`
+            : configuredProd;
+
+        let apiBaseUrl = fallbackOrigin;
+        if (rawBase) {
+          try {
+            apiBaseUrl = new URL(rawBase).origin;
+          } catch {
+            apiBaseUrl = fallbackOrigin;
           }
         }
 
-        const healthCurrent = payload.enemy_health_current;
-        const healthMax = payload.enemy_health_max;
-        const healthPercent = payload.enemy_health_percent;
-        if (
-          Number.isFinite(healthCurrent) &&
-          Number.isFinite(healthMax) &&
-          healthMax &&
-          healthMax > 0
-        ) {
-          const roundedPercent = Number.isFinite(healthPercent)
-            ? Math.max(0, Math.min(100, Math.round(healthPercent)))
-            : Math.round((healthCurrent / healthMax) * 100);
-
-          const enemyHpValue = `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${roundedPercent}%)`;
-          const hpField = updatedEmbed.data.fields?.find(
-            (field) => field.name === "Enemy HP",
-          );
-          if (hpField?.value !== enemyHpValue) {
-            upsertEmbedField(updatedEmbed, "Enemy HP", enemyHpValue, true);
-            hasChanges = true;
-          }
-        } else if (payload.action === "enemy_health_updated") {
-          const hpField = updatedEmbed.data.fields?.find(
-            (field) => field.name === "Enemy HP",
-          );
-          if (hpField?.value !== "Unavailable") {
-            upsertEmbedField(updatedEmbed, "Enemy HP", "Unavailable", true);
-            hasChanges = true;
-          }
-        }
-
-        if (hasChanges) {
-          await tracked.message.edit({ embeds: [updatedEmbed] });
-        }
+        const script = buildAssistUserscript({
+          uuid,
+          apiBaseUrl,
+          eventAuthToken: generateAssistEventAuthToken(uuid),
+        });
 
         await db
           .updateTable(TABLE_NAMES.ASSIST_TOKENS)
           .set({
-            last_used_at: new Date().toISOString(),
+            // Install/download should not start the active-assist lock window.
             last_seen_ip: clientIp,
             last_seen_user_agent: clientUA,
             updated_at: new Date().toISOString(),
@@ -1054,65 +815,447 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .where("id", "=", token.id)
           .execute();
 
-        if (hasChanges) {
-          return res.json({ success: true, updated: "message" });
-        }
+        // Record successful generation for rate limiting
+        await ipRateLimiter.recordSuccessfulGeneration(
+          uuid,
+          clientIp,
+          token.torn_id,
+        );
 
-        return res.json({ success: true, updated: "none" });
+        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+
+        return res.status(200).send(script);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error("[HTTP] Error generating assist userscript:", error);
+        return res
+          .status(500)
+          .json({ error: "Failed to generate assist script", message });
       }
+    },
+  );
 
-      // Handle DELETE method for session end
-      if (req.method === "DELETE") {
-        const tracked = getActiveTrackedAssist(payload.uuid);
-        if (!tracked) {
-          await incrementAssistStrikeByUuid(
-            payload.uuid,
-            "invalid_delete_without_active_assist",
-          );
-          return res.status(409).json({
-            error:
-              "No active assist request exists for this token. Repeated invalid lifecycle updates will deactivate this token.",
+  // Public assist ingestion endpoint. Traffic expected via Cloudflared.
+  app.all(
+    "/api/assist-events",
+    assistRateLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        if (!ASSIST_ALLOWED_PROXY_METHODS.has(req.method)) {
+          return res.status(405).json({
+            error: "Method not allowed",
+            allowed_methods: Array.from(ASSIST_ALLOWED_PROXY_METHODS),
           });
         }
 
-        try {
-          const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
-            .setColor(0x6b7280)
-            .setFooter({ text: "This assist alert has ended" });
-          const endedStatus = resolveStatusFieldValue(payload) || "Fight ended";
-          upsertEmbedField(endedEmbed, "Status", endedStatus, true);
-          await tracked.message.edit({
-            embeds: [endedEmbed],
-            components: [],
-          });
+        const clientIp = getClientIp(req);
+        const clientUA = req.get("user-agent") || null;
 
-          // Delete the message after a short delay
-          setTimeout(async () => {
-            try {
-              await tracked.message.delete();
-              console.log(
-                `[ASSIST] Deleted ended assist message for ${payload.uuid}`,
+        const payloadSize = getAssistPayloadSizeBytes(req);
+        if (payloadSize > ASSIST_MAX_PAYLOAD_BYTES) {
+          logPayloadTooLarge(
+            req.path,
+            clientIp,
+            clientUA,
+            payloadSize,
+            ASSIST_MAX_PAYLOAD_BYTES,
+          );
+          return res.status(413).json({
+            error: "Payload too large",
+            max_bytes: ASSIST_MAX_PAYLOAD_BYTES,
+          });
+        }
+
+        const payload = req.body as AssistPayload;
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          return res
+            .status(400)
+            .json({ error: "JSON payload must be an object" });
+        }
+
+        if (!payload?.uuid || !isValidUuid(payload.uuid)) {
+          return res.status(400).json({
+            error: "Missing or invalid uuid in payload",
+          });
+        }
+
+        const clientToServerLagMs = getClientToServerLagMs(
+          payload.client_sent_at,
+        );
+        if (
+          clientToServerLagMs !== null &&
+          clientToServerLagMs >= ASSIST_SLOW_DELIVERY_WARN_MS
+        ) {
+          console.warn(
+            `[ASSIST] Slow client->server delivery for ${payload.uuid}: ${clientToServerLagMs}ms`,
+          );
+        }
+
+        const token = await db
+          .selectFrom(TABLE_NAMES.ASSIST_TOKENS)
+          .select([
+            "id",
+            "guild_id",
+            "discord_id",
+            "torn_id",
+            "strike_count",
+            "is_active",
+            "blacklisted_at",
+            "expires_at",
+            "last_used_at",
+          ])
+          .where("token_uuid", "=", payload.uuid)
+          .executeTakeFirst();
+
+        if (!token) {
+          return res.status(401).json({ error: "Invalid assist token" });
+        }
+
+        if (!token.is_active || token.blacklisted_at) {
+          return res.status(403).json({ error: "Assist token is inactive" });
+        }
+
+        if (
+          token.expires_at &&
+          new Date(token.expires_at).getTime() <= Date.now()
+        ) {
+          return res.status(403).json({ error: "Assist token expired" });
+        }
+
+        const guildConfig = await db
+          .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+          .select(["enabled_modules"])
+          .where("guild_id", "=", token.guild_id)
+          .executeTakeFirst();
+
+        const enabledModules: string[] = guildConfig?.enabled_modules
+          ? typeof guildConfig.enabled_modules === "string"
+            ? JSON.parse(guildConfig.enabled_modules)
+            : guildConfig.enabled_modules
+          : [];
+        if (!enabledModules.includes("assist")) {
+          return res.status(403).json({ error: "Assist module disabled" });
+        }
+
+        const assistConfig = await db
+          .selectFrom(TABLE_NAMES.ASSIST_CONFIG)
+          .select(["assist_channel_id", "ping_role_id", "is_active"])
+          .where("guild_id", "=", token.guild_id)
+          .executeTakeFirst();
+
+        if (!assistConfig?.is_active || !assistConfig.assist_channel_id) {
+          return res.status(412).json({
+            error:
+              "Assist is not set up for this Discord server yet. Ask a server admin to configure Assist in Discord and try again.",
+          });
+        }
+
+        const guild = await discordClient.guilds.fetch(token.guild_id);
+        const channel = await guild.channels.fetch(
+          assistConfig.assist_channel_id,
+        );
+
+        if (!channel || !channel.isTextBased()) {
+          return res
+            .status(404)
+            .json({ error: "Configured assist channel not found" });
+        }
+
+        // Handle PATCH method for attacker count updates
+        if (req.method === "PATCH") {
+          const tracked = getActiveTrackedAssist(payload.uuid);
+          if (!tracked) {
+            await incrementAssistStrikeByUuid(
+              payload.uuid,
+              "invalid_patch_without_active_assist",
+            );
+            return res.status(409).json({
+              error:
+                "No active assist request exists for this token. Repeated invalid lifecycle updates will deactivate this token.",
+            });
+          }
+
+          tracked.lastActivityAt = Date.now();
+
+          // Support both explicit attacker payload fields and legacy details parsing.
+          const details = payload.details || "";
+          const match = details.match(/(\d+)\s*->\s*(\d+)/);
+          const updatedEmbed = EmbedBuilder.from(tracked.message.embeds[0]);
+          let hasChanges = false;
+
+          const normalizedStatus = resolveStatusFieldValue(payload);
+          if (normalizedStatus) {
+            const statusField = updatedEmbed.data.fields?.find(
+              (field) => field.name === "Status",
+            );
+            if (statusField?.value !== normalizedStatus) {
+              upsertEmbedField(updatedEmbed, "Status", normalizedStatus, true);
+              hasChanges = true;
+            }
+          }
+
+          const explicitCount = Number.isFinite(payload.attacker_count)
+            ? Number(payload.attacker_count)
+            : null;
+          const parsedCountFromDetails = match
+            ? Number.parseInt(match[2], 10)
+            : null;
+          const newCount = Number.isFinite(explicitCount)
+            ? explicitCount
+            : parsedCountFromDetails;
+
+          if (Number.isFinite(newCount)) {
+            if (
+              Number.isFinite(newCount) &&
+              newCount !== tracked.attackerCount
+            ) {
+              upsertEmbedField(
+                updatedEmbed,
+                "Attackers",
+                String(newCount),
+                true,
               );
+              tracked.attackerCount = newCount;
+              hasChanges = true;
+            }
+          }
+
+          if (
+            payload.action === "attacker_count_unavailable" ||
+            payload.attacker_count_state === "mobile_unavailable"
+          ) {
+            const attackersField = updatedEmbed.data.fields?.find(
+              (field) => field.name === "Attackers",
+            );
+            const unavailableLabel =
+              payload.attacker_count_state === "mobile_unavailable"
+                ? "Unavailable (mobile)"
+                : "Unavailable";
+            if (attackersField?.value !== unavailableLabel) {
+              upsertEmbedField(
+                updatedEmbed,
+                "Attackers",
+                unavailableLabel,
+                true,
+              );
+              tracked.attackerCount = null;
+              hasChanges = true;
+            }
+          }
+
+          const healthCurrent = payload.enemy_health_current;
+          const healthMax = payload.enemy_health_max;
+          const healthPercent = payload.enemy_health_percent;
+          if (
+            Number.isFinite(healthCurrent) &&
+            Number.isFinite(healthMax) &&
+            healthMax &&
+            healthMax > 0
+          ) {
+            const roundedPercent = Number.isFinite(healthPercent)
+              ? Math.max(0, Math.min(100, Math.round(healthPercent)))
+              : Math.round((healthCurrent / healthMax) * 100);
+
+            const enemyHpValue = `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${roundedPercent}%)`;
+            const hpField = updatedEmbed.data.fields?.find(
+              (field) => field.name === "Enemy HP",
+            );
+            if (hpField?.value !== enemyHpValue) {
+              upsertEmbedField(updatedEmbed, "Enemy HP", enemyHpValue, true);
+              hasChanges = true;
+            }
+          } else if (payload.action === "enemy_health_updated") {
+            const hpField = updatedEmbed.data.fields?.find(
+              (field) => field.name === "Enemy HP",
+            );
+            if (hpField?.value !== "Unavailable") {
+              upsertEmbedField(updatedEmbed, "Enemy HP", "Unavailable", true);
+              hasChanges = true;
+            }
+          }
+
+          if (hasChanges) {
+            await tracked.message.edit({ embeds: [updatedEmbed] });
+          }
+
+          await db
+            .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+            .set({
+              last_used_at: new Date().toISOString(),
+              last_seen_ip: clientIp,
+              last_seen_user_agent: clientUA,
+              updated_at: new Date().toISOString(),
+            })
+            .where("id", "=", token.id)
+            .execute();
+
+          if (hasChanges) {
+            return res.json({ success: true, updated: "message" });
+          }
+
+          return res.json({ success: true, updated: "none" });
+        }
+
+        // Handle DELETE method for session end
+        if (req.method === "DELETE") {
+          const tracked = getActiveTrackedAssist(payload.uuid);
+          if (!tracked) {
+            await incrementAssistStrikeByUuid(
+              payload.uuid,
+              "invalid_delete_without_active_assist",
+            );
+            return res.status(409).json({
+              error:
+                "No active assist request exists for this token. Repeated invalid lifecycle updates will deactivate this token.",
+            });
+          }
+
+          try {
+            const endedEmbed = EmbedBuilder.from(tracked.message.embeds[0])
+              .setColor(0x6b7280)
+              .setFooter({ text: "This assist alert has ended" });
+            const endedStatus =
+              resolveStatusFieldValue(payload) || "Fight ended";
+            upsertEmbedField(endedEmbed, "Status", endedStatus, true);
+            await tracked.message.edit({
+              embeds: [endedEmbed],
+              components: [],
+            });
+
+            // Delete the message after a short delay
+            setTimeout(async () => {
+              try {
+                await tracked.message.delete();
+                console.log(
+                  `[ASSIST] Deleted ended assist message for ${payload.uuid}`,
+                );
+              } catch (error) {
+                console.error(
+                  `[ASSIST] Failed to delete ended assist message for ${payload.uuid}:`,
+                  error,
+                );
+              }
+            }, 5000); // 5 second delay
+          } catch (error) {
+            console.error(
+              `[ASSIST] Failed to mark assist as ended for ${payload.uuid}:`,
+              error,
+            );
+          }
+
+          assistMessageTracking.delete(payload.uuid);
+
+          await db
+            .updateTable(TABLE_NAMES.ASSIST_TOKENS)
+            .set({
+              last_used_at: null,
+              last_seen_ip: req.ip,
+              last_seen_user_agent: req.get("user-agent") || null,
+              updated_at: new Date().toISOString(),
+            })
+            .where("id", "=", token.id)
+            .execute();
+
+          return res.json({ success: true, deleted: true, status: "ended" });
+        }
+
+        // Handle POST method for new assist alerts
+        const activeTracked = getActiveTrackedAssist(payload.uuid);
+        if (activeTracked) {
+          return res.status(202).json({
+            success: true,
+            dropped: true,
+            reason: "active_assist_exists",
+          });
+        }
+
+        const mention = assistConfig.ping_role_id
+          ? `<@&${assistConfig.ping_role_id}>`
+          : "";
+        const initialFightStatus =
+          resolveStatusFieldValue(payload) || "Requester not started fight";
+
+        const initialAttackerCount = Number.isFinite(payload.attacker_count)
+          ? Number(payload.attacker_count)
+          : null;
+        const initialAttackerValue = Number.isFinite(initialAttackerCount)
+          ? String(initialAttackerCount)
+          : payload.attacker_count_state === "mobile_unavailable"
+            ? "Unavailable (mobile)"
+            : "Unavailable";
+
+        const healthCurrent = payload.enemy_health_current;
+        const healthMax = payload.enemy_health_max;
+        const healthPercent = payload.enemy_health_percent;
+        const initialEnemyHpValue =
+          Number.isFinite(healthCurrent) &&
+          Number.isFinite(healthMax) &&
+          healthMax &&
+          healthMax > 0
+            ? `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${Math.max(0, Math.min(100, Math.round(Number.isFinite(healthPercent) ? healthPercent : (healthCurrent / healthMax) * 100)))}%)`
+            : "Unavailable";
+
+        const embed = buildInitialAssistEmbed(
+          payload.target_torn_id,
+          token.discord_id,
+          initialFightStatus,
+          initialAttackerValue,
+          initialEnemyHpValue,
+        );
+        const button = buildAssistButton(payload.target_torn_id);
+
+        const components = button ? [button] : [];
+        const sentMessage = await channel.send({
+          content: mention || undefined,
+          embeds: [embed],
+          components,
+        });
+
+        // Track message for updates and timeout
+        assistMessageTracking.set(payload.uuid, {
+          message: sentMessage,
+          createdAt: Date.now(),
+          lastActivityAt: Date.now(),
+          attackerCount: Number.isFinite(initialAttackerCount)
+            ? initialAttackerCount
+            : null,
+        });
+
+        scheduleAssistExpiry(payload.uuid);
+
+        // Enrich embed asynchronously if target_torn_id is present
+        const targetTornId = payload.target_torn_id;
+        if (targetTornId) {
+          (async () => {
+            try {
+              const apiKeys = await getGuildApiKeys(token.guild_id);
+              if (apiKeys.length === 0) {
+                console.warn(
+                  `[ASSIST] No API keys configured for guild ${token.guild_id}`,
+                );
+                return;
+              }
+
+              const apiKey = getNextApiKey(token.guild_id, apiKeys);
+              const embed = EmbedBuilder.from(sentMessage.embeds[0]);
+              await enrichAssistEmbed(embed, targetTornId, apiKey);
+              await sentMessage.edit({ embeds: [embed] });
             } catch (error) {
               console.error(
-                `[ASSIST] Failed to delete ended assist message for ${payload.uuid}:`,
+                `[ASSIST] Failed to enrich embed for ${payload.uuid}:`,
                 error,
               );
             }
-          }, 5000); // 5 second delay
-        } catch (error) {
-          console.error(
-            `[ASSIST] Failed to mark assist as ended for ${payload.uuid}:`,
-            error,
-          );
+          })();
         }
-
-        assistMessageTracking.delete(payload.uuid);
 
         await db
           .updateTable(TABLE_NAMES.ASSIST_TOKENS)
           .set({
-            last_used_at: null,
+            last_used_at: new Date().toISOString(),
             last_seen_ip: req.ip,
             last_seen_user_agent: req.get("user-agent") || null,
             updated_at: new Date().toISOString(),
@@ -1120,158 +1263,60 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .where("id", "=", token.id)
           .execute();
 
-        return res.json({ success: true, deleted: true, status: "ended" });
-      }
-
-      // Handle POST method for new assist alerts
-      const activeTracked = getActiveTrackedAssist(payload.uuid);
-      if (activeTracked) {
-        return res.status(202).json({
+        return res.json({
           success: true,
-          dropped: true,
-          reason: "active_assist_exists",
+          guildId: token.guild_id,
+          channelId: assistConfig.assist_channel_id,
         });
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error("[HTTP] Error processing assist event:", error);
+        return res
+          .status(500)
+          .json({ error: "Failed to process assist event", message });
       }
-
-      const mention = assistConfig.ping_role_id
-        ? `<@&${assistConfig.ping_role_id}>`
-        : "";
-      const initialFightStatus =
-        resolveStatusFieldValue(payload) || "Requester not started fight";
-
-      const initialAttackerCount = Number.isFinite(payload.attacker_count)
-        ? Number(payload.attacker_count)
-        : null;
-      const initialAttackerValue = Number.isFinite(initialAttackerCount)
-        ? String(initialAttackerCount)
-        : payload.attacker_count_state === "mobile_unavailable"
-          ? "Unavailable (mobile)"
-          : "Unavailable";
-
-      const healthCurrent = payload.enemy_health_current;
-      const healthMax = payload.enemy_health_max;
-      const healthPercent = payload.enemy_health_percent;
-      const initialEnemyHpValue =
-        Number.isFinite(healthCurrent) &&
-        Number.isFinite(healthMax) &&
-        healthMax &&
-        healthMax > 0
-          ? `${Math.round(healthCurrent)} / ${Math.round(healthMax)} (${Math.max(0, Math.min(100, Math.round(Number.isFinite(healthPercent) ? healthPercent : (healthCurrent / healthMax) * 100)))}%)`
-          : "Unavailable";
-
-      const embed = buildInitialAssistEmbed(
-        payload.target_torn_id,
-        token.discord_id,
-        initialFightStatus,
-        initialAttackerValue,
-        initialEnemyHpValue,
-      );
-      const button = buildAssistButton(payload.target_torn_id);
-
-      const components = button ? [button] : [];
-      const sentMessage = await channel.send({
-        content: mention || undefined,
-        embeds: [embed],
-        components,
-      });
-
-      // Track message for updates and timeout
-      assistMessageTracking.set(payload.uuid, {
-        message: sentMessage,
-        createdAt: Date.now(),
-        lastActivityAt: Date.now(),
-        attackerCount: Number.isFinite(initialAttackerCount)
-          ? initialAttackerCount
-          : null,
-      });
-
-      scheduleAssistExpiry(payload.uuid);
-
-      // Enrich embed asynchronously if target_torn_id is present
-      const targetTornId = payload.target_torn_id;
-      if (targetTornId) {
-        (async () => {
-          try {
-            const apiKeys = await getGuildApiKeys(token.guild_id);
-            if (apiKeys.length === 0) {
-              console.warn(
-                `[ASSIST] No API keys configured for guild ${token.guild_id}`,
-              );
-              return;
-            }
-
-            const apiKey = getNextApiKey(token.guild_id, apiKeys);
-            const embed = EmbedBuilder.from(sentMessage.embeds[0]);
-            await enrichAssistEmbed(embed, targetTornId, apiKey);
-            await sentMessage.edit({ embeds: [embed] });
-          } catch (error) {
-            console.error(
-              `[ASSIST] Failed to enrich embed for ${payload.uuid}:`,
-              error,
-            );
-          }
-        })();
-      }
-
-      await db
-        .updateTable(TABLE_NAMES.ASSIST_TOKENS)
-        .set({
-          last_used_at: new Date().toISOString(),
-          last_seen_ip: req.ip,
-          last_seen_user_agent: req.get("user-agent") || null,
-          updated_at: new Date().toISOString(),
-        })
-        .where("id", "=", token.id)
-        .execute();
-
-      return res.json({
-        success: true,
-        guildId: token.guild_id,
-        channelId: assistConfig.assist_channel_id,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      console.error("[HTTP] Error processing assist event:", error);
-      return res
-        .status(500)
-        .json({ error: "Failed to process assist event", message });
-    }
-  });
-
-  app.get("/api/map", mapRateLimiter, async (req: Request, res: Response) => {
+    },
+  );
+  // TT Selector Configuration Fetch Endpoint
+  app.get("/api/map", async (req: Request, res: Response) => {
     const start = Date.now();
-    console.log(`[HTTP] GET /api/map - Start`);
     try {
-      const token = req.query.token as string;
-      if (!token) {
-        return res.status(401).json({ error: "Missing token" });
-      }
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const mapIdParam = req.query.mapId as string;
 
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(sessionToken);
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      // If map scope, ensure we have a mapId. If user is admin (all scope), they can access any map.
+      // For now, we'll use the mapId from the query if they have permission.
       const sqlDb = getKysely();
 
-      console.log(`[HTTP] /api/map - Validating token: ${token.substring(0, 8)}...`);
-      const session = await sqlDb
-        .selectFrom(TABLE_NAMES.MAP_SESSIONS)
-        .selectAll()
-        .where("token", "=", token)
-        .where("expires_at", ">", new Date().toISOString())
-        .executeTakeFirst();
+      const mapId =
+        mapIdParam ||
+        (session.scope === "map"
+          ? session.target_path.split("mapId=")[1]
+          : null);
+      if (!mapId) return res.status(400).json({ error: "Missing map ID" });
 
-      if (!session) {
-        return res.status(401).json({ error: "Invalid or expired token" });
+      // Permission check: if scope is 'map', it MUST match the requested mapId
+      if (
+        session.scope === "map" &&
+        !session.target_path.includes(`mapId=${mapId}`)
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Forbidden: You do not have access to this map" });
       }
-
-      // Extend session expiry on access (30 min)
-      await sqlDb
-        .updateTable(TABLE_NAMES.MAP_SESSIONS)
-        .set({ expires_at: new Date(Date.now() + 1000 * 60 * 30).toISOString() })
-        .where("token", "=", token)
-        .execute();
 
       const map = await sqlDb
         .selectFrom(TABLE_NAMES.MAPS)
         .selectAll()
-        .where("id", "=", session.map_id)
+        .where("id", "=", mapId)
         .executeTakeFirst();
 
       if (!map) {
@@ -1281,32 +1326,37 @@ export function initHttpServer(client: Client, port: number = 3001) {
       const labels = await sqlDb
         .selectFrom(TABLE_NAMES.MAP_LABELS)
         .selectAll()
-        .where("map_id", "=", session.map_id)
+        .where("map_id", "=", mapId)
         .execute();
 
       const assignmentsRows = await sqlDb
         .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
         .select(["territory_id", "label_id"])
-        .where("map_id", "=", session.map_id)
+        .where("map_id", "=", mapId)
         .execute();
 
       const labelTerritories: Record<string, string[]> = {};
       const assignments: Record<string, string> = {};
-      
+
       // Separate loop for clarity: 1. Record all territories per label for the UI
       // 2. Identify active assignment (last one wins if multiple)
-      assignmentsRows.forEach(row => {
-        if (!labelTerritories[row.label_id]) labelTerritories[row.label_id] = [];
+      assignmentsRows.forEach((row) => {
+        if (!labelTerritories[row.label_id])
+          labelTerritories[row.label_id] = [];
         labelTerritories[row.label_id].push(row.territory_id);
-        
-        // In the assignments map (backward compatibility/rendering helper), 
+
+        // In the assignments map (backward compatibility/rendering helper),
         // we still want one "active" owner.
         assignments[row.territory_id] = row.label_id;
       });
 
       const blueprints = await sqlDb
         .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
-        .leftJoin(TABLE_NAMES.TERRITORY_STATE, `${TABLE_NAMES.TERRITORY_STATE}.territory_id`, `${TABLE_NAMES.TERRITORY_BLUEPRINT}.id`)
+        .leftJoin(
+          TABLE_NAMES.TERRITORY_STATE,
+          `${TABLE_NAMES.TERRITORY_STATE}.territory_id`,
+          `${TABLE_NAMES.TERRITORY_BLUEPRINT}.id`,
+        )
         .select([
           `${TABLE_NAMES.TERRITORY_BLUEPRINT}.id`,
           `${TABLE_NAMES.TERRITORY_BLUEPRINT}.sector`,
@@ -1315,41 +1365,46 @@ export function initHttpServer(client: Client, port: number = 3001) {
           `${TABLE_NAMES.TERRITORY_BLUEPRINT}.slots`,
           `${TABLE_NAMES.TERRITORY_STATE}.racket_name`,
           `${TABLE_NAMES.TERRITORY_STATE}.racket_reward`,
-          `${TABLE_NAMES.TERRITORY_STATE}.racket_level`
+          `${TABLE_NAMES.TERRITORY_STATE}.racket_level`,
         ])
         .execute();
 
-      const territoryMetadata: Record<string, {
-        sector: number;
-        respect: number;
-        size: number;
-        slots: number;
-        racket: { name: string; reward: string; level: number } | null;
-      }> = {};
-      
+      const territoryMetadata: Record<
+        string,
+        {
+          sector: number;
+          respect: number;
+          size: number;
+          slots: number;
+          racket: { name: string; reward: string; level: number } | null;
+        }
+      > = {};
+
       const itemNames = new Set<string>();
       let hasPoints = false;
 
-      blueprints.forEach(bp => {
+      blueprints.forEach((bp) => {
         if (bp.id) {
           territoryMetadata[bp.id] = {
             sector: bp.sector as number,
             respect: bp.respect as number,
             size: bp.size as number,
             slots: bp.slots as number,
-            racket: bp.racket_name ? {
-              name: bp.racket_name as string,
-              reward: bp.racket_reward as string,
-              level: bp.racket_level as number
-            } : null
+            racket: bp.racket_name
+              ? {
+                  name: bp.racket_name as string,
+                  reward: bp.racket_reward as string,
+                  level: bp.racket_level as number,
+                }
+              : null,
           };
 
           if (bp.racket_reward) {
             const parsed = parseRewardString(bp.racket_reward);
             if (parsed) {
-              if (parsed.type === 'items' && parsed.itemName) {
+              if (parsed.type === "items" && parsed.itemName) {
                 itemNames.add(parsed.itemName);
-              } else if (parsed.type === 'points') {
+              } else if (parsed.type === "points") {
                 hasPoints = true;
               }
             }
@@ -1357,15 +1412,20 @@ export function initHttpServer(client: Client, port: number = 3001) {
         }
       });
 
-      console.log(`[HTTP] /api/map - Metadata assembled for ${blueprints.length} territories. ${itemNames.size} items to check price.`);
+      console.log(
+        `[HTTP] /api/map - Metadata assembled for ${blueprints.length} territories. ${itemNames.size} items to check price.`,
+      );
 
       // Fetch market prices if we have a guild API key
       const guildApiKeys = await getGuildApiKeys(map.guild_id);
-      const prices: { items: Record<string, number>; points: number } = { items: {}, points: 0 };
+      const prices: { items: Record<string, number>; points: number } = {
+        items: {},
+        points: 0,
+      };
 
       if (guildApiKeys.length > 0) {
         const apiKey = getNextApiKey(map.guild_id, guildApiKeys);
-        
+
         // Map item names to IDs and get existing values
         if (itemNames.size > 0) {
           const itemRecords = await sqlDb
@@ -1373,25 +1433,30 @@ export function initHttpServer(client: Client, port: number = 3001) {
             .select(["item_id", "name", "value"])
             .where("name", "in", Array.from(itemNames))
             .execute();
-          
+
           const itemIdMap: Record<number, string> = {};
           const missingPriceIds: number[] = [];
 
-          itemRecords.forEach(r => {
+          itemRecords.forEach((r) => {
             const name = r.name as string;
             const id = r.item_id as number;
             itemIdMap[id] = name;
-            
+
             if (r.value !== null && r.value !== undefined) {
               prices.items[name] = r.value as number;
             } else {
               missingPriceIds.push(id);
             }
           });
-          
+
           if (missingPriceIds.length > 0) {
-            console.log(`[HTTP] /api/map - Fetching ${missingPriceIds.length} missing market prices...`);
-            const marketPrices = await fetchMarketPrices(apiKey, missingPriceIds);
+            console.log(
+              `[HTTP] /api/map - Fetching ${missingPriceIds.length} missing market prices...`,
+            );
+            const marketPrices = await fetchMarketPrices(
+              apiKey,
+              missingPriceIds,
+            );
             Object.entries(marketPrices).forEach(([id, price]) => {
               const name = itemIdMap[Number(id)];
               if (name) prices.items[name] = price;
@@ -1403,7 +1468,9 @@ export function initHttpServer(client: Client, port: number = 3001) {
           const pointStart = Date.now();
           prices.points = await fetchPointPrice(apiKey);
           if (Date.now() - pointStart > 5000) {
-            console.log(`[HTTP] /api/map - Point price fetch took ${Date.now() - pointStart}ms`);
+            console.log(
+              `[HTTP] /api/map - Point price fetch took ${Date.now() - pointStart}ms`,
+            );
           }
         }
       }
@@ -1411,7 +1478,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
       console.log(`[HTTP] /api/map success - ${Date.now() - start}ms`);
       return res.json({
         map,
-        labels: labels.map(l => ({
+        labels: labels.map((l) => ({
           id: l.id as string,
           text: l.label_text,
           color: l.color_hex,
@@ -1419,11 +1486,11 @@ export function initHttpServer(client: Client, port: number = 3001) {
           territories: labelTerritories[l.id as string] || [],
           respect: 0,
           sectors: 0,
-          rackets: 0
+          rackets: 0,
         })),
         assignments,
         territoryMetadata,
-        prices
+        prices,
       });
     } catch (error) {
       console.error("[HTTP] Error fetching configuration:", error);
@@ -1434,36 +1501,40 @@ export function initHttpServer(client: Client, port: number = 3001) {
   // TT Selector Configuration Save Endpoint
   app.post("/api/map", mapRateLimiter, async (req: Request, res: Response) => {
     try {
-      const token = req.query.token as string;
-      if (!token) {
-        return res.status(401).json({ error: "Missing token" });
-      }
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const mapIdParam = req.query.mapId as string;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(sessionToken);
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
 
       const sqlDb = getKysely();
+      const mapId =
+        mapIdParam ||
+        (session.scope === "map"
+          ? session.target_path.split("mapId=")[1]
+          : null);
+      if (!mapId) return res.status(400).json({ error: "Missing map ID" });
 
-      const session = await sqlDb
-        .selectFrom(TABLE_NAMES.MAP_SESSIONS)
-        .selectAll()
-        .where("token", "=", token)
-        .where("expires_at", ">", new Date().toISOString())
-        .executeTakeFirst();
-
-      if (!session) {
-        return res.status(401).json({ error: "Invalid or expired token" });
+      if (
+        session.scope === "map" &&
+        !session.target_path.includes(`mapId=${mapId}`)
+      ) {
+        return res.status(403).json({ error: "Forbidden" });
       }
-
-      // Extend session expiry on save (30 min)
-      await sqlDb
-        .updateTable(TABLE_NAMES.MAP_SESSIONS)
-        .set({ expires_at: new Date(Date.now() + 1000 * 60 * 30).toISOString() })
-        .where("token", "=", token)
-        .execute();
 
       const { labels } = req.body;
 
       if (!Array.isArray(labels) || labels.length === 0) {
-        console.warn(`[HTTP] /api/map - Rejecting save: labels is missing or empty for map ${session.map_id}`);
-        return res.status(400).json({ error: "Invalid configuration: labels must be a non-empty array" });
+        console.warn(
+          `[HTTP] /api/map - Rejecting save: labels is missing or empty for map ${mapId}`,
+        );
+        return res.status(400).json({
+          error: "Invalid configuration: labels must be a non-empty array",
+        });
       }
 
       await sqlDb.transaction().execute(async (trx) => {
@@ -1471,35 +1542,48 @@ export function initHttpServer(client: Client, port: number = 3001) {
         // Delete territories first to avoid FK violation with labels
         await trx
           .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
-          .where("map_id", "=", session.map_id)
+          .where("map_id", "=", mapId)
           .execute();
 
         await trx
           .deleteFrom(TABLE_NAMES.MAP_LABELS)
-          .where("map_id", "=", session.map_id)
+          .where("map_id", "=", mapId)
           .execute();
 
         await trx
           .insertInto(TABLE_NAMES.MAP_LABELS)
-          .values(labels.map((l: { id: string; text: string; color: string; enabled: boolean }) => ({
-            id: l.id,
-            map_id: session.map_id,
-            label_text: l.text,
-            color_hex: l.color,
-            is_enabled: l.enabled ? 1 : 0
-          })))
+          .values(
+            labels.map(
+              (l: {
+                id: string;
+                text: string;
+                color: string;
+                enabled: boolean;
+              }) => ({
+                id: l.id,
+                map_id: mapId,
+                label_text: l.text,
+                color_hex: l.color,
+                is_enabled: l.enabled ? 1 : 0,
+              }),
+            ),
+          )
           .execute();
 
         // Insert territories from each label
-        const territoryValues: { map_id: string; territory_id: string; label_id: string }[] = [];
-        
+        const territoryValues: {
+          map_id: string;
+          territory_id: string;
+          label_id: string;
+        }[] = [];
+
         labels.forEach((l: { id: string; territories: string[] }) => {
           if (l.territories && l.territories.length > 0) {
-            l.territories.forEach(tid => {
+            l.territories.forEach((tid) => {
               territoryValues.push({
-                map_id: session.map_id as string,
+                map_id: mapId as string,
                 territory_id: tid,
-                label_id: l.id
+                label_id: l.id,
               });
             });
           }
@@ -1523,7 +1607,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         await trx
           .updateTable(TABLE_NAMES.MAPS)
           .set({ updated_at: new Date().toISOString() })
-          .where("id", "=", session.map_id)
+          .where("id", "=", mapId)
           .execute();
       });
 
@@ -1535,113 +1619,510 @@ export function initHttpServer(client: Client, port: number = 3001) {
   });
 
   // Duplicate Map Endpoint
-  app.post("/api/map/duplicate", mapRateLimiter, async (req: Request, res: Response) => {
+  app.post(
+    "/api/map/duplicate",
+    mapRateLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const token = req.query.token as string;
+        const { name } = req.body;
+
+        if (!token) return res.status(401).json({ error: "Missing token" });
+        if (!name) return res.status(400).json({ error: "Missing new name" });
+
+        const sqlDb = getKysely();
+        const session = await sqlDb
+          .selectFrom(TABLE_NAMES.MAP_SESSIONS)
+          .selectAll()
+          .where("token", "=", token)
+          .where("expires_at", ">", new Date().toISOString())
+          .executeTakeFirst();
+
+        if (!session) return res.status(401).json({ error: "Invalid session" });
+
+        const oldMapId = session.map_id;
+        const newMapId = randomUUID();
+
+        // Get old map metadata
+        const oldMap = await sqlDb
+          .selectFrom(TABLE_NAMES.MAPS)
+          .selectAll()
+          .where("id", "=", oldMapId)
+          .executeTakeFirst();
+
+        if (!oldMap) return res.status(404).json({ error: "Map not found" });
+
+        await sqlDb.transaction().execute(async (trx) => {
+          // Create new map
+          await trx
+            .insertInto(TABLE_NAMES.MAPS)
+            .values({
+              id: newMapId,
+              guild_id: oldMap.guild_id,
+              name: name,
+              created_by: oldMap.created_by,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .execute();
+
+          // Copy labels
+          const oldLabels = await trx
+            .selectFrom(TABLE_NAMES.MAP_LABELS)
+            .selectAll()
+            .where("map_id", "=", oldMapId)
+            .execute();
+
+          const labelIdMap: Record<string, string> = {};
+          if (oldLabels.length > 0) {
+            const newLabels = oldLabels.map((ol) => {
+              const newId = `label-${randomBytes(8).toString("hex")}`;
+              labelIdMap[ol.id] = newId;
+              return {
+                id: newId,
+                map_id: newMapId,
+                label_text: ol.label_text,
+                color_hex: ol.color_hex,
+                is_enabled: ol.is_enabled,
+                created_at: new Date().toISOString(),
+              };
+            });
+            await trx
+              .insertInto(TABLE_NAMES.MAP_LABELS)
+              .values(newLabels)
+              .execute();
+          }
+
+          // Copy territories
+          const oldTerritories = await trx
+            .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+            .selectAll()
+            .where("map_id", "=", oldMapId)
+            .execute();
+
+          if (oldTerritories.length > 0) {
+            const newTerritories = oldTerritories.map((ot) => ({
+              map_id: newMapId,
+              territory_id: ot.territory_id,
+              label_id: labelIdMap[ot.label_id] || ot.label_id,
+            }));
+
+            for (let i = 0; i < newTerritories.length; i += 500) {
+              await trx
+                .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+                .values(newTerritories.slice(i, i + 500))
+                .execute();
+            }
+          }
+        });
+
+        return res.json({ ok: true });
+      } catch (error) {
+        console.error("[HTTP] Error duplicating map:", error);
+        return res.status(500).json({ error: "Server error" });
+      }
+    },
+  );
+
+  const magicLinkService = new MagicLinkService(client);
+
+  // Magic Link Activation Route
+  app.get("/api/auth/magic-link", async (req: Request, res: Response) => {
+    const token = req.query.token as string;
+    const uiUrl = getUiUrl();
+
+    if (!token) {
+      return res.redirect(`${uiUrl}/?error=missing_token`);
+    }
+
     try {
-      const token = req.query.token as string;
-      const { name } = req.body;
-      
-      if (!token) return res.status(401).json({ error: "Missing token" });
-      if (!name) return res.status(400).json({ error: "Missing new name" });
+      const activation = await magicLinkService.activateToken(token);
+      if (!activation) {
+        return res.redirect(`${uiUrl}/?error=invalid_token`);
+      }
 
-      const sqlDb = getKysely();
-      const session = await sqlDb
-        .selectFrom(TABLE_NAMES.MAP_SESSIONS)
+      // Redirect to the target path with the session token
+      // The frontend will swap this for a persistent cookie or keep in localStorage
+      const redirectUrl = new URL(uiUrl + activation.targetPath);
+      redirectUrl.searchParams.set("session", activation.sessionToken);
+
+      res.redirect(redirectUrl.toString());
+    } catch (error) {
+      console.error("[AUTH] Error activated Magic Link:", error);
+      res.redirect(`${uiUrl}/?error=activation_failed`);
+    }
+  });
+
+  // Session Validation
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    try {
+      const session = await magicLinkService.validateSession(token);
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      // Fetch user profile from Discord cache/API (we only need basic info)
+      try {
+        const user = await client.users.fetch(session.discord_id);
+        res.json({
+          id: user.id,
+          username: user.username,
+          avatar: user.avatar,
+          global_name: user.globalName,
+          scope: session.scope,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (_err) {
+        // Fallback to minimal data if fetch fails
+        res.json({
+          id: session.discord_id,
+          username: "Unknown User",
+          avatar: null,
+          global_name: "Unknown User",
+          scope: session.scope,
+        });
+      }
+    } catch (error) {
+      console.error("[AUTH] Error validating session:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Guild Configuration API
+  app.get("/api/config", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    try {
+      const session = await magicLinkService.validateSession(token);
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+
+      let guildInfo = {
+        name: "Unknown Guild",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        channels: [] as any[],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        roles: [] as any[],
+      };
+      try {
+        const guild = await discordClient.guilds.fetch(guildId);
+        const channels = await guild.channels.fetch();
+        const roles = await guild.roles.fetch();
+
+        guildInfo = {
+          name: guild.name,
+          channels: Array.from(channels.values())
+            .filter((c) => c && c.isTextBased())
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((c: any) => ({ id: c.id, name: c.name })),
+          roles: Array.from(roles.values()).map((r) => ({
+            id: r.id,
+            name: r.name,
+          })),
+        };
+      } catch (err) {
+        console.error(`[HTTP] Failed to fetch guild info for ${guildId}:`, err);
+      }
+
+      // Get main config
+      const config = await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
         .selectAll()
-        .where("token", "=", token)
-        .where("expires_at", ">", new Date().toISOString())
+        .where("guild_id", "=", guildId)
         .executeTakeFirst();
 
-      if (!session) return res.status(401).json({ error: "Invalid session" });
-
-      const oldMapId = session.map_id;
-      const newMapId = randomUUID();
-
-      // Get old map metadata
-      const oldMap = await sqlDb
-        .selectFrom(TABLE_NAMES.MAPS)
-        .selectAll()
-        .where("id", "=", oldMapId)
-        .executeTakeFirst();
-
-      if (!oldMap) return res.status(404).json({ error: "Map not found" });
-
-      await sqlDb.transaction().execute(async (trx) => {
-        // Create new map
-        await trx
-          .insertInto(TABLE_NAMES.MAPS)
+      if (!config) {
+        // Create default config if missing
+        await db
+          .insertInto(TABLE_NAMES.GUILD_CONFIG)
           .values({
-            id: newMapId,
-            guild_id: oldMap.guild_id,
-            name: name,
-            created_by: oldMap.created_by,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            guild_id: guildId,
+            enabled_modules: JSON.stringify(["admin"]),
+            admin_role_ids: JSON.stringify([]),
           })
           .execute();
 
-        // Copy labels
-        const oldLabels = await trx
-          .selectFrom(TABLE_NAMES.MAP_LABELS)
-          .selectAll()
-          .where("map_id", "=", oldMapId)
-          .execute();
+        return res.json({
+          guild_id: guildId,
+          enabled_modules: ["admin"],
+          admin_role_ids: [],
+          api_keys: [],
+        });
+      }
 
-        const labelIdMap: Record<string, string> = {};
-        if (oldLabels.length > 0) {
-          const newLabels = oldLabels.map(ol => {
-            const newId = `label-${randomBytes(8).toString("hex")}`;
-            labelIdMap[ol.id] = newId;
-            return {
-              id: newId,
-              map_id: newMapId,
-              label_text: ol.label_text,
-              color_hex: ol.color_hex,
-              is_enabled: ol.is_enabled,
-              created_at: new Date().toISOString()
-            };
-          });
-          await trx.insertInto(TABLE_NAMES.MAP_LABELS).values(newLabels).execute();
-        }
-
-        // Copy territories
-        const oldTerritories = await trx
-          .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
-          .selectAll()
-          .where("map_id", "=", oldMapId)
-          .execute();
-
-        if (oldTerritories.length > 0) {
-          const newTerritories = oldTerritories.map(ot => ({
-            map_id: newMapId,
-            territory_id: ot.territory_id,
-            label_id: labelIdMap[ot.label_id] || ot.label_id
-          }));
-
-          for (let i = 0; i < newTerritories.length; i += 500) {
-            await trx
-              .insertInto(TABLE_NAMES.MAP_TERRITORIES)
-              .values(newTerritories.slice(i, i + 500))
-              .execute();
-          }
-        }
-      });
-
-      // Create new session for the copy
-      const newToken = randomBytes(32).toString("hex");
-      await sqlDb
-        .insertInto(TABLE_NAMES.MAP_SESSIONS)
-        .values({
-          token: newToken,
-          map_id: newMapId,
-          user_id: session.user_id,
-          expires_at: new Date(Date.now() + 1000 * 60 * 30).toISOString()
-        })
+      // Get API keys (masked)
+      const keys = await db
+        .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+        .select([
+          "id",
+          "provided_by",
+          "is_primary",
+          "invalid_count",
+          "created_at",
+        ])
+        .where("guild_id", "=", guildId)
+        .where("deleted_at", "is", null)
         .execute();
 
-      return res.json({ token: newToken });
+      // Resolve provided_by usernames
+      const keysWithNames = await Promise.all(
+        keys.map(async (key) => {
+          try {
+            const user = await discordClient.users.fetch(key.provided_by);
+            return {
+              ...key,
+              provided_by_name:
+                user?.globalName || user?.username || key.provided_by,
+            };
+          } catch {
+            return { ...key, provided_by_name: key.provided_by };
+          }
+        }),
+      );
+
+      res.json({
+        ...config,
+        guild_name: guildInfo.name,
+        channels: guildInfo.channels,
+        roles: guildInfo.roles,
+        enabled_modules:
+          typeof config.enabled_modules === "string"
+            ? JSON.parse(config.enabled_modules)
+            : config.enabled_modules,
+        admin_role_ids:
+          typeof config.admin_role_ids === "string"
+            ? JSON.parse(config.admin_role_ids)
+            : config.admin_role_ids,
+        api_keys: keysWithNames,
+      });
     } catch (error) {
-      console.error("[HTTP] Error duplicating map:", error);
-      return res.status(500).json({ error: "Server error" });
+      console.error("[HTTP] Error fetching config:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/config", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    try {
+      const session = await magicLinkService.validateSession(token);
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const {
+        log_channel_id,
+        admin_role_ids,
+        nickname_template,
+        enabled_modules,
+        auto_verify,
+      } = req.body;
+
+      // Get current config to compare
+      const currentConfig = await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateData: any = {
+        updated_at: new Date().toISOString(),
+      };
+
+      const changes: string[] = [];
+
+      if (
+        log_channel_id !== undefined &&
+        log_channel_id !== currentConfig?.log_channel_id
+      ) {
+        updateData.log_channel_id = log_channel_id;
+        changes.push("Log Channel");
+      }
+
+      if (admin_role_ids !== undefined) {
+        const newRolesStr = JSON.stringify(admin_role_ids);
+        if (newRolesStr !== currentConfig?.admin_role_ids) {
+          updateData.admin_role_ids = newRolesStr;
+          changes.push("Admin Roles");
+        }
+      }
+
+      if (
+        nickname_template !== undefined &&
+        nickname_template !== currentConfig?.nickname_template
+      ) {
+        updateData.nickname_template = nickname_template;
+        changes.push("Nickname Template");
+      }
+
+      if (enabled_modules !== undefined) {
+        const newModulesStr = JSON.stringify(enabled_modules);
+        if (newModulesStr !== currentConfig?.enabled_modules) {
+          updateData.enabled_modules = newModulesStr;
+          changes.push("Modules");
+        }
+      }
+
+      if (auto_verify !== undefined) {
+        const newVal = auto_verify ? 1 : 0;
+        if (newVal !== currentConfig?.auto_verify) {
+          updateData.auto_verify = newVal;
+          changes.push("Auto-Verify");
+        }
+      }
+
+      if (changes.length > 0) {
+        await db
+          .updateTable(TABLE_NAMES.GUILD_CONFIG)
+          .set(updateData)
+          .where("guild_id", "=", guildId)
+          .execute();
+
+        // Log the change
+        await logGuildSuccess(
+          guildId,
+          discordClient,
+          "System Configuration Updated",
+          `<@${session.discord_id}> updated the guild configuration via Web Dashboard.`,
+          [
+            {
+              name: "Updated Settings",
+              value: changes.join(", "),
+              inline: false,
+            },
+          ],
+        );
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[HTTP] Error updating config:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/config/api-keys", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    try {
+      const session = await magicLinkService.validateSession(token);
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const { api_key, is_primary } = req.body;
+      if (!api_key)
+        return res.status(400).json({ error: "API key is required" });
+
+      // Check current key count
+      const existingKeys = await getGuildApiKeys(session.guild_id);
+      if (existingKeys.length >= 5) {
+        return res
+          .status(400)
+          .json({ error: "Maximum of 5 API keys per guild" });
+      }
+
+      // Verification guard: Fetch key info to ensure it's valid and get the Torn ID
+      let keyInfo;
+      try {
+        keyInfo = await validateTornApiKey(api_key);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (err: any) {
+        return res.status(400).json({
+          error: `API Key Validation Failed: ${err.message}`,
+        });
+      }
+
+      const primaryBool = !!is_primary;
+      await storeGuildApiKey(
+        session.guild_id,
+        api_key,
+        keyInfo.playerId,
+        session.discord_id,
+        primaryBool,
+      );
+
+      // Log the addition (mask the key)
+      const maskedKey = `...${api_key.slice(-4)}`;
+      await logGuildSuccess(
+        session.guild_id,
+        discordClient,
+        "API Key Added",
+        `<@${session.discord_id}> added a new Torn API key (${maskedKey}) via Web Dashboard.`,
+      );
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[HTTP] Error storing API key:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.delete("/api/config/api-keys", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    try {
+      const session = await magicLinkService.validateSession(token);
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const { api_key_id } = req.body;
+      if (!api_key_id)
+        return res.status(400).json({ error: "API key ID is required" });
+
+      const keyRecord = await db
+        .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
+        .selectAll()
+        .where("id", "=", api_key_id)
+        .where("guild_id", "=", session.guild_id)
+        .executeTakeFirst();
+
+      await db
+        .updateTable(TABLE_NAMES.GUILD_API_KEYS)
+        .set({ deleted_at: new Date().toISOString() })
+        .where("id", "=", api_key_id)
+        .where("guild_id", "=", session.guild_id)
+        .execute();
+
+      // Log the removal
+      if (keyRecord) {
+        let ownerLabel = keyRecord.provided_by || "Unknown";
+        try {
+          const owner = await discordClient.users.fetch(keyRecord.provided_by);
+          ownerLabel =
+            owner?.globalName || owner?.username || keyRecord.provided_by;
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (e) {
+          // Fallback to mention if resolution fails
+          ownerLabel = `<@${keyRecord.provided_by}>`;
+        }
+
+        await logGuildAction(session.guild_id, discordClient, {
+          title: "API Key Removed",
+          description: `<@${session.discord_id}> removed a Torn API key via Web Dashboard.`,
+          color: 0xef4444, // Red
+          fields: [
+            {
+              name: "Owned By",
+              value: ownerLabel,
+              inline: true,
+            },
+          ],
+        });
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[HTTP] Error deleting API key:", error);
+      res.status(500).json({ error: "Server error" });
     }
   });
 

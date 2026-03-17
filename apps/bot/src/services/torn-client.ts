@@ -67,9 +67,6 @@ const rateLimiter = new BotSqliteRateLimiter();
 
 export interface ValidatedKeyInfo {
   playerId: number;
-  playerName: string;
-  isDonator: boolean;
-  accessLevel: number;
 }
 
 /**
@@ -103,32 +100,15 @@ export async function validateTornApiKey(
     throw new Error("API Key must be exactly 16 alphanumeric characters");
   }
 
-  // Fetch key info from Torn API
+  // Fetch key info from Torn API to verify key and get player ID
   const keyData = await tornApi.get("/key/info", { apiKey });
 
   // Validate response structure
-  if (!keyData.info?.user?.id || keyData.info.access === undefined) {
+  if (!keyData.info?.user?.id) {
     throw new Error("Invalid response from Torn API");
   }
 
-  // Check access level (must be 3 or 4)
-  if (keyData.info.access.level < 3) {
-    throw new Error(
-      `Insufficient permissions: Access level ${keyData.info.access.level}. Required: Limited Access (3) or Full Access (4)`,
-    );
-  }
-
-  // Fetch user profile to get name and donator status
-  const userData = await tornApi.get("/user/profile", { apiKey });
-
-  if (!userData.profile?.name || !userData.profile?.id) {
-    throw new Error("Invalid user profile response from Torn API");
-  }
-
   return {
-    playerId: userData.profile.id,
-    playerName: userData.profile.name,
-    isDonator: userData.profile.donator_status === "Donator",
-    accessLevel: keyData.info.access.level,
+    playerId: keyData.info.user.id,
   };
 }

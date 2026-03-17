@@ -30,22 +30,8 @@ export async function handleButtonInteraction(
     await configCommand.handleBackToMenu(interaction);
   } else if (customId === "config_back_verify_settings") {
     await configCommand.handleBackToVerifySettings(interaction);
-  } else if (customId === "config_back_admin_settings") {
-    await configCommand.handleBackToAdminSettings(interaction);
-  } else if (customId === "config_edit_api_keys") {
-    await configCommand.handleEditApiKeysButton(interaction);
-  } else if (customId === "config_edit_log_channel") {
-    await configCommand.handleEditLogChannelButton(interaction);
-  } else if (customId === "config_clear_log_channel") {
-    await configCommand.handleClearLogChannel(interaction);
-  } else if (customId === "config_edit_admin_roles") {
-    await configCommand.handleEditAdminRolesButton(interaction);
-  } else if (customId === "config_add_api_key") {
-    await configCommand.handleAddApiKeyButton(interaction);
-  } else if (customId === "config_rotate_api_key") {
-    await configCommand.handleRotateApiKeyButton(interaction);
-  } else if (customId === "config_remove_api_key_menu") {
-    await configCommand.handleRemoveApiKeyMenuButton(interaction);
+  } else if (customId === "config_open_dashboard") {
+    await configCommand.handleOpenDashboard(interaction);
   } else if (customId === "config_add_faction_role") {
     await configCommand.handleAddFactionRoleButton(interaction);
   } else if (customId === "config_remove_faction_role") {
@@ -188,9 +174,7 @@ export async function handleModalSubmitInteraction(
   const { customId } = interaction;
 
   // Config command modals
-  if (customId.startsWith("config_add_api_key_modal")) {
-    await configCommand.handleAddApiKeyModalSubmit(interaction);
-  } else if (customId === "config_nickname_template_modal") {
+    if (customId === "config_nickname_template_modal") {
     await configCommand.handleNicknameTemplateModalSubmit(interaction);
   } else if (customId === "config_add_faction_role_modal") {
     await configCommand.handleAddFactionRoleModalSubmit(interaction);
@@ -259,12 +243,10 @@ export async function handleStringSelectMenuInteraction(
     await removeModuleCommand.handleModuleRemove(interaction, client);
   }
   // Config command selects
-  else if (customId === "config_view_select") {
+  if (customId === "config_view_select") {
     await configCommand.handleViewSelect(interaction);
   } else if (customId === "verify_settings_edit") {
     await configCommand.handleVerifySettingsEdit(interaction);
-  } else if (customId === "config_remove_api_key_select") {
-    await configCommand.handleRemoveApiKeySelect(interaction);
   } else if (customId === "config_faction_manage_select") {
     await configCommand.handleFactionManageSelect(interaction);
   } else if (customId === "tt_settings_edit") {
@@ -329,8 +311,6 @@ export async function handleRoleSelectMenuInteraction(
     await configCommand.handleFactionLeaderRolesSelect(interaction);
   } else if (customId === "config_verified_role_select") {
     await configCommand.handleVerifiedRoleSelect(interaction);
-  } else if (customId === "config_admin_roles_select") {
-    await configCommand.handleAdminRolesSelect(interaction);
   } else if (customId === "reaction_roles_allowed_select") {
     await configCommand.handleAllowedRolesSelect(interaction);
   } else if (customId.startsWith("reaction_role_mapping_role_select|")) {
@@ -360,9 +340,7 @@ export async function handleChannelSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId === "config_log_channel_select") {
-    await configCommand.handleLogChannelSelect(interaction);
-  } else if (customId === "config_faction_list_channel_select") {
+  if (customId === "config_faction_list_channel_select") {
     await configCommand.handleFactionListChannelSelect(interaction);
   } else if (customId === "tt_full_channel_select") {
     await configCommand.handleTTFullChannelSelect(interaction);
