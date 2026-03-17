@@ -23,6 +23,7 @@ import { db } from "../../../lib/db-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getPainterUrl } from "../../../lib/bot-config.js";
 import { randomBytes, randomUUID } from "crypto";
+import { MagicLinkService } from "../../../lib/services/magic-link-service.js";
 
 export const data = new SlashCommandBuilder()
   .setName("tt-selector")
@@ -276,7 +277,7 @@ export async function handleButtonInteraction(
 export async function handleStringSelectMenuInteraction(
   interaction: StringSelectMenuInteraction,
 ): Promise<void> {
-  const { customId, values, user } = interaction;
+  const { customId, values, user, guildId } = interaction;
   const mapId = values[0];
 
   if (customId === "tt_selector_edit_select") {
@@ -295,8 +296,14 @@ export async function handleStringSelectMenuInteraction(
       return;
     }
 
-    const token = await createSession(mapId, user.id);
-    const painterUrl = `${getPainterUrl()}/selector?token=${token}`;
+    const magicLinkService = new MagicLinkService(interaction.client);
+    const token = await magicLinkService.createToken({
+      discordId: user.id,
+      guildId: guildId!,
+      scope: 'map',
+      targetPath: `/selector?mapId=${mapId}`
+    });
+    const painterUrl = `${getPainterUrl()}/?token=${token}`;
 
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
@@ -533,8 +540,14 @@ export async function handleModalSubmitInteraction(
       })
       .execute();
 
-    const token = await createSession(mapId, user.id);
-    const painterUrl = `${getPainterUrl()}/selector?token=${token}`;
+    const magicLinkService = new MagicLinkService(interaction.client);
+    const token = await magicLinkService.createToken({
+      discordId: user.id,
+      guildId: guildId!,
+      scope: 'map',
+      targetPath: `/selector?mapId=${mapId}`
+    });
+    const painterUrl = `${getPainterUrl()}/?token=${token}`;
 
     const embed = new EmbedBuilder()
       .setColor(0x22c55e)
@@ -620,8 +633,14 @@ export async function handleModalSubmitInteraction(
       }
     }
 
-    const token = await createSession(newMapId, user.id);
-    const painterUrl = `${getPainterUrl()}/selector?token=${token}`;
+    const magicLinkService = new MagicLinkService(interaction.client);
+    const token = await magicLinkService.createToken({
+      discordId: user.id,
+      guildId: guildId!,
+      scope: 'map',
+      targetPath: `/selector?mapId=${newMapId}`
+    });
+    const painterUrl = `${getPainterUrl()}/?token=${token}`;
 
     const embed = new EmbedBuilder()
       .setColor(0x22c55e)
@@ -637,25 +656,3 @@ export async function handleModalSubmitInteraction(
   }
 }
 
-/**
- * Generates a secure session token and saves it to the database.
- */
-export async function createSession(
-  mapId: string,
-  userId: string,
-): Promise<string> {
-  const token = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString(); // 30 minutes
-
-  await db
-    .insertInto(TABLE_NAMES.MAP_SESSIONS)
-    .values({
-      token,
-      map_id: mapId,
-      user_id: userId,
-      expires_at: expiresAt,
-    })
-    .execute();
-
-  return token;
-}

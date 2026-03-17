@@ -22,32 +22,21 @@ import {
 } from "discord.js";
 import { randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { decrypt } from "../../../lib/encryption.js";
-import {
-  getGuildApiKeys,
-  storeGuildApiKey,
-  deleteGuildApiKey,
-} from "../../../lib/guild-api-keys.js";
+import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 import {
   fetchAndStoreFactionNames,
   validateAndFetchFactionDetails,
   storeFactionDetails,
 } from "../../../lib/faction-utils.js";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
-import { validateTornApiKey } from "../../../services/torn-client.js";
 import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
 import * as assistHandlers from "./handlers/assist.js";
 import { db } from "../../../lib/db-client.js";
 import { updateFactionList } from "../../../lib/faction-list-manager.js";
-
-interface StoredGuildApiKey {
-  id: string;
-  api_key_encrypted: string;
-  is_primary: boolean;
-  createdAt: string;
-}
+import { MagicLinkService } from "../../../lib/services/magic-link-service.js";
+import { getApiUrl } from "../../../lib/bot-config.js";
 
 interface GuildConfigView {
   log_channel_id: string | null;
@@ -56,46 +45,6 @@ interface GuildConfigView {
   verified_role_id: string | null;
   nickname_template: string | null;
   faction_list_channel_id: string | null;
-}
-
-async function getStoredGuildApiKeys(
-  guildId: string,
-): Promise<StoredGuildApiKey[]> {
-  try {
-    const rows = await db
-      .selectFrom(TABLE_NAMES.GUILD_API_KEYS)
-      .select(["id", "api_key_encrypted", "is_primary", "created_at"])
-      .where("guild_id", "=", guildId)
-      .where("deleted_at", "is", null)
-      .orderBy("is_primary", "desc")
-      .orderBy("created_at", "asc")
-      .execute();
-
-    return rows.map((row) => ({
-      id: row.id,
-      api_key_encrypted: row.api_key_encrypted,
-      is_primary: Boolean(row.is_primary),
-      createdAt: row.created_at as string,
-    }));
-  } catch (error) {
-    console.error("Error fetching guild API keys:", error);
-    return [];
-  }
-}
-
-async function getActiveGuildApiKey(
-  guildId: string,
-): Promise<string | undefined> {
-  const apiKeys = await getGuildApiKeys(guildId);
-  return apiKeys.length > 0 ? apiKeys[0] : undefined;
-}
-
-function getApiKeyFingerprint(encrypted: string): string {
-  try {
-    return decrypt(encrypted).slice(-4);
-  } catch {
-    return "????";
-  }
 }
 
 const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
@@ -107,12 +56,7 @@ if (!botOwnerId) {
 function buildConfigViewMenuRow(
   enabledModules: string[] = [],
 ): ActionRowBuilder<StringSelectMenuBuilder> {
-  const options: StringSelectMenuOptionBuilder[] = [
-    new StringSelectMenuOptionBuilder()
-      .setLabel("Admin Settings")
-      .setValue("admin")
-      .setDescription("Manage administrative settings"),
-  ];
+  const options: StringSelectMenuOptionBuilder[] = [];
 
   if (enabledModules.includes("verify")) {
     options.push(
@@ -255,18 +199,32 @@ export async function execute(
     const row = buildConfigViewMenuRow(enabledModules);
 
     const menuEmbed = new EmbedBuilder()
-      .setColor(0x3b82f6)
-      .setTitle("Guild Configuration")
-      .setDescription("Select a settings section to manage")
+      .setColor(0x8b5cf6)
+      .setTitle("Sentinel Command Center")
+      .setDescription(
+        "Manage your guild configuration via Discord or the high-performance Web Dashboard.",
+      )
+      .addFields({
+        name: "Web Dashboard",
+        value:
+          "Access advanced configuration, map painting, and member management securely via your browser.",
+      })
       .setFooter({
         text: isAdminGuild
-          ? "Admin Guild - Full control available"
-          : "Contact Blasted to modify",
+          ? "System Administrator Mode // All Modules Unlocked"
+          : "Server Management // Secure Auth Enabled",
       });
+
+    const webDashboardRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("config_open_dashboard")
+        .setLabel("Launch Web Dashboard")
+        .setStyle(ButtonStyle.Success),
+    );
 
     await interaction.editReply({
       embeds: [menuEmbed],
-      components: [row],
+      components: [row, webDashboardRow],
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -375,9 +333,7 @@ export async function handleViewSelect(
       return;
     }
 
-    if (selectedView === "admin") {
-      await showAdminSettings(interaction, guildConfig);
-    } else if (selectedView === "verify") {
+    if (selectedView === "verify") {
       await showVerifySettings(interaction, guildConfig);
     } else if (selectedView === "territories") {
       await territoryHandlers.handleShowTTSettings(interaction);
@@ -406,98 +362,6 @@ export async function handleViewSelect(
   }
 }
 
-async function showAdminSettings(
-  interaction: StringSelectMenuInteraction,
-  guildConfig: GuildConfigView,
-): Promise<void> {
-  const guildId = interaction.guildId;
-  const apiKeys = guildId ? await getStoredGuildApiKeys(guildId) : [];
-
-  let apiKeyDisplay = "No keys configured";
-  if (apiKeys.length > 0) {
-    apiKeyDisplay = apiKeys
-      .map((k) => {
-        const status = k.is_primary
-          ? "<:Green:1474607376140079104>"
-          : "<:Red:1474607810368114886>";
-        return `${status} ...${getApiKeyFingerprint(k.api_key_encrypted)}`;
-      })
-      .join("\n");
-  }
-
-  const logChannelDisplay = guildConfig.log_channel_id
-    ? `<#${guildConfig.log_channel_id}>`
-    : "Not configured";
-
-  // Format admin roles display
-  const adminRoleIds: string[] =
-    typeof guildConfig.admin_role_ids === "string"
-      ? JSON.parse(guildConfig.admin_role_ids)
-      : guildConfig.admin_role_ids || [];
-  let adminRolesDisplay = "Not configured (anyone can use config)";
-  if (adminRoleIds.length > 0) {
-    adminRolesDisplay = adminRoleIds
-      .map((roleId) => `<@&${roleId}>`)
-      .join(", ");
-  }
-
-  const adminEmbed = new EmbedBuilder()
-    .setColor(0x8b5cf6)
-    .setTitle("Admin Settings")
-    .addFields(
-      {
-        name: "API Keys",
-        value: apiKeyDisplay,
-        inline: false,
-      },
-      {
-        name: "Log Channel",
-        value: logChannelDisplay,
-        inline: false,
-      },
-      {
-        name: "Admin Roles",
-        value: adminRolesDisplay,
-        inline: false,
-      },
-    )
-    .setFooter({
-      text: "API keys are encrypted and stored securely",
-    });
-
-  const editKeysBtn = new ButtonBuilder()
-    .setCustomId("config_edit_api_keys")
-    .setLabel("Manage API Keys")
-    .setStyle(ButtonStyle.Primary);
-
-  const editLogChannelBtn = new ButtonBuilder()
-    .setCustomId("config_edit_log_channel")
-    .setLabel("Edit Log Channel")
-    .setStyle(ButtonStyle.Primary);
-
-  const editAdminRolesBtn = new ButtonBuilder()
-    .setCustomId("config_edit_admin_roles")
-    .setLabel("Manage Admin Roles")
-    .setStyle(ButtonStyle.Primary);
-
-  const backBtn = new ButtonBuilder()
-    .setCustomId("config_back_to_menu")
-    .setLabel("Back")
-    .setStyle(ButtonStyle.Secondary);
-
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    editKeysBtn,
-    editLogChannelBtn,
-    editAdminRolesBtn,
-    backBtn,
-  );
-
-  await interaction.editReply({
-    embeds: [adminEmbed],
-    components: [row],
-  });
-}
-
 async function showVerifySettings(
   interaction:
     | StringSelectMenuInteraction
@@ -518,7 +382,7 @@ async function showVerifySettings(
     .execute();
 
   const guildId = interaction.guildId;
-  const apiKeys = guildId ? await getStoredGuildApiKeys(guildId) : [];
+  const apiKeys = guildId ? await getGuildApiKeys(guildId) : [];
   const hasApiKey = apiKeys.length > 0;
 
   // Format faction roles display - show count instead of listing
@@ -704,7 +568,7 @@ export async function handleBackToVerifySettings(
       .orderBy("faction_id", "asc")
       .execute();
 
-    const apiKeys = await getStoredGuildApiKeys(guildId);
+    const apiKeys = await getGuildApiKeys(guildId);
     const hasApiKey = apiKeys.length > 0;
 
     let factionRolesDisplay = "None configured";
@@ -712,7 +576,7 @@ export async function handleBackToVerifySettings(
       // Fetch faction names for display (if API key available)
       const missingNames = factionRoles.filter((fr) => !fr.faction_name);
       if (missingNames.length > 0) {
-        const activeApiKey = await getActiveGuildApiKey(guildId);
+        const activeApiKey = (await getGuildApiKeys(guildId))[0];
         if (activeApiKey) {
           try {
             const factionIds = missingNames.map((fr) => fr.faction_id);
@@ -866,114 +730,6 @@ export async function handleBackToVerifySettings(
   }
 }
 
-export async function handleBackToAdminSettings(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-    if (!guildId) return;
-
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
-
-    if (!guildConfig) return;
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
-
-    let apiKeyDisplay = "No keys configured";
-    if (apiKeys.length > 0) {
-      apiKeyDisplay = apiKeys
-        .map((k) => {
-          const status = k.is_primary
-            ? "<:Green:1474607376140079104>"
-            : "<:Red:1474607810368114886>";
-          return `${status} ...${getApiKeyFingerprint(k.api_key_encrypted)}`;
-        })
-        .join("\n");
-    }
-
-    const logChannelDisplay = guildConfig.log_channel_id
-      ? `<#${guildConfig.log_channel_id}>`
-      : "Not configured";
-
-    // Format admin roles display
-    const adminRoleIds: string[] =
-      typeof guildConfig.admin_role_ids === "string"
-        ? JSON.parse(guildConfig.admin_role_ids)
-        : guildConfig.admin_role_ids || [];
-    let adminRolesDisplay = "Not configured (anyone can use config)";
-    if (adminRoleIds.length > 0) {
-      adminRolesDisplay = adminRoleIds
-        .map((roleId) => `<@&${roleId}>`)
-        .join(", ");
-    }
-
-    const adminEmbed = new EmbedBuilder()
-      .setColor(0x8b5cf6)
-      .setTitle("Admin Settings")
-      .addFields(
-        {
-          name: "API Keys",
-          value: apiKeyDisplay,
-          inline: false,
-        },
-        {
-          name: "Log Channel",
-          value: logChannelDisplay,
-          inline: false,
-        },
-        {
-          name: "Admin Roles",
-          value: adminRolesDisplay,
-          inline: false,
-        },
-      )
-      .setFooter({
-        text: "API keys are encrypted and stored securely",
-      });
-
-    const editKeysBtn = new ButtonBuilder()
-      .setCustomId("config_edit_api_keys")
-      .setLabel("Manage API Keys")
-      .setStyle(ButtonStyle.Primary);
-
-    const editLogChannelBtn = new ButtonBuilder()
-      .setCustomId("config_edit_log_channel")
-      .setLabel("Edit Log Channel")
-      .setStyle(ButtonStyle.Primary);
-
-    const editAdminRolesBtn = new ButtonBuilder()
-      .setCustomId("config_edit_admin_roles")
-      .setLabel("Manage Admin Roles")
-      .setStyle(ButtonStyle.Primary);
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("config_back_to_menu")
-      .setLabel("Back")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      editKeysBtn,
-      editLogChannelBtn,
-      editAdminRolesBtn,
-      backBtn,
-    );
-
-    await interaction.editReply({
-      embeds: [adminEmbed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in back to admin settings handler:", errorMsg);
-  }
-}
-
 // Handler for verify settings edit menu
 export async function handleVerifySettingsEdit(
   interaction: StringSelectMenuInteraction,
@@ -1018,7 +774,7 @@ export async function handleVerifySettingsEdit(
     }
 
     // Extract active API key for faction lookups
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     if (selectedSetting === "edit_auto_verify") {
       await interaction.deferUpdate();
@@ -1142,9 +898,10 @@ export async function handleVerifySettingsEdit(
         .setPlaceholder("Select a channel for faction list")
         .addChannelTypes(ChannelType.GuildText);
 
-      const row = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
-        channelSelect,
-      );
+      const row =
+        new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+          channelSelect,
+        );
 
       await interaction.editReply({
         embeds: [embed],
@@ -1572,536 +1329,7 @@ export async function handleVerifySettingsEditCancel(
   }
 }
 
-// Handler for API key management
-export async function handleEditApiKeysButton(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-
-    if (!guildId) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Unable to determine guild.");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
-
-    if (!guildConfig) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Guild configuration not found.");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
-    const apiKeysView = buildApiKeysView(apiKeys);
-
-    await interaction.editReply(apiKeysView);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in edit API keys handler:", errorMsg);
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("Error")
-      .setDescription(errorMsg);
-
-    await interaction.editReply({
-      embeds: [errorEmbed],
-      components: [],
-    });
-  }
-}
-
-// Handler for adding new API key
-export async function handleAddApiKeyButton(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    const messageId = interaction.message?.id;
-    const modalId = messageId
-      ? `config_add_api_key_modal:${messageId}`
-      : "config_add_api_key_modal";
-    const modal = new ModalBuilder()
-      .setCustomId(modalId)
-      .setTitle("Add New API Key");
-
-    const apiKeyInput = new TextInputBuilder()
-      .setCustomId("new_api_key_input")
-      .setLabel("Torn API Key")
-      .setPlaceholder("Enter your 16-character Torn API key")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true)
-      .setMaxLength(16)
-      .setMinLength(16);
-
-    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(
-      apiKeyInput,
-    );
-    modal.addComponents(row);
-
-    await interaction.showModal(modal);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in add API key button handler:", errorMsg);
-  }
-}
-
-// Handler for adding API key modal submission
-export async function handleAddApiKeyModalSubmit(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const apiKey = interaction.fields.getTextInputValue("new_api_key_input");
-    const guildId = interaction.guildId;
-
-    if (!guildId) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Unable to determine guild.");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-      });
-      return;
-    }
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
-
-    if (apiKeys.length >= 5) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Maximum of 5 API keys per guild");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-      });
-      return;
-    }
-
-    const keyInfo = await validateTornApiKey(apiKey);
-    const fingerprint = apiKey.slice(-4);
-    try {
-      await storeGuildApiKey(
-        guildId,
-        apiKey,
-        keyInfo.playerId,
-        interaction.user.id,
-        apiKeys.length === 0,
-      );
-    } catch (error) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Failed to Add Key")
-        .setDescription(error instanceof Error ? error.message : String(error));
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-      });
-      return;
-    }
-
-    await logGuildAudit({
-      guildId,
-      actorId: interaction.user.id,
-      action: "api_key_added",
-      details: {
-        fingerprint,
-        isActive: apiKeys.length === 0,
-        totalKeys: apiKeys.length + 1,
-      },
-    });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("API Key Added")
-      .setDescription(
-        `New key added: **...${fingerprint}**\n\n${apiKeys.length === 0 ? "This key is now active" : "This key is inactive. Use Rotate to activate it"}`,
-      );
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("config_back_admin_settings")
-      .setLabel("Back to Admin Settings")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in add API key modal handler:", errorMsg);
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("Error")
-      .setDescription(errorMsg);
-
-    await interaction.editReply({
-      embeds: [errorEmbed],
-    });
-  }
-}
-
-function buildApiKeysView(apiKeys: StoredGuildApiKey[]): {
-  embeds: EmbedBuilder[];
-  components: ActionRowBuilder<ButtonBuilder>[];
-} {
-  let keysDisplay = "No keys configured";
-  if (apiKeys.length > 0) {
-    keysDisplay = apiKeys
-      .map((k, idx: number) => {
-        const status = k.is_primary
-          ? "<:Green:1474607376140079104>"
-          : "<:Red:1474607810368114886>";
-        const fingerprint = getApiKeyFingerprint(k.api_key_encrypted);
-        return `${idx + 1}. ${status} ...${fingerprint} (${new Date(k.createdAt).toLocaleDateString()})`;
-      })
-      .join("\n");
-  }
-
-  const keysEmbed = new EmbedBuilder()
-    .setColor(0x8b5cf6)
-    .setTitle("API Key Management")
-    .addFields({
-      name: `Keys (${apiKeys.length}/5)`,
-      value: keysDisplay,
-      inline: false,
-    })
-    .setFooter({
-      text: "Manage API keys for verification. Green = active, Red = inactive",
-    });
-
-  const addBtn = new ButtonBuilder()
-    .setCustomId("config_add_api_key")
-    .setLabel("Add New Key")
-    .setStyle(ButtonStyle.Success)
-    .setDisabled(apiKeys.length >= 5);
-
-  const rotateBtn = new ButtonBuilder()
-    .setCustomId("config_rotate_api_key")
-    .setLabel("Rotate Active Key")
-    .setStyle(ButtonStyle.Primary)
-    .setDisabled(apiKeys.length < 2);
-
-  const removeBtn = new ButtonBuilder()
-    .setCustomId("config_remove_api_key_menu")
-    .setLabel("Remove Key")
-    .setStyle(ButtonStyle.Danger)
-    .setDisabled(apiKeys.length === 0);
-
-  const backBtn = new ButtonBuilder()
-    .setCustomId("config_back_to_menu")
-    .setLabel("Back")
-    .setStyle(ButtonStyle.Secondary);
-
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    addBtn,
-    rotateBtn,
-    removeBtn,
-    backBtn,
-  );
-
-  return { embeds: [keysEmbed], components: [row] };
-}
-
-// Handler for rotating API key
-export async function handleRotateApiKeyButton(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-
-    if (!guildId) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Unable to determine guild.");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
-
-    if (apiKeys.length < 2) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("Need at least 2 keys to rotate");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    // Find current active key and next inactive key
-    const currentActiveIdx = apiKeys.findIndex((k) => k.is_primary);
-    const nextInactiveIdx = apiKeys.findIndex(
-      (k, idx) => !k.is_primary && idx !== currentActiveIdx,
-    );
-
-    if (nextInactiveIdx === -1) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Error")
-        .setDescription("No inactive keys available to rotate to");
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    const fromFingerprint = getApiKeyFingerprint(
-      apiKeys[currentActiveIdx].api_key_encrypted,
-    );
-    const toFingerprint = getApiKeyFingerprint(
-      apiKeys[nextInactiveIdx].api_key_encrypted,
-    );
-
-    try {
-      await db
-        .updateTable(TABLE_NAMES.GUILD_API_KEYS)
-        .set({ is_primary: 0 })
-        .where("guild_id", "=", guildId)
-        .where("deleted_at", "is", null)
-        .execute();
-
-      await db
-        .updateTable(TABLE_NAMES.GUILD_API_KEYS)
-        .set({ is_primary: 1 })
-        .where("id", "=", apiKeys[nextInactiveIdx].id)
-        .where("guild_id", "=", guildId)
-        .where("deleted_at", "is", null)
-        .execute();
-    } catch (error) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Failed to Rotate Key")
-        .setDescription(error instanceof Error ? error.message : String(error));
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    await logGuildAudit({
-      guildId,
-      actorId: interaction.user.id,
-      action: "api_key_rotated",
-      details: {
-        from: fromFingerprint,
-        to: toFingerprint,
-      },
-    });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("API Key Rotated")
-      .setDescription(
-        `Switched from ...${fromFingerprint} to ...${toFingerprint}`,
-      );
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("config_back_admin_settings")
-      .setLabel("Back to Admin Settings")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in rotate API key handler:", errorMsg);
-  }
-}
-
-// Handler for removing API key
-export async function handleRemoveApiKeyMenuButton(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-
-    if (!guildId) {
-      return;
-    }
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
-
-    if (apiKeys.length === 0) {
-      return;
-    }
-
-    const options = apiKeys.map((k) => {
-      const status = k.is_primary ? "🟢" : "🔴";
-      const fingerprint = getApiKeyFingerprint(k.api_key_encrypted);
-      return new StringSelectMenuOptionBuilder()
-        .setLabel(`${status} ...${fingerprint}`)
-        .setValue(`remove_key_${k.id}`);
-    });
-
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("config_remove_api_key_select")
-      .setPlaceholder("Select key to remove...")
-      .addOptions(options);
-
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      selectMenu,
-    );
-
-    const embed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("Remove API Key")
-      .setDescription("Select which key to remove:");
-
-    await interaction.editReply({
-      embeds: [embed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in remove API key menu handler:", errorMsg);
-  }
-}
-
-// Handler for removing API key selection
-export async function handleRemoveApiKeySelect(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const guildId = interaction.guildId;
-    const keyId = interaction.values[0].replace("remove_key_", "");
-
-    if (!guildId) {
-      return;
-    }
-
-    const apiKeys = await getStoredGuildApiKeys(guildId);
-    const removedKey = apiKeys.find((key) => key.id === keyId);
-
-    if (!removedKey) {
-      return;
-    }
-
-    const removedFingerprint = getApiKeyFingerprint(
-      removedKey.api_key_encrypted,
-    );
-    const removedWasActive = removedKey.is_primary;
-    const removedRawKey = decrypt(removedKey.api_key_encrypted);
-
-    let error: Error | null = null;
-    try {
-      await deleteGuildApiKey(guildId, removedRawKey);
-    } catch (deleteError) {
-      error =
-        deleteError instanceof Error
-          ? deleteError
-          : new Error(String(deleteError));
-    }
-
-    if (error) {
-      const errorEmbed = new EmbedBuilder()
-        .setColor(0xef4444)
-        .setTitle("Failed to Remove Key")
-        .setDescription(error.message);
-
-      await interaction.editReply({
-        embeds: [errorEmbed],
-        components: [],
-      });
-      return;
-    }
-
-    if (removedWasActive) {
-      const remainingKeys = await getStoredGuildApiKeys(guildId);
-      if (remainingKeys.length > 0) {
-        await db
-          .updateTable(TABLE_NAMES.GUILD_API_KEYS)
-          .set({ is_primary: 1 })
-          .where("id", "=", remainingKeys[0].id)
-          .where("guild_id", "=", guildId)
-          .where("deleted_at", "is", null)
-          .execute();
-      }
-    }
-
-    await logGuildAudit({
-      guildId,
-      actorId: interaction.user.id,
-      action: "api_key_removed",
-      details: {
-        fingerprint: removedFingerprint,
-        wasActive: removedWasActive,
-        totalKeys: Math.max(apiKeys.length - 1, 0),
-      },
-    });
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("API Key Removed")
-      .setDescription(`Removed key: ...${removedFingerprint}`);
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("config_back_admin_settings")
-      .setLabel("Back to Admin Settings")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in remove API key select handler:", errorMsg);
-  }
-}
-
-// Old handlers for backwards compatibility - still need faction role and sync interval handlers
+// Faction role and sync interval handlers
 export async function handleAddFactionRoleButton(
   interaction: ButtonInteraction,
 ): Promise<void> {
@@ -2191,7 +1419,7 @@ export async function handleAddFactionRoleModalSubmit(
       return;
     }
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     // Validate that the faction exists in Torn
     if (!apiKey) {
@@ -2461,7 +1689,7 @@ export async function handleFactionRoleSelect(
 
     const roleIds = interaction.values;
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     // Fetch faction details
     let factionName = "Unknown";
@@ -3332,7 +2560,7 @@ export async function handleFactionManageSelect(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3350,7 +2578,7 @@ export async function handleFactionManageBack(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     await showFactionRoleMenu(interaction, guildId, apiKey);
   } catch (error) {
@@ -3412,7 +2640,7 @@ export async function handleFactionToggle(
     // Trigger faction list update
     await updateFactionList(guildId, interaction.client);
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3571,7 +2799,7 @@ export async function handleFactionMemberRolesSelect(
       details: { factionId, roleIds },
     });
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3620,7 +2848,7 @@ export async function handleFactionLeaderRolesSelect(
       details: { factionId, roleIds },
     });
 
-    const apiKey = await getActiveGuildApiKey(guildId);
+    const apiKey = (await getGuildApiKeys(guildId))[0];
 
     await showFactionManagePage(interaction, factionId, apiKey);
   } catch (error) {
@@ -3955,4 +3183,57 @@ export async function handleAssistManageBackButton(
   interaction: ButtonInteraction,
 ): Promise<void> {
   return assistHandlers.handleAssistManageBackButton(interaction);
+}
+
+export async function handleOpenDashboard(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  try {
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const magicLinkService = new MagicLinkService(interaction.client);
+    const token = await magicLinkService.createToken({
+      discordId: interaction.user.id,
+      guildId: guildId,
+      scope: "all",
+      targetPath: "/config",
+    });
+
+    const apiUrl = getApiUrl();
+    const magicLink = `${apiUrl}/api/auth/magic-link?token=${token}`;
+
+    const embed = new EmbedBuilder()
+      .setColor(0x10b981)
+      .setTitle("Access Granted")
+      .setDescription(
+        "Your secure configuration link is ready. This link is single-use and will burn after activation.",
+      )
+      .addFields({
+        name: "Security Warning",
+        value:
+          "Never share this link with anyone. It grants access to your server's configuration.",
+      })
+      .setFooter({ text: "Link expires 15 minutes after inactivity" });
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("Open Dashboard")
+        .setURL(magicLink)
+        .setStyle(ButtonStyle.Link),
+    );
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [row],
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error generating config link:", errorMsg);
+    await interaction.editReply({
+      content: `❌ Error: ${errorMsg}`,
+    });
+  }
 }

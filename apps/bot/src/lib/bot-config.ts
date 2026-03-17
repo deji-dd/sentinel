@@ -5,7 +5,14 @@
 
 import { Client, GatewayIntentBits, Partials } from "discord.js";
 
-export const isDev = process.env.NODE_ENV === "development";
+// Determine environment
+const nodeEnv = (process.env.NODE_ENV || "").trim().toLowerCase();
+// Robust dev detection: check NODE_ENV or existence of local-only variables
+export const isDev = 
+  nodeEnv === "development" || 
+  nodeEnv === "dev" || 
+  !!process.env.BOT_ORIGIN_LOCAL || 
+  !!process.env.DISCORD_BOT_TOKEN_LOCAL;
 
 /**
  * Validate database configuration
@@ -17,7 +24,7 @@ export function initializeDatabaseConfig(): {
     ? process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db"
     : process.env.SQLITE_DB_PATH || "./data/sentinel.db";
 
-  console.log(`[Bot] Using SQLite database path: ${dbPath}`);
+  console.log(`[Bot] Using SQLite database path: ${dbPath} (isDev: ${isDev})`);
 
   return { dbPath };
 }
@@ -81,19 +88,35 @@ export function getHttpPort(): number {
 }
 
 /**
- * Get the Map Painter base URL
+ * Get the UI base URL (Dashboard/Map Painter)
+ */
+export function getUiUrl(): string {
+  return isDev
+    ? process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000"
+    : process.env.MAP_PAINTER_URL || "https://blasted-labs.tech";
+}
+
+/**
+ * Get the Map Painter base URL (Aliased to getUiUrl for backward compatibility)
  */
 export function getPainterUrl(): string {
-  if (isDev) {
-    return process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000";
-  }
-  return process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
+  return getUiUrl();
 }
+
+/**
+ * Get the API base URL for magic link activation
+ */
+export function getApiUrl(): string {
+  return isDev
+    ? process.env.BOT_ORIGIN_LOCAL || "http://localhost:3001"
+    : process.env.BOT_ORIGIN || "https://api.blasted-labs.tech";
+}
+
 /**
  * Get the allowed origins for CORS
  */
 export function getAllowedOrigins(): string[] {
-  const prodOrigin = process.env.UI_ORIGIN || "https://hub.blasted-labs.tech";
+  const prodOrigin = process.env.UI_ORIGIN || "https://blasted-labs.tech";
   if (isDev) {
     return ["http://localhost:3000", prodOrigin];
   }

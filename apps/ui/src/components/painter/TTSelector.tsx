@@ -620,9 +620,9 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
 
 
   return (
-    <div className="flex h-screen bg-slate-950 text-white relative">
+    <div className="flex h-screen bg-background text-foreground relative">
       {/* Sidebar */}
-      <div className="w-80 border-r border-slate-800/80 flex flex-col p-4 space-y-4 shadow-xl">
+      <div className="w-80 border-r border-border flex flex-col p-4 space-y-4 shadow-xl bg-card">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2 uppercase tracking-tight">
@@ -642,7 +642,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                 setDuplicateTitle(`${initialState?.map?.name || "New Map"} (Copy)`);
                 setShowDuplicateModal(true);
               }}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer border border-transparent hover:border-slate-700"
+              className="p-2 hover:bg-secondary rounded-lg text-muted-foreground hover:text-foreground transition-all cursor-pointer border border-transparent hover:border-border"
               title="Duplicate Map"
             >
               <Copy size={18} />
@@ -653,10 +653,10 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
         <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
           <div className="space-y-2">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold uppercase text-slate-500">Labels</span>
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Labels</span>
               <button
                 onClick={handleAddLabel}
-                className="text-[10px] bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-2 py-1 rounded border border-blue-500/30 flex items-center gap-1 cursor-pointer transition-colors"
+                className="text-[10px] bg-primary/20 hover:bg-primary/30 text-primary px-2 py-1 rounded border border-primary/30 flex items-center gap-1 cursor-pointer transition-colors"
               >
                 <Plus size={12} /> Add
               </button>
@@ -666,8 +666,8 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
               {/* Eraser */}
               <button
                 onClick={() => setSelectedLabelId(null)}
-                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all cursor-pointer ${selectedLabelId === null ? "bg-slate-900 border border-slate-700 shadow-inner" : "hover:bg-slate-900/50 border border-transparent text-slate-400"
-                  }`}
+                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all cursor-pointer ${selectedLabelId === null ? "bg-secondary border border-border shadow-inner" : "hover:bg-secondary/50 border border-transparent text-muted-foreground"
+                   }`}
               >
                 <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${selectedLabelId === null ? "bg-slate-700 text-white" : "bg-slate-800/50"}`}>
                   <Eraser size={14} />
@@ -682,8 +682,8 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                 return (
                   <div key={label.id} className="space-y-1">
                     <div
-                      className={`group relative flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${selectedLabelId === label.id ? "bg-slate-900 border border-slate-700 shadow-lg" : "hover:bg-slate-900/50 border border-transparent"
-                        }`}
+                      className={`group relative flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${selectedLabelId === label.id ? "bg-secondary border border-border shadow-lg" : "hover:bg-secondary/50 border border-transparent"
+                         }`}
                       onClick={() => setSelectedLabelId(label.id)}
                     >
                       <div
@@ -703,7 +703,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                           />
                           <button
                             onClick={(e) => { e.stopPropagation(); handleToggleLabel(label.id); }}
-                            className={`p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer ${label.enabled ? "text-blue-400" : "text-zinc-600"}`}
+                            className={`p-1 rounded hover:bg-muted transition-colors cursor-pointer ${label.enabled ? "text-primary" : "text-muted-foreground"}`}
                             title={label.enabled ? "Disable Label" : "Enable Label"}
                           >
                             {label.enabled ? <Eye size={14} /> : <EyeOff size={14} />}
@@ -718,7 +718,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                       <div className="flex items-center gap-1">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDuplicateLabel(label); }}
-                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity cursor-pointer"
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-primary transition-opacity cursor-pointer"
                           title="Duplicate Label"
                         >
                           <Copy size={14} />
@@ -728,7 +728,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
                             e.stopPropagation();
                             setExpandedLabelId(isExpanded ? null : label.id);
                           }}
-                          className={`p-1 hover:bg-zinc-700 rounded transition-colors cursor-pointer ${isExpanded ? "text-blue-400" : "text-zinc-500"}`}
+                            className={`p-1 hover:bg-muted rounded transition-colors cursor-pointer ${isExpanded ? "text-primary" : "text-muted-foreground"}`}
                         >
                           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         </button>
@@ -797,7 +797,7 @@ export default function TTSelector({ initialState, onSave, territoryData }: TTSe
 
         <div className="pt-4 border-t border-slate-800/80">
           <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-            <Info size={14} className="text-blue-500" />
+            <Info size={14} className="text-primary" />
             <span>Select a label then click territories to assign them. Changes are saved automatically.</span>
           </div>
         </div>

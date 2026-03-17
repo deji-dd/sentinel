@@ -13,6 +13,7 @@ import * as enableModuleCommand from "../commands/personal/admin/enable-module.j
 import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as guildStatusCommand from "../commands/personal/admin/guild-status.js";
 import * as dbBackupCommand from "../commands/personal/admin/db-backup.js";
+import * as revokeWebAccessCommand from "../commands/personal/admin/revoke-web-access.js";
 
 /**
  * Create an "Not Authorized" error embed
@@ -88,6 +89,9 @@ export async function handleAdminCommand(
     case "db-backup":
       await dbBackupCommand.execute(interaction, client);
       break;
+    case "revoke-web-access":
+      await revokeWebAccessCommand.execute(interaction);
+      break;
     case "test-verification-dms":
       // Placeholder for test command
       break;
@@ -111,5 +115,6 @@ export function isAdminCommandName(commandName: string): boolean {
     "guild-status",
     "db-backup",
     "test-verification-dms",
+    "revoke-web-access",
   ].includes(commandName);
 }

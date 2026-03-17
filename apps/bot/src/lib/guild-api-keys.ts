@@ -10,6 +10,7 @@
  * - Verification module and other guild features use these keys exclusively
  */
 
+import { randomUUID } from "node:crypto";
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "./db-client.js";
@@ -129,6 +130,7 @@ export async function storeGuildApiKey(
   await db
     .insertInto(TABLE_NAMES.GUILD_API_KEYS)
     .values({
+      id: randomUUID(),
       guild_id: guildId,
       user_id: userId,
       api_key_encrypted: encrypted,
