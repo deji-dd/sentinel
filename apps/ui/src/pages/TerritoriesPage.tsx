@@ -237,7 +237,7 @@ export default function TerritoriesPage() {
         </div>
       </header>
 
-      <main className="flex-1 p-8 lg:p-12 bg-[radial-gradient(circle_at_bottom_left,var(--primary-foreground),transparent_40%)]">
+      <main className="flex-1 p-8 lg:p-12">
         <div className="max-w-7xl mx-auto space-y-12">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div className="space-y-3">

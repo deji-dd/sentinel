@@ -85,6 +85,7 @@ export class GuildSyncScheduler {
   private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
   private readonly VERIFICATION_REFRESH_MS = 24 * 60 * 60 * 1000; // 24h
   private readonly VERIFIED_USER_QUERY_CHUNK_SIZE = 500;
+  private isPolling = false;
 
   constructor(client: Client) {
     this.client = client;
@@ -131,6 +132,12 @@ export class GuildSyncScheduler {
    * Poll database for guilds needing sync and process them
    */
   private async pollAndSync(): Promise<void> {
+    if (this.isPolling) {
+      console.log(`[Guild Sync] Poll skipped (previous poll still running)`);
+      return;
+    }
+    
+    this.isPolling = true;
     try {
       // Clear any jobs that have been stuck in_progress for over 30 minutes
       await this.clearStuckJobs();
@@ -195,6 +202,8 @@ export class GuildSyncScheduler {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error(`[Guild Sync] Poll error: ${msg}`);
+    } finally {
+      this.isPolling = false;
     }
   }
 
@@ -600,13 +609,22 @@ export class GuildSyncScheduler {
                 });
 
                 // Add leader roles if they are a leader
-                const isLeader =
-                  currentFactionMapping.leader_role_ids.length > 0 &&
-                  factionLeadersCache.get(normalizedFactionId)?.has(playerId);
+                // If API failed to load leaders for this faction, we preserve existing roles to avoid incorrectly removing perms
+                if (factionLeadersCache.has(normalizedFactionId)) {
+                  const isLeader =
+                    currentFactionMapping.leader_role_ids.length > 0 &&
+                    factionLeadersCache.get(normalizedFactionId)?.has(playerId);
 
-                if (isLeader) {
+                  if (isLeader) {
+                    currentFactionMapping.leader_role_ids.forEach((roleId) => {
+                      rolesUserShouldHave.add(roleId);
+                    });
+                  }
+                } else {
                   currentFactionMapping.leader_role_ids.forEach((roleId) => {
-                    rolesUserShouldHave.add(roleId);
+                    if (member.roles.cache.has(roleId)) {
+                      rolesUserShouldHave.add(roleId);
+                    }
                   });
                 }
               }
