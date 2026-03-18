@@ -141,7 +141,7 @@ export class MagicLinkService {
     };
   }
 
-  async validateSession(sessionToken: string) {
+  async validateSession(sessionToken: string, requiredScope?: string) {
     const session = rawDb
       .prepare(
         `
@@ -152,6 +152,12 @@ export class MagicLinkService {
       .get(sessionToken, new Date().toISOString()) as WebSessionRow | undefined;
 
     if (!session) return null;
+
+    // Scope check
+    if (requiredScope && session.scope !== "all" && session.scope !== requiredScope) {
+      console.warn(`[AUTH] Scope mismatch: required ${requiredScope}, found ${session.scope}`);
+      return null;
+    }
 
     // Sliding window: Extend session by another 15 minutes on activity
     const newExpiresAt = new Date(Date.now() + 15 * 60000).toISOString();

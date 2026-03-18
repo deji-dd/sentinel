@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/sidebar";
 import {
   Shield,
-  Map as MapIcon,
   Settings,
   Sparkles,
   ArrowLeft,
@@ -54,7 +53,7 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar";
 
-type ModuleId = "admin" | "verify" | "territories" | "reaction_roles" | "revive" | "assist";
+type ModuleId = "admin" | "verify" | "reaction_roles" | "revive" | "assist";
 
 export default function ConfigPage() {
   const navigate = useNavigate();
@@ -62,7 +61,9 @@ export default function ConfigPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [hasSession, setHasSession] = useState<boolean | null>(null);
-  const [activeTab, setActiveTab] = useState<ModuleId>("admin");
+  const [activeTab, setActiveTab] = useState<ModuleId>(
+    (searchParams.get("tab") as ModuleId) || "admin"
+  );
   const [guildConfig, setGuildConfig] = useState<any>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -105,10 +106,13 @@ export default function ConfigPage() {
         const userData = await userRes.json();
         setUser(userData);
 
-        if (configRes.ok) {
-          const configData = await configRes.json();
-          setGuildConfig(configData);
+        if (!configRes.ok) {
+          // If config fetch fails, it's likely a scope mismatch or session expiry
+          throw new Error("Configuration access denied");
         }
+
+        const configData = await configRes.json();
+        setGuildConfig(configData);
       } catch (err) {
         console.error("[ConfigPage] Auth/Config fetch failed:", err);
         localStorage.removeItem("sentinel_session");
@@ -140,15 +144,6 @@ export default function ConfigPage() {
       desc: "Automated role assignment and nickname syncing.",
       category: "Modules",
       isEnabled: guildConfig?.enabled_modules?.includes("verify"),
-      requiresKeys: true
-    },
-    {
-      id: "territories" as const,
-      name: "Territories",
-      icon: MapIcon,
-      desc: "Map settings and immersive painter interface.",
-      category: "Modules",
-      isEnabled: guildConfig?.enabled_modules?.includes("territories"),
       requiresKeys: true
     },
     {
@@ -188,10 +183,28 @@ export default function ConfigPage() {
     setSaving(false);
   };
 
+  const [isLoggedOut, setIsLoggedOut] = useState(false);
+
+  const performLogout = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      await fetch(`${API_BASE}/api/auth/sign-out`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` }
+      });
+    } catch (err) {
+      console.error("Sign out failed:", err);
+    }
+    localStorage.removeItem("sentinel_session");
+    setIsLoggedOut(true);
+    setTimeout(() => {
+      window.close();
+    }, 500);
+  };
+
   const confirmNavigate = () => {
     if (pendingTab === "logout") {
-      localStorage.removeItem("sentinel_session");
-      window.location.reload();
+      performLogout();
     } else if (pendingTab) {
       setActiveTab(pendingTab);
       setIsDirty(false);
@@ -211,10 +224,35 @@ export default function ConfigPage() {
     if (isDirty) {
       setPendingTab("logout");
     } else {
-      localStorage.removeItem("sentinel_session");
-      window.location.reload();
+      performLogout();
     }
   };
+
+  if (isLoggedOut) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-primary/10 via-background to-background relative overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-[url('/grid.svg')] bg-center mask-[linear-gradient(180deg,white,rgba(255,255,255,0))] opacity-10 pointer-events-none" />
+        <div className="max-w-md w-full text-center space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000 relative z-10">
+          <div className="flex justify-center">
+            <div className="w-24 h-24 bg-primary/10 border border-primary/20 rounded-3xl flex items-center justify-center shadow-2xl shadow-primary/20 p-5">
+              <LogOut className="w-full h-full text-primary" />
+            </div>
+          </div>
+          <div className="space-y-4">
+            <h1 className="text-4xl font-black tracking-tighter text-foreground uppercase">
+              SESSION TERMINATED
+            </h1>
+            <p className="text-muted-foreground text-lg leading-relaxed">
+              Your command session has been securely closed and the access token has been burned.
+            </p>
+          </div>
+          <div className="pt-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">You can safely close this tactical window.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) return <LoadingScreen />;
 
@@ -317,6 +355,8 @@ export default function ConfigPage() {
                 </SidebarGroupContent>
               </SidebarGroup>
             ))}
+
+
           </SidebarContent>
 
           <SidebarFooter className="p-4 border-t border-border/50 bg-secondary/5">
@@ -372,7 +412,7 @@ export default function ConfigPage() {
             <div className="max-w-5xl mx-auto px-8 py-10">
 
               {!hasApiKeys && activeTab !== "admin" && (
-                <div className="p-8 rounded-[2rem] bg-destructive/5 border border-destructive/20 flex flex-col items-center text-center space-y-4 mb-8 max-w-2xl mx-auto animate-in zoom-in-95 duration-500">
+                <div className="p-8 rounded-4xl bg-destructive/5 border border-destructive/20 flex flex-col items-center text-center space-y-4 mb-8 max-w-2xl mx-auto animate-in zoom-in-95 duration-500">
                   <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
                     <AlertCircle className="w-8 h-8 text-destructive" />
                   </div>
@@ -398,32 +438,8 @@ export default function ConfigPage() {
                 />
               )}
 
-              {activeTab === "territories" && hasApiKeys && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 py-12">
-                  <div className="max-w-2xl mx-auto p-12 rounded-[2.5rem] bg-card border border-border shadow-2xl relative overflow-hidden text-center space-y-8">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-primary via-purple-500 to-primary" />
-                    <div className="w-24 h-24 bg-primary rounded-3xl flex items-center justify-center shadow-xl shadow-primary/20 mx-auto transform -rotate-3 transition-transform hover:rotate-0 duration-500">
-                      <MapIcon className="w-12 h-12 text-primary-foreground" />
-                    </div>
-                    <div className="space-y-4">
-                      <h3 className="text-3xl font-black uppercase tracking-tight text-foreground">Launch Map Painter</h3>
-                      <p className="text-muted-foreground leading-relaxed text-lg">
-                        Managing complex territory mappings is best done in our specialized painting interface.
-                      </p>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-                      <Button onClick={() => navigate("/selector")} size="lg" className="h-14 px-10 rounded-2xl font-black text-lg bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer">
-                        OPEN PAINTER
-                      </Button>
-                      <Button variant="ghost" onClick={() => setActiveTab("admin")} className="h-14 px-10 rounded-2xl font-bold text-foreground/60 hover:text-foreground cursor-pointer">
-                        BACK TO CONFIG
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
-              {(activeTab !== "admin" && activeTab !== "territories" && hasApiKeys) && (
+              {(activeTab !== "admin" && hasApiKeys) && (
                 <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
                   <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
                     {activeModule && <activeModule.icon className="w-10 h-10 text-muted-foreground opacity-20" />}
@@ -479,14 +495,14 @@ export default function ConfigPage() {
         </SidebarInset>
 
         <AlertDialog open={pendingTab !== null} onOpenChange={(open) => !open && setPendingTab(null)}>
-          <AlertDialogContent className="rounded-[2rem] border-border bg-background/95 backdrop-blur-xl">
+          <AlertDialogContent className="rounded-4xl border-border bg-background/95 backdrop-blur-xl">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-xl font-black uppercase tracking-tight text-foreground">Discard Changes?</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground font-medium">
                 You have unsaved configuration changes. Switching sections or signing out will permanently discard them.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogFooter className="gap-2">
               <AlertDialogCancel className="rounded-xl font-bold border-none hover:bg-secondary cursor-pointer">Stay Here</AlertDialogCancel>
               <AlertDialogAction
                 onClick={confirmNavigate}

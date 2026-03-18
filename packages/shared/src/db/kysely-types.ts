@@ -186,6 +186,7 @@ export interface SentinelMaps {
   created_by: string;
   guild_id: string;
   id: string | null;
+  is_public: Generated<number | null>;
   name: string;
   updated_at: Generated<string | null>;
 }
@@ -202,6 +203,15 @@ export interface SentinelMapTerritories {
   label_id: string;
   map_id: string;
   territory_id: string;
+}
+
+export interface SentinelMapHistory {
+  created_at: Generated<string | null>;
+  created_by: string;
+  created_by_name: string | null;
+  id: string | null;
+  map_id: string;
+  snapshot_json: string;
 }
 
 export interface SentinelRacketTenure {
@@ -672,6 +682,7 @@ export interface DB {
   sentinel_map_labels: SentinelMapLabels;
   sentinel_map_sessions: SentinelMapSessions;
   sentinel_map_territories: SentinelMapTerritories;
+  sentinel_map_history: SentinelMapHistory;
   sentinel_maps: SentinelMaps;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;

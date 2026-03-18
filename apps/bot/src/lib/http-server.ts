@@ -1288,7 +1288,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
       if (!sessionToken)
         return res.status(401).json({ error: "Missing session token" });
 
-      const session = await magicLinkService.validateSession(sessionToken);
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
       if (!session)
         return res.status(401).json({ error: "Invalid or expired session" });
 
@@ -1303,10 +1306,20 @@ export function initHttpServer(client: Client, port: number = 3001) {
           : null);
       if (!mapId) return res.status(400).json({ error: "Missing map ID" });
 
-      // Permission check: if scope is 'map', it MUST match the requested mapId
+      // map scope session.target_path usually is '/territories'
+      // When opening a map, it might be '/selector?mapId=...'
+      // We should allow access if the target_path is generic '/territories' (owner of the session)
+      // or if it explicitly matches the mapId.
+      const isGenericMapOwner =
+        session.scope === "map" && session.target_path === "/territories";
+      const isSpecificMapOwner =
+        session.scope === "map" &&
+        session.target_path.includes(`mapId=${mapId}`);
+
       if (
         session.scope === "map" &&
-        !session.target_path.includes(`mapId=${mapId}`)
+        !isGenericMapOwner &&
+        !isSpecificMapOwner
       ) {
         return res
           .status(403)
@@ -1321,6 +1334,16 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
       if (!map) {
         return res.status(404).json({ error: "Configuration not found" });
+      }
+
+      const isOwner = map.created_by === session.discord_id;
+      const isPublicInGuild =
+        map.is_public === 1 && map.guild_id === session.guild_id;
+
+      if (!isOwner && !isPublicInGuild) {
+        return res
+          .status(403)
+          .json({ error: "Forbidden: You do not have access to this map" });
       }
 
       const labels = await sqlDb
@@ -1498,6 +1521,696 @@ export function initHttpServer(client: Client, port: number = 3001) {
     }
   });
 
+  // TT Selector Management Endpoints
+  app.get("/api/map/list", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+
+      const maps = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .where((eb) =>
+          eb.or([
+            eb("created_by", "=", session.discord_id),
+            eb("is_public", "=", 1),
+          ]),
+        )
+        .orderBy("updated_at", "desc")
+        .execute();
+
+      // Fetch stats for each map (label count and territory count)
+      const mapsWithStats = await Promise.all(
+        maps.map(async (m) => {
+          const labelCount = await db
+            .selectFrom(TABLE_NAMES.MAP_LABELS)
+            .select(db.fn.count("id").as("count"))
+            .where("map_id", "=", m.id)
+            .executeTakeFirst();
+
+          const ttCount = await db
+            .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+            .select(db.fn.count("territory_id").as("count"))
+            .where("map_id", "=", m.id)
+            .executeTakeFirst();
+
+          return {
+            ...m,
+            labelCount: Number(labelCount?.count || 0),
+            ttCount: Number(ttCount?.count || 0),
+          };
+        }),
+      );
+
+      return res.json(mapsWithStats);
+    } catch (error) {
+      console.error("[HTTP] Error listing maps:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.get("/api/map/channels", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const guild = await client.guilds.fetch(guildId);
+      const channels = await guild.channels.fetch();
+
+      const textChannels = Array.from(channels.values())
+        .filter((c) => c && c.isTextBased())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((c: any) => ({ id: c.id, name: c.name }));
+
+      return res.json(textChannels);
+    } catch (error) {
+      console.error("[HTTP] Error fetching channels for map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/map/create", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { name } = req.body;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+      if (!name) return res.status(400).json({ error: "Missing map name" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const mapId = randomUUID();
+      await db
+        .insertInto(TABLE_NAMES.MAPS)
+        .values({
+          id: mapId,
+          guild_id: session.guild_id,
+          name,
+          created_by: session.discord_id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .execute();
+
+      return res.json({ success: true, mapId });
+    } catch (error) {
+      console.error("[HTTP] Error creating map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.get("/api/map/:id/history", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { id } = req.params;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const map = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .select(["guild_id", "created_by", "is_public"])
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!map) {
+        return res.status(404).json({ error: "Map not found" });
+      }
+
+      // Hard Guard on session path
+      const isGenericMapOwner =
+        session.scope === "map" && session.target_path === "/territories";
+      const isSpecificMapOwner =
+        session.scope === "map" && session.target_path.includes(`mapId=${id}`);
+
+      if (
+        session.scope === "map" &&
+        !isGenericMapOwner &&
+        !isSpecificMapOwner
+      ) {
+        return res.status(403).json({ error: "Forbidden: Session mismatch" });
+      }
+
+      const isOwner = map.created_by === session.discord_id;
+      const isPublicInGuild =
+        map.is_public === 1 && map.guild_id === session.guild_id;
+
+      if (!isOwner && !isPublicInGuild) {
+        return res
+          .status(403)
+          .json({
+            error: "Forbidden: You do not have access to this map's history",
+          });
+      }
+
+      const history = await db
+        .selectFrom(TABLE_NAMES.MAP_HISTORY)
+        .selectAll()
+        .where("map_id", "=", id)
+        .orderBy("created_at", "desc")
+        .limit(20)
+        .execute();
+
+      return res.json({ success: true, history });
+    } catch (error) {
+      console.error("[HTTP] Error fetching map history:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/map/:id/restore", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { id } = req.params;
+      const { historyId } = req.body;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+      if (!historyId)
+        return res.status(400).json({ error: "Missing history ID" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const map = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .select(["guild_id", "created_by", "is_public"])
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!map) {
+        return res.status(404).json({ error: "Map not found" });
+      }
+
+      // Hard Guard on session path
+      const isGenericMapOwner =
+        session.scope === "map" && session.target_path === "/territories";
+      const isSpecificMapOwner =
+        session.scope === "map" && session.target_path.includes(`mapId=${id}`);
+
+      if (
+        session.scope === "map" &&
+        !isGenericMapOwner &&
+        !isSpecificMapOwner
+      ) {
+        return res.status(403).json({ error: "Forbidden: Session mismatch" });
+      }
+
+      const isOwner = map.created_by === session.discord_id;
+      const isPublicInGuild =
+        map.is_public === 1 && map.guild_id === session.guild_id;
+
+      if (!isOwner && !isPublicInGuild) {
+        return res
+          .status(403)
+          .json({
+            error: "Forbidden: You do not have permission to restore this map",
+          });
+      }
+
+      const historyEntry = await db
+        .selectFrom(TABLE_NAMES.MAP_HISTORY)
+        .selectAll()
+        .where("id", "=", historyId)
+        .where("map_id", "=", id)
+        .executeTakeFirst();
+
+      if (!historyEntry) {
+        return res.status(404).json({ error: "History entry not found" });
+      }
+
+      const labels = JSON.parse(historyEntry.snapshot_json);
+      const sqlDb = getKysely();
+
+      await sqlDb.transaction().execute(async (trx) => {
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
+          .where("map_id", "=", id)
+          .execute();
+
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_LABELS)
+          .where("map_id", "=", id)
+          .execute();
+
+        await trx
+          .insertInto(TABLE_NAMES.MAP_LABELS)
+          .values(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            labels.map((l: any) => ({
+              id: l.id,
+              map_id: id,
+              label_text: l.text,
+              color_hex: l.color,
+              is_enabled: l.enabled ? 1 : 0,
+            })),
+          )
+          .execute();
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const territoryValues: any[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        labels.forEach((l: any) => {
+          if (l.territories && l.territories.length > 0) {
+            l.territories.forEach((tid: string) => {
+              territoryValues.push({
+                map_id: id,
+                territory_id: tid,
+                label_id: l.id,
+              });
+            });
+          }
+        });
+
+        if (territoryValues.length > 0) {
+          const chunks = [];
+          for (let i = 0; i < territoryValues.length; i += 500) {
+            chunks.push(territoryValues.slice(i, i + 500));
+          }
+          for (const chunk of chunks) {
+            await trx
+              .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+              .values(chunk)
+              .execute();
+          }
+        }
+
+        await trx
+          .updateTable(TABLE_NAMES.MAPS)
+          .set({ updated_at: new Date().toISOString() })
+          .where("id", "=", id)
+          .execute();
+      });
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[HTTP] Error restoring map history:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.patch("/api/map/:id", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { id } = req.params;
+      const { name, isPublic } = req.body;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const map = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .select(["guild_id", "created_by"])
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!map) {
+        return res.status(404).json({ error: "Map not found" });
+      }
+
+      // Only owner can rename or toggle public
+      if (map.created_by !== session.discord_id) {
+        return res
+          .status(403)
+          .json({
+            error:
+              "Forbidden: You do not have permission to modify map metadata",
+          });
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateData: any = {
+        updated_at: new Date().toISOString(),
+      };
+      if (name !== undefined) updateData.name = name;
+      if (isPublic !== undefined) updateData.is_public = isPublic ? 1 : 0;
+
+      await db
+        .updateTable(TABLE_NAMES.MAPS)
+        .set(updateData)
+        .where("id", "=", id)
+        .execute();
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[HTTP] Error updating map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.delete("/api/map/:id", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { id } = req.params;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const map = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .select("guild_id")
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!map || map.guild_id !== session.guild_id) {
+        return res.status(403).json({ error: "Forbidden or map not found" });
+      }
+
+      const sqlDb = getKysely();
+      await sqlDb.transaction().execute(async (trx) => {
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_TERRITORIES)
+          .where("map_id", "=", id)
+          .execute();
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_LABELS)
+          .where("map_id", "=", id)
+          .execute();
+        await trx.deleteFrom(TABLE_NAMES.MAPS).where("id", "=", id).execute();
+      });
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[HTTP] Error deleting map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/map/:id/duplicate", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { id } = req.params;
+      const { name } = req.body;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+      if (!name) return res.status(400).json({ error: "Missing new name" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const oldMap = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!oldMap) {
+        return res.status(404).json({ error: "Map not found" });
+      }
+
+      const isOwner = oldMap.created_by === session.discord_id;
+      const isPublicInGuild =
+        oldMap.is_public === 1 && oldMap.guild_id === session.guild_id;
+
+      if (!isOwner && !isPublicInGuild) {
+        return res
+          .status(403)
+          .json({
+            error:
+              "Forbidden: You do not have permission to duplicate this map",
+          });
+      }
+
+      const newMapId = randomUUID();
+      const sqlDb = getKysely();
+
+      await sqlDb.transaction().execute(async (trx) => {
+        await trx
+          .insertInto(TABLE_NAMES.MAPS)
+          .values({
+            id: newMapId,
+            guild_id: session.guild_id,
+            name,
+            created_by: session.discord_id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .execute();
+
+        const oldLabels = await trx
+          .selectFrom(TABLE_NAMES.MAP_LABELS)
+          .selectAll()
+          .where("map_id", "=", id)
+          .execute();
+
+        const labelIdMap: Record<string, string> = {};
+        if (oldLabels.length > 0) {
+          const newLabels = oldLabels.map((ol) => {
+            const newId = `label-${randomBytes(8).toString("hex")}`;
+            labelIdMap[ol.id] = newId;
+            return {
+              id: newId,
+              map_id: newMapId,
+              label_text: ol.label_text,
+              color_hex: ol.color_hex,
+              is_enabled: ol.is_enabled,
+              created_at: new Date().toISOString(),
+            };
+          });
+          await trx
+            .insertInto(TABLE_NAMES.MAP_LABELS)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .values(newLabels as any)
+            .execute();
+        }
+
+        const oldTerritories = await trx
+          .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+          .selectAll()
+          .where("map_id", "=", id)
+          .execute();
+
+        if (oldTerritories.length > 0) {
+          const newTerritories = oldTerritories.map((ot) => ({
+            map_id: newMapId,
+            territory_id: ot.territory_id,
+            label_id: labelIdMap[ot.label_id] || ot.label_id,
+          }));
+
+          for (let i = 0; i < newTerritories.length; i += 500) {
+            await trx
+              .insertInto(TABLE_NAMES.MAP_TERRITORIES)
+              .values(newTerritories.slice(i, i + 500))
+              .execute();
+          }
+        }
+      });
+
+      return res.json({ success: true, mapId: newMapId });
+    } catch (error) {
+      console.error("[HTTP] Error duplicating map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/map/:id/publish", async (req: Request, res: Response) => {
+    try {
+      const sessionToken = req.headers.authorization?.split(" ")[1];
+      const { id } = req.params;
+      const { channelId } = req.body;
+
+      if (!sessionToken)
+        return res.status(401).json({ error: "Missing session token" });
+      if (!channelId)
+        return res.status(400).json({ error: "Missing channel ID" });
+
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const map = await db
+        .selectFrom(TABLE_NAMES.MAPS)
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!map || map.guild_id !== session.guild_id) {
+        return res.status(403).json({ error: "Forbidden or map not found" });
+      }
+
+      const guild = await client.guilds.fetch(session.guild_id);
+      const channel = await guild.channels.fetch(channelId);
+
+      if (!channel || !channel.isTextBased()) {
+        return res.status(400).json({ error: "Invalid text channel" });
+      }
+
+      const labels = await db
+        .selectFrom(TABLE_NAMES.MAP_LABELS)
+        .selectAll()
+        .where("map_id", "=", id)
+        .execute();
+
+      const assignments = await db
+        .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
+        .select(["territory_id", "label_id"])
+        .where("map_id", "=", id)
+        .execute();
+
+      const tids = assignments.map((a) => a.territory_id);
+
+      const blueprints =
+        tids.length > 0
+          ? await db
+              .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
+              .selectAll()
+              .where("id", "in", tids)
+              .execute()
+          : [];
+
+      const states =
+        tids.length > 0
+          ? await db
+              .selectFrom(TABLE_NAMES.TERRITORY_STATE)
+              .selectAll()
+              .where("territory_id", "in", tids)
+              .execute()
+          : [];
+
+      const embeds: EmbedBuilder[] = [];
+
+      embeds.push(
+        new EmbedBuilder()
+          .setColor(0x3b82f6)
+          .setTitle(map.name)
+          .setDescription(
+            `This configuration was published by <@${session.discord_id}> via Dashboard.`,
+          )
+          .setTimestamp(),
+      );
+
+      for (const label of labels) {
+        const labelAssignments = assignments.filter(
+          (a) => a.label_id === label.id,
+        );
+        if (labelAssignments.length === 0) continue;
+
+        const lines = labelAssignments.map((a) => {
+          const st = states.find((s) => s.territory_id === a.territory_id);
+          let info = `• [**${a.territory_id}**](https://www.torn.com/city.php#territory=${a.territory_id})`;
+          if (st?.racket_name)
+            info += ` | ${st.racket_name} (L${st.racket_level})`;
+          return info;
+        });
+
+        const totalRespect = labelAssignments.reduce((acc, a) => {
+          const bp = blueprints.find((b) => b.id === a.territory_id);
+          return acc + (bp?.respect || 0);
+        }, 0);
+
+        const sectors: Record<number, number> = {
+          1: 0,
+          2: 0,
+          3: 0,
+          4: 0,
+          5: 0,
+          6: 0,
+          7: 0,
+        };
+        labelAssignments.forEach((a) => {
+          const bp = blueprints.find((b) => b.id === a.territory_id);
+          if (bp?.sector) sectors[bp.sector]++;
+        });
+
+        const sectorDistribution = [1, 2, 3, 4, 5, 6, 7]
+          .map((s) => `**S${s}**: ${sectors[s]}`)
+          .join(" | ");
+
+        const value = lines.join("\n").substring(0, 2000);
+
+        const labelEmbed = new EmbedBuilder()
+          .setColor(parseInt(label.color_hex.replace("#", ""), 16) || 0x3b82f6)
+          .setTitle(label.label_text)
+          .setDescription(value)
+          .addFields(
+            { name: "Sectors", value: sectorDistribution, inline: false },
+            {
+              name: "Summary",
+              value: `Territories: **${labelAssignments.length}**\nDaily Respect: **${totalRespect.toLocaleString()}**`,
+              inline: true,
+            },
+          );
+
+        embeds.push(labelEmbed);
+      }
+
+      if (embeds.length === 1) {
+        embeds[0].setDescription(
+          "This configuration has no territory assignments yet.",
+        );
+      }
+
+      for (let i = 0; i < embeds.length; i += 10) {
+        const chunk = embeds.slice(i, i + 10);
+        await channel.send({ embeds: chunk });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[HTTP] Error publishing map:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  });
+
   // TT Selector Configuration Save Endpoint
   app.post("/api/map", mapRateLimiter, async (req: Request, res: Response) => {
     try {
@@ -1507,7 +2220,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
       if (!sessionToken)
         return res.status(401).json({ error: "Missing session token" });
 
-      const session = await magicLinkService.validateSession(sessionToken);
+      const session = await magicLinkService.validateSession(
+        sessionToken,
+        "map",
+      );
       if (!session)
         return res.status(401).json({ error: "Invalid or expired session" });
 
@@ -1519,11 +2235,42 @@ export function initHttpServer(client: Client, port: number = 3001) {
           : null);
       if (!mapId) return res.status(400).json({ error: "Missing map ID" });
 
+      const isGenericMapOwner =
+        session.scope === "map" && session.target_path === "/territories";
+      const isSpecificMapOwner =
+        session.scope === "map" &&
+        session.target_path.includes(`mapId=${mapId}`);
+
       if (
         session.scope === "map" &&
-        !session.target_path.includes(`mapId=${mapId}`)
+        !isGenericMapOwner &&
+        !isSpecificMapOwner
       ) {
         return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Permission Check
+      const existingMap = await sqlDb
+        .selectFrom(TABLE_NAMES.MAPS)
+        .select(["created_by", "guild_id", "is_public"])
+        .where("id", "=", mapId)
+        .executeTakeFirst();
+
+      if (!existingMap) {
+        return res.status(404).json({ error: "Map not found" });
+      }
+
+      const isOwner = existingMap.created_by === session.discord_id;
+      const isPublicInGuild =
+        existingMap.is_public === 1 &&
+        existingMap.guild_id === session.guild_id;
+
+      if (!isOwner && !isPublicInGuild) {
+        return res
+          .status(403)
+          .json({
+            error: "Forbidden: You do not have permission to edit this map",
+          });
       }
 
       const { labels } = req.body;
@@ -1609,6 +2356,81 @@ export function initHttpServer(client: Client, port: number = 3001) {
           .set({ updated_at: new Date().toISOString() })
           .where("id", "=", mapId)
           .execute();
+
+        // Save snapshot for history
+        // Only save a new entry if the latest one is older than 5 minutes to avoid bloat
+        const latestHistory = await trx
+          .selectFrom(TABLE_NAMES.MAP_HISTORY)
+          .selectAll()
+          .where("map_id", "=", mapId)
+          .orderBy("created_at", "desc")
+          .executeTakeFirst();
+
+        const fiveMinutesAgo = new Date(
+          Date.now() - 5 * 60 * 1000,
+        ).toISOString();
+        if (
+          !latestHistory ||
+          (latestHistory.created_at &&
+            latestHistory.created_at < fiveMinutesAgo)
+        ) {
+          let creatorName = "Unknown";
+          try {
+            const user = await discordClient.users.fetch(session.discord_id);
+            creatorName = user.displayName || user.username;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          } catch (e) {
+            console.warn(
+              `[HTTP] Failed to fetch user name for snapshot: ${session.discord_id}`,
+            );
+          }
+
+          await trx
+            .insertInto(TABLE_NAMES.MAP_HISTORY)
+            .values({
+              id: randomUUID(),
+              map_id: mapId,
+              snapshot_json: JSON.stringify(labels),
+              created_by: session.discord_id,
+              created_by_name: creatorName,
+              created_at: new Date().toISOString(),
+            })
+            .execute();
+        }
+
+        // Prune history to keep storage bounded and history meaningful.
+        const HISTORY_RETENTION_DAYS = 30;
+        const HISTORY_MAX_ROWS_PER_MAP = 250;
+        const cutoffIso = new Date(
+          Date.now() - HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        await trx
+          .deleteFrom(TABLE_NAMES.MAP_HISTORY)
+          .where("map_id", "=", mapId)
+          .where("created_at", "<", cutoffIso)
+          .execute();
+
+        const remainingHistory = await trx
+          .selectFrom(TABLE_NAMES.MAP_HISTORY)
+          .select(["id"])
+          .where("map_id", "=", mapId)
+          .orderBy("created_at", "desc")
+          .execute();
+
+        const historyIdsToDelete = remainingHistory
+          .slice(HISTORY_MAX_ROWS_PER_MAP)
+          .map((row) => row.id)
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          );
+
+        if (historyIdsToDelete.length > 0) {
+          await trx
+            .deleteFrom(TABLE_NAMES.MAP_HISTORY)
+            .where("id", "in", historyIdsToDelete)
+            .execute();
+        }
       });
 
       return res.json({ success: true });
@@ -1790,13 +2612,21 @@ export function initHttpServer(client: Client, port: number = 3001) {
     }
   });
 
+  app.post("/api/auth/sign-out", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (token) {
+      await magicLinkService.terminateSession(token);
+    }
+    return res.json({ success: true });
+  });
+
   // Guild Configuration API
   app.get("/api/config", async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(" ")[1];
     if (!token) return res.status(401).json({ error: "Missing session token" });
 
     try {
-      const session = await magicLinkService.validateSession(token);
+      const session = await magicLinkService.validateSession(token, "config");
       if (!session || !session.guild_id)
         return res.status(401).json({ error: "Invalid or expired session" });
 
@@ -1810,7 +2640,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
         roles: [] as any[],
       };
       try {
-        const guild = await discordClient.guilds.fetch(guildId);
+        const guild = await client.guilds.fetch(guildId);
         const channels = await guild.channels.fetch();
         const roles = await guild.roles.fetch();
 
@@ -1911,7 +2741,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
     if (!token) return res.status(401).json({ error: "Missing session token" });
 
     try {
-      const session = await magicLinkService.validateSession(token);
+      const session = await magicLinkService.validateSession(token, "config");
       if (!session || !session.guild_id)
         return res.status(401).json({ error: "Invalid or expired session" });
 

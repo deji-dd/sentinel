@@ -22,8 +22,8 @@ export function ModeToggle() {
       onClick={toggleTheme}
       className="relative w-10 h-10 rounded-xl hover:bg-secondary/80 transition-all border border-transparent hover:border-border group"
     >
-      <Sun className="h-[1.2rem] w-[1.2rem] transition-all scale-100 rotate-0 dark:scale-0 dark:-rotate-90 group-hover:text-primary" />
-      <Moon className="absolute h-[1.2rem] w-[1.2rem] transition-all scale-0 rotate-90 dark:scale-100 dark:rotate-0 group-hover:text-primary" />
+      <Sun className="h-[1.2rem] w-[1.2rem] transition-all scale-100 rotate-0 dark:scale-0 dark:-rotate-90 group-hover:text-primary text-foreground" />
+      <Moon className="absolute h-[1.2rem] w-[1.2rem] transition-all scale-0 rotate-90 dark:scale-100 dark:rotate-0 group-hover:text-primary text-foreground" />
       <span className="sr-only">Toggle theme</span>
     </Button>
   )
