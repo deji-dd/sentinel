@@ -15,8 +15,7 @@ import {
   Target,
   Globe,
   Lock,
-  Unlock,
-  Users
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,7 +25,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
@@ -34,7 +33,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -42,7 +41,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow
+  TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
@@ -65,7 +64,11 @@ interface TerritoriesConfigProps {
   currentUserId?: string;
 }
 
-export function TerritoriesConfig({ sessionToken, channels, currentUserId }: TerritoriesConfigProps) {
+export function TerritoriesConfig({
+  sessionToken,
+  channels,
+  currentUserId,
+}: TerritoriesConfigProps) {
   const navigate = useNavigate();
   const [maps, setMaps] = useState<MapRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,7 +90,7 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/map/list`, {
-        headers: { Authorization: `Bearer ${sessionToken}` }
+        headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!res.ok) throw new Error("Failed to fetch maps");
       const data = await res.json();
@@ -112,9 +115,9 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionToken}`
+          Authorization: `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({ name: newName })
+        body: JSON.stringify({ name: newName }),
       });
       if (!res.ok) throw new Error("Failed to create map");
       toast.success("Configuration created successfully");
@@ -136,9 +139,9 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionToken}`
+          Authorization: `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({ name: newName })
+        body: JSON.stringify({ name: newName }),
       });
       if (!res.ok) throw new Error("Failed to rename map");
       toast.success("Configuration renamed successfully");
@@ -157,7 +160,7 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
     try {
       const res = await fetch(`${API_BASE}/api/map/${selectedMap.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${sessionToken}` }
+        headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!res.ok) throw new Error("Failed to delete map");
       toast.success("Configuration deleted successfully");
@@ -176,9 +179,9 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionToken}`
+          Authorization: `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({ name: `${map.name} (Copy)` })
+        body: JSON.stringify({ name: `${map.name} (Copy)` }),
       });
       if (!res.ok) throw new Error("Failed to duplicate map");
       toast.success("Configuration duplicated");
@@ -193,9 +196,9 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionToken}`
+          Authorization: `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({ isPublic: !map.is_public })
+        body: JSON.stringify({ isPublic: !map.is_public }),
       });
       if (!res.ok) throw new Error("Failed to update visibility");
       toast.success(`Map is now ${!map.is_public ? "public" : "private"}`);
@@ -213,9 +216,9 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionToken}`
+          Authorization: `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({ channelId: targetChannel })
+        body: JSON.stringify({ channelId: targetChannel }),
       });
       if (!res.ok) throw new Error("Failed to publish map");
       toast.success("Configuration published to Discord");
@@ -227,8 +230,8 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
     }
   };
 
-  const filteredMaps = maps.filter(m =>
-    m.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredMaps = maps.filter((m) =>
+    m.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -258,18 +261,26 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
       {loading ? (
         <div className="flex flex-col items-center justify-center py-24 space-y-4 opacity-50">
           <Loader2 className="w-12 h-12 animate-spin text-primary" />
-          <p className="font-bold text-sm tracking-widest uppercase text-muted-foreground">Fetching Vault...</p>
+          <p className="font-bold text-sm tracking-widest uppercase text-muted-foreground">
+            Fetching Vault...
+          </p>
         </div>
       ) : filteredMaps.length === 0 ? (
         <Card className="border-dashed border-2 bg-secondary/5 py-24 flex flex-col items-center text-center rounded-[2.5rem]">
           <div className="w-20 h-20 rounded-3xl bg-secondary flex items-center justify-center mb-6">
             <MapIcon className="w-10 h-10 text-muted-foreground/20" />
           </div>
-          <h3 className="text-xl font-black uppercase tracking-tight text-foreground">No Configurations Found</h3>
+          <h3 className="text-xl font-black uppercase tracking-tight text-foreground">
+            No Configurations Found
+          </h3>
           <p className="text-muted-foreground max-w-sm mt-2 mb-8">
             Start by creating your first territory war plan or scouting map.
           </p>
-          <Button variant="outline" onClick={() => setIsCreateOpen(true)} className="rounded-xl border-border px-8 cursor-pointer">
+          <Button
+            variant="outline"
+            onClick={() => setIsCreateOpen(true)}
+            className="rounded-xl border-border px-8 cursor-pointer"
+          >
             Create First Map
           </Button>
         </Card>
@@ -278,43 +289,72 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
           <Table>
             <TableHeader className="bg-secondary/30">
               <TableRow className="hover:bg-transparent border-border/50 h-14">
-                <TableHead className="pl-8 font-black uppercase tracking-widest text-[10px]">Title</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px]">Labels</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px]">Territories</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px]">Access</TableHead>
-                <TableHead className="font-black uppercase tracking-widest text-[10px]">Last Updated</TableHead>
-                <TableHead className="pr-8 text-right font-black uppercase tracking-widest text-[10px]">Actions</TableHead>
+                <TableHead className="pl-8 font-black uppercase tracking-widest text-[10px]">
+                  Title
+                </TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px]">
+                  Labels
+                </TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px]">
+                  Territories
+                </TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px]">
+                  Access
+                </TableHead>
+                <TableHead className="font-black uppercase tracking-widest text-[10px]">
+                  Last Updated
+                </TableHead>
+                <TableHead className="pr-8 text-right font-black uppercase tracking-widest text-[10px]">
+                  Actions
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredMaps.map((map) => (
-                <TableRow key={map.id} className="group border-border/50 hover:bg-secondary/10 transition-colors h-20">
+                <TableRow
+                  key={map.id}
+                  className="group border-border/50 hover:bg-secondary/10 transition-colors h-20"
+                >
                   <TableCell className="pl-8 font-bold text-base">
                     <div className="flex flex-col">
                       <span className="text-foreground">{map.name}</span>
-                      <span className="text-[9px] font-mono text-muted-foreground opacity-50 uppercase tracking-tighter">ID: {map.id.split("-")[0]}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground opacity-50 uppercase tracking-tighter">
+                        ID: {map.id.split("-")[0]}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit">
+                    <Badge
+                      variant="secondary"
+                      className="bg-primary/5 text-primary border-primary/10 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit"
+                    >
                       <Tag className="w-3 h-3" />
                       {map.labelCount}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="bg-secondary/50 text-foreground/70 border-border/50 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit">
+                    <Badge
+                      variant="secondary"
+                      className="bg-secondary/50 text-foreground/70 border-border/50 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit"
+                    >
                       <Target className="w-3 h-3" />
                       {map.ttCount}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     {map.is_public ? (
-                      <Badge variant="outline" className="bg-emerald-500/5 text-emerald-500 border-emerald-500/20 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit font-bold text-[10px] uppercase tracking-wider">
+                      <Badge
+                        variant="outline"
+                        className="bg-emerald-500/5 text-emerald-500 border-emerald-500/20 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit font-bold text-[10px] uppercase tracking-wider"
+                      >
                         <Users className="w-3 h-3" />
                         Public
                       </Badge>
                     ) : (
-                      <Badge variant="outline" className="bg-zinc-500/5 text-muted-foreground/80 border-zinc-500/20 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit font-bold text-[10px] uppercase tracking-wider">
+                      <Badge
+                        variant="outline"
+                        className="bg-zinc-500/5 text-muted-foreground/80 border-zinc-500/20 rounded-lg px-2 py-0.5 flex items-center gap-1.5 w-fit font-bold text-[10px] uppercase tracking-wider"
+                      >
                         <Lock className="w-3 h-3" />
                         Private
                       </Badge>
@@ -323,7 +363,11 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
                   <TableCell>
                     <div className="flex items-center gap-2 text-muted-foreground font-medium text-sm">
                       <Calendar className="w-4 h-4 opacity-40" />
-                      {new Date(map.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {new Date(map.updated_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
                     </div>
                   </TableCell>
                   <TableCell className="pr-8 text-right">
@@ -336,14 +380,24 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl bg-secondary border border-transparent hover:border-border/50 transition-all cursor-pointer">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 rounded-xl bg-secondary border border-transparent hover:border-border/50 transition-all cursor-pointer"
+                          >
                             <MoreVertical className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64 rounded-2xl border-border/50 p-2 shadow-2xl backdrop-blur-xl">
+                        <DropdownMenuContent
+                          align="end"
+                          className="w-64 rounded-2xl border-border/50 p-2 shadow-2xl backdrop-blur-xl"
+                        >
                           {currentUserId === map.created_by && (
                             <>
-                              <DropdownMenuItem onClick={() => handleTogglePublic(map)} className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer">
+                              <DropdownMenuItem
+                                onClick={() => handleTogglePublic(map)}
+                                className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer"
+                              >
                                 {map.is_public ? (
                                   <>
                                     <Lock className="w-4 h-4 mr-3 text-muted-foreground" />
@@ -359,30 +413,42 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
                               <DropdownMenuSeparator className="bg-border/50 mx-2" />
                             </>
                           )}
-                          <DropdownMenuItem onClick={() => {
-                            setSelectedMap(map);
-                            setNewName(map.name);
-                            setIsRenameOpen(true);
-                          }} className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedMap(map);
+                              setNewName(map.name);
+                              setIsRenameOpen(true);
+                            }}
+                            className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer"
+                          >
                             <Edit2 className="w-4 h-4 mr-3" />
                             Rename Config
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDuplicate(map)} className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer">
+                          <DropdownMenuItem
+                            onClick={() => handleDuplicate(map)}
+                            className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer"
+                          >
                             <Copy className="w-4 h-4 mr-3" />
                             Duplicate Plan
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => {
-                            setSelectedMap(map);
-                            setIsPublishOpen(true);
-                          }} className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedMap(map);
+                              setIsPublishOpen(true);
+                            }}
+                            className="rounded-xl p-3 focus:bg-primary/10 cursor-pointer"
+                          >
                             <Share2 className="w-4 h-4 mr-3 text-primary" />
                             Publish to Discord
                           </DropdownMenuItem>
                           <DropdownMenuSeparator className="bg-border/50 mx-2" />
-                          <DropdownMenuItem onClick={() => {
-                            setSelectedMap(map);
-                            setIsDeleteOpen(true);
-                          }} className="rounded-xl p-3 focus:bg-destructive/10 text-destructive focus:text-destructive cursor-pointer">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedMap(map);
+                              setIsDeleteOpen(true);
+                            }}
+                            className="rounded-xl p-3 focus:bg-destructive/10 text-destructive focus:text-destructive cursor-pointer"
+                          >
                             <Trash2 className="w-4 h-4 mr-3" />
                             Delete
                           </DropdownMenuItem>
@@ -401,8 +467,12 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-foreground">Create Configuration</DialogTitle>
-            <DialogDescription className="text-muted-foreground">Give your new territory config a descriptive name.</DialogDescription>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-foreground">
+              Create Configuration
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Give your new territory config a descriptive name.
+            </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
@@ -413,8 +483,13 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
             />
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={actionLoading || !newName.trim()} >
+            <Button variant="ghost" onClick={() => setIsCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={actionLoading || !newName.trim()}
+            >
               {actionLoading ? <Loader2 className="animate-spin" /> : <Plus />}
               Create Config
             </Button>
@@ -426,8 +501,15 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
       <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-foreground">Rename Configuration</DialogTitle>
-            <DialogDescription className="text-muted-foreground">Updating title for <span className="text-primary font-bold">{selectedMap?.name}</span></DialogDescription>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-foreground">
+              Rename Configuration
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Updating title for{" "}
+              <span className="text-primary font-bold">
+                {selectedMap?.name}
+              </span>
+            </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
@@ -438,8 +520,13 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
             />
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsRenameOpen(false)}>Cancel</Button>
-            <Button onClick={handleRename} disabled={actionLoading || !newName.trim()} >
+            <Button variant="ghost" onClick={() => setIsRenameOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={actionLoading || !newName.trim()}
+            >
               {actionLoading ? <Loader2 className="animate-spin" /> : <Edit2 />}
               Save Changes
             </Button>
@@ -451,15 +538,31 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-destructive">Delete Configuration?</DialogTitle>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-destructive">
+              Delete Configuration?
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              This will permanently delete <span className="font-bold text-foreground">"{selectedMap?.name}"</span> and all its territory assignments. This action cannot be undone.
+              This will permanently delete{" "}
+              <span className="font-bold text-foreground">
+                "{selectedMap?.name}"
+              </span>{" "}
+              and all its territory assignments. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-4">
-            <Button variant="ghost" onClick={() => setIsDeleteOpen(false)}>Cancel</Button>
-            <Button onClick={handleDelete} disabled={actionLoading} variant="destructive">
-              {actionLoading ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            <Button variant="ghost" onClick={() => setIsDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={actionLoading}
+              variant="destructive"
+            >
+              {actionLoading ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Trash2 />
+              )}
               Delete Permanently
             </Button>
           </DialogFooter>
@@ -470,21 +573,29 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
       <Dialog open={isPublishOpen} onOpenChange={setIsPublishOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-foreground">Publish to Discord</DialogTitle>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight text-foreground">
+              Publish to Discord
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Select a channel to send the summary and assignments for <span className="font-bold text-foreground">"{selectedMap?.name}"</span>.
+              Select a channel to send the summary and assignments for{" "}
+              <span className="font-bold text-foreground">
+                "{selectedMap?.name}"
+              </span>
+              .
             </DialogDescription>
           </DialogHeader>
           <div className="py-6 space-y-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/50 ml-1">Target Channel</label>
+              <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/50 ml-1">
+                Target Channel
+              </label>
               <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                {channels.map(ch => (
+                {channels.map((ch) => (
                   <Button
                     key={ch.id}
                     variant={targetChannel === ch.id ? "secondary" : "ghost"}
                     onClick={() => setTargetChannel(ch.id)}
-                    className={`justify-start h-10 rounded-xl font-bold transition-all ${targetChannel === ch.id ? 'bg-primary/10 text-primary border border-primary/20' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`justify-start h-10 rounded-xl font-bold transition-all ${targetChannel === ch.id ? "bg-primary/10 text-primary border border-primary/20" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     <span className="opacity-40 mr-2 text-xs">#</span>
                     {ch.name}
@@ -494,9 +605,18 @@ export function TerritoriesConfig({ sessionToken, channels, currentUserId }: Ter
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsPublishOpen(false)}>Cancel</Button>
-            <Button onClick={handlePublish} disabled={actionLoading || !targetChannel}>
-              {actionLoading ? <Loader2 className="animate-spin" /> : <Share2 />}
+            <Button variant="ghost" onClick={() => setIsPublishOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handlePublish}
+              disabled={actionLoading || !targetChannel}
+            >
+              {actionLoading ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Share2 />
+              )}
               Publish Now
             </Button>
           </DialogFooter>
