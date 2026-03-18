@@ -44,6 +44,83 @@ function getMigrationFiles(migrationsDir: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function splitSqlStatements(sqlText: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let i = 0; i < sqlText.length; i++) {
+    const char = sqlText[i];
+    const prev = i > 0 ? sqlText[i - 1] : "";
+
+    if (char === "'" && !inDoubleQuote && prev !== "\\") {
+      inSingleQuote = !inSingleQuote;
+    } else if (char === '"' && !inSingleQuote && prev !== "\\") {
+      inDoubleQuote = !inDoubleQuote;
+    }
+
+    if (char === ";" && !inSingleQuote && !inDoubleQuote) {
+      const statement = current.trim();
+      if (statement) {
+        statements.push(statement);
+      }
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const tail = current.trim();
+  if (tail) {
+    statements.push(tail);
+  }
+
+  return statements;
+}
+
+function isSafeDuplicateColumnError(
+  error: unknown,
+  statement: string,
+): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const isAlterAddColumn = /^\s*ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\s+/i.test(
+    statement,
+  );
+
+  if (!isAlterAddColumn) {
+    return false;
+  }
+
+  return /duplicate column name/i.test(error.message);
+}
+
+function executeMigrationSql(
+  db: ReturnType<typeof getDB>,
+  sqlText: string,
+): void {
+  const statements = splitSqlStatements(sqlText);
+
+  for (const statement of statements) {
+    try {
+      db.exec(statement);
+    } catch (error) {
+      if (isSafeDuplicateColumnError(error, statement)) {
+        console.warn(
+          `[sqlite:migrate] Skipping duplicate-column ALTER TABLE statement: ${statement}`,
+        );
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const repoRoot = findRepoRoot();
   const migrationsDir = join(repoRoot, "sqlite", "migrations");
@@ -89,7 +166,7 @@ async function main(): Promise<void> {
 
     try {
       db.exec("BEGIN");
-      db.exec(sqlText);
+      executeMigrationSql(db, sqlText);
       await kdb
         .insertInto("sentinel_schema_migrations")
         .values({ id: randomUUID(), filename: file, checksum: hash })
