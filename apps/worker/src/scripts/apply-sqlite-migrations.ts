@@ -84,19 +84,51 @@ function isSafeDuplicateColumnError(
   error: unknown,
   statement: string,
 ): boolean {
-  if (!(error instanceof Error)) {
+  const errorMessage =
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : "";
+
+  if (!errorMessage) {
     return false;
   }
 
+  let normalizedStatement = statement.trimStart();
+  let changed = true;
+
+  // Strip any leading SQL comments so pattern matching sees the actual statement.
+  while (changed) {
+    changed = false;
+
+    const lineCommentMatch = normalizedStatement.match(/^--[^\n]*(?:\n|$)/);
+    if (lineCommentMatch) {
+      normalizedStatement = normalizedStatement
+        .slice(lineCommentMatch[0].length)
+        .trimStart();
+      changed = true;
+    }
+
+    const blockCommentMatch = normalizedStatement.match(/^\/\*[\s\S]*?\*\//);
+    if (blockCommentMatch) {
+      normalizedStatement = normalizedStatement
+        .slice(blockCommentMatch[0].length)
+        .trimStart();
+      changed = true;
+    }
+  }
+
   const isAlterAddColumn = /^\s*ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\s+/i.test(
-    statement,
+    normalizedStatement,
   );
 
   if (!isAlterAddColumn) {
     return false;
   }
 
-  return /duplicate column name/i.test(error.message);
+  return /duplicate column name/i.test(errorMessage);
 }
 
 function executeMigrationSql(
