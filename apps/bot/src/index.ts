@@ -23,15 +23,11 @@ import {
 import { startDailySummaryTask } from "./tasks/daily-summary-task.js";
 import { startDatabaseBackupTask } from "./tasks/db-backup-task.js";
 import { startTokenCleanupTask } from "./tasks/token-cleanup-task.js";
-import { trimWalOnStartup } from "./lib/db-client.js";
 
 // Initialize configuration
 initializeDatabaseConfig();
 const discordToken = initializeDiscordToken();
 const authorizedDiscordUserId = initializeAuthorizedUserId();
-
-// Proactively compact WAL file on process startup to reduce file bloat.
-trimWalOnStartup();
 
 // Create Discord client
 const client = createDiscordClient();

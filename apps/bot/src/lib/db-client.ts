@@ -22,23 +22,6 @@ export const db = getKysely();
 export const rawDb = getDB();
 
 /**
- * Proactively trim SQLite WAL file on bot startup.
- * Safe to call multiple times.
- */
-export function trimWalOnStartup(): void {
-  try {
-    rawDb.pragma("wal_checkpoint(TRUNCATE)");
-    console.log("[DB] WAL checkpoint(TRUNCATE) completed on startup");
-  } catch (error) {
-    // Non-fatal: may fail if another process is actively holding the WAL.
-    console.warn(
-      "[DB] WAL checkpoint(TRUNCATE) skipped:",
-      error instanceof Error ? error.message : error,
-    );
-  }
-}
-
-/**
  * RPC-style helper: Finalize reaction role message
  * Updates message_id in both the message record and its mappings
  */
