@@ -8,11 +8,7 @@ import { Client, GatewayIntentBits, Partials } from "discord.js";
 // Determine environment
 const nodeEnv = (process.env.NODE_ENV || "").trim().toLowerCase();
 // Robust dev detection: check NODE_ENV or existence of local-only variables
-export const isDev = 
-  nodeEnv === "development" || 
-  nodeEnv === "dev" || 
-  !!process.env.BOT_ORIGIN_LOCAL || 
-  !!process.env.DISCORD_BOT_TOKEN_LOCAL;
+export const isDev = nodeEnv === "development" || nodeEnv === "dev";
 
 /**
  * Validate database configuration
