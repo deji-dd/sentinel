@@ -15,8 +15,9 @@ import {
   DollarSign,
   Eye,
   EyeOff,
-  Copy,
   AlertTriangle,
+  Search,
+  X,
 } from "lucide-react";
 import {
   parseRewardString,
@@ -27,7 +28,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -35,10 +35,8 @@ import {
   AlertDialogHeader,
 } from "@/components/ui/alert-dialog";
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
+
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 
@@ -96,7 +94,6 @@ const PAINT_SUPPRESS_AFTER_DRAG_MS = 180;
 export default function TTSelector({
   initialState,
   onSave,
-  sessionToken,
   territoryData,
 }: TTSelectorProps) {
   const mapRef = useRef<L.Map | null>(null);
@@ -108,11 +105,6 @@ export default function TTSelector({
   const isMapDraggingRef = useRef(false);
   const suppressPaintUntilRef = useRef(0);
 
-  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(
-    DEFAULT_LABELS[0].id,
-  );
-  const [expandedLabelId, setExpandedLabelId] = useState<string | null>(null);
-  const [initialPathsReady, setInitialPathsReady] = useState(false);
   const [labels, setLabels] = useState(() => {
     const raw = initialState?.labels || DEFAULT_LABELS;
     return raw.map((l) => ({
@@ -121,6 +113,20 @@ export default function TTSelector({
       territories: l.territories || [],
     }));
   });
+
+  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(
+    DEFAULT_LABELS[0].id,
+  );
+  const [expandedLabelId, setExpandedLabelId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredLabels = useMemo(() => {
+    return labels.filter((l) =>
+      l.text.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
+  }, [labels, searchQuery]);
+
+  const [initialPathsReady, setInitialPathsReady] = useState(false);
 
   // Conflict solver state
   const [conflictData, setConflictData] = useState<{
@@ -515,11 +521,11 @@ export default function TTSelector({
           return prev.map((l) =>
             l.id === labelId
               ? {
-                  ...l,
-                  territories: l.territories.filter(
-                    (tid) => tid !== territoryId,
-                  ),
-                }
+                ...l,
+                territories: l.territories.filter(
+                  (tid) => tid !== territoryId,
+                ),
+              }
               : l,
           );
         }
@@ -665,7 +671,7 @@ export default function TTSelector({
 
     const interval = setInterval(
       () => {
-        fetch(`${API_BASE}/api/map?token=${token}`).catch(() => {});
+        fetch(`${API_BASE}/api/map?token=${token}`).catch(() => { });
       },
       1000 * 60 * 10,
     );
@@ -790,124 +796,86 @@ export default function TTSelector({
     setConflictData(null);
   };
 
-  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
-  const [duplicateTitle, setDuplicateTitle] = useState("");
-  const [isDuplicating, setIsDuplicating] = useState(false);
-
-  const handleDuplicateMap = async () => {
-    if (!duplicateTitle) return;
-    setIsDuplicating(true);
-    try {
-      const mapId = new URLSearchParams(window.location.search).get("mapId");
-      if (!mapId) throw new Error("Missing map ID");
-
-      const res = await fetch(`${API_BASE}/api/map/${mapId}/duplicate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify({ name: duplicateTitle }),
-      });
-      const data = await res.json();
-      if (data.success && data.mapId) {
-        window.open(`/selector?mapId=${data.mapId}`, "_blank");
-        setShowDuplicateModal(false);
-        setDuplicateTitle("");
-      }
-    } catch (err) {
-      console.error("Failed to duplicate map:", err);
-      toast.error("Failed to duplicate configuration");
-    } finally {
-      setIsDuplicating(false);
-    }
-  };
-
-  const handleDuplicateLabel = (label: (typeof labels)[0]) => {
-    const newId = `label-${Date.now()}`;
-    setLabels([
-      ...labels,
-      {
-        ...label,
-        id: newId,
-        text: `${label.text} (Copy)`,
-        enabled: true, // Default enabled on copy
-      },
-    ]);
-  };
-
   return (
     <TooltipProvider>
-      <div className="flex h-screen bg-[#050505] text-zinc-200 relative isolate">
+      <div className="flex h-screen bg-[#050505] text-zinc-200 relative isolate overflow-hidden">
         {/* Sidebar */}
-        <div className="w-80 border-r border-white/5 flex flex-col p-4 space-y-4 shadow-2xl bg-[#0a0a0a] relative z-30 shrink-0">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold flex items-center gap-2 uppercase tracking-tight">
-                Map Painter
-              </h2>
-              <div className="flex items-center gap-2">
-                {lastSaved && (
-                  <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                    LAST SAVED: {lastSaved}
-                  </p>
+        <div className="w-80 border-r border-white/5 flex flex-col p-4 shadow-2xl bg-[#0a0a0a] relative z-30 shrink-0 h-full">
+          {/* Header */}
+          <div className="shrink-0 space-y-4 mb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2 uppercase tracking-tight">
+                  Map Painter
+                </h2>
+                <div className="flex items-center gap-2">
+                  {lastSaved && (
+                    <p className="text-[10px] text-zinc-500 font-mono mt-0.5 uppercase">
+                      • LAST SAVED: {lastSaved}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Search and Action Row */}
+            <div className="space-y-3">
+              <div className="relative group">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-blue-400 transition-colors" />
+                <Input
+                  placeholder="Search labels..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 pl-9 pr-8 bg-black/40 border-white/5 focus-visible:ring-blue-500/50 text-[11px] font-medium"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-white p-0.5"
+                  >
+                    <X size={12} />
+                  </button>
                 )}
               </div>
-            </div>
-            <div className="flex gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      setDuplicateTitle(
-                        `${initialState?.map?.name || "New Map"} (Copy)`,
-                      );
-                      setShowDuplicateModal(true);
-                    }}
-                    className="h-8 w-8 hover:bg-zinc-800/50 text-zinc-500 hover:text-white border border-transparent hover:border-white/10"
-                  >
-                    <Copy size={16} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="bg-zinc-900 border-white/10 text-white text-[10px]">
-                  Duplicate Map
-                </TooltipContent>
-              </Tooltip>
+
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                  Labels <span className="ml-1 opacity-50">({filteredLabels.length})</span>
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAddLabel}
+                  className="h-7 px-3 text-[10px] bg-white/5 hover:bg-white/10 text-white border-white/5 hover:border-white/10 font-bold uppercase tracking-tight"
+                >
+                  <Plus size={12} className="mr-1.5" /> Add Label
+                </Button>
+              </div>
             </div>
           </div>
 
-          <ScrollArea className="flex-1 pr-4">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
-                    Labels
-                  </span>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleAddLabel}
-                    className="h-7 px-3 text-[10px] bg-white/5 hover:bg-white/10 text-white border-white/5 hover:border-white/10 font-bold uppercase tracking-tight"
-                  >
-                    <Plus size={12} className="mr-1.5" /> Add Label
-                  </Button>
-                </div>
-
-                <div className="space-y-1">
-                  {labels.map((label) => {
+          <div className="flex-1 min-h-0 -mx-1 px-1">
+            <ScrollArea className="h-full">
+              <div className="space-y-1 pr-3 pb-8">
+                {filteredLabels.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <p className="text-[10px] font-bold text-zinc-700 uppercase tracking-[0.2em]">
+                      No matched labels
+                    </p>
+                  </div>
+                ) : (
+                  filteredLabels.map((label) => {
                     const labelStats = stats[label.id];
                     const isExpanded = expandedLabelId === label.id;
 
                     return (
                       <div key={label.id} className="group flex flex-col">
                         <div
-                          className={`flex flex-col p-3 rounded-xl transition-all cursor-pointer border ${
-                            selectedLabelId === label.id
-                              ? "bg-zinc-800/40 border-white/10 shadow-2xl ring-1 ring-white/5"
-                              : "bg-transparent border-transparent hover:bg-white/2 hover:border-white/5"
-                          }`}
+                          className={`flex flex-col p-3 rounded-xl transition-all cursor-pointer border ${selectedLabelId === label.id
+                            ? "bg-zinc-800/40 border-white/10 shadow-2xl ring-1 ring-white/5"
+                            : "bg-transparent border-transparent hover:bg-white/2 hover:border-white/5"
+                            }`}
                           onClick={() => setSelectedLabelId(label.id)}
                         >
                           {/* Row 1: Name Input Row */}
@@ -929,7 +897,7 @@ export default function TTSelector({
                                 );
                               }}
                               className={
-                                "border-none bg-muted/5! focus-visible:ring-0 w-full font-bold text-white"
+                                "border-none bg-muted/5! focus-visible:ring-0 w-full font-bold text-white h-8 px-0"
                               }
                               onClick={(e) => e.stopPropagation()}
                               disabled={!label.enabled}
@@ -942,7 +910,7 @@ export default function TTSelector({
                                 e.stopPropagation();
                                 handleToggleLabel(label.id);
                               }}
-                              className={`hover:bg-muted/10! ${label.enabled ? "text-blue-400" : "text-zinc-600"}`}
+                              className={`hover:bg-white/5 ${label.enabled ? "text-blue-400" : "text-zinc-600"}`}
                             >
                               {label.enabled ? (
                                 <Eye size={14} />
@@ -969,17 +937,7 @@ export default function TTSelector({
                             </div>
 
                             <div className="flex items-center gap-0.5">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDuplicateLabel(label);
-                                }}
-                                className="text-zinc-500 hover:text-blue-400 hover:bg-muted/10! transition-all"
-                              >
-                                <Copy size={13} />
-                              </Button>
+
 
                               <Button
                                 variant="ghost"
@@ -990,7 +948,7 @@ export default function TTSelector({
                                     isExpanded ? null : label.id,
                                   );
                                 }}
-                                className={`transition-all hover:bg-muted/10! ${isExpanded ? "text-white" : "text-zinc-500 hover:text-white"}`}
+                                className={`transition-all hover:bg-white/5 ${isExpanded ? "text-white" : "text-zinc-500 hover:text-white"}`}
                               >
                                 {isExpanded ? (
                                   <ChevronDown size={13} />
@@ -1006,7 +964,7 @@ export default function TTSelector({
                                   e.stopPropagation();
                                   handleRemoveLabel(label.id);
                                 }}
-                                className="text-zinc-500 hover:text-red-400 hover:bg-muted/10! transition-all"
+                                className="text-zinc-500 hover:text-red-400 hover:bg-white/5 transition-all"
                               >
                                 <Trash2 size={13} />
                               </Button>
@@ -1068,7 +1026,7 @@ export default function TTSelector({
                                 Selected Territories
                               </span>
                               <ScrollArea className="h-28 pr-2">
-                                <div className="flex flex-wrap gap-1">
+                                <div className="flex flex-wrap gap-1 pb-4">
                                   {labelStats.territories.length > 0 ? (
                                     labelStats.territories.map((tid) => (
                                       <span
@@ -1090,19 +1048,17 @@ export default function TTSelector({
                         )}
                       </div>
                     );
-                  })}
-                </div>
+                  })
+                )}
               </div>
-            </div>
-          </ScrollArea>
+            </ScrollArea>
+          </div>
 
-          <div className="pt-4 border-t border-white/5">
-            <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-              <Info size={14} className="text-blue-400" />
+          <div className="pt-4 border-t border-white/5 shrink-0">
+            <div className="flex items-center gap-2 text-[10px] text-zinc-500 bg-white/2 p-2 rounded-lg border border-white/5">
+              <Info size={14} className="text-blue-400 shrink-0" />
               <span>
-                Select a label and click a territory to paint. Click the same
-                territory again to unpaint. You cannot paint over territories
-                owned by another label.
+                Select a label and click a territory to paint. You cannot paint over territories owned by another label.
               </span>
             </div>
           </div>
@@ -1135,6 +1091,26 @@ export default function TTSelector({
             .leaflet-control-zoom-in:hover, .leaflet-control-zoom-out:hover {
               background: #222 !important;
               color: white !important;
+            }
+            /* Custom Scrollbar for Map Painter */
+            ::-webkit-scrollbar {
+              width: 5px;
+              height: 5px;
+            }
+            ::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            ::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.05);
+              border-radius: 10px;
+              transition: background 0.2s;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+              background: rgba(255, 255, 255, 0.15);
+            }
+            * {
+              scrollbar-width: thin;
+              scrollbar-color: rgba(255, 255, 255, 0.05) transparent;
             }
             button {
               cursor: pointer !important;
@@ -1280,51 +1256,6 @@ export default function TTSelector({
             </div>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* Map Duplication Modal */}
-        <Dialog open={showDuplicateModal} onOpenChange={setShowDuplicateModal}>
-          <DialogContent className="bg-[#0d0d0d] border-white/10 text-white p-0 overflow-hidden w-100">
-            <DialogHeader className="p-4 border-b border-white/5 bg-black/20 flex-row items-center justify-between space-y-0">
-              <div className="flex items-center gap-2 text-blue-400 font-bold uppercase tracking-tight text-sm">
-                <Copy size={18} />
-                Duplicate Configuration
-              </div>
-            </DialogHeader>
-
-            <div className="p-6 space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                  New Title
-                </label>
-                <Input
-                  autoFocus
-                  value={duplicateTitle}
-                  onChange={(e) => setDuplicateTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleDuplicateMap()}
-                  className="bg-black border-white/10 text-white focus-visible:ring-blue-500"
-                  placeholder="Enter new configuration title..."
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowDuplicateModal(false)}
-                  className="text-zinc-500 hover:text-white"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  disabled={!duplicateTitle || isDuplicating}
-                  onClick={handleDuplicateMap}
-                  className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20"
-                >
-                  {isDuplicating ? "Duplicating..." : "Duplicate"}
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </TooltipProvider>
   );

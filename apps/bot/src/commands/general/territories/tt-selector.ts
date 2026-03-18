@@ -66,11 +66,17 @@ export async function execute(
     return;
   }
 
-  // Fetch existing maps for this guild to show a count
+  // Fetch existing maps for this guild to show a count (only user's maps or public ones)
   const maps = await db
     .selectFrom(TABLE_NAMES.MAPS)
     .select(["id"])
     .where("guild_id", "=", guildId)
+    .where((eb) =>
+      eb.or([
+        eb("created_by", "=", interaction.user.id),
+        eb("is_public", "=", 1),
+      ]),
+    )
     .execute();
 
   const magicLinkService = new MagicLinkService(interaction.client);
