@@ -53,6 +53,7 @@ export const TABLE_NAMES = {
   MAP_LABELS: "sentinel_map_labels",
   MAP_TERRITORIES: "sentinel_map_territories",
   MAP_SESSIONS: "sentinel_map_sessions",
+  MAP_HISTORY: "sentinel_map_history",
 } as const;
 
 /** Alert module types */

@@ -5,24 +5,16 @@ import {
   ButtonBuilder,
   ButtonStyle,
   type ChatInputCommandInteraction,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
   GuildMemberRoleManager,
   MessageFlags,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
   ButtonInteraction,
   ModalSubmitInteraction,
   StringSelectMenuInteraction,
-  ChannelSelectMenuBuilder,
-  ChannelType,
   type ChannelSelectMenuInteraction,
 } from "discord.js";
 import { db } from "../../../lib/db-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { getPainterUrl } from "../../../lib/bot-config.js";
-import { randomBytes, randomUUID } from "crypto";
+import { getApiUrl } from "../../../lib/bot-config.js";
 import { MagicLinkService } from "../../../lib/services/magic-link-service.js";
 
 export const data = new SlashCommandBuilder()
@@ -74,585 +66,61 @@ export async function execute(
     return;
   }
 
-  // Fetch existing maps for this guild (Only those created by THIS user for privacy)
+  // Fetch existing maps for this guild to show a count
   const maps = await db
     .selectFrom(TABLE_NAMES.MAPS)
-    .selectAll()
+    .select(["id"])
     .where("guild_id", "=", guildId)
-    .where("created_by", "=", interaction.user.id)
     .execute();
+
+  const magicLinkService = new MagicLinkService(interaction.client);
+  const token = await magicLinkService.createToken({
+    discordId: interaction.user.id,
+    guildId: guildId,
+    scope: "map",
+    targetPath: "/territories",
+  });
+
+  const dashboardUrl = `${getApiUrl()}/api/auth/magic-link?token=${token}`;
 
   const embed = new EmbedBuilder()
     .setColor(0x3b82f6)
-    .setTitle("TT Selector Control Panel")
+    .setTitle("TT Selector Management")
     .setDescription(
-      maps.length > 0
-        ? `You have **${maps.length}** configuration(s) for this server.`
-        : "No configurations found. Create your first one to get started!",
+      `Management for territory configurations has moved to the web dashboard.\n\nYou have **${maps.length}** configuration(s) for this server.`,
     )
+    .addFields({
+      name: "How to Manage",
+      value:
+        "1. Click the button below to open the dashboard.\n2. Create, rename, edit, or delete maps directly from the UI.\n3. Changes are synced instantly.",
+    })
     .setTimestamp();
-
-  if (maps.length > 0) {
-    const mapList = maps
-      .map((m) => `• **${m.name}** (ID: \`${m.id.substring(0, 8)}\`)`)
-      .join("\n");
-    embed.addFields({ name: "Existing Configurations", value: mapList });
-  }
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId("tt_selector_create")
-      .setLabel("Create New TT Config")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId("tt_selector_edit_list")
-      .setLabel("Edit Config")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(maps.length === 0),
-    new ButtonBuilder()
-      .setCustomId("tt_selector_publish_list")
-      .setLabel("Publish Config")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(maps.length === 0),
-    new ButtonBuilder()
-      .setCustomId("tt_selector_duplicate_list")
-      .setLabel("Duplicate Config")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(maps.length === 0),
+      .setLabel("Open Web Dashboard")
+      .setStyle(ButtonStyle.Link)
+      .setURL(dashboardUrl),
   );
 
-  await interaction.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
+// Button/Select/Modal handlers below can be removed as they are now handled in the UI
+// Keeping exports empty to avoid breaking the interaction router if it still tries to call them
 export async function handleButtonInteraction(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  const { customId, guildId } = interaction;
-
-  if (customId === "tt_selector_create") {
-    const modal = new ModalBuilder()
-      .setCustomId("tt_selector_create_modal")
-      .setTitle("Create New TT Config");
-
-    const nameInput = new TextInputBuilder()
-      .setCustomId("map_name")
-      .setLabel("Config Name")
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder("e.g. Faction War Plan")
-      .setRequired(true);
-
-    modal.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
-    );
-    await interaction.showModal(modal);
-  } else if (customId === "tt_selector_edit_list") {
-    const maps = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .selectAll()
-      .where("guild_id", "=", guildId!)
-      .where("created_by", "=", interaction.user.id)
-      .execute();
-
-    if (maps.length === 0) {
-      await interaction.reply({
-        content: "No configurations found to edit.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x3b82f6)
-      .setTitle("Select TT Config to Edit")
-      .setDescription(
-        "Select a configuration from the menu below to open the selector.",
-      );
-
-    const select = new StringSelectMenuBuilder()
-      .setCustomId("tt_selector_edit_select")
-      .setPlaceholder("Choose a configuration...")
-      .addOptions(
-        maps.map((m) =>
-          new StringSelectMenuOptionBuilder()
-            .setLabel(m.name || "Unnamed Config")
-            .setDescription(`ID: ${m.id.slice(0, 8)}`)
-            .setValue(m.id),
-        ),
-      );
-
-    const selectRow =
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-    await interaction.reply({
-      embeds: [embed],
-      components: [selectRow],
-      flags: MessageFlags.Ephemeral,
-    });
-  } else if (customId === "tt_selector_publish_list") {
-    const maps = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .selectAll()
-      .where("guild_id", "=", guildId!)
-      .where("created_by", "=", interaction.user.id)
-      .execute();
-
-    if (maps.length === 0) {
-      await interaction.reply({
-        content: "No configurations found to publish.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x10b981)
-      .setTitle("Select TT Config to Publish")
-      .setDescription(
-        "Select a configuration to generate a global screenshot and summary.",
-      );
-
-    const select = new StringSelectMenuBuilder()
-      .setCustomId("tt_selector_publish_select")
-      .setPlaceholder("Choose a configuration to publish...")
-      .addOptions(
-        maps.map((m) =>
-          new StringSelectMenuOptionBuilder()
-            .setLabel(m.name || "Unnamed Config")
-            .setDescription(`ID: ${m.id.slice(0, 8)}`)
-            .setValue(m.id),
-        ),
-      );
-
-    const selectRow =
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-    await interaction.reply({
-      embeds: [embed],
-      components: [selectRow],
-      flags: MessageFlags.Ephemeral,
-    });
-  } else if (customId === "tt_selector_duplicate_list") {
-    const maps = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .selectAll()
-      .where("guild_id", "=", guildId!)
-      .where("created_by", "=", interaction.user.id)
-      .execute();
-
-    if (maps.length === 0) {
-      await interaction.reply({
-        content: "No configurations found to duplicate.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x6366f1)
-      .setTitle("Select TT Config to Duplicate")
-      .setDescription(
-        "Choose a configuration to create an identical copy with a new title.",
-      );
-
-    const select = new StringSelectMenuBuilder()
-      .setCustomId("tt_selector_duplicate_select")
-      .setPlaceholder("Choose a configuration to duplicate...")
-      .addOptions(
-        maps.map((m) =>
-          new StringSelectMenuOptionBuilder()
-            .setLabel(m.name || "Unnamed Config")
-            .setDescription(`ID: ${m.id.slice(0, 8)}`)
-            .setValue(m.id),
-        ),
-      );
-
-    const selectRow =
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-    await interaction.reply({
-      embeds: [embed],
-      components: [selectRow],
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-}
-
+  _interaction: ButtonInteraction,
+): Promise<void> {}
 export async function handleStringSelectMenuInteraction(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  const { customId, values, user, guildId } = interaction;
-  const mapId = values[0];
-
-  if (customId === "tt_selector_edit_select") {
-    // Security: Validate ownership before generating session
-    const map = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .select("created_by")
-      .where("id", "=", mapId)
-      .executeTakeFirst();
-
-    if (!map || map.created_by !== user.id) {
-      await interaction.reply({
-        content: "Error: You do not have permission to edit this configuration.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const magicLinkService = new MagicLinkService(interaction.client);
-    const token = await magicLinkService.createToken({
-      discordId: user.id,
-      guildId: guildId!,
-      scope: 'map',
-      targetPath: `/selector?mapId=${mapId}`
-    });
-    const painterUrl = `${getPainterUrl()}/?token=${token}`;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x3b82f6)
-      .setTitle("TT Selector Access Generated")
-      .setDescription(
-        `Your secure access link for editing the TT configuration is ready.\n\n[Click here to open the TT Selector](${painterUrl})`,
-      )
-      .addFields({
-        name: "Security Info",
-        value: "• This link is unique to your session\n• Access token is valid for 30 minutes",
-        inline: false,
-      })
-      .setTimestamp();
-
-    await interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral,
-    });
-  } else if (customId === "tt_selector_publish_select") {
-    const map = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .selectAll()
-      .where("id", "=", mapId)
-      .executeTakeFirst();
-
-    if (!map || map.created_by !== user.id) {
-      await interaction.reply({
-        content: "Error: You do not have permission to publish this configuration.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const select = new ChannelSelectMenuBuilder()
-      .setCustomId(`tt_selector_publish_channel:${mapId}`)
-      .setPlaceholder("Select a channel to publish to...")
-      .addChannelTypes(ChannelType.GuildText);
-
-    const row = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
-      select,
-    );
-    await interaction.update({
-      content: `**Step 2: Destination**\nWhich channel should the "**${map.name}**" config be published to?`,
-      embeds: [],
-      components: [row],
-    });
-  } else if (customId === "tt_selector_duplicate_select") {
-    const map = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .select(["id", "name"])
-      .where("id", "=", mapId)
-      .executeTakeFirst();
-
-    if (!map) return;
-
-    const modal = new ModalBuilder()
-      .setCustomId(`tt_selector_duplicate_modal:${mapId}`)
-      .setTitle(`Duplicate: ${map.name}`);
-
-    const nameInput = new TextInputBuilder()
-      .setCustomId("new_map_name")
-      .setLabel("New Config Name")
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder(`${map.name} (Copy)`)
-      .setRequired(true);
-
-    modal.addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput)
-    );
-    await interaction.showModal(modal);
-  }
-}
-
+  _interaction: StringSelectMenuInteraction,
+): Promise<void> {}
 export async function handleChannelSelectMenuInteraction(
-  interaction: ChannelSelectMenuInteraction,
-): Promise<void> {
-  const { customId, values, guild } = interaction;
-
-  if (customId.startsWith("tt_selector_publish_channel:")) {
-    const mapId = customId.split(":")[1];
-    const channelId = values[0];
-    const channel = guild?.channels.cache.get(channelId);
-
-    if (!channel || !channel.isTextBased()) {
-      await interaction.reply({
-        content: "Invalid channel selected.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const map = await db
-      .selectFrom(TABLE_NAMES.MAPS)
-      .selectAll()
-      .where("id", "=", mapId)
-      .executeTakeFirst();
-
-    if (!map || map.created_by !== interaction.user.id) {
-      await interaction.reply({
-        content: "Error: Configuration not found or access denied.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const labels = await db
-      .selectFrom(TABLE_NAMES.MAP_LABELS)
-      .selectAll()
-      .where("map_id", "=", mapId)
-      .execute();
-
-    const assignments = await db
-      .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
-      .select(["territory_id", "label_id"])
-      .where("map_id", "=", mapId)
-      .execute();
-
-    const tids = assignments.map((a) => a.territory_id);
-    const blueprints = await db
-      .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
-      .selectAll()
-      .where("id", "in", tids)
-      .execute();
-
-    const states = await db
-      .selectFrom(TABLE_NAMES.TERRITORY_STATE)
-      .selectAll()
-      .where("territory_id", "in", tids)
-      .execute();
-
-    const embeds: EmbedBuilder[] = [];
-
-    // Main Header Embed
-    embeds.push(
-      new EmbedBuilder()
-        .setColor(0x3b82f6)
-        .setTitle(map.name)
-        .setDescription(
-          `This configuration was published by <@${interaction.user.id}>.`,
-        )
-        .setTimestamp(),
-    );
-
-    for (const label of labels) {
-      const labelAssignments = assignments.filter(
-        (a) => a.label_id === label.id,
-      );
-      if (labelAssignments.length === 0) continue;
-
-      const lines = labelAssignments.map((a) => {
-        const st = states.find((s) => s.territory_id === a.territory_id);
-
-        let info = `• [**${a.territory_id}**](https://www.torn.com/city.php#territory=${a.territory_id})`;
-        if (st?.racket_name)
-          info += ` | ${st.racket_name} (L${st.racket_level})`;
-        return info;
-      });
-
-      const totalRespect = labelAssignments.reduce((acc, a) => {
-        const bp = blueprints.find((b) => b.id === a.territory_id);
-        return acc + (bp?.respect || 0);
-      }, 0);
-
-      const sectors: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
-      labelAssignments.forEach((a) => {
-        const bp = blueprints.find((b) => b.id === a.territory_id);
-        if (bp?.sector) sectors[bp.sector]++;
-      });
-
-      const sectorDistribution = [1, 2, 3, 4, 5, 6, 7]
-        .map((s) => `**S${s}**: ${sectors[s]}`)
-        .join(" | ");
-
-      const value = lines.join("\n").substring(0, 2000);
-
-      const labelEmbed = new EmbedBuilder()
-        .setColor(parseInt(label.color_hex.replace("#", ""), 16) || 0x3b82f6)
-        .setTitle(label.label_text)
-        .setDescription(value)
-        .addFields(
-          { 
-            name: "Sectors", 
-            value: sectorDistribution, 
-            inline: false 
-          },
-          {
-            name: "Summary",
-            value: `Territories: **${labelAssignments.length}**\nDaily Respect: **${totalRespect.toLocaleString()}**`,
-            inline: true,
-          }
-        );
-
-      embeds.push(labelEmbed);
-    }
-
-    if (embeds.length === 1) {
-      embeds[0].setDescription(
-        "This configuration has no territory assignments yet.",
-      );
-    }
-
-    // Split embeds into chunks (Discord limit is 10)
-    for (let i = 0; i < embeds.length; i += 10) {
-      const chunk = embeds.slice(i, i + 10);
-      await channel.send({ embeds: chunk });
-    }
-
-    await interaction.update({
-      content: `**Config Published**\nSuccessfully published "**${map.name}**" to <#${channelId}>.`,
-      components: [],
-      embeds: [],
-    });
-  }
-}
-
+  _interaction: ChannelSelectMenuInteraction,
+): Promise<void> {}
 export async function handleModalSubmitInteraction(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  const { customId, guildId, user } = interaction;
-
-  if (customId === "tt_selector_create_modal") {
-    const name = interaction.fields.getTextInputValue("map_name");
-    const mapId = randomUUID();
-
-    await db
-      .insertInto(TABLE_NAMES.MAPS)
-      .values({
-        id: mapId,
-        guild_id: guildId!,
-        name,
-        created_by: user.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .execute();
-
-    const magicLinkService = new MagicLinkService(interaction.client);
-    const token = await magicLinkService.createToken({
-      discordId: user.id,
-      guildId: guildId!,
-      scope: 'map',
-      targetPath: `/selector?mapId=${mapId}`
-    });
-    const painterUrl = `${getPainterUrl()}/?token=${token}`;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("TT Config Created")
-      .setDescription(`Successfully created configuration "**${name}**".`)
-      .addFields({
-        name: "Access Link",
-        value: `[Open TT Selector](${painterUrl})`,
-      })
-      .setFooter({ text: "Token expires in 30 minutes" });
-
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-  } else if (customId.startsWith("tt_selector_duplicate_modal:")) {
-    const oldMapId = customId.split(":")[1];
-    const newName = interaction.fields.getTextInputValue("new_map_name");
-    const newMapId = randomUUID();
-
-    // Copy map metadata
-    await db
-      .insertInto(TABLE_NAMES.MAPS)
-      .values({
-        id: newMapId,
-        guild_id: guildId!,
-        name: newName,
-        created_by: user.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .execute();
-
-    // Copy labels
-    const oldLabels = await db
-      .selectFrom(TABLE_NAMES.MAP_LABELS)
-      .selectAll()
-      .where("map_id", "=", oldMapId)
-      .execute();
-
-    // Map old label IDs to new ones if we want to change them, 
-    // but we can keep them the same if they are UUIDs or just unique strings.
-    // However, the database might have unique constraints? No, PK is just 'id'.
-    // If we keep IDs same, we'll have duplicate IDs across maps? 
-    // The DB PK for labels is just 'id' (TEXT PRIMARY KEY).
-    // This means label IDs MUST be globally unique.
-    
-    const labelIdMap: Record<string, string> = {};
-    if (oldLabels.length > 0) {
-      const newLabels = oldLabels.map(ol => {
-        const newId = `label-${randomBytes(8).toString("hex")}`;
-        labelIdMap[ol.id] = newId;
-        return {
-          id: newId,
-          map_id: newMapId,
-          label_text: ol.label_text,
-          color_hex: ol.color_hex,
-          is_enabled: ol.is_enabled,
-          created_at: new Date().toISOString()
-        };
-      });
-
-      await db.insertInto(TABLE_NAMES.MAP_LABELS).values(newLabels).execute();
-    }
-
-    // Copy territories
-    const oldTerritories = await db
-      .selectFrom(TABLE_NAMES.MAP_TERRITORIES)
-      .selectAll()
-      .where("map_id", "=", oldMapId)
-      .execute();
-
-    if (oldTerritories.length > 0) {
-      const newTerritories = oldTerritories.map(ot => ({
-        map_id: newMapId,
-        territory_id: ot.territory_id,
-        label_id: labelIdMap[ot.label_id] || ot.label_id
-      }));
-
-      // Chunked insert
-      for (let i = 0; i < newTerritories.length; i += 500) {
-        await db
-          .insertInto(TABLE_NAMES.MAP_TERRITORIES)
-          .values(newTerritories.slice(i, i + 500))
-          .execute();
-      }
-    }
-
-    const magicLinkService = new MagicLinkService(interaction.client);
-    const token = await magicLinkService.createToken({
-      discordId: user.id,
-      guildId: guildId!,
-      scope: 'map',
-      targetPath: `/selector?mapId=${newMapId}`
-    });
-    const painterUrl = `${getPainterUrl()}/?token=${token}`;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("TT Config Duplicated")
-      .setDescription(`Successfully created configuration "**${newName}**" as a copy.`)
-      .addFields({
-        name: "Access Link",
-        value: `[Open New TT Selector](${painterUrl})`,
-      })
-      .setFooter({ text: "Token expires in 30 minutes" });
-
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-  }
-}
-
+  _interaction: ModalSubmitInteraction,
+): Promise<void> {}

@@ -7,7 +7,7 @@ export function LoadingScreen() {
             Initializing Sentinel
           </p>
           <div className="h-0.5 w-12 bg-primary/20 mx-auto rounded-full overflow-hidden">
-            <div className="h-full bg-primary w-1/2 animate-[loading_1.5s_infinite]" />
+            <div className="h-full bg-primary w-1/2 animate-loading" />
           </div>
         </div>
       </div>
