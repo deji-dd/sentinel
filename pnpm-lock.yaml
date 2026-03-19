@@ -219,8 +219,8 @@ importers:
         specifier: ^12.6.2
         version: 12.6.2
       kysely:
-        specifier: ^0.28.11
-        version: 0.28.11
+        specifier: ^0.28.12
+        version: 0.28.12
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13
@@ -230,7 +230,7 @@ importers:
         version: 22.19.7
       kysely-codegen:
         specifier: ^0.20.0
-        version: 0.20.0(better-sqlite3@12.6.2)(kysely@0.28.11)(typescript@5.9.3)
+        version: 0.20.0(better-sqlite3@12.6.2)(kysely@0.28.12)(typescript@5.9.3)
       openapi-typescript:
         specifier: ^7.4.4
         version: 7.10.1(typescript@5.9.3)
@@ -3104,8 +3104,8 @@ packages:
       tedious:
         optional: true
 
-  kysely@0.28.11:
-    resolution: {integrity: sha512-zpGIFg0HuoC893rIjYX1BETkVWdDnzTzF5e0kWXJFg5lE0k1/LfNWBejrcnOFu8Q2Rfq/hTDTU7XLUM8QOrpzg==}
+  kysely@0.28.12:
+    resolution: {integrity: sha512-kWiueDWXhbCchgiotwXkwdxZE/6h56IHAeFWg4euUfW0YsmO9sxbAxzx1KLLv2lox15EfuuxHQvgJ1qIfZuHGw==}
     engines: {node: '>=20.0.0'}
 
   leaflet@1.9.4:
@@ -6894,14 +6894,14 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  kysely-codegen@0.20.0(better-sqlite3@12.6.2)(kysely@0.28.11)(typescript@5.9.3):
+  kysely-codegen@0.20.0(better-sqlite3@12.6.2)(kysely@0.28.12)(typescript@5.9.3):
     dependencies:
       chalk: 4.1.2
       cosmiconfig: 9.0.1(typescript@5.9.3)
       diff: 8.0.3
       dotenv: 17.3.1
       dotenv-expand: 12.0.3
-      kysely: 0.28.11
+      kysely: 0.28.12
       micromatch: 4.0.8
       minimist: 1.2.8
       pluralize: 8.0.0
@@ -6911,7 +6911,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  kysely@0.28.11: {}
+  kysely@0.28.12: {}
 
   leaflet@1.9.4: {}
 
