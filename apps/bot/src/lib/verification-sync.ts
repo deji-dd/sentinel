@@ -1,74 +1,21 @@
 import { type Client } from "discord.js";
-import {
-  TABLE_NAMES,
-  TornApiClient,
-  getNextApiKey,
-  type TornApiComponents,
-} from "@sentinel/shared";
+import { TABLE_NAMES, TornApiClient, getNextApiKey } from "@sentinel/shared";
 import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
 import { upsertVerifiedUser } from "./verified-users.js";
 import { tornApi } from "../services/torn-client.js";
-
-type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
-  TornApiComponents["schemas"]["UserFactionResponse"] &
-  TornApiComponents["schemas"]["UserProfileResponse"];
-
-type factionGenericResponse =
-  TornApiComponents["schemas"]["FactionBasicResponse"] &
-    TornApiComponents["schemas"]["FactionMembersResponse"];
-
-interface FactionRoleMapping {
-  guild_id: string;
-  faction_id: number;
-  member_role_ids: string[];
-  leader_role_ids: string[];
-  enabled: boolean;
-}
-
-interface GuildSyncJob {
-  guild_id: string;
-  last_sync_at: string | null;
-  next_sync_at: string;
-  in_progress: boolean | number;
-}
-
-
-
-interface VerifiedUserRecord {
-  discord_id: string;
-  torn_id: number;
-  torn_name: string;
-  faction_id: number | null;
-  faction_tag: string | null;
-  updated_at: string;
-}
-
-function parseTextArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string");
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (item): item is string => typeof item === "string",
-        );
-      }
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
-}
-
-function isTruthyBoolean(value: unknown): boolean {
-  return value === true || value === 1 || value === "1";
-}
+import {
+  applyNicknameTemplate,
+  type factionGenericResponse,
+  type FactionRoleMapping,
+  type GuildSyncJob,
+  isTruthyBoolean,
+  isVerificationRecordStale,
+  loadVerifiedUsersByDiscordIds,
+  parseTextArray,
+  type UserGenericResponse,
+} from "./verification-sync-support.js";
 
 /**
  * Database-driven guild sync scheduler
@@ -136,7 +83,7 @@ export class GuildSyncScheduler {
       console.log(`[Guild Sync] Poll skipped (previous poll still running)`);
       return;
     }
-    
+
     this.isPolling = true;
     try {
       // Clear any jobs that have been stuck in_progress for over 30 minutes
@@ -234,8 +181,6 @@ export class GuildSyncScheduler {
       return;
     }
 
-
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let guildConfig: any = undefined;
 
@@ -311,8 +256,9 @@ export class GuildSyncScheduler {
 
       // Load verified users for all members in the guild
       // This allows us to identify who IS verified versus who just has managed roles
-      const existingVerifiedUsers = await this.loadVerifiedUsersByDiscordIds(
+      const existingVerifiedUsers = await loadVerifiedUsersByDiscordIds(
         Array.from(allMembers.keys()),
+        this.VERIFIED_USER_QUERY_CHUNK_SIZE,
       );
 
       // Get faction role mappings for this guild
@@ -349,10 +295,18 @@ export class GuildSyncScheduler {
         } as FactionRoleMapping;
       });
 
-      // Get managed roles (verified role + all faction roles)
+      // Get managed roles (verified role(s) + all faction roles)
       const managedRoleIds = new Set<string>();
       if (guildConfig.verified_role_id) {
         managedRoleIds.add(guildConfig.verified_role_id);
+      }
+      if (
+        guildConfig.verified_role_ids &&
+        Array.isArray(guildConfig.verified_role_ids)
+      ) {
+        guildConfig.verified_role_ids.forEach((id: string) =>
+          managedRoleIds.add(id),
+        );
       }
       for (const mapping of factionMappings) {
         mapping.member_role_ids.forEach((id) => managedRoleIds.add(id));
@@ -465,7 +419,10 @@ export class GuildSyncScheduler {
             : null;
 
           const staleRecord = existingUser
-            ? this.isVerificationRecordStale(existingUser.updated_at)
+            ? isVerificationRecordStale(
+                existingUser.updated_at,
+                this.VERIFICATION_REFRESH_MS,
+              )
             : false;
 
           const mappedFactionMismatch = existingUser
@@ -566,7 +523,7 @@ export class GuildSyncScheduler {
           const rolesRemoved: string[] = [];
 
           // Always update nickname to apply current template
-          const nickname = this.applyNicknameTemplate(
+          const nickname = applyNicknameTemplate(
             guildConfig.nickname_template || "{name} [{id}]",
             name,
             playerId,
@@ -574,15 +531,28 @@ export class GuildSyncScheduler {
           );
           await member.setNickname(nickname).catch(() => {});
 
-          // Ensure verification role is assigned if configured
-          const verifiedRoleId = guildConfig.verified_role_id;
-          if (verifiedRoleId && !member.roles.cache.has(verifiedRoleId)) {
-            const addVerifiedRoleResult = await member.roles
-              .add(verifiedRoleId)
-              .then(() => true)
-              .catch(() => false);
-            if (addVerifiedRoleResult) {
-              rolesAdded.push(verifiedRoleId);
+          // Ensure verification roles are assigned if configured
+          const rolesToAssign = new Set<string>();
+          if (guildConfig.verified_role_id)
+            rolesToAssign.add(guildConfig.verified_role_id);
+          if (
+            guildConfig.verified_role_ids &&
+            Array.isArray(guildConfig.verified_role_ids)
+          ) {
+            guildConfig.verified_role_ids.forEach((id: string) =>
+              rolesToAssign.add(id),
+            );
+          }
+
+          for (const roleId of rolesToAssign) {
+            if (!member.roles.cache.has(roleId)) {
+              const addResult = await member.roles
+                .add(roleId)
+                .then(() => true)
+                .catch(() => false);
+              if (addResult) {
+                rolesAdded.push(roleId);
+              }
             }
           }
 
@@ -799,73 +769,6 @@ export class GuildSyncScheduler {
         .where("guild_id", "=", job.guild_id)
         .execute();
     }
-  }
-
-  /**
-   * Apply nickname template with variables
-   */
-  private applyNicknameTemplate(
-    template: string,
-    name: string,
-    id: number,
-    factionTag?: string,
-  ): string {
-    return template
-      .replace("{name}", name)
-      .replace("{id}", id.toString())
-      .replace("{tag}", factionTag || "");
-  }
-
-  private async loadVerifiedUsersByDiscordIds(
-    discordIds: string[],
-  ): Promise<Map<string, VerifiedUserRecord>> {
-    const users = new Map<string, VerifiedUserRecord>();
-
-    if (discordIds.length === 0) {
-      return users;
-    }
-
-    for (
-      let i = 0;
-      i < discordIds.length;
-      i += this.VERIFIED_USER_QUERY_CHUNK_SIZE
-    ) {
-      const chunk = discordIds.slice(
-        i,
-        i + this.VERIFIED_USER_QUERY_CHUNK_SIZE,
-      );
-      if (chunk.length === 0) {
-        continue;
-      }
-
-      const rows = (await db
-        .selectFrom(TABLE_NAMES.VERIFIED_USERS)
-        .select([
-          "discord_id",
-          "torn_id",
-          "torn_name",
-          "faction_id",
-          "faction_tag",
-          "updated_at",
-        ])
-        .where("discord_id", "in", chunk)
-        .execute()) as VerifiedUserRecord[];
-
-      for (const row of rows) {
-        users.set(row.discord_id, row);
-      }
-    }
-
-    return users;
-  }
-
-  private isVerificationRecordStale(updatedAt: string): boolean {
-    const updatedTimestamp = new Date(updatedAt).getTime();
-    if (Number.isNaN(updatedTimestamp)) {
-      return true;
-    }
-
-    return Date.now() - updatedTimestamp >= this.VERIFICATION_REFRESH_MS;
   }
 
   /**

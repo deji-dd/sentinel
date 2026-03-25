@@ -28,26 +28,8 @@ export async function handleButtonInteraction(
   // Config command buttons
   if (customId === "config_back_to_menu") {
     await configCommand.handleBackToMenu(interaction);
-  } else if (customId === "config_back_verify_settings") {
-    await configCommand.handleBackToVerifySettings(interaction);
   } else if (customId === "config_open_dashboard") {
     await configCommand.handleOpenDashboard(interaction);
-  } else if (customId === "config_add_faction_role") {
-    await configCommand.handleAddFactionRoleButton(interaction);
-  } else if (customId === "config_remove_faction_role") {
-    await configCommand.handleRemoveFactionRoleButton(interaction);
-  } else if (customId === "config_faction_manage_back") {
-    await configCommand.handleFactionManageBack(interaction);
-  } else if (customId.startsWith("config_faction_toggle_")) {
-    await configCommand.handleFactionToggle(interaction);
-  } else if (customId.startsWith("config_faction_member_roles_")) {
-    await configCommand.handleFactionMemberRolesButton(interaction);
-  } else if (customId.startsWith("config_faction_leader_roles_")) {
-    await configCommand.handleFactionLeaderRolesButton(interaction);
-  } else if (customId === "confirm_auto_verify_toggle") {
-    await configCommand.handleConfirmAutoVerifyToggle(interaction);
-  } else if (customId === "verify_settings_edit_cancel") {
-    await configCommand.handleVerifySettingsEditCancel(interaction);
   } else if (customId === "tt_settings_show") {
     await configCommand.handleShowTTSettings(interaction);
   } else if (customId === "tt_full_channel_clear") {
@@ -65,11 +47,6 @@ export async function handleButtonInteraction(
     await configCommand.handleTTWarTrackChannelClear(interaction);
   } else if (customId.startsWith("tt_war_track_away_filter")) {
     await configCommand.handleTTWarTrackAwayFilterButton(interaction);
-  } else if (
-    customId.startsWith("config_faction_role_menu_prev_") ||
-    customId.startsWith("config_faction_role_menu_next_")
-  ) {
-    await configCommand.handleFactionRoleMenuPage(interaction);
   } else if (customId === "reaction_roles_settings_show") {
     await configCommand.handleShowReactionRolesSettings(interaction);
   } else if (customId === "reaction_roles_edit_allowed") {
@@ -173,14 +150,8 @@ export async function handleModalSubmitInteraction(
 
   const { customId } = interaction;
 
-  // Config command modals
-    if (customId === "config_nickname_template_modal") {
-    await configCommand.handleNicknameTemplateModalSubmit(interaction);
-  } else if (customId === "config_add_faction_role_modal") {
-    await configCommand.handleAddFactionRoleModalSubmit(interaction);
-  } else if (customId === "config_remove_faction_role_modal") {
-    await configCommand.handleRemoveFactionRoleModalSubmit(interaction);
-  } else if (customId === "tt_edit_territories_modal") {
+  // TT Selector modals
+  if (customId === "tt_edit_territories_modal") {
     await configCommand.handleTTEditTerritoriesModalSubmit(interaction);
   } else if (customId === "tt_edit_factions_modal") {
     await configCommand.handleTTEditFactionsModalSubmit(interaction);
@@ -245,10 +216,6 @@ export async function handleStringSelectMenuInteraction(
   // Config command selects
   if (customId === "config_view_select") {
     await configCommand.handleViewSelect(interaction);
-  } else if (customId === "verify_settings_edit") {
-    await configCommand.handleVerifySettingsEdit(interaction);
-  } else if (customId === "config_faction_manage_select") {
-    await configCommand.handleFactionManageSelect(interaction);
   } else if (customId === "tt_settings_edit") {
     await configCommand.handleTTSettingsEdit(interaction);
   } else if (customId === "tt_filtered_settings_edit") {
@@ -303,15 +270,7 @@ export async function handleRoleSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId.startsWith("config_faction_role_select_")) {
-    await configCommand.handleFactionRoleSelect(interaction);
-  } else if (customId.startsWith("config_faction_member_roles_select_")) {
-    await configCommand.handleFactionMemberRolesSelect(interaction);
-  } else if (customId.startsWith("config_faction_leader_roles_select_")) {
-    await configCommand.handleFactionLeaderRolesSelect(interaction);
-  } else if (customId === "config_verified_role_select") {
-    await configCommand.handleVerifiedRoleSelect(interaction);
-  } else if (customId === "reaction_roles_allowed_select") {
+  if (customId === "reaction_roles_allowed_select") {
     await configCommand.handleAllowedRolesSelect(interaction);
   } else if (customId.startsWith("reaction_role_mapping_role_select|")) {
     await configCommand.handleMappingRoleSelect(interaction);
@@ -340,9 +299,7 @@ export async function handleChannelSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId === "config_faction_list_channel_select") {
-    await configCommand.handleFactionListChannelSelect(interaction);
-  } else if (customId === "tt_full_channel_select") {
+  if (customId === "tt_full_channel_select") {
     await configCommand.handleTTFullChannelSelect(interaction);
   } else if (customId === "tt_filtered_channel_select") {
     await configCommand.handleTTFilteredChannelSelect(interaction);

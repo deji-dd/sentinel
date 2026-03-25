@@ -75,11 +75,15 @@ export async function execute(
     // Get guild config for settings (nickname template, verified role)
     const guildConfig = (await db
       .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["nickname_template", "verified_role_id"])
+      .select(["nickname_template", "verified_role_id", "verified_role_ids"])
       .where("guild_id", "=", guildId)
       .limit(1)
       .executeTakeFirst()) as
-      | { nickname_template: string | null; verified_role_id: string | null }
+      | {
+          nickname_template: string | null;
+          verified_role_id: string | null;
+          verified_role_ids: string | null;
+        }
       | undefined;
 
     if (!guildConfig) {
@@ -251,17 +255,27 @@ export async function execute(
     const rolesRemoved: string[] = [];
     const rolesFailed: string[] = [];
 
-    if (guildConfig.verified_role_id && interaction.guild) {
+    const rolesToAssign = new Set<string>();
+    if (guildConfig.verified_role_id) rolesToAssign.add(guildConfig.verified_role_id);
+    const multiVerifiedRoleIds = parseTextArray(guildConfig.verified_role_ids);
+    multiVerifiedRoleIds.forEach((id) => rolesToAssign.add(id));
+
+    if (rolesToAssign.size > 0 && interaction.guild) {
       try {
         const member = await interaction.guild.members.fetch(targetUser.id);
-        // Check if member already has the role
-        if (!member.roles.cache.has(guildConfig.verified_role_id)) {
-          await member.roles.add(guildConfig.verified_role_id);
-          rolesAdded.push(guildConfig.verified_role_id);
+        for (const roleId of rolesToAssign) {
+          if (!member.roles.cache.has(roleId)) {
+            try {
+              await member.roles.add(roleId);
+              rolesAdded.push(roleId);
+            } catch (roleError) {
+              console.error(`Failed to assign verified role ${roleId}:`, roleError);
+              rolesFailed.push(roleId);
+            }
+          }
         }
-      } catch (roleError) {
-        console.error("Failed to assign verification role:", roleError);
-        rolesFailed.push(guildConfig.verified_role_id);
+      } catch (fetchError) {
+        console.error("Failed to fetch member for role assignment:", fetchError);
       }
     }
 

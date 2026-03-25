@@ -15,7 +15,7 @@ import {
 import { db } from "../../../lib/db-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getApiUrl } from "../../../lib/bot-config.js";
-import { MagicLinkService } from "../../../lib/services/magic-link-service.js";
+import { MagicLinkService } from "../../../services/magic-link-service.js";
 
 export const data = new SlashCommandBuilder()
   .setName("tt-selector")
@@ -66,19 +66,6 @@ export async function execute(
     return;
   }
 
-  // Fetch existing maps for this guild to show a count (only user's maps or public ones)
-  const maps = await db
-    .selectFrom(TABLE_NAMES.MAPS)
-    .select(["id"])
-    .where("guild_id", "=", guildId)
-    .where((eb) =>
-      eb.or([
-        eb("created_by", "=", interaction.user.id),
-        eb("is_public", "=", 1),
-      ]),
-    )
-    .execute();
-
   const magicLinkService = new MagicLinkService(interaction.client);
   const token = await magicLinkService.createToken({
     discordId: interaction.user.id,
@@ -92,14 +79,7 @@ export async function execute(
   const embed = new EmbedBuilder()
     .setColor(0x3b82f6)
     .setTitle("TT Selector Management")
-    .setDescription(
-      `Management for territory configurations has moved to the web dashboard.\n\nYou have **${maps.length}** configuration(s) for this server.`,
-    )
-    .addFields({
-      name: "How to Manage",
-      value:
-        "1. Click the button below to open the dashboard.\n2. Create, rename, edit, or delete maps directly from the UI.\n3. Changes are synced instantly.",
-    })
+    .setDescription(`Management for territory configurations.`)
     .setTimestamp();
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

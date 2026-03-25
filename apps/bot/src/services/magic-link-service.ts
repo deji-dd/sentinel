@@ -1,4 +1,4 @@
-import { rawDb } from "../db-client.js";
+import { rawDb } from "../lib/db-client.js";
 import { randomBytes } from "node:crypto";
 import { EmbedBuilder, type Client } from "discord.js";
 
@@ -154,8 +154,14 @@ export class MagicLinkService {
     if (!session) return null;
 
     // Scope check
-    if (requiredScope && session.scope !== "all" && session.scope !== requiredScope) {
-      console.warn(`[AUTH] Scope mismatch: required ${requiredScope}, found ${session.scope}`);
+    if (
+      requiredScope &&
+      session.scope !== "all" &&
+      session.scope !== requiredScope
+    ) {
+      console.warn(
+        `[AUTH] Scope mismatch: required ${requiredScope}, found ${session.scope}`,
+      );
       return null;
     }
 

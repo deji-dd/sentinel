@@ -33,6 +33,7 @@ type GuildConfigRow = {
   auto_verify: boolean | number | null;
   nickname_template: string | null;
   verified_role_id: string | null;
+  verified_role_ids: string | null;
 };
 
 type FactionRoleMappingRow = {
@@ -85,7 +86,12 @@ export async function handleMemberJoin(
     // Get guild config to check if auto-verify is enabled
     const guildConfigRow = (await db
       .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["auto_verify", "nickname_template", "verified_role_id"])
+      .select([
+        "auto_verify",
+        "nickname_template",
+        "verified_role_id",
+        "verified_role_ids",
+      ])
       .where("guild_id", "=", guildId)
       .limit(1)
       .executeTakeFirst()) as GuildConfigRow | undefined;
@@ -104,6 +110,7 @@ export async function handleMemberJoin(
       auto_verify: true,
       nickname_template: guildConfigRow.nickname_template ?? "{name} [{id}]",
       verified_role_id: guildConfigRow.verified_role_id,
+      verified_role_ids: parseTextArray(guildConfigRow.verified_role_ids),
     };
 
     // Get API keys from guild
@@ -185,6 +192,7 @@ async function attemptAutoVerification(
     auto_verify: boolean;
     nickname_template: string;
     verified_role_id: string | null;
+    verified_role_ids: string[];
   },
 ): Promise<VerificationResult> {
   const apiKey = getNextApiKey(guildId, apiKeys);
@@ -254,14 +262,20 @@ async function attemptAutoVerification(
     );
   }
 
-  // Assign verification role if configured
-  if (guildConfig.verified_role_id) {
+  // Assign verification roles if configured
+  const rolesToAssign = new Set<string>();
+  if (guildConfig.verified_role_id) rolesToAssign.add(guildConfig.verified_role_id);
+  if (guildConfig.verified_role_ids) {
+    guildConfig.verified_role_ids.forEach((id) => rolesToAssign.add(id));
+  }
+
+  for (const roleId of rolesToAssign) {
     try {
-      await member.roles.add(guildConfig.verified_role_id);
-      rolesAdded.push(guildConfig.verified_role_id);
+      await member.roles.add(roleId);
+      rolesAdded.push(roleId);
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_roleError) {
-      rolesFailed.push(guildConfig.verified_role_id);
+      rolesFailed.push(roleId);
     }
   }
 
