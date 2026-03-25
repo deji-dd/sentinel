@@ -41,6 +41,6 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
-    "kysely": "^0.28.11"
+    "kysely": "^0.28.14"
   }
 }
