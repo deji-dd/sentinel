@@ -23,6 +23,27 @@ type UserGenericResponse = TornApiComponents["schemas"]["UserDiscordResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"] &
   TornApiComponents["schemas"]["UserProfileResponse"];
 
+function parseTextArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 export const data = new SlashCommandBuilder()
   .setName("verifyall")
   .setDescription("Re-verify all members in the guild")
@@ -61,7 +82,7 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
     // Get guild config with settings
     const guildConfig = await db
       .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["nickname_template", "verified_role_id"])
+      .select(["nickname_template", "verified_role_id", "verified_role_ids"])
       .where("guild_id", "=", guildId)
       .executeTakeFirst();
 
@@ -282,21 +303,28 @@ export async function execute(interaction: CommandInteraction): Promise<void> {
             // Silently ignore nickname errors (expected for admins with higher perms)
           }
 
-          // Assign verification role if configured
-          if (guildConfig.verified_role_id) {
-            try {
-              if (!member.roles.cache.has(guildConfig.verified_role_id)) {
-                await member.roles.add(guildConfig.verified_role_id);
+          // Assign verification roles if configured
+          const rolesToAssign = new Set<string>();
+          if (guildConfig.verified_role_id) rolesToAssign.add(guildConfig.verified_role_id);
+          const multiVerifiedRoleIds = parseTextArray(guildConfig.verified_role_ids);
+          multiVerifiedRoleIds.forEach((id) => rolesToAssign.add(id));
+
+          if (rolesToAssign.size > 0) {
+            for (const roleId of rolesToAssign) {
+              try {
+                if (!member.roles.cache.has(roleId)) {
+                  await member.roles.add(roleId);
+                  const result = results[results.length - 1];
+                  result.rolesAdded!.push(roleId);
+                }
+              } catch (roleError) {
+                console.error(
+                  `Failed to assign verification role ${roleId} to ${member.user.username}:`,
+                  roleError,
+                );
                 const result = results[results.length - 1];
-                result.rolesAdded!.push(guildConfig.verified_role_id);
+                result.rolesFailed!.push(roleId);
               }
-            } catch (roleError) {
-              console.error(
-                `Failed to assign verification role to ${member.user.username}:`,
-                roleError,
-              );
-              const result = results[results.length - 1];
-              result.rolesFailed!.push(guildConfig.verified_role_id);
             }
           }
 

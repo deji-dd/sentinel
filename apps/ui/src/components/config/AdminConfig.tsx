@@ -1,19 +1,12 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { LoadingScreen, TacticalLoader } from "@/components/loading-screen";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Key, Trash2, Plus, Hash, Loader2, Check, X } from "lucide-react";
+import { Key, Trash2, Plus, Hash, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +17,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ApiKey {
   id: string;
@@ -41,20 +49,21 @@ interface GuildItem {
 
 export const AdminConfig = forwardRef(({
   sessionToken,
+  initialData,
   onConfigUpdate,
   onDirtyChange
 }: {
   sessionToken: string;
+  initialData?: any;
   onConfigUpdate?: (data: any) => void;
   onDirtyChange?: (isDirty: boolean) => void;
 }, ref) => {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialData);
   const [addingKey, setAddingKey] = useState(false);
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<any>(initialData || null);
   const [newKey, setNewKey] = useState("");
-  const [logChannelId, setLogChannelId] = useState("");
-  const [selectedAdminRoles, setSelectedAdminRoles] = useState<string[]>([]);
-  const [tempRoleSearch, setTempRoleSearch] = useState("");
+  const [logChannelId, setLogChannelId] = useState(initialData?.log_channel_id || "");
+  const [selectedAdminRoles, setSelectedAdminRoles] = useState<string[]>(Array.isArray(initialData?.admin_role_ids) ? initialData.admin_role_ids : []);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; isLast: boolean } | null>(null);
 
   const fetchConfig = async (silent = false) => {
@@ -78,8 +87,10 @@ export const AdminConfig = forwardRef(({
   };
 
   useEffect(() => {
-    fetchConfig();
-  }, [sessionToken]);
+    if (!initialData) {
+      fetchConfig();
+    }
+  }, [sessionToken, initialData]);
 
   // Track dirty state
   useEffect(() => {
@@ -184,16 +195,14 @@ export const AdminConfig = forwardRef(({
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center p-12">
-      <Loader2 className="w-8 h-8 animate-spin text-primary opacity-50" />
-    </div>
+    <LoadingScreen 
+      fullScreen={false} 
+      subMessage="Loading Admin Config" 
+    />
   );
 
   const availableRoles = config?.roles || [];
   const availableChannels = config?.channels || [];
-  const filteredRoles = tempRoleSearch
-    ? availableRoles.filter((r: GuildItem) => r.name.toLowerCase().includes(tempRoleSearch.toLowerCase()))
-    : availableRoles;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -220,7 +229,13 @@ export const AdminConfig = forwardRef(({
                 disabled={addingKey}
               />
               <Button onClick={handleAddKey} size="icon" className="shrink-0 bg-primary hover:bg-primary/90 cursor-pointer" disabled={addingKey || !newKey}>
-                {addingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                {addingKey ? (
+                  <TacticalLoader
+                    size="16"
+                    stroke="3"
+                    color="white"
+                  />
+                ) : <Plus className="w-4 h-4" />}
               </Button>
             </div>
 
@@ -271,14 +286,21 @@ export const AdminConfig = forwardRef(({
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-3">
-              <Label className="text-[10px] uppercase tracking-wider font-black text-muted-foreground">Log Ingestion Channel</Label>
-              <Select value={logChannelId} onValueChange={setLogChannelId}>
-                <SelectTrigger className="w-full h-10 px-3 py-2 rounded-xl bg-background border border-border text-sm text-foreground focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer">
-                  <SelectValue placeholder="Select a channel..." />
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] uppercase tracking-wider font-black text-muted-foreground">Log Ingestion Channel</Label>
+
+              </div>
+              <Select value={logChannelId || "none"} onValueChange={(v) => setLogChannelId(v === "none" ? "" : v)}>
+                <SelectTrigger className="w-full h-10 font-bold bg-background border-border/50 hover:bg-accent/50 transition-all">
+                  <SelectValue placeholder="Select a channel" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-background border-border">
+                  <SelectItem value="none" className="italic font-bold text-muted-foreground cursor-pointer">None (Disabled)</SelectItem>
                   {availableChannels.map((c: GuildItem) => (
-                    <SelectItem key={c.id} value={c.id} className="cursor-pointer">#{c.name}</SelectItem>
+                    <SelectItem key={c.id} value={c.id} className="cursor-pointer font-bold">
+                      <span className="opacity-40 mr-2 text-xs">#</span>
+                      {c.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -290,43 +312,46 @@ export const AdminConfig = forwardRef(({
             <div className="space-y-3">
               <Label className="text-[10px] uppercase tracking-wider font-black text-muted-foreground">Administrative Roles</Label>
 
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {selectedAdminRoles.map(roleId => {
-                  const role = availableRoles.find((r: GuildItem) => r.id === roleId);
-                  return (
-                    <Badge key={roleId} variant="secondary" className="pl-2 pr-1 h-6 flex items-center gap-2 bg-primary/5 text-primary border-primary/10">
-                      {role?.name || `Role ${roleId}`}
-                      <button onClick={() => toggleRole(roleId)} className="hover:text-destructive p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
-                    </Badge>
-                  );
-                })}
-              </div>
-
-              <div className="space-y-2">
-                <Input
-                  placeholder="Search roles to add..."
-                  value={tempRoleSearch}
-                  onChange={(e) => setTempRoleSearch(e.target.value)}
-                  className="h-9 px-3 rounded-xl bg-background border-border/50 text-xs"
-                />
-                <div className="h-[120px] overflow-y-auto pr-2 space-y-1 custom-scrollbar">
-                  {filteredRoles.map((r: GuildItem) => (
-                    <button
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-between h-10 px-3 font-bold uppercase text-[11px] bg-background border-border/50 hover:bg-accent/50 transition-all group"
+                  >
+                    <span className="truncate">
+                      {selectedAdminRoles.length === 0
+                        ? "Select Administrative Roles"
+                        : selectedAdminRoles.map(id => availableRoles.find((r: GuildItem) => r.id === id)?.name).filter(Boolean).join(", ")
+                      }
+                    </span>
+                    <ChevronDown className="w-4 h-4 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-(--radix-dropdown-menu-trigger-width) max-h-[300px] overflow-y-auto custom-scrollbar p-2" align="start">
+                  <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest opacity-50 px-2 py-1.5 focus:bg-accent/50">Available Roles</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={selectedAdminRoles.length === 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) setSelectedAdminRoles([]);
+                    }}
+                    className="rounded-lg font-black uppercase text-[10px] py-2 focus:bg-primary/10 transition-colors cursor-pointer italic text-muted-foreground"
+                  >
+                    None (Clear All)
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSeparator />
+                  {availableRoles.map((r: GuildItem) => (
+                    <DropdownMenuCheckboxItem
                       key={r.id}
-                      onClick={() => toggleRole(r.id)}
-                      className={cn(
-                        "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold uppercase transition-all cursor-pointer",
-                        selectedAdminRoles.includes(r.id)
-                          ? "bg-primary/10 text-primary border border-primary/20 shadow-sm"
-                          : "bg-secondary/5 text-foreground/70 border border-transparent hover:bg-secondary/10"
-                      )}
+                      checked={selectedAdminRoles.includes(r.id)}
+                      onCheckedChange={() => toggleRole(r.id)}
+                      className="rounded-lg font-black uppercase text-[10px] py-2 focus:bg-primary/10 focus:text-primary transition-colors cursor-pointer"
                     >
                       {r.name}
-                      {selectedAdminRoles.includes(r.id) && <Check className="w-3 h-3" />}
-                    </button>
+                    </DropdownMenuCheckboxItem>
                   ))}
-                </div>
-              </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </CardContent>
         </Card>
@@ -345,10 +370,10 @@ export const AdminConfig = forwardRef(({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel className="rounded-xl font-bold uppercase tracking-widest text-[10px] cursor-pointer">Abort</AlertDialogCancel>
+            <AlertDialogCancel className="text-primary">Abort</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={() => deleteConfirm && performDeleteKey(deleteConfirm.id)}
-              className="bg-destructive hover:bg-destructive/90 rounded-xl font-black uppercase tracking-widest text-[10px] cursor-pointer"
             >
               Confirm Removal
             </AlertDialogAction>

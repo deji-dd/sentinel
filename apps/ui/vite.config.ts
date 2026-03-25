@@ -9,6 +9,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), tsconfigPaths()],
+  resolve: {
+    alias: {
+      react: join(__dirname, "node_modules/react"),
+      "react-dom": join(__dirname, "node_modules/react-dom"),
+    },
+  },
   server: {
     port: 3000,
     fs: {

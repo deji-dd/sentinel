@@ -22,12 +22,12 @@ export async function validateAndFetchFactionDetails(
   }
 
   try {
-    let factionData = (await db
+    let factionData = await db
       .selectFrom(TABLE_NAMES.TORN_FACTIONS)
       .selectAll()
       .where("id", "=", factionId)
       .limit(1)
-      .executeTakeFirst()) as { name?: string | null } | undefined;
+      .executeTakeFirst();
 
     if (!factionData) {
       const response = await tornApi.get("/faction/{id}/basic", {
@@ -77,7 +77,12 @@ export async function validateAndFetchFactionDetails(
           )
           .execute();
 
-        factionData = { name: basic.name };
+        // Fetch the record again to ensure we have exactly what's in the DB
+        factionData = await db
+          .selectFrom(TABLE_NAMES.TORN_FACTIONS)
+          .selectAll()
+          .where("id", "=", basic.id)
+          .executeTakeFirst();
       }
     }
 
@@ -85,7 +90,7 @@ export async function validateAndFetchFactionDetails(
       return null;
     }
 
-    return { name: factionData.name };
+    return factionData;
   } catch (error) {
     console.error(`Faction ${factionId} validation failed:`, error);
     return null;
