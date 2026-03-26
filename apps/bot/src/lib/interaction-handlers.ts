@@ -30,23 +30,6 @@ export async function handleButtonInteraction(
     await configCommand.handleBackToMenu(interaction);
   } else if (customId === "config_open_dashboard") {
     await configCommand.handleOpenDashboard(interaction);
-  } else if (customId === "tt_settings_show") {
-    await configCommand.handleShowTTSettings(interaction);
-  } else if (customId === "tt_full_channel_clear") {
-    await configCommand.handleTTFullChannelClear(interaction);
-  } else if (customId === "tt_filtered_channel_clear") {
-    await configCommand.handleTTFilteredChannelClear(interaction);
-  } else if (
-    customId.startsWith("tt_war_track_page_prev") ||
-    customId.startsWith("tt_war_track_page_next")
-  ) {
-    await configCommand.handleTTWarTrackPage(interaction);
-  } else if (customId.startsWith("tt_war_track_back")) {
-    await configCommand.handleTTWarTrackBack(interaction);
-  } else if (customId.startsWith("tt_war_track_channel_clear")) {
-    await configCommand.handleTTWarTrackChannelClear(interaction);
-  } else if (customId.startsWith("tt_war_track_away_filter")) {
-    await configCommand.handleTTWarTrackAwayFilterButton(interaction);
   } else if (customId === "reaction_roles_settings_show") {
     await configCommand.handleShowReactionRolesSettings(interaction);
   } else if (customId === "reaction_roles_edit_allowed") {
@@ -150,14 +133,8 @@ export async function handleModalSubmitInteraction(
 
   const { customId } = interaction;
 
-  // TT Selector modals
-  if (customId === "tt_edit_territories_modal") {
-    await configCommand.handleTTEditTerritoriesModalSubmit(interaction);
-  } else if (customId === "tt_edit_factions_modal") {
-    await configCommand.handleTTEditFactionsModalSubmit(interaction);
-  } else if (customId.startsWith("tt_war_track_away_modal")) {
-    await configCommand.handleTTWarTrackAwayFilterSubmit(interaction);
-  } else if (customId.startsWith("reaction_roles_create_embed_modal|")) {
+  // Setup modals
+  if (customId.startsWith("reaction_roles_create_embed_modal|")) {
     await configCommand.handleCreateReactionRoleEmbedModal(interaction);
   } else if (customId.startsWith("reaction_role_mapping_emoji_modal|")) {
     await configCommand.handleMappingEmojiModal(interaction);
@@ -216,16 +193,6 @@ export async function handleStringSelectMenuInteraction(
   // Config command selects
   if (customId === "config_view_select") {
     await configCommand.handleViewSelect(interaction);
-  } else if (customId === "tt_settings_edit") {
-    await configCommand.handleTTSettingsEdit(interaction);
-  } else if (customId === "tt_filtered_settings_edit") {
-    await configCommand.handleTTFilteredSettingsEdit(interaction);
-  } else if (customId === "tt_notification_type_select") {
-    await configCommand.handleTTNotificationTypeSelect(interaction);
-  } else if (customId.startsWith("tt_war_track_select")) {
-    await configCommand.handleTTWarTrackSelect(interaction);
-  } else if (customId.startsWith("tt_war_track_enemy_side")) {
-    await configCommand.handleTTWarTrackEnemySideSelect(interaction);
   } else if (customId === "reaction_roles_delete_select") {
     await configCommand.handleDeleteReactionRoleMapping(interaction);
   } else if (customId === "reaction_roles_edit_select") {
@@ -299,13 +266,7 @@ export async function handleChannelSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId === "tt_full_channel_select") {
-    await configCommand.handleTTFullChannelSelect(interaction);
-  } else if (customId === "tt_filtered_channel_select") {
-    await configCommand.handleTTFilteredChannelSelect(interaction);
-  } else if (customId.startsWith("tt_war_track_channel_select")) {
-    await configCommand.handleTTWarTrackChannelSelect(interaction);
-  } else if (customId === "reaction_roles_channel_select") {
+  if (customId === "reaction_roles_channel_select") {
     await configCommand.handleChannelSelectForReactionRoles(interaction);
   } else if (customId === "revive_request_channel_select") {
     await configCommand.handleReviveRequestChannelSelect(interaction);

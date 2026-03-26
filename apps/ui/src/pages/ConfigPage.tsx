@@ -27,12 +27,14 @@ import {
   UserCircle,
   LogOut,
   AlertCircle,
-  Save
+  Save,
+  MapPin
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ModeToggle } from "@/components/mode-toggle";
 import { AdminConfig } from "@/components/config/AdminConfig";
 import { VerificationConfig } from "@/components/config/VerificationConfig";
+import { TerritoryNotificationsConfig } from "@/components/config/TerritoryNotificationsConfig";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -52,7 +54,7 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar";
 
-type ModuleId = "admin" | "verify" | "reaction_roles" | "revive" | "assist";
+type ModuleId = "admin" | "verify" | "reaction_roles" | "revive" | "assist" | "territories";
 
 export default function ConfigPage() {
   const navigate = useNavigate();
@@ -170,6 +172,15 @@ export default function ConfigPage() {
       desc: "Browser-based tools for faction operations.",
       category: "Modules",
       isEnabled: guildConfig?.enabled_modules?.includes("assist"),
+      requiresKeys: true
+    },
+    {
+      id: "territories" as const,
+      name: "Territories",
+      icon: MapPin,
+      desc: "Territory and faction movement alerts.",
+      category: "Modules",
+      isEnabled: guildConfig?.enabled_modules?.includes("territories") || true,
       requiresKeys: true
     }
   ], [guildConfig]);
@@ -426,7 +437,17 @@ export default function ConfigPage() {
               />
             )}
 
-            {(activeTab !== "admin" && activeTab !== "verify" && hasApiKeys) && (
+            {activeTab === "territories" && (
+              <TerritoryNotificationsConfig
+                ref={moduleRef}
+                sessionToken={sessionToken!}
+                initialData={guildConfig}
+                onConfigUpdate={setGuildConfig}
+                onDirtyChange={setIsDirty}
+              />
+            )}
+
+            {(activeTab !== "admin" && activeTab !== "verify" && activeTab !== "territories" && hasApiKeys) && (
               <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
                 <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
                   {activeModule && <activeModule.icon className="w-10 h-10 text-muted-foreground opacity-20" />}
