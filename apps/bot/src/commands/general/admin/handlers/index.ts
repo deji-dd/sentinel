@@ -6,9 +6,6 @@
 // Navigation handlers (menu navigation)
 export * from "./navigation.js";
 
-// Territory handlers (TT module)
-export * from "./territories.js";
-
 // Note: Existing handlers in config.ts should be gradually moved here:
 // - Verification handlers (verification.ts)
 // - API key handlers (api-keys.ts)

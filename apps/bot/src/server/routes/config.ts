@@ -129,6 +129,14 @@ configRouter.get("/", async (req: Request, res: Response) => {
         typeof config.verified_role_ids === "string"
           ? JSON.parse(config.verified_role_ids)
           : config.verified_role_ids || [],
+      tt_territory_ids:
+        typeof config.tt_territory_ids === "string"
+          ? JSON.parse(config.tt_territory_ids)
+          : config.tt_territory_ids || [],
+      tt_faction_ids:
+        typeof config.tt_faction_ids === "string"
+          ? JSON.parse(config.tt_faction_ids)
+          : config.tt_faction_ids || [],
       api_keys: keysWithNames,
     });
   } catch (error) {
@@ -234,6 +242,38 @@ configRouter.post("/", async (req: Request, res: Response) => {
     ) {
       updateData.faction_list_channel_id = req.body.faction_list_channel_id;
       changes.push("Faction List Channel");
+    }
+
+    if (
+      req.body.tt_full_channel_id !== undefined &&
+      req.body.tt_full_channel_id !== currentConfig?.tt_full_channel_id
+    ) {
+      updateData.tt_full_channel_id = req.body.tt_full_channel_id;
+      changes.push("TT Full Notification Channel");
+    }
+
+    if (
+      req.body.tt_filtered_channel_id !== undefined &&
+      req.body.tt_filtered_channel_id !== currentConfig?.tt_filtered_channel_id
+    ) {
+      updateData.tt_filtered_channel_id = req.body.tt_filtered_channel_id;
+      changes.push("TT Filtered Notification Channel");
+    }
+
+    if (req.body.tt_territory_ids !== undefined) {
+      const newIdsStr = JSON.stringify(req.body.tt_territory_ids);
+      if (newIdsStr !== currentConfig?.tt_territory_ids) {
+        updateData.tt_territory_ids = newIdsStr;
+        changes.push("TT Filtered Territories");
+      }
+    }
+
+    if (req.body.tt_faction_ids !== undefined) {
+      const newIdsStr = JSON.stringify(req.body.tt_faction_ids);
+      if (newIdsStr !== currentConfig?.tt_faction_ids) {
+        updateData.tt_faction_ids = newIdsStr;
+        changes.push("TT Filtered Factions");
+      }
     }
 
     if (changes.length > 0) {

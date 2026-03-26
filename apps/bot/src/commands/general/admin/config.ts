@@ -20,7 +20,6 @@ import {
 import { randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
-import * as territoryHandlers from "./handlers/territories.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import * as reviveHandlers from "./handlers/revive.js";
 import * as assistHandlers from "./handlers/assist.js";
@@ -38,15 +37,6 @@ function buildConfigViewMenuRow(
   enabledModules: string[] = [],
 ): ActionRowBuilder<StringSelectMenuBuilder> {
   const options: StringSelectMenuOptionBuilder[] = [];
-
-  if (enabledModules.includes("territories")) {
-    options.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Territories Settings")
-        .setValue("territories")
-        .setDescription("Manage TT notifications and filters"),
-    );
-  }
 
   if (enabledModules.includes("reaction_roles")) {
     options.push(
@@ -277,7 +267,6 @@ export async function handleViewSelect(
 
     const moduleForView: Record<string, string | null> = {
       admin: null,
-      territories: "territories",
       reaction_roles: "reaction_roles",
       revive: "revive",
       assist: "assist",
@@ -303,9 +292,7 @@ export async function handleViewSelect(
       return;
     }
 
-    if (selectedView === "territories") {
-      await territoryHandlers.handleShowTTSettings(interaction);
-    } else if (selectedView === "reaction_roles") {
+    if (selectedView === "reaction_roles") {
       await reactionRolesHandlers.handleShowReactionRolesSettings(
         interaction,
         true,
@@ -744,118 +731,6 @@ async function logGuildAudit(entry: {
   } catch (error) {
     console.warn("Failed to write guild audit entry:", error);
   }
-}
-
-/**
- * Territory (TT) module handlers - re-exported from territoryHandlers module
- * Enables clean dispatch from index.ts
- */
-export async function handleShowTTSettings(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleShowTTSettings(interaction);
-}
-
-export async function handleTTSettingsEdit(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTSettingsEdit(interaction);
-}
-
-export async function handleTTFilteredSettingsEdit(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTFilteredSettingsEdit(interaction);
-}
-
-export async function handleTTNotificationTypeSelect(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTNotificationTypeSelect(interaction);
-}
-
-export async function handleTTFullChannelSelect(
-  interaction: ChannelSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTFullChannelSelect(interaction);
-}
-
-export async function handleTTFilteredChannelSelect(
-  interaction: ChannelSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTFilteredChannelSelect(interaction);
-}
-
-export async function handleTTFullChannelClear(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTFullChannelClear(interaction);
-}
-
-export async function handleTTFilteredChannelClear(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTFilteredChannelClear(interaction);
-}
-
-export async function handleTTEditTerritoriesModalSubmit(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTEditTerritoriesModalSubmit(interaction);
-}
-
-export async function handleTTEditFactionsModalSubmit(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTEditFactionsModalSubmit(interaction);
-}
-
-export async function handleTTWarTrackPage(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackPage(interaction);
-}
-
-export async function handleTTWarTrackSelect(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackSelect(interaction);
-}
-
-export async function handleTTWarTrackBack(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackBack(interaction);
-}
-
-export async function handleTTWarTrackChannelSelect(
-  interaction: ChannelSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackChannelSelect(interaction);
-}
-
-export async function handleTTWarTrackChannelClear(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackChannelClear(interaction);
-}
-
-export async function handleTTWarTrackEnemySideSelect(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackEnemySideSelect(interaction);
-}
-
-export async function handleTTWarTrackAwayFilterButton(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackAwayFilterButton(interaction);
-}
-
-export async function handleTTWarTrackAwayFilterSubmit(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  return territoryHandlers.handleTTWarTrackAwayFilterSubmit(interaction);
 }
 
 /**
