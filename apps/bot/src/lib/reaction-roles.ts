@@ -328,36 +328,31 @@ export async function handleReactionRoleAdd(
     const member = await fullReaction.message.guild?.members.fetch(user.id);
     if (!member) return;
 
-    // Check if user is allowed to use reaction roles
-    const config = (await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_CONFIG)
-      .select(["allowed_role_ids"])
-      .where("guild_id", "=", guildId)
+    const msgReq = (await db
+      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+      .select(["required_role_id"])
+      .where("message_id", "=", messageId)
       .limit(1)
-      .executeTakeFirst()) as { allowed_role_ids: unknown } | undefined;
+      .executeTakeFirst()) as { required_role_id: string | null } | undefined;
 
-    const allowedRoleIds = parseTextArray(config?.allowed_role_ids);
-
-    // If allowed roles are configured, check if user has one
-    if (allowedRoleIds.length > 0) {
-      const hasAllowedRole = member.roles.cache.some((role) =>
-        allowedRoleIds.includes(role.id),
-      );
-
-      if (!hasAllowedRole) {
-        await removeUserReaction();
-        await sendReactionFeedback(
-          feedbackChannel,
-          guildId,
-          sourceChannelId,
-          messageId,
-          emoji,
-          user.id,
-          "denied",
-          "Reaction Role Access Denied",
-          "You are not allowed to use reaction roles in this server.",
-        );
-        return;
+    if (msgReq?.required_role_id) {
+      const requiredRoleIds = msgReq.required_role_id.split(",");
+      const hasRequiredRole = requiredRoleIds.some(roleId => member.roles.cache.has(roleId));
+      
+      if (!hasRequiredRole) {
+          await removeUserReaction();
+          await sendReactionFeedback(
+            feedbackChannel,
+            guildId,
+            sourceChannelId,
+            messageId,
+            emoji,
+            user.id,
+            "denied",
+            "Reaction Role Access Denied",
+            `You must have at least one of the required roles to use this: ${requiredRoleIds.map(rid => `<@&${rid}>`).join(", ")}`
+          );
+          return;
       }
     }
 

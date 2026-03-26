@@ -30,36 +30,6 @@ export async function handleButtonInteraction(
     await configCommand.handleBackToMenu(interaction);
   } else if (customId === "config_open_dashboard") {
     await configCommand.handleOpenDashboard(interaction);
-  } else if (customId === "reaction_roles_settings_show") {
-    await configCommand.handleShowReactionRolesSettings(interaction);
-  } else if (customId === "reaction_roles_edit_allowed") {
-    await configCommand.handleEditReactionRolesAllowed(interaction);
-  } else if (customId === "reaction_roles_create_message") {
-    await configCommand.handleCreateReactionRoleMessage(interaction);
-  } else if (customId === "reaction_roles_view_messages") {
-    await configCommand.handleViewReactionRoleMessages(interaction);
-  } else if (customId === "reaction_roles_edit_mappings") {
-    await configCommand.handleEditReactionRoleMappings(interaction);
-  } else if (customId === "reaction_roles_delete_message") {
-    await configCommand.handleDeleteReactionRoleMessage(interaction);
-  } else if (customId.startsWith("reaction_roles_edit_select_return|")) {
-    await configCommand.handleEditReactionRoleMappingsReturn(interaction);
-  } else if (customId === "reaction_roles_cancel_create") {
-    await configCommand.handleCancelReactionRoleCreate(interaction);
-  } else if (customId.startsWith("reaction_role_add_mapping|")) {
-    await configCommand.handleAddReactionRoleMapping(interaction);
-  } else if (customId.startsWith("reaction_role_edit_add_mapping|")) {
-    await configCommand.handleEditReactionRoleAddMapping(interaction);
-  } else if (customId.startsWith("reaction_role_edit_remove_mapping|")) {
-    await configCommand.handleEditReactionRoleRemoveMapping(interaction);
-  } else if (customId.startsWith("reaction_role_post_message|")) {
-    await configCommand.handlePostReactionRoleMessage(interaction);
-  } else if (customId === "reaction_roles_create_mapping") {
-    await configCommand.handleCreateReactionRoleMapping(interaction);
-  } else if (customId === "reaction_roles_view_mappings") {
-    await configCommand.handleViewReactionRoleMappings(interaction);
-  } else if (customId === "reaction_roles_select_delete") {
-    await configCommand.handleSelectDeleteReactionRoleMapping(interaction);
   } else if (customId === "revive_settings_show") {
     await configCommand.handleShowReviveSettings(interaction);
   } else if (customId === "revive_set_request_channel") {
@@ -134,13 +104,7 @@ export async function handleModalSubmitInteraction(
   const { customId } = interaction;
 
   // Setup modals
-  if (customId.startsWith("reaction_roles_create_embed_modal|")) {
-    await configCommand.handleCreateReactionRoleEmbedModal(interaction);
-  } else if (customId.startsWith("reaction_role_mapping_emoji_modal|")) {
-    await configCommand.handleMappingEmojiModal(interaction);
-  } else if (customId === "reaction_roles_create_modal") {
-    await configCommand.handleCreateReactionRoleMappingModal(interaction);
-  } else if (customId === "revive_min_hosp_modal") {
+  if (customId === "revive_min_hosp_modal") {
     await configCommand.handleReviveSetMinHospModal(interaction);
   } else if (customId === "revive_request_other_modal") {
     await configCommand.handleReviveRequestOtherModal(interaction);
@@ -193,12 +157,6 @@ export async function handleStringSelectMenuInteraction(
   // Config command selects
   if (customId === "config_view_select") {
     await configCommand.handleViewSelect(interaction);
-  } else if (customId === "reaction_roles_delete_select") {
-    await configCommand.handleDeleteReactionRoleMapping(interaction);
-  } else if (customId === "reaction_roles_edit_select") {
-    await configCommand.handleEditReactionRoleMappingSelect(interaction);
-  } else if (customId.startsWith("reaction_role_edit_remove_select|")) {
-    await configCommand.handleEditReactionRoleRemoveMappingSelect(interaction);
   } else if (customId.startsWith("assist_config_user_select|")) {
     await configCommand.handleAssistManageUserSelect(interaction);
   } else if (customId.startsWith("assist_config_action_select|")) {
@@ -237,11 +195,7 @@ export async function handleRoleSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId === "reaction_roles_allowed_select") {
-    await configCommand.handleAllowedRolesSelect(interaction);
-  } else if (customId.startsWith("reaction_role_mapping_role_select|")) {
-    await configCommand.handleMappingRoleSelect(interaction);
-  } else if (customId === "revive_ping_role_select") {
+  if (customId === "revive_ping_role_select") {
     await configCommand.handleRevivePingRoleSelect(interaction);
   } else if (customId === "assist_ping_role_select") {
     await configCommand.handleAssistPingRoleSelect(interaction);
@@ -266,9 +220,7 @@ export async function handleChannelSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId === "reaction_roles_channel_select") {
-    await configCommand.handleChannelSelectForReactionRoles(interaction);
-  } else if (customId === "revive_request_channel_select") {
+  if (customId === "revive_request_channel_select") {
     await configCommand.handleReviveRequestChannelSelect(interaction);
   } else if (customId === "revive_output_channel_select") {
     await configCommand.handleReviveOutputChannelSelect(interaction);

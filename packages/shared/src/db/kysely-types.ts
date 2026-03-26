@@ -75,6 +75,17 @@ export interface SentinelAssistTokens {
   updated_at: Generated<string>;
 }
 
+export interface SentinelAuthTokens {
+  created_at: Generated<string | null>;
+  discord_id: string;
+  expires_at: string;
+  guild_id: string;
+  is_used: Generated<number | null>;
+  scope: string;
+  target_path: string;
+  token: string | null;
+}
+
 export interface SentinelBattlestatsSnapshots {
   created_at: Generated<string>;
   defense: number;
@@ -83,6 +94,15 @@ export interface SentinelBattlestatsSnapshots {
   speed: number;
   strength: number;
   total_stats: number;
+}
+
+export interface SentinelDashboardSessions {
+  access_token: string;
+  created_at: Generated<string | null>;
+  discord_id: string;
+  expires_at: string;
+  refresh_token: string | null;
+  token: string | null;
 }
 
 export interface SentinelDestinationTravelTimes {
@@ -172,6 +192,15 @@ export interface SentinelGuildSyncJobs {
   updated_at: Generated<string | null>;
 }
 
+export interface SentinelMapHistory {
+  created_at: Generated<string | null>;
+  created_by: string;
+  created_by_name: string | null;
+  id: string | null;
+  map_id: string;
+  snapshot_json: string;
+}
+
 export interface SentinelMapLabels {
   color_hex: string;
   created_at: Generated<string | null>;
@@ -203,15 +232,6 @@ export interface SentinelMapTerritories {
   label_id: string;
   map_id: string;
   territory_id: string;
-}
-
-export interface SentinelMapHistory {
-  created_at: Generated<string | null>;
-  created_by: string;
-  created_by_name: string | null;
-  id: string | null;
-  map_id: string;
-  snapshot_json: string;
 }
 
 export interface SentinelRacketTenure {
@@ -255,6 +275,8 @@ export interface SentinelReactionRoleMessages {
   guild_id: string;
   id: number;
   message_id: string;
+  required_role_id: string | null;
+  sync_roles: Generated<number | null>;
   title: string;
   updated_at: Generated<string | null>;
 }
@@ -295,6 +317,13 @@ export interface SentinelReviveRequests {
   status_details: string | null;
   status_state: string | null;
   updated_at: Generated<string>;
+}
+
+export interface SentinelRevokedUsers {
+  created_at: Generated<string | null>;
+  discord_id: string | null;
+  reason: string | null;
+  revoked_by: string;
 }
 
 export interface SentinelSchemaMigrations {
@@ -629,6 +658,17 @@ export interface SentinelWarTrackers {
   war_id: number;
 }
 
+export interface SentinelWebSessions {
+  created_at: Generated<string | null>;
+  device_id: string | null;
+  discord_id: string;
+  expires_at: string;
+  guild_id: string | null;
+  scope: string;
+  session_token: string | null;
+  target_path: string | null;
+}
+
 export interface SentinelWorkerLogs {
   created_at: Generated<string>;
   duration_ms: number | null;
@@ -671,7 +711,9 @@ export interface DB {
   sentinel_assist_ip_rate_limits: SentinelAssistIpRateLimits;
   sentinel_assist_script_generation_limits: SentinelAssistScriptGenerationLimits;
   sentinel_assist_tokens: SentinelAssistTokens;
+  sentinel_auth_tokens: SentinelAuthTokens;
   sentinel_battlestats_snapshots: SentinelBattlestatsSnapshots;
+  sentinel_dashboard_sessions: SentinelDashboardSessions;
   sentinel_destination_travel_times: SentinelDestinationTravelTimes;
   sentinel_faction_roles: SentinelFactionRoles;
   sentinel_finance_settings: SentinelFinanceSettings;
@@ -679,10 +721,10 @@ export interface DB {
   sentinel_guild_audit: SentinelGuildAudit;
   sentinel_guild_config: SentinelGuildConfig;
   sentinel_guild_sync_jobs: SentinelGuildSyncJobs;
+  sentinel_map_history: SentinelMapHistory;
   sentinel_map_labels: SentinelMapLabels;
   sentinel_map_sessions: SentinelMapSessions;
   sentinel_map_territories: SentinelMapTerritories;
-  sentinel_map_history: SentinelMapHistory;
   sentinel_maps: SentinelMaps;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;
@@ -691,6 +733,7 @@ export interface DB {
   sentinel_reaction_role_messages: SentinelReactionRoleMessages;
   sentinel_revive_config: SentinelReviveConfig;
   sentinel_revive_requests: SentinelReviveRequests;
+  sentinel_revoked_users: SentinelRevokedUsers;
   sentinel_schema_migrations: SentinelSchemaMigrations;
   sentinel_stat_build_configurations: SentinelStatBuildConfigurations;
   sentinel_stat_builds: SentinelStatBuilds;
@@ -718,6 +761,7 @@ export interface DB {
   sentinel_verified_users: SentinelVerifiedUsers;
   sentinel_war_ledger: SentinelWarLedger;
   sentinel_war_trackers: SentinelWarTrackers;
+  sentinel_web_sessions: SentinelWebSessions;
   sentinel_worker_logs: SentinelWorkerLogs;
   sentinel_worker_schedules: SentinelWorkerSchedules;
   sentinel_workers: SentinelWorkers;
