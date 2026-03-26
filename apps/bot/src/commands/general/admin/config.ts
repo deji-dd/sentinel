@@ -20,7 +20,7 @@ import {
 import { randomUUID } from "crypto";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
-import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
+
 import * as reviveHandlers from "./handlers/revive.js";
 import * as assistHandlers from "./handlers/assist.js";
 import { db } from "../../../lib/db-client.js";
@@ -38,14 +38,7 @@ function buildConfigViewMenuRow(
 ): ActionRowBuilder<StringSelectMenuBuilder> {
   const options: StringSelectMenuOptionBuilder[] = [];
 
-  if (enabledModules.includes("reaction_roles")) {
-    options.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Reaction Roles")
-        .setValue("reaction_roles")
-        .setDescription("Self-assignable roles via emoji reactions"),
-    );
-  }
+
 
   if (enabledModules.includes("revive")) {
     options.push(
@@ -267,7 +260,6 @@ export async function handleViewSelect(
 
     const moduleForView: Record<string, string | null> = {
       admin: null,
-      reaction_roles: "reaction_roles",
       revive: "revive",
       assist: "assist",
     };
@@ -292,12 +284,7 @@ export async function handleViewSelect(
       return;
     }
 
-    if (selectedView === "reaction_roles") {
-      await reactionRolesHandlers.handleShowReactionRolesSettings(
-        interaction,
-        true,
-      );
-    } else if (selectedView === "revive") {
+    if (selectedView === "revive") {
       await reviveHandlers.handleShowReviveSettings(interaction, true);
     } else if (selectedView === "assist") {
       await assistHandlers.handleShowAssistSettings(interaction, true);
@@ -733,157 +720,6 @@ async function logGuildAudit(entry: {
   }
 }
 
-/**
- * Reaction Roles module handlers - re-exported from reactionRolesHandlers module
- * Enables clean dispatch from index.ts
- */
-export async function handleShowReactionRolesSettings(
-  interaction: ButtonInteraction,
-  isAlreadyDeferred: boolean = false,
-): Promise<void> {
-  return reactionRolesHandlers.handleShowReactionRolesSettings(
-    interaction,
-    isAlreadyDeferred,
-  );
-}
-
-export async function handleEditReactionRolesAllowed(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditAllowedRoles(interaction);
-}
-
-export async function handleAllowedRolesSelect(
-  interaction: RoleSelectMenuInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleAllowedRolesSelect(interaction);
-}
-
-export async function handleCreateReactionRoleMapping(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleAddMapping(interaction);
-}
-
-export async function handleCreateReactionRoleMappingModal(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleMappingEmojiModal(interaction);
-}
-
-export async function handleViewReactionRoleMappings(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleViewMessages(interaction);
-}
-
-export async function handleSelectDeleteReactionRoleMapping(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleDeleteMessage(interaction);
-}
-
-export async function handleDeleteReactionRoleMapping(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleDeleteSelect(interaction);
-}
-
-export async function handleCreateReactionRoleMessage(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleCreateMessage(interaction);
-}
-
-export async function handleViewReactionRoleMessages(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleViewMessages(interaction);
-}
-
-export async function handleEditReactionRoleMappings(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditMappings(interaction);
-}
-
-export async function handleEditReactionRoleMappingSelect(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditMappingsSelect(interaction);
-}
-
-export async function handleEditReactionRoleAddMapping(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditAddMapping(interaction);
-}
-
-export async function handleEditReactionRoleRemoveMapping(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditRemoveMapping(interaction);
-}
-
-export async function handleEditReactionRoleRemoveMappingSelect(
-  interaction: StringSelectMenuInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditRemoveMappingSelect(interaction);
-}
-
-export async function handleEditReactionRoleMappingsReturn(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleEditMappingsReturn(interaction);
-}
-
-export async function handleDeleteReactionRoleMessage(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleDeleteMessage(interaction);
-}
-
-export async function handleCancelReactionRoleCreate(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleCancelCreate(interaction);
-}
-
-export async function handleAddReactionRoleMapping(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleAddMapping(interaction);
-}
-
-export async function handlePostReactionRoleMessage(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handlePostMessage(interaction);
-}
-
-export async function handleCreateReactionRoleEmbedModal(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleCreateEmbedModal(interaction);
-}
-
-export async function handleChannelSelectForReactionRoles(
-  interaction: ChannelSelectMenuInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleChannelSelect(interaction);
-}
-
-export async function handleMappingEmojiModal(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleMappingEmojiModal(interaction);
-}
-
-export async function handleMappingRoleSelect(
-  interaction: RoleSelectMenuInteraction,
-): Promise<void> {
-  return reactionRolesHandlers.handleMappingRoleSelect(interaction);
-}
 
 export async function handleShowReviveSettings(
   interaction: ButtonInteraction,

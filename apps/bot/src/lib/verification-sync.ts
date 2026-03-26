@@ -295,6 +295,32 @@ export class GuildSyncScheduler {
         } as FactionRoleMapping;
       });
 
+      // Get reaction role mappings requiring sync
+      const strictReactionMessages = await db
+        .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+        .select(["message_id", "required_role_id"])
+        .where("guild_id", "=", job.guild_id)
+        .where("sync_roles", "=", 1)
+        .where("required_role_id", "is not", null)
+        .execute();
+
+      const reactionRoleSyncs: Array<{ required_role_id: string; mapped_role_ids: string[] }> = [];
+      for (const rxMsg of strictReactionMessages) {
+         if (!rxMsg.required_role_id) continue;
+         const mappings = await db
+           .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+           .select(["role_id"])
+           .where("message_id", "=", rxMsg.message_id)
+           .execute();
+         const roleIds = mappings.map(m => m.role_id);
+         if (roleIds.length > 0) {
+            reactionRoleSyncs.push({
+               required_role_id: rxMsg.required_role_id,
+               mapped_role_ids: roleIds
+            });
+         }
+      }
+
       // Get managed roles (verified role(s) + all faction roles)
       const managedRoleIds = new Set<string>();
       if (guildConfig.verified_role_id) {
@@ -311,6 +337,9 @@ export class GuildSyncScheduler {
       for (const mapping of factionMappings) {
         mapping.member_role_ids.forEach((id) => managedRoleIds.add(id));
         mapping.leader_role_ids.forEach((id) => managedRoleIds.add(id));
+      }
+      for (const rxMapping of reactionRoleSyncs) {
+        rxMapping.mapped_role_ids.forEach((id) => managedRoleIds.add(id));
       }
 
       // Filter members to sync: only those who ARE verified OR carry a managed role
@@ -632,6 +661,26 @@ export class GuildSyncScheduler {
                   }
                 }
               }
+            }
+          }
+
+          // Enforce strict reaction roles (sync_roles)
+          for (const rx of reactionRoleSyncs) {
+            const requiredRoleIds = rx.required_role_id.split(",");
+            const hasRequired = requiredRoleIds.some(rid => member.roles.cache.has(rid));
+            if (!hasRequired) {
+               // Strip any mapped roles if member doesn't have the required role
+               for (const mappedRoleId of rx.mapped_role_ids) {
+                  if (member.roles.cache.has(mappedRoleId)) {
+                     const removeResult = await member.roles
+                       .remove(mappedRoleId, "Auto-sync: Did not meet required role for this reaction role")
+                       .then(() => true)
+                       .catch(() => false);
+                     if (removeResult) {
+                       rolesRemoved.push(mappedRoleId);
+                     }
+                  }
+               }
             }
           }
 

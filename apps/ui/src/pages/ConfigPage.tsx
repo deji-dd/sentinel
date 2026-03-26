@@ -35,6 +35,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { AdminConfig } from "@/components/config/AdminConfig";
 import { VerificationConfig } from "@/components/config/VerificationConfig";
 import { TerritoryNotificationsConfig } from "@/components/config/TerritoryNotificationsConfig";
+import { ReactionRolesConfig } from "@/components/config/ReactionRolesConfig";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -447,7 +448,15 @@ export default function ConfigPage() {
               />
             )}
 
-            {(activeTab !== "admin" && activeTab !== "verify" && activeTab !== "territories" && hasApiKeys) && (
+            {activeTab === "reaction_roles" && (
+              <ReactionRolesConfig
+                sessionToken={sessionToken!}
+                availableChannels={guildConfig?.channels || []}
+                availableRoles={guildConfig?.roles || []}
+              />
+            )}
+
+            {(activeTab !== "admin" && activeTab !== "verify" && activeTab !== "territories" && activeTab !== "reaction_roles" && hasApiKeys) && (
               <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
                 <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
                   {activeModule && <activeModule.icon className="w-10 h-10 text-muted-foreground opacity-20" />}
