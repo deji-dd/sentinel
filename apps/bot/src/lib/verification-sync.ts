@@ -304,21 +304,38 @@ export class GuildSyncScheduler {
         .where("required_role_id", "is not", null)
         .execute();
 
-      const reactionRoleSyncs: Array<{ required_role_id: string; mapped_role_ids: string[] }> = [];
+      const reactionRoleSyncs: Array<{
+        required_role_id: string;
+        mapped_role_ids: string[];
+      }> = [];
+      const strictMessageIds = strictReactionMessages
+        .map((message) => message.message_id)
+        .filter((messageId): messageId is string => !!messageId);
+
+      const mappingsByMessageId = new Map<string, string[]>();
+      if (strictMessageIds.length > 0) {
+        const mappingRows = await db
+          .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+          .select(["message_id", "role_id"])
+          .where("message_id", "in", strictMessageIds)
+          .execute();
+
+        for (const mapping of mappingRows) {
+          const existing = mappingsByMessageId.get(mapping.message_id) || [];
+          existing.push(mapping.role_id);
+          mappingsByMessageId.set(mapping.message_id, existing);
+        }
+      }
+
       for (const rxMsg of strictReactionMessages) {
-         if (!rxMsg.required_role_id) continue;
-         const mappings = await db
-           .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-           .select(["role_id"])
-           .where("message_id", "=", rxMsg.message_id)
-           .execute();
-         const roleIds = mappings.map(m => m.role_id);
-         if (roleIds.length > 0) {
-            reactionRoleSyncs.push({
-               required_role_id: rxMsg.required_role_id,
-               mapped_role_ids: roleIds
-            });
-         }
+        if (!rxMsg.required_role_id) continue;
+        const roleIds = mappingsByMessageId.get(rxMsg.message_id) || [];
+        if (roleIds.length > 0) {
+          reactionRoleSyncs.push({
+            required_role_id: rxMsg.required_role_id,
+            mapped_role_ids: roleIds,
+          });
+        }
       }
 
       // Get managed roles (verified role(s) + all faction roles)
@@ -667,20 +684,25 @@ export class GuildSyncScheduler {
           // Enforce strict reaction roles (sync_roles)
           for (const rx of reactionRoleSyncs) {
             const requiredRoleIds = rx.required_role_id.split(",");
-            const hasRequired = requiredRoleIds.some(rid => member.roles.cache.has(rid));
+            const hasRequired = requiredRoleIds.some((rid) =>
+              member.roles.cache.has(rid),
+            );
             if (!hasRequired) {
-               // Strip any mapped roles if member doesn't have the required role
-               for (const mappedRoleId of rx.mapped_role_ids) {
-                  if (member.roles.cache.has(mappedRoleId)) {
-                     const removeResult = await member.roles
-                       .remove(mappedRoleId, "Auto-sync: Did not meet required role for this reaction role")
-                       .then(() => true)
-                       .catch(() => false);
-                     if (removeResult) {
-                       rolesRemoved.push(mappedRoleId);
-                     }
+              // Strip any mapped roles if member doesn't have the required role
+              for (const mappedRoleId of rx.mapped_role_ids) {
+                if (member.roles.cache.has(mappedRoleId)) {
+                  const removeResult = await member.roles
+                    .remove(
+                      mappedRoleId,
+                      "Auto-sync: Did not meet required role for this reaction role",
+                    )
+                    .then(() => true)
+                    .catch(() => false);
+                  if (removeResult) {
+                    rolesRemoved.push(mappedRoleId);
                   }
-               }
+                }
+              }
             }
           }
 

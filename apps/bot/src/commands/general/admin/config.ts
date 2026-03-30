@@ -29,6 +29,10 @@ import { getApiUrl } from "../../../lib/bot-config.js";
 
 const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
 
+type ConfigComponentRow = ActionRowBuilder<
+  StringSelectMenuBuilder | ButtonBuilder
+>;
+
 if (!botOwnerId) {
   throw new Error("Missing SENTINEL_DISCORD_USER_ID environment variable");
 }
@@ -208,10 +212,11 @@ export async function execute(
         .setStyle(ButtonStyle.Link),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const components: any[] = [webDashboardRow];
+    const components: ConfigComponentRow[] = [
+      webDashboardRow as ConfigComponentRow,
+    ];
     if (row) {
-      components.unshift(row);
+      components.unshift(row as ConfigComponentRow);
     }
 
     await interaction.editReply({
@@ -387,10 +392,11 @@ export async function handleBackToMenu(
         .setDisabled(!magicLinkUrl),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const components: any[] = [webDashboardRow];
+    const components: ConfigComponentRow[] = [
+      webDashboardRow as ConfigComponentRow,
+    ];
     if (row) {
-      components.unshift(row);
+      components.unshift(row as ConfigComponentRow);
     }
 
     const menuEmbed = new EmbedBuilder()
@@ -962,5 +968,3 @@ export async function handleAssistManageBackButton(
 ): Promise<void> {
   return assistHandlers.handleAssistManageBackButton(interaction);
 }
-
-

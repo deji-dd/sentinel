@@ -1,4 +1,3 @@
-/* eslint-disable no-useless-escape */
 import { renderAssistUserscriptTemplate } from "./assist-userscript-template.js";
 
 type AssistUserscriptOptions = {

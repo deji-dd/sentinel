@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
+    "bot:dev": "pnpm --filter bot dev",
+    "bot:build": "pnpm --filter bot build",
+    "bot:lint": "pnpm --filter bot lint",
     "worker:dev": "pnpm --filter worker dev",
     "worker:build": "pnpm --filter worker build",
     "worker:lint": "pnpm --filter worker lint",

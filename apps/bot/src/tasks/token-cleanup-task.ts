@@ -4,11 +4,17 @@ import { TABLE_NAMES } from "@sentinel/shared";
 
 const TASK_NAME = "token_cleanup";
 const CLEANUP_INTERVAL_MS = 1000 * 60 * 60; // Every hour
+let cleanupInFlight = false;
 
 /**
  * Clean up expired map sessions (UI access tokens)
  */
 async function performCleanup(): Promise<void> {
+  if (cleanupInFlight) {
+    return;
+  }
+
+  cleanupInFlight = true;
   try {
     const now = new Date().toISOString();
 
@@ -41,6 +47,8 @@ async function performCleanup(): Promise<void> {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[${TASK_NAME}] Cleanup failed: ${errorMessage}`);
+  } finally {
+    cleanupInFlight = false;
   }
 }
 

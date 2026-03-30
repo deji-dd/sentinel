@@ -8,6 +8,7 @@ import { buildDailySummaryEmbed } from "../utils/daily-summary-embed.js";
 import { logDuration, logError } from "../lib/logger.js";
 
 const TASK_NAME = "daily_summary";
+let summaryInFlight = false;
 
 /**
  * Get the next scheduled run time (00:05 TCT / 05:05 UTC)
@@ -40,6 +41,11 @@ function getTimeUntilNextRun(): number {
  * Send the daily summary to the admin user
  */
 async function sendDailySummary(client: Client): Promise<void> {
+  if (summaryInFlight) {
+    return;
+  }
+
+  summaryInFlight = true;
   const startTime = Date.now();
 
   try {
@@ -73,6 +79,8 @@ async function sendDailySummary(client: Client): Promise<void> {
     const duration =
       elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
     logError(TASK_NAME, `Failed: ${errorMessage} (${duration})`);
+  } finally {
+    summaryInFlight = false;
   }
 }
 

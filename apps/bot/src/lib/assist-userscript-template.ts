@@ -113,7 +113,7 @@ ${connectMetadata}
   }
 
   function toSentenceCase(value) {
-    const compact = String(value || "").replace(/\s+/g, " ").trim();
+    const compact = String(value || "").replace(/\\s+/g, " ").trim();
     if (!compact) {
       return null;
     }
@@ -147,7 +147,7 @@ ${connectMetadata}
       return null;
     }
 
-    const compact = dialogText.replace(/\s+/g, " ").trim();
+    const compact = dialogText.replace(/\\s+/g, " ").trim();
 
     const extract = (pattern) => {
       const match = compact.match(pattern);
@@ -155,7 +155,7 @@ ${connectMetadata}
         return null;
       }
 
-      const phrase = (match[0] || "").replace(/\s+/g, " ").trim();
+      const phrase = (match[0] || "").replace(/\\s+/g, " ").trim();
       return phrase || null;
     };
 

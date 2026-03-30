@@ -3,10 +3,141 @@
  * Routes and handles buttons, modals, and select menus
  */
 
-import { Client, type Interaction } from "discord.js";
+import {
+  Client,
+  type Interaction,
+  type ButtonInteraction,
+  type ModalSubmitInteraction,
+  type StringSelectMenuInteraction,
+  type RoleSelectMenuInteraction,
+  type ChannelSelectMenuInteraction,
+} from "discord.js";
 import * as configCommand from "../commands/general/admin/config.js";
 import * as assistCommand from "../commands/general/assist/assist.js";
 import * as ttSelectorCommand from "../commands/general/territories/tt-selector.js";
+
+type ButtonHandler = (interaction: ButtonInteraction) => Promise<void>;
+type ModalHandler = (interaction: ModalSubmitInteraction) => Promise<void>;
+type StringSelectHandler = (
+  interaction: StringSelectMenuInteraction,
+) => Promise<void>;
+type RoleSelectHandler = (
+  interaction: RoleSelectMenuInteraction,
+) => Promise<void>;
+type ChannelSelectHandler = (
+  interaction: ChannelSelectMenuInteraction,
+) => Promise<void>;
+
+const buttonHandlers = new Map<string, ButtonHandler>([
+  ["config_back_to_menu", configCommand.handleBackToMenu],
+  ["revive_settings_show", configCommand.handleShowReviveSettings],
+  ["revive_set_request_channel", configCommand.handleReviveSetRequestChannel],
+  ["revive_set_output_channel", configCommand.handleReviveSetOutputChannel],
+  ["revive_set_ping_role", configCommand.handleReviveSetPingRole],
+  ["revive_set_min_hosp", configCommand.handleReviveSetMinHospButton],
+  ["revive_refresh_panel", configCommand.handleReviveRefreshPanel],
+  ["revive_request_me", configCommand.handleReviveRequestMe],
+  ["revive_request_other", configCommand.handleReviveRequestOther],
+  ["assist_settings_show", configCommand.handleShowAssistSettings],
+  ["assist_set_channel", configCommand.handleAssistSetChannel],
+  ["assist_set_ping_role", configCommand.handleAssistSetPingRole],
+  ["assist_set_script_roles", configCommand.handleAssistSetScriptRoles],
+  ["assist_manage_users", configCommand.handleAssistManageUsers],
+]);
+
+const buttonPrefixHandlers: Array<{ prefix: string; handler: ButtonHandler }> =
+  [
+    {
+      prefix: "revive_confirm_request",
+      handler: configCommand.handleReviveConfirmRequest,
+    },
+    {
+      prefix: "revive_cancel_request|",
+      handler: configCommand.handleReviveCancelRequest,
+    },
+    {
+      prefix: "revive_mark_revived|",
+      handler: configCommand.handleReviveMarkRevived,
+    },
+    {
+      prefix: "assist_config_page_prev|",
+      handler: configCommand.handleAssistManagePageButton,
+    },
+    {
+      prefix: "assist_config_page_next|",
+      handler: configCommand.handleAssistManagePageButton,
+    },
+    {
+      prefix: "assist_config_manage_back|",
+      handler: configCommand.handleAssistManageBackButton,
+    },
+    {
+      prefix: "assist_manage_page_prev|",
+      handler: assistCommand.handleManagePageButton,
+    },
+    {
+      prefix: "assist_manage_page_next|",
+      handler: assistCommand.handleManagePageButton,
+    },
+    {
+      prefix: "assist_manage_back|",
+      handler: assistCommand.handleManageBackButton,
+    },
+  ];
+
+const modalHandlers = new Map<string, ModalHandler>([
+  ["revive_min_hosp_modal", configCommand.handleReviveSetMinHospModal],
+  ["revive_request_other_modal", configCommand.handleReviveRequestOtherModal],
+  ["tt_selector_create_modal", ttSelectorCommand.handleModalSubmitInteraction],
+]);
+
+const stringSelectHandlers = new Map<string, StringSelectHandler>([
+  ["config_view_select", configCommand.handleViewSelect],
+]);
+
+const stringSelectPrefixHandlers: Array<{
+  prefix: string;
+  handler: StringSelectHandler;
+}> = [
+  {
+    prefix: "assist_config_user_select|",
+    handler: configCommand.handleAssistManageUserSelect,
+  },
+  {
+    prefix: "assist_config_action_select|",
+    handler: configCommand.handleAssistManageActionSelect,
+  },
+  {
+    prefix: "assist_manage_user_select|",
+    handler: assistCommand.handleManageUserSelect,
+  },
+  {
+    prefix: "assist_manage_action_select|",
+    handler: assistCommand.handleManageActionSelect,
+  },
+  {
+    prefix: "tt_selector_",
+    handler: ttSelectorCommand.handleStringSelectMenuInteraction,
+  },
+];
+
+const roleSelectHandlers = new Map<string, RoleSelectHandler>([
+  ["revive_ping_role_select", configCommand.handleRevivePingRoleSelect],
+  ["assist_ping_role_select", configCommand.handleAssistPingRoleSelect],
+  ["assist_script_roles_select", configCommand.handleAssistScriptRolesSelect],
+]);
+
+const channelSelectHandlers = new Map<string, ChannelSelectHandler>([
+  [
+    "revive_request_channel_select",
+    configCommand.handleReviveRequestChannelSelect,
+  ],
+  [
+    "revive_output_channel_select",
+    configCommand.handleReviveOutputChannelSelect,
+  ],
+  ["assist_channel_select", configCommand.handleAssistChannelSelect],
+]);
 
 /**
  * Handle all button interactions
@@ -20,58 +151,20 @@ export async function handleButtonInteraction(
 
   const { customId } = interaction;
 
-  // Config command buttons
-  if (customId === "config_back_to_menu") {
-    await configCommand.handleBackToMenu(interaction);
-  } else if (customId === "revive_settings_show") {
-    await configCommand.handleShowReviveSettings(interaction);
-  } else if (customId === "revive_set_request_channel") {
-    await configCommand.handleReviveSetRequestChannel(interaction);
-  } else if (customId === "revive_set_output_channel") {
-    await configCommand.handleReviveSetOutputChannel(interaction);
-  } else if (customId === "revive_set_ping_role") {
-    await configCommand.handleReviveSetPingRole(interaction);
-  } else if (customId === "revive_set_min_hosp") {
-    await configCommand.handleReviveSetMinHospButton(interaction);
-  } else if (customId === "revive_refresh_panel") {
-    await configCommand.handleReviveRefreshPanel(interaction);
-  } else if (customId === "revive_request_me") {
-    await configCommand.handleReviveRequestMe(interaction);
-  } else if (customId === "revive_request_other") {
-    await configCommand.handleReviveRequestOther(interaction);
-  } else if (customId.startsWith("revive_confirm_request")) {
-    await configCommand.handleReviveConfirmRequest(interaction);
-  } else if (customId.startsWith("revive_cancel_request|")) {
-    await configCommand.handleReviveCancelRequest(interaction);
-  } else if (customId.startsWith("revive_mark_revived|")) {
-    await configCommand.handleReviveMarkRevived(interaction);
-  } else if (customId === "assist_settings_show") {
-    await configCommand.handleShowAssistSettings(interaction);
-  } else if (customId === "assist_set_channel") {
-    await configCommand.handleAssistSetChannel(interaction);
-  } else if (customId === "assist_set_ping_role") {
-    await configCommand.handleAssistSetPingRole(interaction);
-  } else if (customId === "assist_set_script_roles") {
-    await configCommand.handleAssistSetScriptRoles(interaction);
-  } else if (customId === "assist_manage_users") {
-    await configCommand.handleAssistManageUsers(interaction);
-  } else if (
-    customId.startsWith("assist_config_page_prev|") ||
-    customId.startsWith("assist_config_page_next|")
-  ) {
-    await configCommand.handleAssistManagePageButton(interaction);
-  } else if (customId.startsWith("assist_config_manage_back|")) {
-    await configCommand.handleAssistManageBackButton(interaction);
-  } else if (
-    customId.startsWith("assist_manage_page_prev|") ||
-    customId.startsWith("assist_manage_page_next|")
-  ) {
-    await assistCommand.handleManagePageButton(interaction);
-  } else if (customId.startsWith("assist_manage_back|")) {
-    await assistCommand.handleManageBackButton(interaction);
+  const directHandler = buttonHandlers.get(customId);
+  if (directHandler) {
+    await directHandler(interaction);
+    return true;
   }
-  
-  // TT Selector buttons
+
+  const prefixedHandler = buttonPrefixHandlers.find(({ prefix }) =>
+    customId.startsWith(prefix),
+  );
+  if (prefixedHandler) {
+    await prefixedHandler.handler(interaction);
+    return true;
+  }
+
   if (
     customId.startsWith("tt_selector_") ||
     customId.startsWith("tt_selector_edit_session|") ||
@@ -81,7 +174,7 @@ export async function handleButtonInteraction(
     return true;
   }
 
-  return true;
+  return false;
 }
 
 /**
@@ -95,20 +188,12 @@ export async function handleModalSubmitInteraction(
   }
 
   const { customId } = interaction;
-
-  // Setup modals
-  if (customId === "revive_min_hosp_modal") {
-    await configCommand.handleReviveSetMinHospModal(interaction);
-  } else if (customId === "revive_request_other_modal") {
-    await configCommand.handleReviveRequestOtherModal(interaction);
-  }
-  
-  // TT Selector modals
-  if (customId === "tt_selector_create_modal") {
-    await ttSelectorCommand.handleModalSubmitInteraction(interaction);
-    return true;
+  const modalHandler = modalHandlers.get(customId);
+  if (!modalHandler) {
+    return false;
   }
 
+  await modalHandler(interaction);
   return true;
 }
 
@@ -125,29 +210,21 @@ export async function handleStringSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  // Config command selects
-  if (customId === "config_view_select") {
-    await configCommand.handleViewSelect(interaction);
-  } else if (customId.startsWith("assist_config_user_select|")) {
-    await configCommand.handleAssistManageUserSelect(interaction);
-  } else if (customId.startsWith("assist_config_action_select|")) {
-    await configCommand.handleAssistManageActionSelect(interaction);
-  } else if (customId.startsWith("assist_manage_user_select|")) {
-    await assistCommand.handleManageUserSelect(interaction);
-  } else if (customId.startsWith("assist_manage_action_select|")) {
-    await assistCommand.handleManageActionSelect(interaction);
-  }
-  // TT Selector selects
-  else if (customId.startsWith("tt_selector_")) {
-    await ttSelectorCommand.handleStringSelectMenuInteraction(interaction);
+  const directHandler = stringSelectHandlers.get(customId);
+  if (directHandler) {
+    await directHandler(interaction);
     return true;
   }
-  // Unknown
-  else {
-    return false;
+
+  const prefixedHandler = stringSelectPrefixHandlers.find(({ prefix }) =>
+    customId.startsWith(prefix),
+  );
+  if (prefixedHandler) {
+    await prefixedHandler.handler(interaction);
+    return true;
   }
 
-  return true;
+  return false;
 }
 
 /**
@@ -160,18 +237,12 @@ export async function handleRoleSelectMenuInteraction(
     return false;
   }
 
-  const { customId } = interaction;
-
-  if (customId === "revive_ping_role_select") {
-    await configCommand.handleRevivePingRoleSelect(interaction);
-  } else if (customId === "assist_ping_role_select") {
-    await configCommand.handleAssistPingRoleSelect(interaction);
-  } else if (customId === "assist_script_roles_select") {
-    await configCommand.handleAssistScriptRolesSelect(interaction);
-  } else {
+  const roleHandler = roleSelectHandlers.get(interaction.customId);
+  if (!roleHandler) {
     return false;
   }
 
+  await roleHandler(interaction);
   return true;
 }
 
@@ -187,20 +258,18 @@ export async function handleChannelSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  if (customId === "revive_request_channel_select") {
-    await configCommand.handleReviveRequestChannelSelect(interaction);
-  } else if (customId === "revive_output_channel_select") {
-    await configCommand.handleReviveOutputChannelSelect(interaction);
-  } else if (customId === "assist_channel_select") {
-    await configCommand.handleAssistChannelSelect(interaction);
-  } else if (customId.startsWith("tt_selector_")) {
-    await ttSelectorCommand.handleChannelSelectMenuInteraction(interaction);
+  const channelHandler = channelSelectHandlers.get(customId);
+  if (channelHandler) {
+    await channelHandler(interaction);
     return true;
-  } else {
-    return false;
   }
 
-  return true;
+  if (customId.startsWith("tt_selector_")) {
+    await ttSelectorCommand.handleChannelSelectMenuInteraction(interaction);
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -210,17 +279,21 @@ export async function routeInteractionHandler(
   interaction: Interaction,
   client: Client,
 ): Promise<boolean> {
-  // Try handlers in order
-  if (!(await handleButtonInteraction(interaction))) {
-    if (!(await handleModalSubmitInteraction(interaction))) {
-      if (!(await handleStringSelectMenuInteraction(interaction, client))) {
-        if (!(await handleRoleSelectMenuInteraction(interaction))) {
-          if (!(await handleChannelSelectMenuInteraction(interaction))) {
-            return false;
-          }
-        }
-      }
-    }
+  if (await handleButtonInteraction(interaction)) {
+    return true;
   }
-  return true;
+  if (await handleModalSubmitInteraction(interaction)) {
+    return true;
+  }
+  if (await handleStringSelectMenuInteraction(interaction, client)) {
+    return true;
+  }
+  if (await handleRoleSelectMenuInteraction(interaction)) {
+    return true;
+  }
+  if (await handleChannelSelectMenuInteraction(interaction)) {
+    return true;
+  }
+
+  return false;
 }
