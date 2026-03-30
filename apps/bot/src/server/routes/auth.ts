@@ -42,6 +42,7 @@ authRouter.get("/me", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Invalid or expired session" });
 
     // Fetch user profile from Discord cache/API (we only need basic info)
+    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
     try {
       const user = await discordClient.users.fetch(session.discord_id);
       res.json({
@@ -50,6 +51,7 @@ authRouter.get("/me", async (req: Request, res: Response) => {
         avatar: user.avatar,
         global_name: user.globalName,
         scope: session.scope,
+        is_owner: user.id === botOwnerId
       });
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_err) {
@@ -60,6 +62,7 @@ authRouter.get("/me", async (req: Request, res: Response) => {
         avatar: null,
         global_name: "Unknown User",
         scope: session.scope,
+        is_owner: session.discord_id === botOwnerId
       });
     }
   } catch (error) {

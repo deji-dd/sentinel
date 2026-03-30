@@ -4,12 +4,7 @@
  */
 
 import { Client, type Interaction } from "discord.js";
-import * as setupGuildCommand from "../commands/personal/admin/setup-guild.js";
-import * as teardownGuildCommand from "../commands/personal/admin/teardown-guild.js";
-import * as enableModuleCommand from "../commands/personal/admin/enable-module.js";
-import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
 import * as configCommand from "../commands/general/admin/config.js";
-import * as statsCommand from "../commands/personal/stats.js";
 import * as assistCommand from "../commands/general/assist/assist.js";
 import * as ttSelectorCommand from "../commands/general/territories/tt-selector.js";
 
@@ -28,8 +23,6 @@ export async function handleButtonInteraction(
   // Config command buttons
   if (customId === "config_back_to_menu") {
     await configCommand.handleBackToMenu(interaction);
-  } else if (customId === "config_open_dashboard") {
-    await configCommand.handleOpenDashboard(interaction);
   } else if (customId === "revive_settings_show") {
     await configCommand.handleShowReviveSettings(interaction);
   } else if (customId === "revive_set_request_channel") {
@@ -124,7 +117,7 @@ export async function handleModalSubmitInteraction(
  */
 export async function handleStringSelectMenuInteraction(
   interaction: Interaction,
-  client: Client,
+  _client: Client,
 ): Promise<boolean> {
   if (!interaction.isStringSelectMenu()) {
     return false;
@@ -132,28 +125,6 @@ export async function handleStringSelectMenuInteraction(
 
   const { customId } = interaction;
 
-  // Setup guild
-  if (customId === "setup_guild_select") {
-    await setupGuildCommand.handleGuildSelect(interaction);
-  } else if (customId.startsWith("setup_modules_select")) {
-    await setupGuildCommand.handleModulesSelect(interaction);
-  }
-  // Teardown guild
-  else if (customId === "teardown_guild_select") {
-    await teardownGuildCommand.handleTeardownGuildSelect(interaction, client);
-  }
-  // Enable module
-  else if (customId === "enable_module_guild_select") {
-    await enableModuleCommand.handleGuildSelect(interaction);
-  } else if (customId.startsWith("enable_module_toggle")) {
-    await enableModuleCommand.handleModuleToggle(interaction, client);
-  }
-  // Remove module
-  else if (customId === "remove_module_guild_select") {
-    await removeModuleCommand.handleGuildSelect(interaction);
-  } else if (customId.startsWith("remove_module_select")) {
-    await removeModuleCommand.handleModuleRemove(interaction, client);
-  }
   // Config command selects
   if (customId === "config_view_select") {
     await configCommand.handleViewSelect(interaction);
@@ -170,10 +141,6 @@ export async function handleStringSelectMenuInteraction(
   else if (customId.startsWith("tt_selector_")) {
     await ttSelectorCommand.handleStringSelectMenuInteraction(interaction);
     return true;
-  }
-  // Stats command
-  else if (customId === "stats_timeframe_select") {
-    await statsCommand.handleTimeframeSelect(interaction);
   }
   // Unknown
   else {

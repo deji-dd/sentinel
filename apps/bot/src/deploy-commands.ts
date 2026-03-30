@@ -2,13 +2,9 @@ import "dotenv/config";
 import { REST, Routes } from "discord.js";
 
 import * as deployCommandsCommand from "./commands/personal/admin/deploy-commands.js";
-import * as setupGuildCommand from "./commands/personal/admin/setup-guild.js";
-import * as teardownGuildCommand from "./commands/personal/admin/teardown-guild.js";
+import * as botAdminCommand from "./commands/personal/admin/bot-admin.js";
 import * as forceRunCommand from "./commands/personal/admin/force-run.js";
 import * as addBotCommand from "./commands/personal/admin/add-bot.js";
-import * as enableModuleCommand from "./commands/personal/admin/enable-module.js";
-import * as removeModuleCommand from "./commands/personal/admin/remove-module.js";
-import * as guildStatusCommand from "./commands/personal/admin/guild-status.js";
 import * as dbBackupCommand from "./commands/personal/admin/db-backup.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
@@ -16,6 +12,10 @@ import * as verifyallCommand from "./commands/general/verification/verifyall.js"
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
 import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";
+import * as ttSelectorCommand from "./commands/general/territories/tt-selector.js";
+import * as statsCommand from "./commands/personal/stats.js";
+import * as assistCommand from "./commands/general/assist/assist.js";
+import * as revokeWebAccessCommand from "./commands/personal/admin/revoke-web-access.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -42,13 +42,9 @@ console.log(
 // Deploy to admin guild only on startup
 const commands = [
   forceRunCommand.data.toJSON(),
+  botAdminCommand.data.toJSON(),
   deployCommandsCommand.data.toJSON(),
-  setupGuildCommand.data.toJSON(),
-  teardownGuildCommand.data.toJSON(),
   addBotCommand.data.toJSON(),
-  enableModuleCommand.data.toJSON(),
-  removeModuleCommand.data.toJSON(),
-  guildStatusCommand.data.toJSON(),
   dbBackupCommand.data.toJSON(),
   configCommand.data.toJSON(),
   verifyCommand.data.toJSON(),
@@ -56,6 +52,10 @@ const commands = [
   assaultCheckCommand.data.toJSON(),
   burnMapCommand.data.toJSON(),
   allianceMapCommand.data.toJSON(),
+  ttSelectorCommand.data.toJSON(),
+  statsCommand.data.toJSON(),
+  assistCommand.data.toJSON(),
+  revokeWebAccessCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

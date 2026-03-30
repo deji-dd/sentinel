@@ -5,7 +5,7 @@ import { EmbedBuilder, type Client } from "discord.js";
 export interface TokenOptions {
   discordId: string;
   guildId: string;
-  scope: "map" | "config" | "all";
+  scope: "map" | "config" | "admin" | "all";
   targetPath: string;
   ttlMinutes?: number;
 }
