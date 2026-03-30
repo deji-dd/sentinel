@@ -53,6 +53,15 @@ interface TerritoryStateRow {
 // Track recent war counts for adaptive cadence
 const recentWarCounts: number[] = [];
 const MAX_HISTORY = 10; // Track last 10 runs
+const DB_WRITE_CHUNK_SIZE = 200;
+
+function chunkArray<T>(rows: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    chunks.push(rows.slice(i, i + size));
+  }
+  return chunks;
+}
 
 /**
  * Calculate dynamic cadence based on war activity patterns
@@ -131,12 +140,17 @@ export function startWarLedgerSyncWorker() {
 
             if ("error" in response) {
               // Log API error with timestamp before skipping
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const errorObj = (response as any).error;
-              const errorMsg =
-                typeof errorObj === "object" && errorObj?.error
-                  ? errorObj.error
-                  : String(errorObj);
+              const errorObj = (response as { error?: unknown }).error;
+              let errorMsg = String(errorObj);
+              if (
+                typeof errorObj === "object" &&
+                errorObj !== null &&
+                "error" in errorObj
+              ) {
+                errorMsg = String(
+                  (errorObj as { error?: unknown }).error ?? errorObj,
+                );
+              }
               logError(
                 "war_ledger_sync",
                 `API error (${new Date().toISOString()}): ${errorMsg}`,
@@ -336,24 +350,22 @@ export function startWarLedgerSyncWorker() {
             }));
 
             try {
-              await db.transaction().execute(async (trx) => {
-                for (const row of warData) {
-                  await trx
-                    .insertInto(TABLE_NAMES.WAR_LEDGER)
-                    .values(row)
-                    .onConflict((oc) =>
-                      oc.column("war_id").doUpdateSet({
-                        territory_id: row.territory_id,
-                        assaulting_faction: row.assaulting_faction,
-                        defending_faction: row.defending_faction,
-                        victor_faction: row.victor_faction,
-                        start_time: row.start_time,
-                        end_time: row.end_time,
-                      }),
-                    )
-                    .execute();
-                }
-              });
+              for (const chunk of chunkArray(warData, DB_WRITE_CHUNK_SIZE)) {
+                await db
+                  .insertInto(TABLE_NAMES.WAR_LEDGER)
+                  .values(chunk)
+                  .onConflict((oc) =>
+                    oc.column("war_id").doUpdateSet((eb) => ({
+                      territory_id: eb.ref("excluded.territory_id"),
+                      assaulting_faction: eb.ref("excluded.assaulting_faction"),
+                      defending_faction: eb.ref("excluded.defending_faction"),
+                      victor_faction: eb.ref("excluded.victor_faction"),
+                      start_time: eb.ref("excluded.start_time"),
+                      end_time: eb.ref("excluded.end_time"),
+                    })),
+                  )
+                  .execute();
+              }
             } catch (error) {
               logError(
                 "war_ledger_sync",
@@ -384,14 +396,21 @@ export function startWarLedgerSyncWorker() {
 
             if (missingIds.length > 0) {
               try {
-                await db.transaction().execute(async (trx) => {
-                  for (const territoryId of missingIds) {
-                    await trx
-                      .insertInto(TABLE_NAMES.TERRITORY_STATE)
-                      .values({ territory_id: territoryId, is_warring: 1 })
-                      .execute();
-                  }
-                });
+                for (const chunk of chunkArray(
+                  missingIds,
+                  DB_WRITE_CHUNK_SIZE,
+                )) {
+                  await db
+                    .insertInto(TABLE_NAMES.TERRITORY_STATE)
+                    .values(
+                      chunk.map((territoryId) => ({
+                        territory_id: territoryId,
+                        is_warring: 1,
+                      })),
+                    )
+                    .onConflict((oc) => oc.column("territory_id").doNothing())
+                    .execute();
+                }
               } catch (error) {
                 logError(
                   "war_ledger_sync",

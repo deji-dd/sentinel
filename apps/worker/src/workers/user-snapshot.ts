@@ -11,11 +11,11 @@ const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
 const PRUNING_WORKER_NAME = "user_snapshot_pruning_worker";
 const SNAPSHOT_CADENCE_SECONDS = 30; // Take snapshot every 30 seconds
 const PRUNE_CADENCE_SECONDS = 3600; // Prune old snapshots every hour
+const SNAPSHOT_PRUNE_BATCH_SIZE = 5000;
 
 interface CompanyEmployee {
   wage: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface CompanyEmployees {
@@ -36,6 +36,26 @@ type NetworthSelectionResponse = {
 type GymSelectionResponse = {
   gym?: { id?: number };
 };
+
+type UserSnapshotSelectionsResponse = NetworthSelectionResponse &
+  GymSelectionResponse & {
+    money?: {
+      wallet?: number;
+      daily_networth?: number;
+    };
+    bars?: {
+      energy?: { current?: number; maximum?: number };
+      nerve?: { current?: number; maximum?: number };
+      happy?: { current?: number; maximum?: number };
+      life?: { current?: number; maximum?: number };
+      chain?: { current?: number; max?: number };
+    };
+    cooldowns?: {
+      drug?: number;
+      medical?: number;
+      booster?: number;
+    };
+  };
 
 type SnapshotRow = {
   id: string;
@@ -97,9 +117,10 @@ async function takeSnapshot(): Promise<void> {
       }),
     ]);
 
+    const userData = userResponse as UserSnapshotSelectionsResponse;
+
     // Extract money data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const money = (userResponse as any).money;
+    const money = userData.money;
     if (!money) {
       throw new Error("Missing money in Torn response");
     }
@@ -117,12 +138,11 @@ async function takeSnapshot(): Promise<void> {
       : null;
 
     // Extract gym from v2 gym selection
-    const gymData = (userResponse as GymSelectionResponse).gym || {};
+    const gymData = userData.gym || {};
     const activeGym = gymData.id || null;
 
     // Extract bars data from user response
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bars = (userResponse as any).bars;
+    const bars = userData.bars;
     if (!bars) {
       throw new Error("Missing bars in Torn response");
     }
@@ -148,8 +168,7 @@ async function takeSnapshot(): Promise<void> {
       (nerveMaximum - nerveCurrent) * nerveSecondsPerPoint;
 
     // Extract cooldowns data from user response
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cooldowns = (userResponse as any).cooldowns;
+    const cooldowns = userData.cooldowns;
     if (!cooldowns) {
       throw new Error("Missing cooldowns in Torn response");
     }
@@ -243,58 +262,85 @@ async function pruneSnapshots(): Promise<void> {
     // For simplicity, we'll delete all snapshots older than 1 week where the minute is not :00 or :30
     // Actually, let's be smarter: keep one snapshot per hour (the first one in each hour)
 
-    // Get all snapshots older than 1 week
     const db = getKysely();
-    const oldSnapshots = (await db
-      .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
-      .select(["id", "created_at"])
-      .where("created_at", "<", oneWeekAgo)
-      .orderBy("created_at", "asc")
-      .execute()) as SnapshotRow[];
+    // Stream old snapshots in ascending order and only keep the first snapshot per hour.
+    // Cursor-based batching prevents large memory spikes as this table grows.
+    const snapshotsToKeep = new Set<string>();
+    const seenHours = new Set<string>();
+    let cursorCreatedAt: string | null = null;
+    let cursorId: string | null = null;
+    let deletedCount = 0;
 
-    if (!oldSnapshots || oldSnapshots.length === 0) {
+    while (true) {
+      let query = db
+        .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+        .select(["id", "created_at"])
+        .where("created_at", "<", oneWeekAgo);
+
+      if (cursorCreatedAt && cursorId) {
+        query = query.where((eb) =>
+          eb.or([
+            eb("created_at", ">", cursorCreatedAt),
+            eb.and([
+              eb("created_at", "=", cursorCreatedAt),
+              eb("id", ">", cursorId),
+            ]),
+          ]),
+        );
+      }
+
+      const batch = (await query
+        .orderBy("created_at", "asc")
+        .orderBy("id", "asc")
+        .limit(SNAPSHOT_PRUNE_BATCH_SIZE)
+        .execute()) as SnapshotRow[];
+
+      if (!batch.length) {
+        break;
+      }
+
+      for (const snapshot of batch) {
+        const date = new Date(snapshot.created_at);
+        const hourKey = `${date.getUTCFullYear()}-${date.getUTCMonth()}-${date.getUTCDate()}-${date.getUTCHours()}`;
+
+        if (!seenHours.has(hourKey)) {
+          seenHours.add(hourKey);
+          snapshotsToKeep.add(snapshot.id);
+        }
+      }
+
+      const idsToDelete = batch
+        .filter((snapshot) => !snapshotsToKeep.has(snapshot.id))
+        .map((snapshot) => snapshot.id);
+
+      if (idsToDelete.length > 0) {
+        await db
+          .deleteFrom(TABLE_NAMES.USER_SNAPSHOTS)
+          .where("id", "in", idsToDelete)
+          .execute();
+        deletedCount += idsToDelete.length;
+      }
+
+      const lastRow = batch[batch.length - 1];
+      cursorCreatedAt = lastRow.created_at;
+      cursorId = lastRow.id;
+    }
+
+    const duration = Date.now() - startTime;
+    if (deletedCount > 0) {
+      logDuration(
+        PRUNING_WORKER_NAME,
+        `Sync completed (deleted ${deletedCount} old snapshots)`,
+        duration,
+      );
       return;
     }
 
-    // Group by hour and keep only the first snapshot of each hour
-    const snapshotsToKeep = new Set<string>();
-    const seenHours = new Set<string>();
-
-    for (const snapshot of oldSnapshots) {
-      const date = new Date(snapshot.created_at);
-      const hourKey = `${date.getUTCFullYear()}-${date.getUTCMonth()}-${date.getUTCDate()}-${date.getUTCHours()}`;
-
-      if (!seenHours.has(hourKey)) {
-        seenHours.add(hourKey);
-        snapshotsToKeep.add(snapshot.id);
-      }
-    }
-
-    // Delete snapshots not in the keep set
-    const idsToDelete = oldSnapshots
-      .filter((s) => !snapshotsToKeep.has(s.id))
-      .map((s) => s.id);
-
-    if (idsToDelete.length > 0) {
-      await db
-        .deleteFrom(TABLE_NAMES.USER_SNAPSHOTS)
-        .where("id", "in", idsToDelete)
-        .execute();
-
-      const duration = Date.now() - startTime;
-      logDuration(
-        PRUNING_WORKER_NAME,
-        `Sync completed (deleted ${idsToDelete.length} old snapshots)`,
-        duration,
-      );
-    } else {
-      const duration = Date.now() - startTime;
-      logDuration(
-        PRUNING_WORKER_NAME,
-        "Sync completed (no snapshots to delete)",
-        duration,
-      );
-    }
+    logDuration(
+      PRUNING_WORKER_NAME,
+      "Sync completed (no snapshots to delete)",
+      duration,
+    );
   } catch (error) {
     const elapsed = Date.now() - startTime;
     let errorMessage = "Unknown error";

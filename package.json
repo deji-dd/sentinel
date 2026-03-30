@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
+    "worker:dev": "pnpm --filter worker dev",
+    "worker:build": "pnpm --filter worker build",
+    "worker:lint": "pnpm --filter worker lint",
     "generate:torn-types": "pnpm --filter @sentinel/shared generate-types && pnpm --filter @sentinel/shared build",
     "sqlite:migrate": "pnpm --filter worker migrate:sqlite",
     "sqlite:new-migration": "node scripts/new-sqlite-migration.js",

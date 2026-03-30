@@ -52,21 +52,11 @@ async function syncUserDataHandler(): Promise<void> {
     logDuration(WORKER_NAME, `Sync completed`, duration);
   } catch (error) {
     const elapsed = Date.now() - startTime;
-    if (error instanceof Object && "message" in error && "code" in error) {
-      // Database error object
-      logError(
-        WORKER_NAME,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        `Profile sync failed: ${(error as any).message} (${formatDuration(elapsed)})`,
-      );
-    } else {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logError(
-        WORKER_NAME,
-        `Profile sync failed: ${errorMessage} (${formatDuration(elapsed)})`,
-      );
-    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logError(
+      WORKER_NAME,
+      `Profile sync failed: ${errorMessage} (${formatDuration(elapsed)})`,
+    );
     throw error; // Re-throw so executeSync knows this failed
   }
 }

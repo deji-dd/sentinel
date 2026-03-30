@@ -8,6 +8,15 @@ import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "torn_gyms_worker";
 const DAILY_CADENCE_SECONDS = 86400; // 24h
+const UPSERT_CHUNK_SIZE = 200;
+
+function chunkArray<T>(rows: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    chunks.push(rows.slice(i, i + size));
+  }
+  return chunks;
+}
 
 function nextUtcThreeAm(): string {
   const now = new Date();
@@ -186,11 +195,11 @@ async function syncTornGyms(): Promise<void> {
     }
 
     // Upsert gyms (replace existing)
-    await db.transaction().execute(async (trx) => {
-      for (const gym of gyms) {
-        await trx
-          .insertInto(TABLE_NAMES.TORN_GYMS)
-          .values({
+    for (const chunk of chunkArray(gyms, UPSERT_CHUNK_SIZE)) {
+      await db
+        .insertInto(TABLE_NAMES.TORN_GYMS)
+        .values(
+          chunk.map((gym) => ({
             id: gym.id,
             name: gym.name,
             energy: gym.energy,
@@ -199,21 +208,21 @@ async function syncTornGyms(): Promise<void> {
             dexterity: gym.dexterity,
             defense: gym.defense,
             unlocked: gym.unlocked ? 1 : 0,
-          })
-          .onConflict((oc) =>
-            oc.column("id").doUpdateSet({
-              name: gym.name,
-              energy: gym.energy,
-              strength: gym.strength,
-              speed: gym.speed,
-              dexterity: gym.dexterity,
-              defense: gym.defense,
-              unlocked: gym.unlocked ? 1 : 0,
-            }),
-          )
-          .execute();
-      }
-    });
+          })),
+        )
+        .onConflict((oc) =>
+          oc.column("id").doUpdateSet((eb) => ({
+            name: eb.ref("excluded.name"),
+            energy: eb.ref("excluded.energy"),
+            strength: eb.ref("excluded.strength"),
+            speed: eb.ref("excluded.speed"),
+            dexterity: eb.ref("excluded.dexterity"),
+            defense: eb.ref("excluded.defense"),
+            unlocked: eb.ref("excluded.unlocked"),
+          })),
+        )
+        .execute();
+    }
 
     const duration = Date.now() - startTime;
     logDuration(

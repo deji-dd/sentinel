@@ -23,11 +23,14 @@ export function startDbScheduledRunner(
   const {
     worker,
     defaultCadenceSeconds,
-    pollIntervalMs = 1000, // Check every second for faster capacity response
+    pollIntervalMs,
     handler,
     initialNextRunAt,
     getDynamicCadence,
   } = config;
+  const resolvedPollIntervalMs =
+    pollIntervalMs ??
+    Math.min(5000, Math.max(1000, Math.floor(defaultCadenceSeconds * 200)));
 
   let workerId: string | null = null;
   ensureWorkerRegistered(worker, defaultCadenceSeconds, initialNextRunAt)
@@ -41,7 +44,13 @@ export function startDbScheduledRunner(
       );
     });
 
+  let tickInFlight = false;
   const timer = setInterval(async () => {
+    if (tickInFlight) {
+      return;
+    }
+    tickInFlight = true;
+
     if (!workerId) return;
     try {
       const dueRow = await fetchDueWorker(workerId);
@@ -110,8 +119,10 @@ export function startDbScheduledRunner(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logWarn(worker, `Scheduler tick error: ${message}`);
+    } finally {
+      tickInFlight = false;
     }
-  }, pollIntervalMs);
+  }, resolvedPollIntervalMs);
 
   return timer;
 }
