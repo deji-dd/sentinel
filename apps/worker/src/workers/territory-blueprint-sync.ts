@@ -13,6 +13,16 @@ import { logDuration, logError } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
+const DB_WRITE_CHUNK_SIZE = 250;
+
+function chunkArray<T>(rows: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    chunks.push(rows.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
     worker: "territory_blueprint_sync",
@@ -32,51 +42,33 @@ export function startTerritoryBlueprintSyncWorker() {
         // Create API key rotator to distribute requests across all available keys
         const keyRotator = new ApiKeyRotator(apiKeys);
 
-        // OPTIMIZATION: Parallel pagination instead of sequential
-        // Fetch first page to determine total count
-        const firstResponse = await tornApi.get("/torn/territory", {
-          apiKey: keyRotator.getNextKey(),
-          queryParams: { offset: 0, limit: 250 },
-        });
-
-        const allTerritories = [...(firstResponse.territory || [])];
-
-        // Calculate remaining pages (we know there are ~4100+ territories)
-        // Estimate based on first page: if we got 250, there are likely more pages
         const limit = 250;
-        const firstPageSize = allTerritories.length;
+        const territories: Array<{
+          id: string;
+          sector: number;
+          size: number;
+          density: number;
+          slots: number;
+          respect: number;
+          coordinates: { x: number; y: number };
+          neighbors?: string[];
+        }> = [];
 
-        // If we got a full page, assume there are more territories
-        // Use a safe estimate of ~4200 total territories (actual is ~4108)
-        if (firstPageSize >= limit) {
-          const estimatedTotal = 4200;
-          const pageCount = Math.ceil(estimatedTotal / limit);
+        for (let offset = 0; ; offset += limit) {
+          const response = await tornApi.get("/torn/territory", {
+            apiKey: keyRotator.getNextKey(),
+            queryParams: { offset, limit },
+          });
+          const page = response.territory || [];
+          if (page.length === 0) {
+            break;
+          }
 
-          // Generate offsets for remaining pages
-          const remainingOffsets = Array.from(
-            { length: pageCount - 1 },
-            (_, i) => (i + 1) * limit,
-          );
-
-          // Fetch all remaining pages in parallel
-          const remainingResponses = await Promise.all(
-            remainingOffsets.map((offset) =>
-              tornApi.get("/torn/territory", {
-                apiKey: keyRotator.getNextKey(),
-                queryParams: { offset, limit },
-              }),
-            ),
-          );
-
-          // Combine all remaining territories (filter out empty responses)
-          for (const response of remainingResponses) {
-            if (response.territory && response.territory.length > 0) {
-              allTerritories.push(...response.territory);
-            }
+          territories.push(...page);
+          if (page.length < limit) {
+            break;
           }
         }
-
-        const territories = allTerritories;
 
         if (!territories || territories.length === 0) {
           logDuration(
@@ -110,27 +102,25 @@ export function startTerritoryBlueprintSyncWorker() {
         }));
 
         try {
-          await db.transaction().execute(async (trx) => {
-            for (const row of blueprintData) {
-              await trx
-                .insertInto(TABLE_NAMES.TERRITORY_BLUEPRINT)
-                .values(row)
-                .onConflict((oc) =>
-                  oc.column("id").doUpdateSet({
-                    sector: row.sector,
-                    size: row.size,
-                    density: row.density,
-                    slots: row.slots,
-                    respect: row.respect,
-                    coordinate_x: row.coordinate_x,
-                    coordinate_y: row.coordinate_y,
-                    neighbors: row.neighbors,
-                    updated_at: row.updated_at,
-                  }),
-                )
-                .execute();
-            }
-          });
+          for (const chunk of chunkArray(blueprintData, DB_WRITE_CHUNK_SIZE)) {
+            await db
+              .insertInto(TABLE_NAMES.TERRITORY_BLUEPRINT)
+              .values(chunk)
+              .onConflict((oc) =>
+                oc.column("id").doUpdateSet((eb) => ({
+                  sector: eb.ref("excluded.sector"),
+                  size: eb.ref("excluded.size"),
+                  density: eb.ref("excluded.density"),
+                  slots: eb.ref("excluded.slots"),
+                  respect: eb.ref("excluded.respect"),
+                  coordinate_x: eb.ref("excluded.coordinate_x"),
+                  coordinate_y: eb.ref("excluded.coordinate_y"),
+                  neighbors: eb.ref("excluded.neighbors"),
+                  updated_at: eb.ref("excluded.updated_at"),
+                })),
+              )
+              .execute();
+          }
         } catch (error) {
           logError(
             "territory_blueprint_sync",
@@ -148,18 +138,19 @@ export function startTerritoryBlueprintSyncWorker() {
           }));
 
           try {
-            await db.transaction().execute(async (trx) => {
-              for (const row of stateData) {
-                await trx
-                  .insertInto(TABLE_NAMES.TERRITORY_STATE)
-                  .values({
+            for (const chunk of chunkArray(stateData, DB_WRITE_CHUNK_SIZE)) {
+              await db
+                .insertInto(TABLE_NAMES.TERRITORY_STATE)
+                .values(
+                  chunk.map((row) => ({
                     territory_id: row.territory_id,
                     faction_id: row.faction_id,
                     is_warring: row.is_warring ? 1 : 0,
-                  })
-                  .execute();
-              }
-            });
+                  })),
+                )
+                .onConflict((oc) => oc.column("territory_id").doNothing())
+                .execute();
+            }
           } catch (error) {
             logError(
               "territory_blueprint_sync",

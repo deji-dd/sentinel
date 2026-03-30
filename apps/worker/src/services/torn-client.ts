@@ -36,18 +36,25 @@ const MAX_REQUESTS_PER_WINDOW = 50;
 
 class WorkerSqliteRateLimiter {
   async waitIfNeeded(apiKey: string): Promise<void> {
-    const count = await getRequestCountPerUser(apiKey);
-
-    if (count >= MAX_REQUESTS_PER_WINDOW) {
-      const oldestRequest = await getOldestRequestPerUser(apiKey);
-      if (oldestRequest) {
-        const age = Date.now() - oldestRequest.getTime();
-        const waitTime = WINDOW_MS - age + 100;
-        if (waitTime > 0) {
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-          return this.waitIfNeeded(apiKey);
-        }
+    while (true) {
+      const count = await getRequestCountPerUser(apiKey);
+      if (count < MAX_REQUESTS_PER_WINDOW) {
+        return;
       }
+
+      const oldestRequest = await getOldestRequestPerUser(apiKey);
+      if (!oldestRequest) {
+        return;
+      }
+
+      const age = Date.now() - oldestRequest.getTime();
+      const waitTime = WINDOW_MS - age + 100;
+      if (waitTime > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      return;
     }
   }
 
@@ -95,12 +102,13 @@ export const batchHandler = new BatchOperationHandler(rateLimiter);
 
 /**
  * Clear stale rate limit entries on startup
- * Completely wipes the rate limit table to give a clean slate
- * This prevents false rate limiting from entries recorded in previous runs
+ * Removes only rows outside the rolling rate-limit window.
+ * This keeps recent data intact for multi-instance coordination.
  */
-async function clearStaleRateLimitData(_userIds: number[]): Promise<void> {
+async function clearStaleRateLimitData(): Promise<void> {
   try {
     const db = getKysely();
+    const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
     // Get count before delete
     const beforeCountRow = await db
@@ -109,13 +117,12 @@ async function clearStaleRateLimitData(_userIds: number[]): Promise<void> {
       .executeTakeFirst();
     const beforeCount = Number(beforeCountRow?.count ?? 0);
 
-    // Delete ALL rate limit entries (not just for specific users)
-    // On startup, we want a completely clean slate to prevent false positives
-    // from requests recorded before the worker was stopped
+    // Delete only stale entries outside the rolling rate-limit window.
+    // Keep recent data so multi-instance coordination remains accurate.
     await db
       .deleteFrom(TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER)
-      .where("requested_at", ">=", "1970-01-01T00:00:00Z")
-      .execute(); // Delete all entries (gte oldest possible date)
+      .where("requested_at", "<", windowStart)
+      .execute();
 
     // Verify cleanup
     const afterCountRow = await db
@@ -125,7 +132,7 @@ async function clearStaleRateLimitData(_userIds: number[]): Promise<void> {
     const afterCount = Number(afterCountRow?.count ?? 0);
 
     console.log(
-      `[TornClient] ✓ Rate limit table cleared (${(beforeCount || 0) - (afterCount || 0)} entries)`,
+      `[TornClient] ✓ Cleared stale rate-limit rows (${(beforeCount || 0) - (afterCount || 0)} entries)`,
     );
   } catch (error) {
     console.warn(
@@ -233,23 +240,24 @@ export async function initializeApiKeyMappings(
   }
 
   console.log("[TornClient] Attempting to initialize API key mappings...");
-  const mappedUserIds: number[] = [];
+  const mappingResults = await Promise.all(
+    uniqueKeys.map((apiKey) => ensureApiKeyMappedInSqlite(apiKey)),
+  );
 
-  for (const apiKey of uniqueKeys) {
-    const result = await ensureApiKeyMappedInSqlite(apiKey);
-
-    if (!result.userId) {
-      const detailedError = result.error || "Unknown error";
-      throw new Error(
-        "[CRITICAL] Failed to map API key to user. Rate limiting cannot be initialized.\n" +
-          `Error Details: ${detailedError}\n` +
-          "Verify the API key is valid and your SQLite database is available. " +
-          "Without working rate limiting, your API keys will be blocked.",
-      );
-    }
-
-    mappedUserIds.push(result.userId);
+  const failedResult = mappingResults.find((result) => !result.userId);
+  if (failedResult) {
+    const detailedError = failedResult.error || "Unknown error";
+    throw new Error(
+      "[CRITICAL] Failed to map API key to user. Rate limiting cannot be initialized.\n" +
+        `Error Details: ${detailedError}\n` +
+        "Verify the API key is valid and your SQLite database is available. " +
+        "Without working rate limiting, your API keys will be blocked.",
+    );
   }
+
+  const mappedUserIds = mappingResults
+    .map((result) => result.userId)
+    .filter((userId): userId is number => typeof userId === "number");
 
   console.log(
     `[TornClient] ✓ Mapped ${mappedUserIds.length} API key(s) for rate limiting initialization`,
@@ -257,7 +265,7 @@ export async function initializeApiKeyMappings(
 
   // Clear stale rate limit data from previous runs
   // This prevents false rate limiting when the worker restarts
-  await clearStaleRateLimitData(mappedUserIds);
+  await clearStaleRateLimitData();
 
   return mappedUserIds;
 }

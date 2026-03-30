@@ -12,7 +12,7 @@ const RETENTION_HOURS = 2; // Keep 2 hours of rate limit data (beyond the 60-sec
  * Prune old rate limit requests that are no longer relevant
  * Keeps only the most recent 2 hours of data
  */
-async function prunRateLimitRequests(): Promise<void> {
+async function pruneRateLimitRequests(): Promise<void> {
   const startTime = Date.now();
   const cutoffTime = new Date(Date.now() - RETENTION_HOURS * 60 * 60 * 1000);
 
@@ -35,7 +35,7 @@ export function startRateLimitPruningWorker(): void {
       return await executeSync({
         name: WORKER_NAME,
         timeout: 30000,
-        handler: prunRateLimitRequests,
+        handler: pruneRateLimitRequests,
       });
     },
   });

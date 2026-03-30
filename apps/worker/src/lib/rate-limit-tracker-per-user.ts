@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Per-user rate limit tracking using database.
  * Tracks API requests per API key to ensure no single key exceeds limits.
@@ -13,6 +12,8 @@ const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
 const API_KEY_USER_MAPPING_TABLE = TABLE_NAMES.API_KEY_USER_MAPPING;
 const WINDOW_MS = 60000; // 1 minute window
 const MAX_REQUESTS_PER_WINDOW = 50; // Per-user limit: 50 req/min (Torn allows 100 per key, use 50 for safety)
+const CLEANUP_INTERVAL_MS = 30000;
+let lastCleanupAt = 0;
 
 async function getMappedUserIdByApiKeyHash(keyHash: string): Promise<number> {
   const db = getKysely();
@@ -149,25 +150,33 @@ export async function cleanupOldRequestsPerUser(): Promise<void> {
  * Wait if necessary to ensure we don't exceed per-user rate limit.
  */
 export async function waitIfNeededPerUser(apiKey: string): Promise<void> {
-  // Periodic cleanup
-  cleanupOldRequestsPerUser().catch(() => {});
-
-  const count = await getRequestCountPerUser(apiKey);
-
-  if (count >= MAX_REQUESTS_PER_WINDOW) {
-    const oldestRequest = await getOldestRequestPerUser(apiKey);
-    if (oldestRequest) {
-      const now = Date.now();
-      const age = now - oldestRequest.getTime();
-      const waitTime = WINDOW_MS - age + 100; // +100ms buffer
-      if (waitTime > 0) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
-        // Recursively check again in case multiple requests need to wait
-        return waitIfNeededPerUser(apiKey);
-      }
-    }
+  const now = Date.now();
+  if (now - lastCleanupAt >= CLEANUP_INTERVAL_MS) {
+    lastCleanupAt = now;
+    cleanupOldRequestsPerUser().catch(() => {});
   }
 
-  // Record this request
-  await recordRequestPerUser(apiKey);
+  while (true) {
+    const count = await getRequestCountPerUser(apiKey);
+    if (count < MAX_REQUESTS_PER_WINDOW) {
+      await recordRequestPerUser(apiKey);
+      return;
+    }
+
+    const oldestRequest = await getOldestRequestPerUser(apiKey);
+    if (!oldestRequest) {
+      await recordRequestPerUser(apiKey);
+      return;
+    }
+
+    const age = Date.now() - oldestRequest.getTime();
+    const waitTime = WINDOW_MS - age + 100; // +100ms buffer
+    if (waitTime > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      continue;
+    }
+
+    await recordRequestPerUser(apiKey);
+    return;
+  }
 }

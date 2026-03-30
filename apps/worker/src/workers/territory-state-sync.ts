@@ -706,8 +706,12 @@ export function startTerritoryStateSyncWorker() {
                 const events = determineEventTypes(
                   oldFaction,
                   newFaction,
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  activeWar as any,
+                  activeWar
+                    ? {
+                        assaulting_faction: activeWar.assaulting_faction,
+                        defending_faction: activeWar.defending_faction,
+                      }
+                    : null,
                 );
 
                 // Add notifications for all detected events
@@ -717,10 +721,8 @@ export function startTerritoryStateSyncWorker() {
                     guild_id: "",
                     territory_id: tt.id,
                     event_type: event.type,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    assaulting_faction: (activeWar as any)?.assaulting_faction,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    defending_faction: (activeWar as any)?.defending_faction,
+                    assaulting_faction: activeWar?.assaulting_faction,
+                    defending_faction: activeWar?.defending_faction,
                     occupying_faction:
                       event.type === "claimed" ? newFaction : null,
                     previous_faction:

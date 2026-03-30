@@ -43,7 +43,7 @@ function parseUniqueAndPrimaryConstraints(
 ): ParsedConstraint[] {
   const constraints: ParsedConstraint[] = [];
   const regex =
-    /ALTER TABLE ONLY\s+"public"\."([^"]+)"\s+ADD CONSTRAINT\s+"([^"]+)"\s+(PRIMARY KEY|UNIQUE)\s*\(([^\)]+)\);/gim;
+    /ALTER TABLE ONLY\s+"public"\."([^"]+)"\s+ADD CONSTRAINT\s+"([^"]+)"\s+(PRIMARY KEY|UNIQUE)\s*\(([^)]+)\);/gim;
 
   let match: RegExpExecArray | null;
   while ((match = regex.exec(schemaDump)) !== null) {

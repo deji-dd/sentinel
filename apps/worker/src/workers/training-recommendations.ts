@@ -23,6 +23,12 @@ interface GymDetails {
   id: number;
   name: string;
   stage: number;
+  dots?: number | null;
+  energy?: number | null;
+  strength?: number | null;
+  speed?: number | null;
+  dexterity?: number | null;
+  defense?: number | null;
   [key: string]: unknown;
 }
 
@@ -49,6 +55,11 @@ interface TrainingMethodCost {
   estimatedGain: number;
   quantityAffordable: number;
   boosterCooldownHours: number;
+}
+
+function getGymStatBonus(gym: GymDetails, stat: StatKey): number {
+  const value = gym[stat];
+  return typeof value === "number" ? value : 0;
 }
 
 /**
@@ -268,10 +279,9 @@ function calculateGymGains(
     return { strength: 0, speed: 0, dexterity: 0, defense: 0 };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gymDots = ((activeGym as any).dots || 0) / 10; // Convert to decimal (e.g., 73 -> 7.3)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const energy = (activeGym as any).energy || 0; // Energy per train (5, 10, 25, 50, etc)
+  const gymDots =
+    (typeof activeGym.dots === "number" ? activeGym.dots : 0) / 10; // Convert to decimal (e.g., 73 -> 7.3)
+  const energy = typeof activeGym.energy === "number" ? activeGym.energy : 0; // Energy per train (5, 10, 25, 50, etc)
 
   const gains: GymGains = {
     strength: 0,
@@ -418,8 +428,7 @@ function checkSubOptimalGym(
   }
 
   for (const stat of Object.keys(result) as StatKey[]) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const currentBonus = (activeGym as any)[stat] || 0;
+    const currentBonus = getGymStatBonus(activeGym, stat);
     result[stat].currentBonus = currentBonus;
 
     // Find best gym for this stat
@@ -427,8 +436,7 @@ function checkSubOptimalGym(
     let bestBonus = currentBonus;
 
     for (const gym of stage4Gyms) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const gymBonus = (gym as any)[stat] || 0;
+      const gymBonus = getGymStatBonus(gym, stat);
       if (gymBonus > bestBonus) {
         bestBonus = gymBonus;
         bestGym = gym;
@@ -437,8 +445,7 @@ function checkSubOptimalGym(
 
     if (bestGym && bestBonus > currentBonus) {
       result[stat].isSubOptimal = true;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      result[stat].betterGymName = (bestGym as any).name || null;
+      result[stat].betterGymName = bestGym.name || null;
       result[stat].betterBonus = bestBonus;
     }
   }

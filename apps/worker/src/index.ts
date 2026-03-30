@@ -1,26 +1,6 @@
-import {
-  startUserDataWorker,
-  startTornGymsWorker,
-  startUserSnapshotWorker,
-  startUserSnapshotPruningWorker,
-  startTrainingRecommendationsWorker,
-  startBattlestatsSyncWorker,
-  startBattlestatsPruningWorker,
-} from "./workers/private/index.js";
-import {
-  startTornItemsWorker,
-  startFactionSyncWorker,
-  startTerritoryBlueprintSyncWorker,
-  startWarLedgerSyncWorker,
-  startTerritoryStateSyncWorker,
-  startRateLimitPruningWorker,
-  startWarLedgerPruningWorker,
-  startWorkerLogsPruningWorker,
-} from "./workers/public/index.js";
 import { logSection } from "./lib/logger.js";
 import { initializeApiKeyMappings } from "./services/torn-client.js";
-
-type WorkerScope = "private" | "public" | "all";
+import { startWorkersForScope, type WorkerScope } from "./workers/registry.js";
 
 function resolveWorkerScope(): WorkerScope {
   const raw = (process.env.WORKER_SCOPE || "all").toLowerCase();
@@ -43,46 +23,8 @@ async function startAllWorkers(): Promise<void> {
     logSection("🔐 Initializing rate limiting...");
     await initializeApiKeyMappings(scope);
 
-    if (scope !== "public") {
-      // Torn gyms worker (daily at ~03:00 UTC)
-      startTornGymsWorker();
-
-      // User data worker (every hour)
-      startUserDataWorker();
-
-      // User snapshot worker (every 30s - includes bars and cooldowns)
-      startUserSnapshotWorker();
-
-      // User snapshot pruning worker (every hour)
-      startUserSnapshotPruningWorker();
-
-      // Training recommendations worker (every 10 minutes)
-      startTrainingRecommendationsWorker();
-
-      // Battlestats sync worker (every minute)
-      startBattlestatsSyncWorker();
-
-      // Battlestats pruning worker (weekly on Sundays, removes intra-day bloat)
-      startBattlestatsPruningWorker();
-    }
-
-    if (scope !== "private") {
-      // Torn items worker (daily at ~03:00 UTC)
-      startTornItemsWorker();
-
-      // Faction sync worker (once daily)
-      startFactionSyncWorker();
-
-      // TT module workers
-      startTerritoryBlueprintSyncWorker(); // once daily
-      startWarLedgerSyncWorker(); // every 15 seconds
-      startTerritoryStateSyncWorker(); // dynamic cadence based on API keys
-
-      // Auto-pruning workers
-      startRateLimitPruningWorker(); // prune old rate limit entries hourly
-      startWarLedgerPruningWorker(); // prune wars older than 95 days daily
-      startWorkerLogsPruningWorker(); // prune worker logs older than 30 days daily
-    }
+    const startedCount = startWorkersForScope(scope);
+    logSection(`🧩 Started ${startedCount} worker runners`);
 
     logSection("✅ All workers started");
   } catch (error) {
