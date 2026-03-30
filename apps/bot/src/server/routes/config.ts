@@ -113,19 +113,22 @@ configRouter.get("/", async (req: Request, res: Response) => {
       }),
     );
 
+    const adminGuildId = process.env.ADMIN_GUILD_ID;
+    const isAdminGuild = guildId === adminGuildId;
+
     res.json({
       ...config,
       guild_name: guildInfo.name,
-      channels: guildInfo.channels,
-      roles: guildInfo.roles,
+      available_channels: guildInfo.channels,
+      available_roles: guildInfo.roles,
       enabled_modules:
         typeof config.enabled_modules === "string"
           ? JSON.parse(config.enabled_modules)
-          : config.enabled_modules,
+          : config.enabled_modules || [],
       admin_role_ids:
         typeof config.admin_role_ids === "string"
           ? JSON.parse(config.admin_role_ids)
-          : config.admin_role_ids,
+          : config.admin_role_ids || [],
       verified_role_ids:
         typeof config.verified_role_ids === "string"
           ? JSON.parse(config.verified_role_ids)
@@ -139,6 +142,7 @@ configRouter.get("/", async (req: Request, res: Response) => {
           ? JSON.parse(config.tt_faction_ids)
           : config.tt_faction_ids || [],
       api_keys: keysWithNames,
+      is_admin_guild: isAdminGuild
     });
   } catch (error) {
     console.error("[HTTP] Error fetching config:", error);

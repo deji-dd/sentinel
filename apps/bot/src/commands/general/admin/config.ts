@@ -35,10 +35,8 @@ if (!botOwnerId) {
 
 function buildConfigViewMenuRow(
   enabledModules: string[] = [],
-): ActionRowBuilder<StringSelectMenuBuilder> {
+): ActionRowBuilder<StringSelectMenuBuilder> | null {
   const options: StringSelectMenuOptionBuilder[] = [];
-
-
 
   if (enabledModules.includes("revive")) {
     options.push(
@@ -57,6 +55,8 @@ function buildConfigViewMenuRow(
         .setDescription("Configure combat assist alert routing"),
     );
   }
+
+  if (options.length === 0) return null;
 
   const selectMenu = new StringSelectMenuBuilder()
     .setCustomId("config_view_select")
@@ -95,11 +95,30 @@ export async function execute(
     }
 
     // Check if guild is configured
-    const guildConfig = await db
+    let guildConfig = await db
       .selectFrom(TABLE_NAMES.GUILD_CONFIG)
       .selectAll()
       .where("guild_id", "=", guildId)
       .executeTakeFirst();
+
+    if (!guildConfig && isAdminGuild) {
+      // Auto-initialize admin guild
+      await db
+        .insertInto(TABLE_NAMES.GUILD_CONFIG)
+        .values({
+          guild_id: guildId,
+          enabled_modules: JSON.stringify(["admin"]),
+          admin_role_ids: JSON.stringify([]),
+          verified_role_ids: JSON.stringify([]),
+        })
+        .execute();
+
+      guildConfig = await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+    }
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -153,6 +172,18 @@ export async function execute(
         : guildConfig.enabled_modules || [];
     const row = buildConfigViewMenuRow(enabledModules);
 
+    // Generate Magic Link immediately
+    const magicLinkService = new MagicLinkService(interaction.client);
+    const token = await magicLinkService.createToken({
+      discordId: interaction.user.id,
+      guildId: guildId,
+      scope: "all",
+      targetPath: "/config",
+    });
+
+    const apiUrl = getApiUrl();
+    const magicLinkUrl = `${apiUrl}/api/auth/magic-link?token=${token}`;
+
     const menuEmbed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Sentinel Command Center")
@@ -162,7 +193,7 @@ export async function execute(
       .addFields({
         name: "Web Dashboard",
         value:
-          "Access advanced configuration, map painting, and member management securely via your browser.",
+          "Your secure, single-use access link is ready. It will automatically expire after activation or 15 minutes of inactivity.",
       })
       .setFooter({
         text: isAdminGuild
@@ -172,14 +203,20 @@ export async function execute(
 
     const webDashboardRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId("config_open_dashboard")
-        .setLabel("Launch Web Dashboard")
-        .setStyle(ButtonStyle.Success),
+        .setLabel("Open Web Dashboard")
+        .setURL(magicLinkUrl)
+        .setStyle(ButtonStyle.Link),
     );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const components: any[] = [webDashboardRow];
+    if (row) {
+      components.unshift(row);
+    }
 
     await interaction.editReply({
       embeds: [menuEmbed],
-      components: [row, webDashboardRow],
+      components,
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -328,10 +365,40 @@ export async function handleBackToMenu(
 
     const row = buildConfigViewMenuRow(enabledModules);
 
+    // Generate Magic Link for back menu too
+    let magicLinkUrl = "";
+    if (guildId) {
+      const magicLinkService = new MagicLinkService(interaction.client);
+      const token = await magicLinkService.createToken({
+        discordId: interaction.user.id,
+        guildId: guildId,
+        scope: "all",
+        targetPath: "/config",
+      });
+      const apiUrl = getApiUrl();
+      magicLinkUrl = `${apiUrl}/api/auth/magic-link?token=${token}`;
+    }
+
+    const webDashboardRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("Open Web Dashboard")
+        .setURL(magicLinkUrl)
+        .setStyle(ButtonStyle.Link)
+        .setDisabled(!magicLinkUrl),
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const components: any[] = [webDashboardRow];
+    if (row) {
+      components.unshift(row);
+    }
+
     const menuEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
       .setTitle("Guild Configuration")
-      .setDescription("Select a settings section to manage:")
+      .setDescription(
+        "Select a settings section to manage or return to the **Web Dashboard**.",
+      )
       .setFooter({
         text: isAdminGuild
           ? "Admin Guild - Full control available"
@@ -340,7 +407,7 @@ export async function handleBackToMenu(
 
     await interaction.editReply({
       embeds: [menuEmbed],
-      components: [row],
+      components,
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -720,7 +787,6 @@ async function logGuildAudit(entry: {
   }
 }
 
-
 export async function handleShowReviveSettings(
   interaction: ButtonInteraction,
   isAlreadyDeferred: boolean = false,
@@ -897,55 +963,4 @@ export async function handleAssistManageBackButton(
   return assistHandlers.handleAssistManageBackButton(interaction);
 }
 
-export async function handleOpenDashboard(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    const guildId = interaction.guildId;
-    if (!guildId) return;
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const magicLinkService = new MagicLinkService(interaction.client);
-    const token = await magicLinkService.createToken({
-      discordId: interaction.user.id,
-      guildId: guildId,
-      scope: "all",
-      targetPath: "/config",
-    });
-
-    const apiUrl = getApiUrl();
-    const magicLink = `${apiUrl}/api/auth/magic-link?token=${token}`;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x10b981)
-      .setTitle("Access Granted")
-      .setDescription(
-        "Your secure configuration link is ready. This link is single-use and will burn after activation.",
-      )
-      .addFields({
-        name: "Security Warning",
-        value:
-          "Never share this link with anyone. It grants access to your server's configuration.",
-      })
-      .setFooter({ text: "Link expires 15 minutes after inactivity" });
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setLabel("Open Dashboard")
-        .setURL(magicLink)
-        .setStyle(ButtonStyle.Link),
-    );
-
-    await interaction.editReply({
-      embeds: [embed],
-      components: [row],
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error generating config link:", errorMsg);
-    await interaction.editReply({
-      content: `❌ Error: ${errorMsg}`,
-    });
-  }
-}

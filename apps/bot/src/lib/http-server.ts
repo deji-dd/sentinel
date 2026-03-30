@@ -12,6 +12,7 @@ import {
   webhookRouter,
   authRouter,
   configRouter,
+  adminRouter,
   registerMapRoutes,
   registerAssistRoutes,
 } from "../server/routes/index.js";
@@ -158,10 +159,10 @@ export function initHttpServer(client: Client, port: number = 3001) {
     magicLinkService,
   });
 
-  // Keep legacy webhook paths stable for worker integrations.
   app.use("/", webhookRouter);
   app.use("/api/auth", authRouter);
   app.use("/api/config", configRouter);
+  app.use("/api/admin", adminRouter);
 
   // Start server
   app.listen(port, () => {

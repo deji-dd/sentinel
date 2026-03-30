@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ConfigPage from "./pages/ConfigPage";
+import AdminPage from "./pages/AdminPage";
 import TerritoriesPage from "./pages/TerritoriesPage";
 import SelectorPage from "./pages/SelectorPage";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +13,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/config" element={<ConfigPage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="/territories" element={<TerritoriesPage />} />
           <Route path="/selector" element={<SelectorPage />} />
           <Route path="*" element={<ErrorPage />} />

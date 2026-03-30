@@ -105,13 +105,9 @@ export async function execute(
     const statsCommand = await import("../stats.js");
     const assistCommand = await import("../../general/assist/assist.js");
     const forceRunCommand = await import("./force-run.js");
+    const botAdminCommand = await import("./bot-admin.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
-    const setupGuildCommand = await import("./setup-guild.js");
-    const teardownGuildCommand = await import("./teardown-guild.js");
     const addBotCommand = await import("./add-bot.js");
-    const enableModuleCommand = await import("./enable-module.js");
-    const removeModuleCommand = await import("./remove-module.js");
-    const guildStatusCommand = await import("./guild-status.js");
     const dbBackupCommand = await import("./db-backup.js");
     const revokeWebAccessCommand = await import("./revoke-web-access.js");
 
@@ -146,13 +142,9 @@ export async function execute(
     try {
       const adminCommands = [
         forceRunCommand.data.toJSON(),
+        botAdminCommand.data.toJSON(),
         deployCommandsCommand.data.toJSON(),
-        setupGuildCommand.data.toJSON(),
-        teardownGuildCommand.data.toJSON(),
         addBotCommand.data.toJSON(),
-        enableModuleCommand.data.toJSON(),
-        removeModuleCommand.data.toJSON(),
-        guildStatusCommand.data.toJSON(),
         dbBackupCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),
@@ -197,6 +189,12 @@ export async function execute(
       for (const guildConfig of guildConfigs) {
         try {
           const guildId = guildConfig.guild_id;
+
+          // Skip admin guild as it was already deployed above with full admin command set
+          if (guildId === adminGuildId) {
+            continue;
+          }
+
           const enabledModules = parseEnabledModules(
             guildConfig.enabled_modules,
           );

@@ -5,13 +5,9 @@
 
 import { ChatInputCommandInteraction, Client, EmbedBuilder } from "discord.js";
 import * as forceRunCommand from "../commands/personal/admin/force-run.js";
+import * as botAdminCommand from "../commands/personal/admin/bot-admin.js";
 import * as deployCommandsCommand from "../commands/personal/admin/deploy-commands.js";
-import * as setupGuildCommand from "../commands/personal/admin/setup-guild.js";
-import * as teardownGuildCommand from "../commands/personal/admin/teardown-guild.js";
 import * as addBotCommand from "../commands/personal/admin/add-bot.js";
-import * as enableModuleCommand from "../commands/personal/admin/enable-module.js";
-import * as removeModuleCommand from "../commands/personal/admin/remove-module.js";
-import * as guildStatusCommand from "../commands/personal/admin/guild-status.js";
 import * as dbBackupCommand from "../commands/personal/admin/db-backup.js";
 import * as revokeWebAccessCommand from "../commands/personal/admin/revoke-web-access.js";
 
@@ -62,29 +58,17 @@ export async function handleAdminCommand(
 
   // Execute the appropriate admin command
   switch (commandName) {
+    case "bot-admin":
+      await botAdminCommand.execute(interaction);
+      break;
     case "force-run":
       await forceRunCommand.execute(interaction);
       break;
     case "deploy-commands":
       await deployCommandsCommand.execute(interaction, client);
       break;
-    case "setup-guild":
-      await setupGuildCommand.execute(interaction, client);
-      break;
-    case "teardown-guild":
-      await teardownGuildCommand.execute(interaction, client);
-      break;
     case "add-bot":
       await addBotCommand.execute(interaction);
-      break;
-    case "enable-module":
-      await enableModuleCommand.execute(interaction, client);
-      break;
-    case "remove-module":
-      await removeModuleCommand.execute(interaction, client);
-      break;
-    case "guild-status":
-      await guildStatusCommand.execute(interaction, client);
       break;
     case "db-backup":
       await dbBackupCommand.execute(interaction, client);
@@ -105,14 +89,10 @@ export async function handleAdminCommand(
  */
 export function isAdminCommandName(commandName: string): boolean {
   return [
+    "bot-admin",
     "force-run",
     "deploy-commands",
-    "setup-guild",
-    "teardown-guild",
     "add-bot",
-    "enable-module",
-    "remove-module",
-    "guild-status",
     "db-backup",
     "test-verification-dms",
     "revoke-web-access",

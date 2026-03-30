@@ -182,7 +182,6 @@ export default function ConfigPage() {
       desc: "Territory and faction movement alerts.",
       category: "Modules",
       isEnabled: guildConfig?.enabled_modules?.includes("territories") || true,
-      requiresKeys: true
     }
   ], [guildConfig]);
 
@@ -447,6 +446,8 @@ export default function ConfigPage() {
                 onDirtyChange={setIsDirty}
               />
             )}
+
+
 
             {activeTab === "reaction_roles" && (
               <ReactionRolesConfig
