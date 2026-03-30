@@ -13,6 +13,7 @@ import {
   TABLE_NAMES,
   getBurnedTerritories,
   getFactionNameCached,
+  type WarRecord,
 } from "@sentinel/shared";
 import { db } from "../../../lib/db-client.js";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
@@ -21,6 +22,14 @@ import { tornApi } from "../../../services/torn-client.js";
 
 const STATUS_EMOJI_SUCCESS = "<:Green:1474607376140079104>";
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
+
+type TerritoryStateRow = {
+  territory_id: string;
+};
+
+type TerritoryBlueprintRow = {
+  id: string;
+};
 
 async function getActiveApiKey(guildId: string): Promise<string | null> {
   const apiKeys = await getGuildApiKeys(guildId);
@@ -57,27 +66,27 @@ export async function execute(
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    const wars = (await db
+    const wars: WarRecord[] = await db
       .selectFrom(TABLE_NAMES.WAR_LEDGER)
       .selectAll()
       .where("start_time", ">=", ninetyDaysAgo.toISOString())
       .orderBy("start_time", "desc")
-      .execute()) as any[];
+      .execute();
 
     // Get current territory count for faction
-    const ownedTerritories = (await db
+    const ownedTerritories: TerritoryStateRow[] = await db
       .selectFrom(TABLE_NAMES.TERRITORY_STATE)
       .select(["territory_id"])
       .where("faction_id", "=", factionId)
-      .execute()) as any[];
+      .execute();
 
     const currentTerritoryCount = ownedTerritories?.length || 0;
 
     // Get all territories
-    const allTerritories = (await db
+    const allTerritories: TerritoryBlueprintRow[] = await db
       .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
       .select(["id"])
-      .execute()) as any[];
+      .execute();
 
     const allTerritoryIds = allTerritories.map((t) => t.id);
 

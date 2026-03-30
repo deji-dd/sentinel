@@ -15,6 +15,12 @@ import { getServerContext } from "../context.js";
 
 export const configRouter = Router();
 
+type GuildInfoSummary = {
+  name: string;
+  channels: Array<{ id: string; name: string }>;
+  roles: Array<{ id: string; name: string }>;
+};
+
 configRouter.get("/", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Missing session token" });
@@ -28,12 +34,10 @@ configRouter.get("/", async (req: Request, res: Response) => {
 
     const guildId = session.guild_id;
 
-    let guildInfo = {
+    let guildInfo: GuildInfoSummary = {
       name: "Unknown Guild",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      channels: [] as any[],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      roles: [] as any[],
+      channels: [],
+      roles: [],
     };
     try {
       const guild = await discordClient.guilds.fetch(guildId);
@@ -42,16 +46,24 @@ configRouter.get("/", async (req: Request, res: Response) => {
 
       guildInfo = {
         name: guild.name,
-        channels: Array.from(channels.values())
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((c: any) => c && c.isTextBased())
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((c: any) => ({ id: c.id, name: c.name })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        roles: Array.from(roles.values()).map((r: any) => ({
-          id: r.id,
-          name: r.name,
-        })),
+        channels: Array.from(channels.values()).flatMap((channel) => {
+          if (!channel || !channel.isTextBased()) {
+            return [];
+          }
+
+          const maybeNamedChannel = channel as { name?: unknown; id: string };
+          const name =
+            typeof maybeNamedChannel.name === "string"
+              ? maybeNamedChannel.name
+              : maybeNamedChannel.id;
+          return [{ id: channel.id, name }];
+        }),
+        roles: Array.from(roles.values()).flatMap((role) => {
+          if (!role) {
+            return [];
+          }
+          return [{ id: role.id, name: role.name }];
+        }),
       };
     } catch (err) {
       console.error(`[HTTP] Failed to fetch guild info for ${guildId}:`, err);
@@ -142,7 +154,7 @@ configRouter.get("/", async (req: Request, res: Response) => {
           ? JSON.parse(config.tt_faction_ids)
           : config.tt_faction_ids || [],
       api_keys: keysWithNames,
-      is_admin_guild: isAdminGuild
+      is_admin_guild: isAdminGuild,
     });
   } catch (error) {
     console.error("[HTTP] Error fetching config:", error);
@@ -300,7 +312,7 @@ configRouter.post("/", async (req: Request, res: Response) => {
             value: changes.join(", "),
             inline: false,
           },
-        ]
+        ],
       );
     }
 
@@ -336,14 +348,14 @@ configRouter.get("/reaction-roles", async (req: Request, res: Response) => {
         .selectAll()
         .where("message_id", "=", msg.message_id)
         .execute();
-      
+
       result.push({
         ...msg,
-        mappings: mappings.map(m => ({
+        mappings: mappings.map((m) => ({
           id: m.id,
           emoji: m.emoji,
-          role_id: m.role_id
-        }))
+          role_id: m.role_id,
+        })),
       });
     }
 
@@ -353,8 +365,6 @@ configRouter.get("/reaction-roles", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-
-
 
 configRouter.post("/reaction-roles", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -367,25 +377,35 @@ configRouter.post("/reaction-roles", async (req: Request, res: Response) => {
     if (!session || !session.guild_id)
       return res.status(401).json({ error: "Invalid or expired session" });
 
-    const { channel_id, title, description, required_role_id, sync_roles, mappings } = req.body;
+    const {
+      channel_id,
+      title,
+      description,
+      required_role_id,
+      sync_roles,
+      mappings,
+    } = req.body;
 
     if (!channel_id || !mappings || mappings.length === 0) {
       return res.status(400).json({ error: "Missing channel or mappings" });
     }
 
-    const channel = await discordClient.channels.fetch(channel_id).catch(() => null);
+    const channel = await discordClient.channels
+      .fetch(channel_id)
+      .catch(() => null);
     if (!channel || !channel.isTextBased()) {
       return res.status(400).json({ error: "Invalid or inaccessible channel" });
     }
 
-    let finalDescription = description || "React with the emojis below to assign yourself roles:";
+    let finalDescription =
+      description || "React with the emojis below to assign yourself roles:";
     finalDescription += "\n\n";
     for (const mapping of mappings) {
       finalDescription += `${mapping.emoji} → <@&${mapping.role_id}>\n`;
     }
 
     if (required_role_id) {
-       finalDescription += `\n*Note: You must have the <@&${required_role_id}> role to use these reactions.*`;
+      finalDescription += `\n*Note: You must have the <@&${required_role_id}> role to use these reactions.*`;
     }
 
     const embed = new EmbedBuilder()
@@ -413,7 +433,7 @@ configRouter.post("/reaction-roles", async (req: Request, res: Response) => {
         description: description || null,
         required_role_id: required_role_id || null,
         sync_roles: sync_roles ? 1 : 0,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -426,14 +446,14 @@ configRouter.post("/reaction-roles", async (req: Request, res: Response) => {
           message_id: postedMessage.id,
           emoji: mapping.emoji,
           role_id: mapping.role_id,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         })
         .execute();
     }
 
     await logGuildAction(session.guild_id, discordClient, {
       title: "Reaction Role Message Created",
-      description: `<@${session.discord_id}> created a new reaction role message in <#${channel_id}> via Web Dashboard.`
+      description: `<@${session.discord_id}> created a new reaction role message in <#${channel_id}> via Web Dashboard.`,
     });
 
     res.json({ ok: true, message: messageRecord });
@@ -443,221 +463,252 @@ configRouter.post("/reaction-roles", async (req: Request, res: Response) => {
   }
 });
 
-configRouter.patch("/reaction-roles/:id", async (req: Request, res: Response) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Missing session token" });
+configRouter.patch(
+  "/reaction-roles/:id",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
 
-  const { magicLinkService, discordClient } = getServerContext(req);
-  const { title, description, required_role_id, sync_roles, mappings } = req.body;
+    const { magicLinkService, discordClient } = getServerContext(req);
+    const { title, description, required_role_id, sync_roles, mappings } =
+      req.body;
 
-  try {
-    const session = await magicLinkService.validateSession(token, "config");
-    if (!session || !session.guild_id)
-      return res.status(401).json({ error: "Invalid or expired session" });
-
-    const msgId = Number.parseInt(req.params.id as string);
-
-    // 1. Fetch existing record to find Discord message
-    const existing = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .selectAll()
-      .where("id", "=", msgId)
-      .where("guild_id", "=", session.guild_id)
-      .executeTakeFirst();
-
-    if (!existing) return res.status(404).json({ error: "Message not found" });
-
-    // 2. Build new Discord Embed
-    let finalDescription = description || "";
-    if (!description && mappings?.length > 0) {
-      for (const mapping of mappings) {
-        finalDescription += `${mapping.emoji} → <@&${mapping.role_id}>\n`;
-      }
-    }
-    if (required_role_id) {
-       const roles = required_role_id.split(",");
-       finalDescription += `\n*Note: You must have at least one of these roles to use these reactions: ${roles.map((r: string) => `<@&${r}>`).join(", ")}*`;
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x8b5cf6)
-      .setTitle(title || "Reaction Roles")
-      .setDescription(finalDescription);
-
-    // 3. Update Discord message
     try {
-      const channel = await discordClient.channels.fetch(existing.channel_id);
-      if (channel && channel.isTextBased()) {
-         const discordMsg = await channel.messages.fetch(existing.message_id);
-         if (discordMsg) {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const msgId = Number.parseInt(req.params.id as string);
+
+      // 1. Fetch existing record to find Discord message
+      const existing = await db
+        .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+        .selectAll()
+        .where("id", "=", msgId)
+        .where("guild_id", "=", session.guild_id)
+        .executeTakeFirst();
+
+      if (!existing)
+        return res.status(404).json({ error: "Message not found" });
+
+      // 2. Build new Discord Embed
+      let finalDescription = description || "";
+      if (!description && mappings?.length > 0) {
+        for (const mapping of mappings) {
+          finalDescription += `${mapping.emoji} → <@&${mapping.role_id}>\n`;
+        }
+      }
+      if (required_role_id) {
+        const roles = required_role_id.split(",");
+        finalDescription += `\n*Note: You must have at least one of these roles to use these reactions: ${roles.map((r: string) => `<@&${r}>`).join(", ")}*`;
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x8b5cf6)
+        .setTitle(title || "Reaction Roles")
+        .setDescription(finalDescription);
+
+      // 3. Update Discord message
+      try {
+        const channel = await discordClient.channels.fetch(existing.channel_id);
+        if (channel && channel.isTextBased()) {
+          const discordMsg = await channel.messages.fetch(existing.message_id);
+          if (discordMsg) {
             await discordMsg.edit({ embeds: [embed] });
-            
+
             // If mappings changed, we update reactions. Safe approach: add new ones, ignore old.
             // For a truly clean experience, we'd clear and re-add if emojis changed.
             // Let's check if emojis changed.
-            const oldMappings = await db.selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS).select("emoji").where("message_id", "=", existing.message_id).execute();
-            const oldEmojis = oldMappings.map(m => m.emoji);
+            const oldMappings = await db
+              .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+              .select("emoji")
+              .where("message_id", "=", existing.message_id)
+              .execute();
+            const oldEmojis = oldMappings.map((m) => m.emoji);
             const newEmojis = mappings.map((m: { emoji: string }) => m.emoji);
-            
-            const emojisChanged = JSON.stringify(oldEmojis.sort()) !== JSON.stringify(newEmojis.sort());
-            
+
+            const emojisChanged =
+              JSON.stringify(oldEmojis.sort()) !==
+              JSON.stringify(newEmojis.sort());
+
             if (emojisChanged) {
-               // Too risky to remove all if people have already reacted. 
-               // We'll just ensure all NEW ones are there. 
-               for (const emoji of newEmojis) {
-                  if (!oldEmojis.includes(emoji)) {
-                     try { await discordMsg.react(emoji); } catch (e) {
-                        console.warn(`Failed to react with ${emoji} while updating:`, e);
-                     }
+              // Too risky to remove all if people have already reacted.
+              // We'll just ensure all NEW ones are there.
+              for (const emoji of newEmojis) {
+                if (!oldEmojis.includes(emoji)) {
+                  try {
+                    await discordMsg.react(emoji);
+                  } catch (e) {
+                    console.warn(
+                      `Failed to react with ${emoji} while updating:`,
+                      e,
+                    );
                   }
-               }
+                }
+              }
             }
-         }
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to update discord message embed:", e);
       }
-    } catch (e) {
-      console.warn("Failed to update discord message embed:", e);
-    }
 
-    // 4. Update DB
-    await db
-      .updateTable(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .set({
-        title: title || "Reaction Roles",
-        description: description || null,
-        required_role_id: required_role_id || null,
-        sync_roles: sync_roles ? 1 : 0,
-        updated_at: new Date().toISOString()
-      })
-      .where("id", "=", msgId)
-      .execute();
-
-    // 5. Update Mappings (delete and reinstall)
-    await db.deleteFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS).where("message_id", "=", existing.message_id).execute();
-    
-    for (const mapping of mappings) {
+      // 4. Update DB
       await db
-        .insertInto(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-        .values({
-          id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
-          message_id: existing.message_id,
-          emoji: mapping.emoji,
-          role_id: mapping.role_id,
-          created_at: new Date().toISOString()
+        .updateTable(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+        .set({
+          title: title || "Reaction Roles",
+          description: description || null,
+          required_role_id: required_role_id || null,
+          sync_roles: sync_roles ? 1 : 0,
+          updated_at: new Date().toISOString(),
         })
+        .where("id", "=", msgId)
         .execute();
-    }
 
-    await logGuildAction(session.guild_id, discordClient, {
-      title: "Reaction Role Message Updated",
-      description: `<@${session.discord_id}> updated a reaction role message in <#${existing.channel_id}> via Web Dashboard.`
-    });
+      // 5. Update Mappings (delete and reinstall)
+      await db
+        .deleteFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+        .where("message_id", "=", existing.message_id)
+        .execute();
 
-    res.json({ ok: true });
-  } catch (error) {
-    console.error("[HTTP] Catch-all error updating reaction role message:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-configRouter.delete("/reaction-roles/:id", async (req: Request, res: Response) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Missing session token" });
-
-  const { magicLinkService, discordClient } = getServerContext(req);
-
-  try {
-    const session = await magicLinkService.validateSession(token, "config");
-    if (!session || !session.guild_id)
-      return res.status(401).json({ error: "Invalid or expired session" });
-
-    const msgId = Number.parseInt(req.params.id as string);
-
-    const messageRecord = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .selectAll()
-      .where("id", "=", msgId)
-      .where("guild_id", "=", session.guild_id)
-      .executeTakeFirst();
-
-    if (!messageRecord) {
-      return res.status(404).json({ error: "Message not found" });
-    }
-
-    // Attempt to delete Discord message
-    try {
-      const channel = await discordClient.channels.fetch(messageRecord.channel_id);
-      if (channel && channel.isTextBased()) {
-         const discordMsg = await channel.messages.fetch(messageRecord.message_id);
-         if (discordMsg) await discordMsg.delete();
+      for (const mapping of mappings) {
+        await db
+          .insertInto(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+          .values({
+            id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+            message_id: existing.message_id,
+            emoji: mapping.emoji,
+            role_id: mapping.role_id,
+            created_at: new Date().toISOString(),
+          })
+          .execute();
       }
-    } catch (e) {
-      console.warn("Failed to delete reaction role discord message:", e);
-    }
 
-    await db
-      .deleteFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .where("id", "=", msgId)
-      .execute();
-      
-    // mappings will cascaded or cleaned up, but explicitly deleting them is safer
-    await db
-      .deleteFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .where("message_id", "=", messageRecord.message_id)
-      .execute();
-
-    await logGuildAction(session.guild_id, discordClient, {
-      title: "Reaction Role Message Deleted",
-      description: `<@${session.discord_id}> deleted a reaction role message via Web Dashboard.`,
-      color: 0xef4444
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error("[HTTP] Error deleting reaction role message:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-
-configRouter.get("/faction-lookup/:factionId", async (req: Request, res: Response) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Missing session token" });
-
-  const { magicLinkService } = getServerContext(req);
-
-  try {
-    const session = await magicLinkService.validateSession(token, "config");
-    if (!session || !session.guild_id)
-      return res.status(401).json({ error: "Invalid or expired session" });
-
-    const { factionId } = req.params;
-    const guildId = session.guild_id;
-
-    // Get primary API key for this guild to perform the lookup
-    const apiKey = await getPrimaryGuildApiKey(guildId);
-    if (!apiKey) {
-      return res.status(400).json({
-        error:
-          "No primary API key configured. Please set a primary API key in the Security tab first.",
+      await logGuildAction(session.guild_id, discordClient, {
+        title: "Reaction Role Message Updated",
+        description: `<@${session.discord_id}> updated a reaction role message in <#${existing.channel_id}> via Web Dashboard.`,
       });
-    }
 
-    const faction = await validateAndFetchFactionDetails(
-      Number.parseInt(factionId as string),
-      apiKey as string,
-    );
-    if (!faction) {
-      return res
-        .status(404)
-        .json({ error: "Faction not found or Torn API error" });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error(
+        "[HTTP] Catch-all error updating reaction role message:",
+        error,
+      );
+      res.status(500).json({ error: "Server error" });
     }
+  },
+);
 
-    res.json(faction);
-  } catch (error) {
-    console.error("[HTTP] Error looking up faction:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-});
+configRouter.delete(
+  "/reaction-roles/:id",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService, discordClient } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const msgId = Number.parseInt(req.params.id as string);
+
+      const messageRecord = await db
+        .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+        .selectAll()
+        .where("id", "=", msgId)
+        .where("guild_id", "=", session.guild_id)
+        .executeTakeFirst();
+
+      if (!messageRecord) {
+        return res.status(404).json({ error: "Message not found" });
+      }
+
+      // Attempt to delete Discord message
+      try {
+        const channel = await discordClient.channels.fetch(
+          messageRecord.channel_id,
+        );
+        if (channel && channel.isTextBased()) {
+          const discordMsg = await channel.messages.fetch(
+            messageRecord.message_id,
+          );
+          if (discordMsg) await discordMsg.delete();
+        }
+      } catch (e) {
+        console.warn("Failed to delete reaction role discord message:", e);
+      }
+
+      await db
+        .deleteFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
+        .where("id", "=", msgId)
+        .execute();
+
+      // mappings will cascaded or cleaned up, but explicitly deleting them is safer
+      await db
+        .deleteFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
+        .where("message_id", "=", messageRecord.message_id)
+        .execute();
+
+      await logGuildAction(session.guild_id, discordClient, {
+        title: "Reaction Role Message Deleted",
+        description: `<@${session.discord_id}> deleted a reaction role message via Web Dashboard.`,
+        color: 0xef4444,
+      });
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[HTTP] Error deleting reaction role message:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+configRouter.get(
+  "/faction-lookup/:factionId",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const { factionId } = req.params;
+      const guildId = session.guild_id;
+
+      // Get primary API key for this guild to perform the lookup
+      const apiKey = await getPrimaryGuildApiKey(guildId);
+      if (!apiKey) {
+        return res.status(400).json({
+          error:
+            "No primary API key configured. Please set a primary API key in the Security tab first.",
+        });
+      }
+
+      const faction = await validateAndFetchFactionDetails(
+        Number.parseInt(factionId as string),
+        apiKey as string,
+      );
+      if (!faction) {
+        return res
+          .status(404)
+          .json({ error: "Faction not found or Torn API error" });
+      }
+
+      res.json(faction);
+    } catch (error) {
+      console.error("[HTTP] Error looking up faction:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
 
 configRouter.get("/faction-roles", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -818,10 +869,10 @@ configRouter.post("/api-keys", async (req: Request, res: Response) => {
     let keyInfo;
     try {
       keyInfo = await validateTornApiKey(api_key);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       return res.status(400).json({
-        error: `API Key Validation Failed: ${err.message}`,
+        error: `API Key Validation Failed: ${message}`,
       });
     }
 

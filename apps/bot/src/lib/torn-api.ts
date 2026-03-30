@@ -10,6 +10,9 @@ type UserProfileResponse = TornApiComponents["schemas"]["UserProfileResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"];
 
 type TornItemsResponse = TornApiComponents["schemas"]["TornItemsResponse"];
+type PointsMarketResponse = {
+  pointsmarket?: Record<string, { cost?: number }>;
+};
 
 /**
  * Fetch Torn user profile data (name, faction)
@@ -42,8 +45,7 @@ export async function fetchTornProfileData(
  */
 export async function fetchPointPrice(apiKey: string): Promise<number> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = await tornApi.get<any>(`/market`, {
+    const response = await tornApi.get<PointsMarketResponse>(`/market`, {
       apiKey,
       queryParams: {
         selections: ["pointsmarket"],
@@ -53,8 +55,7 @@ export async function fetchPointPrice(apiKey: string): Promise<number> {
     // Points market response is an object with unique IDs as keys
     const entries = Object.values(response.pointsmarket || {});
     if (entries.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (entries[0] as any).cost || 0;
+      return entries[0]?.cost || 0;
     }
     return 0;
   } catch (error) {

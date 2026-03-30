@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 
 const TASK_NAME = "db_backup";
+let backupInFlight = false;
 
 /**
  * Get the next scheduled run time (04:00 UTC)
@@ -43,6 +44,11 @@ function getTimeUntilNextRun(): number {
  * Perform the database backup and send to admin DM
  */
 export async function performBackup(client: Client): Promise<void> {
+  if (backupInFlight) {
+    return;
+  }
+
+  backupInFlight = true;
   const startTime = Date.now();
   const tempDir = path.join(process.cwd(), "tmp");
 
@@ -84,9 +90,7 @@ export async function performBackup(client: Client): Promise<void> {
     const embed = new EmbedBuilder()
       .setColor(0x10b981)
       .setTitle("Daily Database Backup")
-      .setDescription(
-        "Total database state snapshot captured and verified."
-      )
+      .setDescription("Total database state snapshot captured and verified.")
       .setFields({
         name: "Time",
         value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
@@ -125,6 +129,8 @@ export async function performBackup(client: Client): Promise<void> {
         // Ignore cleanup errors
       }
     }
+  } finally {
+    backupInFlight = false;
   }
 }
 

@@ -34,11 +34,6 @@ import {
 const app = express();
 app.set("trust proxy", 1);
 
-// Health check - BEFORE any middleware to diagnose hangs
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
 app.use(
   helmet({
     contentSecurityPolicy: false,

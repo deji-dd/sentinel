@@ -48,6 +48,7 @@ function buildEndedEmbed(territoryId: string): EmbedBuilder {
 export class WarTrackerScheduler {
   private client: Client;
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private isPolling = false;
 
   constructor(client: Client) {
     this.client = client;
@@ -77,84 +78,95 @@ export class WarTrackerScheduler {
   }
 
   private async pollAndUpdate(): Promise<void> {
-    const trackers = (await db
-      .selectFrom(TABLE_NAMES.WAR_TRACKERS)
-      .select([
-        "guild_id",
-        "war_id",
-        "territory_id",
-        "channel_id",
-        "message_id",
-        "enemy_side",
-        "min_away_minutes",
-      ])
-      .where("channel_id", "is not", null)
-      .execute()) as WarTrackerRow[];
-
-    if (trackers.length === 0) {
+    if (this.isPolling) {
       return;
     }
 
-    const trackersByGuild = new Map<string, WarTrackerRow[]>();
-    for (const tracker of trackers as WarTrackerRow[]) {
-      if (!trackersByGuild.has(tracker.guild_id)) {
-        trackersByGuild.set(tracker.guild_id, []);
+    this.isPolling = true;
+    try {
+      const trackers = (await db
+        .selectFrom(TABLE_NAMES.WAR_TRACKERS)
+        .select([
+          "guild_id",
+          "war_id",
+          "territory_id",
+          "channel_id",
+          "message_id",
+          "enemy_side",
+          "min_away_minutes",
+        ])
+        .where("channel_id", "is not", null)
+        .execute()) as WarTrackerRow[];
+
+      if (trackers.length === 0) {
+        return;
       }
-      trackersByGuild.get(tracker.guild_id)!.push(tracker);
-    }
 
-    for (const [guildId, guildTrackers] of trackersByGuild.entries()) {
-      const apiKey = await getActiveApiKey(guildId);
-      if (!apiKey) {
-        continue;
+      const trackersByGuild = new Map<string, WarTrackerRow[]>();
+      for (const tracker of trackers as WarTrackerRow[]) {
+        if (!trackersByGuild.has(tracker.guild_id)) {
+          trackersByGuild.set(tracker.guild_id, []);
+        }
+        trackersByGuild.get(tracker.guild_id)!.push(tracker);
       }
 
-      const warMap = await fetchActiveTerritoryWars(apiKey);
-
-      for (const tracker of guildTrackers) {
-        const war = warMap.get(tracker.war_id);
-        if (!war) {
-          await this.handleWarEnded(tracker);
+      for (const [guildId, guildTrackers] of trackersByGuild.entries()) {
+        const apiKey = await getActiveApiKey(guildId);
+        if (!apiKey) {
           continue;
         }
 
-        const assaultingName =
-          (await getFactionNameCached(
+        const warMap = await fetchActiveTerritoryWars(apiKey);
+
+        for (const tracker of guildTrackers) {
+          const war = warMap.get(tracker.war_id);
+          if (!war) {
+            await this.handleWarEnded(tracker);
+            continue;
+          }
+
+          const assaultingName =
+            (await getFactionNameCached(
+              war.assaulting_faction,
+              tornApi,
+              apiKey,
+            )) || `Faction ${war.assaulting_faction}`;
+          const defendingName =
+            (await getFactionNameCached(
+              war.defending_faction,
+              tornApi,
+              apiKey,
+            )) || `Faction ${war.defending_faction}`;
+
+          const enemyFactionId =
+            tracker.enemy_side === "assaulting"
+              ? war.assaulting_faction
+              : war.defending_faction;
+          const enemyIds =
+            tracker.enemy_side === "assaulting"
+              ? war.assaulters
+              : war.defenders;
+
+          const enemyUsers = await resolveEnemyUsers(
+            apiKey,
+            enemyFactionId,
+            enemyIds,
+            tracker.min_away_minutes,
+          );
+
+          await this.updateTrackerMessage(
+            tracker,
+            war,
+            assaultingName,
+            defendingName,
             war.assaulting_faction,
-            tornApi,
-            apiKey,
-          )) || `Faction ${war.assaulting_faction}`;
-        const defendingName =
-          (await getFactionNameCached(
             war.defending_faction,
-            tornApi,
-            apiKey,
-          )) || `Faction ${war.defending_faction}`;
-
-        const enemyFactionId =
-          tracker.enemy_side === "assaulting"
-            ? war.assaulting_faction
-            : war.defending_faction;
-        const enemyIds =
-          tracker.enemy_side === "assaulting" ? war.assaulters : war.defenders;
-
-        const enemyUsers = await resolveEnemyUsers(
-          apiKey,
-          enemyFactionId,
-          enemyIds,
-          tracker.min_away_minutes,
-        );
-
-        await this.updateTrackerMessage(
-          tracker,
-          war,
-          assaultingName,
-          defendingName,
-          war.assaulting_faction,
-          war.defending_faction,
-          enemyUsers,
-        );
+            enemyUsers,
+          );
+        }
       }
+    } finally {
+      this.isPolling = false;
     }
   }
 
