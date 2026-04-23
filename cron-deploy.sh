@@ -46,6 +46,15 @@ git pull --ff-only origin "${BRANCH}" || { echo "ERROR: git pull failed"; exit 1
 echo "Installing dependencies..."
 pnpm install --frozen-lockfile --child-concurrency 1
 
+# Check if bot or worker folders have changes; skip build if neither changed
+if ! git diff origin/${BRANCH} --quiet -- apps/bot apps/worker; then
+  echo "Changes detected in bot/worker; proceeding with build..."
+else
+  echo "No changes in bot or worker folders; skipping build."
+  echo "Deploy complete."
+  exit 0
+fi
+
 echo "Building worker and bot..."
 pnpm --filter shared build || { echo "ERROR: shared build failed or timed out"; exit 1; }
 pnpm --filter worker build || { echo "ERROR: worker build failed or timed out"; exit 1; }
