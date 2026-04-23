@@ -393,8 +393,10 @@ export interface SentinelReactionRoleMessages {
   description: string | null;
   guild_id: string;
   id: number;
+  message_id: string;
   required_role_id: string | null;
   sync_roles: Generated<number | null>;
+  title: string;
   updated_at: Generated<string | null>;
 }
 
