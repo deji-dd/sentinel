@@ -28,6 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { fetchWithFallback } from "@/lib/api-base";
 import {
   Briefcase,
   ShieldAlert,
@@ -149,8 +150,6 @@ export const MercenaryConfig = forwardRef(
     );
     const [draft, setDraft] = useState<ContractDraft>(EMPTY_CONTRACT);
 
-    const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-
     const availableChannels = useMemo(
       () => initialData?.channels || initialData?.available_channels || [],
       [initialData],
@@ -168,7 +167,7 @@ export const MercenaryConfig = forwardRef(
     const loadData = async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const response = await fetch(`${API_BASE}/api/config/mercenary`, {
+        const response = await fetchWithFallback("/api/config/mercenary", {
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
         if (!response.ok) throw new Error("Failed to load mercenary config");
@@ -195,8 +194,8 @@ export const MercenaryConfig = forwardRef(
 
       setSavingSettings(true);
       try {
-        const response = await fetch(
-          `${API_BASE}/api/config/mercenary/settings`,
+        const response = await fetchWithFallback(
+          "/api/config/mercenary/settings",
           {
             method: "POST",
             headers: {
@@ -283,11 +282,11 @@ export const MercenaryConfig = forwardRef(
         };
 
         const endpoint = editingContractId
-          ? `${API_BASE}/api/config/mercenary/contracts/${editingContractId}`
-          : `${API_BASE}/api/config/mercenary/contracts`;
+          ? `/api/config/mercenary/contracts/${editingContractId}`
+          : "/api/config/mercenary/contracts";
         const method = editingContractId ? "PATCH" : "POST";
 
-        const response = await fetch(endpoint, {
+        const response = await fetchWithFallback(endpoint, {
           method,
           headers: {
             "Content-Type": "application/json",
@@ -349,8 +348,8 @@ export const MercenaryConfig = forwardRef(
       status: ContractStatus,
     ) => {
       try {
-        const response = await fetch(
-          `${API_BASE}/api/config/mercenary/contracts/${contractId}`,
+        const response = await fetchWithFallback(
+          `/api/config/mercenary/contracts/${contractId}`,
           {
             method: "PATCH",
             headers: {

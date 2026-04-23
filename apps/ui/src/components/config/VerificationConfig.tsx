@@ -1,4 +1,11 @@
-import { useState, useEffect, forwardRef, useImperativeHandle, useMemo, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useCallback,
+} from "react";
 import { LoadingScreen, TacticalLoader } from "@/components/loading-screen";
 import {
   Card,
@@ -39,6 +46,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { fetchWithFallback } from "@/lib/api-base";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,11 +100,23 @@ export const VerificationConfig = forwardRef(
     const [factionRoles, setFactionRoles] = useState<FactionRole[]>([]);
 
     // Settings State
-    const [autoVerify, setAutoVerify] = useState(initialData?.auto_verify === 1);
-    const [nicknameTemplate, setNicknameTemplate] = useState(initialData?.nickname_template || "{name}#{id}");
-    const [verifiedRoleId, setVerifiedRoleId] = useState(initialData?.verified_role_id || "");
-    const [verifiedRoleIds, setVerifiedRoleIds] = useState<string[]>(Array.isArray(initialData?.verified_role_ids) ? initialData.verified_role_ids : []);
-    const [factionListChannelId, setFactionListChannelId] = useState(initialData?.faction_list_channel_id || "");
+    const [autoVerify, setAutoVerify] = useState(
+      initialData?.auto_verify === 1,
+    );
+    const [nicknameTemplate, setNicknameTemplate] = useState(
+      initialData?.nickname_template || "{name}#{id}",
+    );
+    const [verifiedRoleId, setVerifiedRoleId] = useState(
+      initialData?.verified_role_id || "",
+    );
+    const [verifiedRoleIds, setVerifiedRoleIds] = useState<string[]>(
+      Array.isArray(initialData?.verified_role_ids)
+        ? initialData.verified_role_ids
+        : [],
+    );
+    const [factionListChannelId, setFactionListChannelId] = useState(
+      initialData?.faction_list_channel_id || "",
+    );
 
     // Faction Role Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -115,8 +135,7 @@ export const VerificationConfig = forwardRef(
     const fetchConfig = async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/config`, {
+        const res = await fetchWithFallback("/api/config", {
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
         if (!res.ok) throw new Error("Failed to fetch config");
@@ -140,8 +159,7 @@ export const VerificationConfig = forwardRef(
 
     const fetchFactionRoles = useCallback(async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/config/faction-roles`, {
+        const res = await fetchWithFallback("/api/config/faction-roles", {
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
         if (!res.ok) throw new Error("Failed to fetch faction roles");
@@ -163,19 +181,23 @@ export const VerificationConfig = forwardRef(
 
     // Derived data memoization
     const availableRoles = useMemo(() => config?.roles || [], [config?.roles]);
-    const availableChannels = useMemo(() => config?.channels || [], [config?.channels]);
+    const availableChannels = useMemo(
+      () => config?.channels || [],
+      [config?.channels],
+    );
 
     const filteredRoles = useMemo(() => {
       const search = roleSearch.toLowerCase();
       if (!search) return availableRoles;
-      return availableRoles.filter((r: GuildItem) =>
-        r.name.toLowerCase().includes(search) || r.id.includes(search)
+      return availableRoles.filter(
+        (r: GuildItem) =>
+          r.name.toLowerCase().includes(search) || r.id.includes(search),
       );
     }, [availableRoles, roleSearch]);
 
     const sortedFactionRoles = useMemo(() => {
       return [...factionRoles].sort((a, b) =>
-        (a.faction_name || "").localeCompare(b.faction_name || "")
+        (a.faction_name || "").localeCompare(b.faction_name || ""),
       );
     }, [factionRoles]);
 
@@ -198,10 +220,8 @@ export const VerificationConfig = forwardRef(
 
       setIsFetchingFaction(true);
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(
-          `${API_BASE}/api/config/faction-lookup/${factionId}`,
+        const res = await fetchWithFallback(
+          `/api/config/faction-lookup/${factionId}`,
           {
             headers: { Authorization: `Bearer ${sessionToken}` },
           },
@@ -238,7 +258,9 @@ export const VerificationConfig = forwardRef(
           (verifiedRoleId === "none" ? "" : verifiedRoleId) !==
           (config.verified_role_id || "");
 
-        const isVerifiedRolesChanged = JSON.stringify([...verifiedRoleIds].sort()) !== JSON.stringify([...(config.verified_role_ids || [])].sort());
+        const isVerifiedRolesChanged =
+          JSON.stringify([...verifiedRoleIds].sort()) !==
+          JSON.stringify([...(config.verified_role_ids || [])].sort());
 
         const isFactionChannelChanged =
           (factionListChannelId === "none" ? "" : factionListChannelId) !==
@@ -246,10 +268,10 @@ export const VerificationConfig = forwardRef(
 
         onDirtyChange?.(
           isAutoVerifyChanged ||
-          isNicknameChanged ||
-          isVerifiedRoleChanged ||
-          isVerifiedRolesChanged ||
-          isFactionChannelChanged,
+            isNicknameChanged ||
+            isVerifiedRoleChanged ||
+            isVerifiedRolesChanged ||
+            isFactionChannelChanged,
         );
       };
 
@@ -267,9 +289,7 @@ export const VerificationConfig = forwardRef(
 
     const handleSaveSettings = async () => {
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/config`, {
+        const res = await fetchWithFallback("/api/config", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -327,9 +347,7 @@ export const VerificationConfig = forwardRef(
       }
 
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/config/faction-roles`, {
+        const res = await fetchWithFallback("/api/config/faction-roles", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -358,9 +376,7 @@ export const VerificationConfig = forwardRef(
 
     const handleDeleteFactionRole = async (id: string) => {
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/config/faction-roles/${id}`, {
+        const res = await fetchWithFallback(`/api/config/faction-roles/${id}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
@@ -428,10 +444,7 @@ export const VerificationConfig = forwardRef(
                     Process members on join
                   </p>
                 </div>
-                <Switch
-                  checked={autoVerify}
-                  onCheckedChange={setAutoVerify}
-                />
+                <Switch checked={autoVerify} onCheckedChange={setAutoVerify} />
               </div>
 
               <div className="space-y-2">
@@ -458,7 +471,10 @@ export const VerificationConfig = forwardRef(
                     General Verified Roles
                   </Label>
                   {verifiedRoleIds.length > 0 && (
-                    <Badge variant="secondary" className="h-5 text-[9px] bg-primary/10 text-primary border-primary/20 font-black uppercase tracking-widest px-2 animate-in fade-in zoom-in duration-300">
+                    <Badge
+                      variant="secondary"
+                      className="h-5 text-[9px] bg-primary/10 text-primary border-primary/20 font-black uppercase tracking-widest px-2 animate-in fade-in zoom-in duration-300"
+                    >
                       Active: {verifiedRoleIds.length} Roles
                     </Badge>
                   )}
@@ -475,15 +491,27 @@ export const VerificationConfig = forwardRef(
                         <span className="truncate font-bold text-sm">
                           {verifiedRoleIds.length === 0
                             ? "Select Verified Roles"
-                            : verifiedRoleIds.map(id => availableRoles.find((r: GuildItem) => r.id === id)?.name).filter(Boolean).join(", ")
-                          }
+                            : verifiedRoleIds
+                                .map(
+                                  (id) =>
+                                    availableRoles.find(
+                                      (r: GuildItem) => r.id === id,
+                                    )?.name,
+                                )
+                                .filter(Boolean)
+                                .join(", ")}
                         </span>
                       </div>
                       <ChevronDown className="w-4 h-4 opacity-50" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-(--radix-dropdown-menu-trigger-width) max-h-[300px] overflow-y-auto custom-scrollbar p-2" align="start">
-                    <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest opacity-50 px-2 py-1.5">Available Roles</DropdownMenuLabel>
+                  <DropdownMenuContent
+                    className="w-(--radix-dropdown-menu-trigger-width) max-h-75 overflow-y-auto custom-scrollbar p-2"
+                    align="start"
+                  >
+                    <DropdownMenuLabel className="text-[10px] font-black uppercase tracking-widest opacity-50 px-2 py-1.5">
+                      Available Roles
+                    </DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuCheckboxItem
                       checked={verifiedRoleIds.length === 0}
@@ -495,31 +523,38 @@ export const VerificationConfig = forwardRef(
                       None (Clear All)
                     </DropdownMenuCheckboxItem>
                     <DropdownMenuSeparator />
-                    {availableRoles.filter((r: GuildItem) => r.id !== "none").map((r: GuildItem) => (
-                      <DropdownMenuCheckboxItem
-                        key={r.id}
-                        checked={verifiedRoleIds.includes(r.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setVerifiedRoleIds([...verifiedRoleIds, r.id]);
-                          } else {
-                            setVerifiedRoleIds(verifiedRoleIds.filter(id => id !== r.id));
-                          }
-                        }}
-                        className="rounded-lg font-bold py-2 focus:bg-primary/10 focus:text-primary transition-colors cursor-pointer"
-                      >
-                        {r.name}
-                      </DropdownMenuCheckboxItem>
-                    ))}
+                    {availableRoles
+                      .filter((r: GuildItem) => r.id !== "none")
+                      .map((r: GuildItem) => (
+                        <DropdownMenuCheckboxItem
+                          key={r.id}
+                          checked={verifiedRoleIds.includes(r.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setVerifiedRoleIds([...verifiedRoleIds, r.id]);
+                            } else {
+                              setVerifiedRoleIds(
+                                verifiedRoleIds.filter((id) => id !== r.id),
+                              );
+                            }
+                          }}
+                          className="rounded-lg font-bold py-2 focus:bg-primary/10 focus:text-primary transition-colors cursor-pointer"
+                        >
+                          {r.name}
+                        </DropdownMenuCheckboxItem>
+                      ))}
                     {availableRoles.length === 0 && (
-                      <div className="py-6 text-center text-xs text-muted-foreground italic">No roles available</div>
+                      <div className="py-6 text-center text-xs text-muted-foreground italic">
+                        No roles available
+                      </div>
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
 
                 <p className="text-[10px] text-muted-foreground">
                   These roles are granted to all successfully verified users
-                  regardless of faction. Select multiple to support multiple roles.
+                  regardless of faction. Select multiple to support multiple
+                  roles.
                 </p>
               </div>
               <div className="space-y-2">
@@ -527,7 +562,6 @@ export const VerificationConfig = forwardRef(
                   <Label className="text-[10px] uppercase tracking-wider font-black text-muted-foreground">
                     Faction List Channel
                   </Label>
-
                 </div>
 
                 <Select
@@ -540,11 +574,21 @@ export const VerificationConfig = forwardRef(
                       <SelectValue placeholder="Select Channel" />
                     </div>
                   </SelectTrigger>
-                  <SelectContent className="max-h-[300px] overflow-y-auto custom-scrollbar p-2">
-                    <SelectItem value="none" className="italic font-bold text-muted-foreground rounded-lg">None (Disabled)</SelectItem>
+                  <SelectContent className="max-h-75 overflow-y-auto custom-scrollbar p-2">
+                    <SelectItem
+                      value="none"
+                      className="italic font-bold text-muted-foreground rounded-lg"
+                    >
+                      None (Disabled)
+                    </SelectItem>
                     {availableChannels.map((c: GuildItem) => (
-                      <SelectItem key={c.id} value={c.id} className="font-bold rounded-lg focus:bg-primary/10 focus:text-primary transition-colors cursor-pointer">
-                        <span className="opacity-40 mr-1">#</span>{c.name}
+                      <SelectItem
+                        key={c.id}
+                        value={c.id}
+                        className="font-bold rounded-lg focus:bg-primary/10 focus:text-primary transition-colors cursor-pointer"
+                      >
+                        <span className="opacity-40 mr-1">#</span>
+                        {c.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -576,15 +620,12 @@ export const VerificationConfig = forwardRef(
                   member/leader distinction.
                 </CardDescription>
               </div>
-              <Button
-                onClick={() => handleOpenModal()}
-                size="sm"
-              >
+              <Button onClick={() => handleOpenModal()} size="sm">
                 <Plus /> Add
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="max-h-150 overflow-y-auto pr-2 custom-scrollbar">
                 <div className="grid grid-cols-1 gap-3 pt-2 pb-2">
                   {sortedFactionRoles.map((fr) => (
                     <div
@@ -738,21 +779,19 @@ export const VerificationConfig = forwardRef(
                       />
                       <Button
                         onClick={handleFetchFaction}
-                        disabled={isFetchingFaction || !modalFactionId || !!editingRole}
+                        disabled={
+                          isFetchingFaction || !modalFactionId || !!editingRole
+                        }
                         className={cn(
                           "h-11 px-6 rounded-xl font-black uppercase tracking-tight transition-all",
                           isFactionValidated && !editingRole
                             ? "bg-emerald-500 hover:bg-emerald-600 text-white"
                             : "bg-primary hover:bg-primary/90",
-                          editingRole && "hidden"
+                          editingRole && "hidden",
                         )}
                       >
                         {isFetchingFaction ? (
-                          <TacticalLoader
-                            size="18"
-                            stroke="3"
-                            color="white"
-                          />
+                          <TacticalLoader size="18" stroke="3" color="white" />
                         ) : isFactionValidated ? (
                           <Users className="w-4 h-4" />
                         ) : (
@@ -761,11 +800,19 @@ export const VerificationConfig = forwardRef(
                       </Button>
                     </div>
                     <p className="text-[9px] text-muted-foreground italic ml-1">
-                      {isFactionValidated ? "Faction identity confirmed." : "Initial verification required."}
+                      {isFactionValidated
+                        ? "Faction identity confirmed."
+                        : "Initial verification required."}
                     </p>
                   </div>
 
-                  <div className={cn("space-y-6 transition-all duration-300", !isFactionValidated && "opacity-40 pointer-events-none grayscale")}>
+                  <div
+                    className={cn(
+                      "space-y-6 transition-all duration-300",
+                      !isFactionValidated &&
+                        "opacity-40 pointer-events-none grayscale",
+                    )}
+                  >
                     <div className="space-y-2">
                       <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-widest ml-1">
                         Faction Name
@@ -787,8 +834,12 @@ export const VerificationConfig = forwardRef(
                     <div className="pt-4">
                       <div className="flex items-center justify-between p-4 rounded-2xl bg-background border border-border/50 shadow-sm">
                         <div className="space-y-0.5">
-                          <Label className="text-xs font-black uppercase tracking-tight">Active State</Label>
-                          <p className="text-[10px] text-muted-foreground leading-none">Enable automated sync</p>
+                          <Label className="text-xs font-black uppercase tracking-tight">
+                            Active State
+                          </Label>
+                          <p className="text-[10px] text-muted-foreground leading-none">
+                            Enable automated sync
+                          </p>
                         </div>
                         <Switch
                           checked={modalEnabled}
@@ -802,13 +853,21 @@ export const VerificationConfig = forwardRef(
                 <div className="p-4 rounded-2xl border border-dashed border-border/50 bg-secondary/5 space-y-2">
                   <div className="flex items-center gap-2 text-primary opacity-50">
                     <Shield className="w-3.5 h-3.5" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Selected Roles</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest">
+                      Selected Roles
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    <Badge variant="outline" className="text-[9px] bg-emerald-500/5 text-emerald-600 border-emerald-500/20 font-bold">
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] bg-emerald-500/5 text-emerald-600 border-emerald-500/20 font-bold"
+                    >
                       {modalMemberRoles.length} MEMBERS
                     </Badge>
-                    <Badge variant="outline" className="text-[9px] bg-amber-500/5 text-amber-600 border-amber-500/20 font-bold">
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] bg-amber-500/5 text-amber-600 border-amber-500/20 font-bold"
+                    >
                       {modalLeaderRoles.length} LEADERS
                     </Badge>
                   </div>
@@ -816,7 +875,13 @@ export const VerificationConfig = forwardRef(
               </div>
 
               {/* Roles Panel */}
-              <div className={cn("flex flex-col h-[500px] transition-all duration-300", !isFactionValidated && "opacity-40 pointer-events-none grayscale")}>
+              <div
+                className={cn(
+                  "flex flex-col h-125 transition-all duration-300",
+                  !isFactionValidated &&
+                    "opacity-40 pointer-events-none grayscale",
+                )}
+              >
                 <div className="p-6 border-b border-border/50 bg-secondary/5 flex items-center justify-between gap-4">
                   <div className="flex-1 relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/30" />
@@ -836,21 +901,30 @@ export const VerificationConfig = forwardRef(
                       const isLeader = modalLeaderRoles.includes(r.id);
 
                       return (
-                        <div key={r.id} className={cn(
-                          "flex items-center justify-between p-3 rounded-xl border transition-all duration-200 group",
-                          isMember || isLeader
-                            ? "bg-primary/5 border-primary/20 shadow-sm"
-                            : "bg-background border-border/50 hover:border-border"
-                        )}>
+                        <div
+                          key={r.id}
+                          className={cn(
+                            "flex items-center justify-between p-3 rounded-xl border transition-all duration-200 group",
+                            isMember || isLeader
+                              ? "bg-primary/5 border-primary/20 shadow-sm"
+                              : "bg-background border-border/50 hover:border-border",
+                          )}
+                        >
                           <div className="flex flex-col">
-                            <span className={cn(
-                              "text-sm font-bold truncate max-w-[200px] transition-colors",
-                              isMember || isLeader ? "text-primary" : "text-foreground/70"
-                            )}>
+                            <span
+                              className={cn(
+                                "text-sm font-bold truncate max-w-50 transition-colors",
+                                isMember || isLeader
+                                  ? "text-primary"
+                                  : "text-foreground/70",
+                              )}
+                            >
                               {r.name}
                             </span>
                             <span className="text-[9px] font-mono text-muted-foreground opacity-50">
-                              {r.id === "none" ? "System Placeholder" : `RID: ${r.id.slice(0, 12)}...`}
+                              {r.id === "none"
+                                ? "System Placeholder"
+                                : `RID: ${r.id.slice(0, 12)}...`}
                             </span>
                           </div>
 
@@ -860,7 +934,9 @@ export const VerificationConfig = forwardRef(
                               variant={isMember ? "default" : "outline"}
                               className={cn(
                                 "h-8 text-[9px] font-black rounded-lg transition-all px-3",
-                                isMember ? "bg-emerald-500 hover:bg-emerald-600 border-transparent shadow-lg shadow-emerald-500/20" : "bg-background hover:bg-emerald-50/50"
+                                isMember
+                                  ? "bg-emerald-500 hover:bg-emerald-600 border-transparent shadow-lg shadow-emerald-500/20"
+                                  : "bg-background hover:bg-emerald-50/50",
                               )}
                               onClick={() => toggleModalRole(r.id, "member")}
                             >
@@ -871,7 +947,9 @@ export const VerificationConfig = forwardRef(
                               variant={isLeader ? "default" : "outline"}
                               className={cn(
                                 "h-8 text-[9px] font-black rounded-lg transition-all px-3",
-                                isLeader ? "bg-amber-500 hover:bg-amber-600 border-transparent shadow-lg shadow-amber-500/20" : "bg-background hover:bg-amber-50/50"
+                                isLeader
+                                  ? "bg-amber-500 hover:bg-amber-600 border-transparent shadow-lg shadow-amber-500/20"
+                                  : "bg-background hover:bg-amber-50/50",
                               )}
                               onClick={() => toggleModalRole(r.id, "leader")}
                             >
@@ -898,7 +976,6 @@ export const VerificationConfig = forwardRef(
                 onClick={handleSaveFactionRole}
                 size="lg"
                 disabled={!isFactionValidated}
-
               >
                 Execute Mapping
               </Button>
@@ -913,18 +990,14 @@ export const VerificationConfig = forwardRef(
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>
-                Erase Mapping?
-              </AlertDialogTitle>
+              <AlertDialogTitle>Erase Mapping?</AlertDialogTitle>
               <AlertDialogDescription>
                 This will permanently remove the faction-to-role association.
                 Automation for this faction will cease immediately.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>
-                Abort
-              </AlertDialogCancel>
+              <AlertDialogCancel>Abort</AlertDialogCancel>
               <AlertDialogAction
                 variant={"destructive"}
                 onClick={() =>

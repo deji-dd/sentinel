@@ -46,6 +46,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { fetchWithFallback } from "@/lib/api-base";
 
 interface MapRecord {
   id: string;
@@ -84,12 +85,10 @@ export function TerritoriesConfig({
   const [targetChannel, setTargetChannel] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-
   const fetchMaps = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/map/list`, {
+      const res = await fetchWithFallback(`/api/map/list`, {
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!res.ok) throw new Error("Failed to fetch maps");
@@ -101,7 +100,7 @@ export function TerritoriesConfig({
     } finally {
       setLoading(false);
     }
-  }, [sessionToken, API_BASE]);
+  }, [sessionToken]);
 
   useEffect(() => {
     fetchMaps();
@@ -111,7 +110,7 @@ export function TerritoriesConfig({
     if (!newName.trim()) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/map/create`, {
+      const res = await fetchWithFallback(`/api/map/create`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -135,7 +134,7 @@ export function TerritoriesConfig({
     if (!selectedMap || !newName.trim()) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/map/${selectedMap.id}`, {
+      const res = await fetchWithFallback(`/api/map/${selectedMap.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -158,7 +157,7 @@ export function TerritoriesConfig({
     if (!selectedMap) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/map/${selectedMap.id}`, {
+      const res = await fetchWithFallback(`/api/map/${selectedMap.id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
@@ -175,7 +174,7 @@ export function TerritoriesConfig({
 
   const handleDuplicate = async (map: MapRecord) => {
     try {
-      const res = await fetch(`${API_BASE}/api/map/${map.id}/duplicate`, {
+      const res = await fetchWithFallback(`/api/map/${map.id}/duplicate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -192,7 +191,7 @@ export function TerritoriesConfig({
   };
   const handleTogglePublic = async (map: MapRecord) => {
     try {
-      const res = await fetch(`${API_BASE}/api/map/${map.id}`, {
+      const res = await fetchWithFallback(`/api/map/${map.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -212,14 +211,17 @@ export function TerritoriesConfig({
     if (!selectedMap || !targetChannel) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/map/${selectedMap.id}/publish`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionToken}`,
+      const res = await fetchWithFallback(
+        `/api/map/${selectedMap.id}/publish`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionToken}`,
+          },
+          body: JSON.stringify({ channelId: targetChannel }),
         },
-        body: JSON.stringify({ channelId: targetChannel }),
-      });
+      );
       if (!res.ok) throw new Error("Failed to publish map");
       toast.success("Configuration published to Discord");
       setIsPublishOpen(false);

@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { fetchWithFallback } from "@/lib/api-base";
 
 interface BotGuild {
   id: string;
@@ -60,13 +61,11 @@ export const BotManagementConfig = forwardRef(
     const fetchGuildData = async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
         const [resGuilds, resUnconfigured] = await Promise.all([
-          fetch(`${API_BASE}/api/admin/guilds`, {
+          fetchWithFallback(`/api/admin/guilds`, {
             headers: { Authorization: `Bearer ${sessionToken}` },
           }),
-          fetch(`${API_BASE}/api/admin/unconfigured-guilds`, {
+          fetchWithFallback(`/api/admin/unconfigured-guilds`, {
             headers: { Authorization: `Bearer ${sessionToken}` },
           }),
         ]);
@@ -97,9 +96,7 @@ export const BotManagementConfig = forwardRef(
     const handleBackup = async () => {
       setTriggeringBackup(true);
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/admin/backups`, {
+        const res = await fetchWithFallback(`/api/admin/backups`, {
           method: "POST",
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
@@ -115,9 +112,7 @@ export const BotManagementConfig = forwardRef(
     const handleDeploy = async () => {
       setDeploying(true);
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/admin/deploy`, {
+        const res = await fetchWithFallback(`/api/admin/deploy`, {
           method: "POST",
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
@@ -133,9 +128,7 @@ export const BotManagementConfig = forwardRef(
     const handleTeardown = async () => {
       if (!teardownId) return;
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/admin/guilds/${teardownId}`, {
+        const res = await fetchWithFallback(`/api/admin/guilds/${teardownId}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
@@ -150,9 +143,7 @@ export const BotManagementConfig = forwardRef(
 
     const handleSetupGuild = async (guildId: string) => {
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(`${API_BASE}/api/admin/guilds`, {
+        const res = await fetchWithFallback(`/api/admin/guilds`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -181,10 +172,8 @@ export const BotManagementConfig = forwardRef(
           ? [...guild.enabled_modules, moduleId]
           : guild.enabled_modules.filter((m) => m !== moduleId);
 
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const res = await fetch(
-          `${API_BASE}/api/admin/guilds/${guildId}/modules`,
+        const res = await fetchWithFallback(
+          `/api/admin/guilds/${guildId}/modules`,
           {
             method: "PATCH",
             headers: {
