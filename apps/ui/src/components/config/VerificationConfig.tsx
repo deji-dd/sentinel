@@ -46,7 +46,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { fetchWithFallback } from "@/lib/api-base";
+import { fetchWithFallback, normalizeConfigPayload } from "@/lib/api-base";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -139,7 +139,7 @@ export const VerificationConfig = forwardRef(
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
         if (!res.ok) throw new Error("Failed to fetch config");
-        const configData = await res.json();
+        const configData = normalizeConfigPayload(await res.json());
         setConfig(configData);
 
         // Pre-fill state
