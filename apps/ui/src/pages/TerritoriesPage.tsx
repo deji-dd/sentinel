@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Map as MapIcon, ArrowLeft, Lock, LogOut } from "lucide-react";
 import { LoadingScreen } from "@/components/loading-screen";
 import { ModeToggle } from "@/components/mode-toggle";
 import { TerritoriesConfig } from "@/components/config/TerritoriesConfig";
+import { performMasterLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -15,12 +16,19 @@ export default function TerritoriesPage() {
   const [hasSession, setHasSession] = useState<boolean | null>(null);
   const [guildConfig, setGuildConfig] = useState<any>(null);
   const [isLoggedOut, setIsLoggedOut] = useState(false);
+  const tokenPersistHandled = useRef(false);
+  const authBootstrapStarted = useRef(false);
 
   const sessionToken = useMemo(() => {
     return (
       searchParams.get("session") || localStorage.getItem("sentinel_session")
     );
   }, [searchParams]);
+
+  const sessionParamValue = useMemo(
+    () => searchParams.get("session"),
+    [searchParams],
+  );
 
   useEffect(() => {
     if (!sessionToken) {
@@ -29,23 +37,62 @@ export default function TerritoriesPage() {
       return;
     }
 
+    // Establish that we have a session (may be validating)
     setHasSession(true);
 
-    if (searchParams.get("session")) {
+    // Phase 1: If session is in URL and not yet persisted, persist it
+    if (searchParams.get("session") && !tokenPersistHandled.current) {
+      tokenPersistHandled.current = true;
       localStorage.setItem("sentinel_session", sessionToken);
       // Ensure we navigate after updating localStorage to trigger re-renders if necessary
       // and clean the URL of the sensitive token.
       navigate("/territories", { replace: true });
+      return; // Return after Phase 1 since we're redirecting
+    }
+
+    // Phase 2: Bootstrap session validation
+    if (authBootstrapStarted.current) {
       return;
     }
+    authBootstrapStarted.current = true;
 
     const fetchData = async () => {
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const userRes = await fetch(`${API_BASE}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${sessionToken}` },
-        });
+        const configuredBase = import.meta.env.VITE_API_URL;
+        const apiBases = Array.from(
+          new Set(
+            [configuredBase, "http://127.0.0.1:3001", "http://localhost:3001"]
+              .filter((base): base is string => Boolean(base))
+              .map((base) => base.replace(/\/$/, "")),
+          ),
+        );
+
+        let userRes: Response | null = null;
+        let workingBase: string | null = null;
+        let lastError: unknown = null;
+
+        for (const base of apiBases) {
+          try {
+            const authRes = await fetch(`${base}/api/auth/me`, {
+              headers: { Authorization: `Bearer ${sessionToken}` },
+            });
+
+            userRes = authRes;
+            workingBase = base;
+            break;
+          } catch (error: any) {
+            lastError = error;
+            const isNetworkLike = error instanceof TypeError;
+            if (isNetworkLike) {
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        if (!userRes || !workingBase) {
+          throw lastError || new Error("Unable to reach auth endpoint");
+        }
 
         if (!userRes.ok) {
           localStorage.removeItem("sentinel_session");
@@ -56,7 +103,7 @@ export default function TerritoriesPage() {
         const userData = await userRes.json();
         setUser(userData);
 
-        const channelsRes = await fetch(`${API_BASE}/api/map/channels`, {
+        const channelsRes = await fetch(`${workingBase}/api/map/channels`, {
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
 
@@ -66,13 +113,15 @@ export default function TerritoriesPage() {
         }
       } catch (err) {
         console.error("Failed to fetch Map Vault data:", err);
+        localStorage.removeItem("sentinel_session");
+        setHasSession(false);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [sessionToken, navigate, searchParams]);
+  }, [sessionParamValue]); // Only depend on session param value to prevent re-runs from searchParams object reference changes
 
   if (loading) return <LoadingScreen />;
 
@@ -115,23 +164,12 @@ export default function TerritoriesPage() {
   }
 
   const handleSignOut = async () => {
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-      await fetch(`${API_BASE}/api/auth/sign-out`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      });
-    } catch (err) {
-      console.error("Sign out request failed:", err);
-    }
-
-    localStorage.removeItem("sentinel_session");
-    setIsLoggedOut(true);
-
-    // Attempt to close the tab
-    setTimeout(() => {
-      window.close();
-    }, 500);
+    await performMasterLogout({
+      sessionToken,
+      setLoggedOut: setIsLoggedOut,
+      closeWindow: true,
+      closeWindowDelayMs: 500,
+    });
   };
 
   if (isLoggedOut) {
