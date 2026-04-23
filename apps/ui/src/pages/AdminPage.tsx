@@ -52,7 +52,6 @@ export default function AdminPage() {
 
     // Early exit: no token found anywhere
     if (!tokenInParams && !savedToken) {
-      console.log("[AdminPage] No session found");
       setHasSession(false);
       setLoading(false);
       return;
@@ -64,7 +63,6 @@ export default function AdminPage() {
     // Phase 1: If session is in URL and not yet persisted, persist it and redirect
     if (tokenInParams && !tokenPersistHandled.current) {
       tokenPersistHandled.current = true;
-      console.log("[AdminPage] Token found in URL, persisting...");
       localStorage.setItem("sentinel_session", tokenInParams);
       setLoading(false); // Clear loading since we're redirecting
       navigate("/admin", { replace: true });
@@ -74,7 +72,6 @@ export default function AdminPage() {
     // Phase 2: Validate token still exists before Phase 3
     const tokenForAuth = tokenInParams || savedToken;
     if (!tokenForAuth) {
-      console.log("[AdminPage] Token lost during validation");
       setHasSession(false);
       setLoading(false);
       return;
@@ -103,11 +100,7 @@ export default function AdminPage() {
         ),
       );
 
-      console.log("[AdminPage] Starting validation with bases:", apiBases);
       if (!isMounted) {
-        console.log(
-          "[AdminPage] Component unmounted before validation started",
-        );
         return;
       }
 
@@ -119,7 +112,6 @@ export default function AdminPage() {
 
         for (const base of apiBases) {
           if (!isMounted) {
-            console.log("[AdminPage] Component unmounted during fetch loop");
             return;
           }
 
@@ -131,17 +123,12 @@ export default function AdminPage() {
           }, 10000);
           const fetchUrl = `${base}/api/auth/me`;
 
-          console.log(`[AdminPage] Fetching auth from: ${fetchUrl}`);
-
           try {
             userRes = await fetch(fetchUrl, {
               headers: { Authorization: `Bearer ${savedToken}` },
               signal: controller.signal,
             });
             clearTimeout(timeoutId);
-            console.log(
-              `[AdminPage] Fetch succeeded, status: ${userRes.status}`,
-            );
             break;
           } catch (error: any) {
             clearTimeout(timeoutId);
@@ -154,7 +141,6 @@ export default function AdminPage() {
             const isAbort = error?.name === "AbortError";
             const isNetworkLike = error instanceof TypeError;
             if (isAbort || isNetworkLike) {
-              console.log(`[AdminPage] Retrying next base...`);
               continue;
             }
 
@@ -174,10 +160,6 @@ export default function AdminPage() {
         }
 
         const userData = await userRes.json();
-        console.log(
-          "[AdminPage] User authenticated:",
-          userData.tag || userData.username,
-        );
         if (isMounted) {
           setUser(userData);
 
@@ -197,7 +179,6 @@ export default function AdminPage() {
         localStorage.removeItem("sentinel_session");
         if (isMounted) setHasSession(false);
       } finally {
-        console.log("[AdminPage] Validation complete, setting loading=false");
         if (isMounted) setLoading(false);
         abortControllerRef.current = null;
       }
