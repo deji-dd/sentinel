@@ -547,35 +547,53 @@ export function startTerritoryStateSyncWorker() {
               (response) => response.territoryOwnership || [],
             );
 
-            // Fetch racket data from v1 API
-            // TornApiClient throws errors on API failures - caught by outer try-catch
-            const racketResponse = await tornApi.getRaw<{
-              error?: { code: number; error: string };
-              rackets?: Record<
-                string,
-                {
-                  name: string;
-                  level: number;
-                  reward: string;
-                  created: number;
-                  changed: number;
-                  faction: number;
-                }
-              >;
-            }>("/torn", keyRotator.getNextKey(), { selections: "rackets" });
+            // Fetch racket data from v1 API.
+            // If this call fails, continue ownership sync and skip racket processing for this run.
+            let racketsByTerritory: Record<
+              string,
+              {
+                name: string;
+                level: number;
+                reward: string;
+                created: number;
+                changed: number;
+                faction: number;
+              }
+            > = {};
+            let skipRackets = false;
 
-            if (racketResponse.error) {
+            try {
+              const racketResponse = await tornApi.getRaw<{
+                error?: { code: number; error: string };
+                rackets?: Record<
+                  string,
+                  {
+                    name: string;
+                    level: number;
+                    reward: string;
+                    created: number;
+                    changed: number;
+                    faction: number;
+                  }
+                >;
+              }>("/torn", keyRotator.getNextKey(), { selections: "rackets" });
+
+              if (racketResponse.error) {
+                skipRackets = true;
+                logError(
+                  "territory_state_sync",
+                  `Racket API error ${racketResponse.error.code}: ${racketResponse.error.error} - skipping racket sync this run`,
+                );
+              } else {
+                racketsByTerritory = racketResponse.rackets || {};
+              }
+            } catch (error) {
+              skipRackets = true;
               logError(
                 "territory_state_sync",
-                `Racket API error ${racketResponse.error.code}: ${racketResponse.error.error} - skipping racket sync this run`,
+                `Racket API request failed - skipping racket sync this run: ${error instanceof Error ? error.message : String(error)}`,
               );
-              // Store old hash and return early for racket processing if we want to skip it
-              // But we already processed ownership. To keep it simple, we just use old rackets.
             }
-
-            const racketsByTerritory =
-              racketResponse.rackets || (racketResponse.error ? {} : {});
-            const skipRackets = !!racketResponse.error;
 
             // OPTIMIZATION: Hash-based detection
             // Compute hash of API responses to detect if anything changed
