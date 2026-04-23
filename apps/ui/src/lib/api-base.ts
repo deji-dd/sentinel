@@ -63,3 +63,21 @@ export async function fetchWithFallback(
     new Error(`Unable to reach API from any endpoint: ${bases.join(", ")}`)
   );
 }
+
+/**
+ * Normalize guild config payload keys across backend versions.
+ */
+export function normalizeConfigPayload<T extends Record<string, any>>(
+  payload: T,
+): T {
+  const channels = payload.channels ?? payload.available_channels ?? [];
+  const roles = payload.roles ?? payload.available_roles ?? [];
+
+  return {
+    ...payload,
+    channels,
+    roles,
+    available_channels: payload.available_channels ?? channels,
+    available_roles: payload.available_roles ?? roles,
+  };
+}

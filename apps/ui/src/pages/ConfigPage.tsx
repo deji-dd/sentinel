@@ -41,6 +41,7 @@ import { MercenaryConfig } from "@/components/config/MercenaryConfig";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { performMasterLogout } from "@/lib/logout";
+import { normalizeConfigPayload } from "@/lib/api-base";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -170,7 +171,7 @@ export default function ConfigPage() {
         }
 
         const configData = await configRes.json();
-        setGuildConfig(configData);
+        setGuildConfig(normalizeConfigPayload(configData));
       } catch (err) {
         console.error("[ConfigPage] Auth/Config fetch failed:", err);
         localStorage.removeItem("sentinel_session");
@@ -570,8 +571,12 @@ export default function ConfigPage() {
             {activeTab === "reaction_roles" && (
               <ReactionRolesConfig
                 sessionToken={sessionToken!}
-                availableChannels={guildConfig?.channels || []}
-                availableRoles={guildConfig?.roles || []}
+                availableChannels={
+                  guildConfig?.channels || guildConfig?.available_channels || []
+                }
+                availableRoles={
+                  guildConfig?.roles || guildConfig?.available_roles || []
+                }
               />
             )}
 

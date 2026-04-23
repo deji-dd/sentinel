@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Key, Trash2, Plus, Hash, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { fetchWithFallback } from "@/lib/api-base";
+import { fetchWithFallback, normalizeConfigPayload } from "@/lib/api-base";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,7 +93,7 @@ export const AdminConfig = forwardRef(
           headers: { Authorization: `Bearer ${sessionToken}` },
         });
         if (!res.ok) throw new Error("Failed to fetch config");
-        const data = await res.json();
+        const data = normalizeConfigPayload(await res.json());
         setConfig(data);
         setLogChannelId(data.log_channel_id || "");
         setSelectedAdminRoles(
