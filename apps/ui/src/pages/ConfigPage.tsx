@@ -13,7 +13,7 @@ import {
   SidebarProvider,
   SidebarFooter,
   SidebarTrigger,
-  SidebarInset
+  SidebarInset,
 } from "@/components/ui/sidebar";
 import { LoadingScreen, TacticalLoader } from "@/components/loading-screen";
 import {
@@ -28,7 +28,8 @@ import {
   LogOut,
   AlertCircle,
   Save,
-  MapPin
+  MapPin,
+  Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -36,8 +37,10 @@ import { AdminConfig } from "@/components/config/AdminConfig";
 import { VerificationConfig } from "@/components/config/VerificationConfig";
 import { TerritoryNotificationsConfig } from "@/components/config/TerritoryNotificationsConfig";
 import { ReactionRolesConfig } from "@/components/config/ReactionRolesConfig";
+import { MercenaryConfig } from "@/components/config/MercenaryConfig";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { performMasterLogout } from "@/lib/logout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,13 +52,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-type ModuleId = "admin" | "verify" | "reaction_roles" | "revive" | "assist" | "territories";
+type ModuleId =
+  | "admin"
+  | "verify"
+  | "reaction_roles"
+  | "revive"
+  | "assist"
+  | "territories"
+  | "mercenary";
 
 export default function ConfigPage() {
   const navigate = useNavigate();
@@ -64,17 +70,28 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [hasSession, setHasSession] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<ModuleId>(
-    (searchParams.get("tab") as ModuleId) || "admin"
+    (searchParams.get("tab") as ModuleId) || "admin",
   );
   const [guildConfig, setGuildConfig] = useState<any>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const moduleRef = useRef<any>(null);
-  const [pendingTab, setPendingTab] = useState<ModuleId | "logout" | null>(null);
+  const tokenPersistHandled = useRef(false);
+  const authBootstrapStarted = useRef(false);
+  const [pendingTab, setPendingTab] = useState<ModuleId | "logout" | null>(
+    null,
+  );
 
   const sessionToken = useMemo(() => {
-    return searchParams.get("session") || localStorage.getItem("sentinel_session");
+    return (
+      searchParams.get("session") || localStorage.getItem("sentinel_session")
+    );
   }, [searchParams]);
+
+  const sessionParamValue = useMemo(
+    () => searchParams.get("session"),
+    [searchParams],
+  );
 
   useEffect(() => {
     if (!sessionToken) {
@@ -83,30 +100,69 @@ export default function ConfigPage() {
       return;
     }
 
+    // Establish that we have a session (may be validating)
     setHasSession(true);
 
-    if (searchParams.get("session")) {
+    // Phase 1: If session is in URL and not yet persisted, persist it
+    if (searchParams.get("session") && !tokenPersistHandled.current) {
+      tokenPersistHandled.current = true;
       localStorage.setItem("sentinel_session", sessionToken);
       // Use react-router navigate instead of window.history.replaceState to ensure state consistency
       navigate(".", { replace: true });
-      return; // dependencies will catch the change
+      return; // Return after Phase 1 since we're redirecting
     }
+
+    // Phase 2: Bootstrap session validation
+    if (authBootstrapStarted.current) {
+      return;
+    }
+    authBootstrapStarted.current = true;
 
     const fetchData = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const [userRes, configRes] = await Promise.all([
-          fetch(`${API_BASE}/api/auth/me`, {
-            headers: { Authorization: `Bearer ${sessionToken}` }
-          }),
-          fetch(`${API_BASE}/api/config`, {
-            headers: { Authorization: `Bearer ${sessionToken}` }
-          })
-        ]);
+        const configuredBase = import.meta.env.VITE_API_URL;
+        const apiBases = Array.from(
+          new Set(
+            [configuredBase, "http://127.0.0.1:3001", "http://localhost:3001"]
+              .filter((base): base is string => Boolean(base))
+              .map((base) => base.replace(/\/$/, "")),
+          ),
+        );
+
+        let userRes: Response | null = null;
+        let workingBase: string | null = null;
+        let lastError: unknown = null;
+
+        for (const base of apiBases) {
+          try {
+            const authRes = await fetch(`${base}/api/auth/me`, {
+              headers: { Authorization: `Bearer ${sessionToken}` },
+            });
+
+            userRes = authRes;
+            workingBase = base;
+            break;
+          } catch (error: any) {
+            lastError = error;
+            const isNetworkLike = error instanceof TypeError;
+            if (isNetworkLike) {
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        if (!userRes || !workingBase) {
+          throw lastError || new Error("Unable to reach auth endpoint");
+        }
 
         if (!userRes.ok) throw new Error("Session invalid");
         const userData = await userRes.json();
         setUser(userData);
+
+        const configRes = await fetch(`${workingBase}/api/config`, {
+          headers: { Authorization: `Bearer ${sessionToken}` },
+        });
 
         if (!configRes.ok) {
           // If config fetch fails, it's likely a scope mismatch or session expiry
@@ -125,65 +181,81 @@ export default function ConfigPage() {
     };
 
     fetchData();
-  }, [sessionToken, searchParams, navigate]);
+  }, [sessionParamValue]); // Only depend on session param value to prevent re-runs from searchParams object reference changes
 
-  const hasApiKeys = useMemo(() => (guildConfig?.api_keys?.length || 0) > 0, [guildConfig]);
+  const hasApiKeys = useMemo(
+    () => (guildConfig?.api_keys?.length || 0) > 0,
+    [guildConfig],
+  );
 
-  const modules = useMemo(() => [
-    {
-      id: "admin" as const,
-      name: "Admin Config",
-      icon: Settings,
-      desc: "Manage API keys, log channels, and admin roles.",
-      category: "System",
-      isEnabled: true,
-      requiresKeys: false
-    },
-    {
-      id: "verify" as const,
-      name: "Verification",
-      icon: Shield,
-      desc: "Automated role assignment and nickname syncing.",
-      category: "Modules",
-      isEnabled: guildConfig?.enabled_modules?.includes("verify"),
-      requiresKeys: true
-    },
-    {
-      id: "reaction_roles" as const,
-      name: "Reaction Roles",
-      icon: Sparkles,
-      desc: "Assign roles based on message reactions.",
-      category: "Modules",
-      isEnabled: guildConfig?.enabled_modules?.includes("reaction_roles"),
-      requiresKeys: false
-    },
-    {
-      id: "revive" as const,
-      name: "Revives",
-      icon: HeartPulse,
-      desc: "Request and track faction revives.",
-      category: "Modules",
-      isEnabled: guildConfig?.enabled_modules?.includes("revive"),
-      requiresKeys: true
-    },
-    {
-      id: "assist" as const,
-      name: "Assist",
-      icon: Crosshair,
-      desc: "Browser-based tools for faction operations.",
-      category: "Modules",
-      isEnabled: guildConfig?.enabled_modules?.includes("assist"),
-      requiresKeys: true
-    },
-    {
-      id: "territories" as const,
-      name: "Territories",
-      icon: MapPin,
-      desc: "Territory and faction movement alerts.",
-      category: "Modules",
-      isEnabled: guildConfig?.enabled_modules?.includes("territories") || true,
-    }
-  ], [guildConfig]);
+  const modules = useMemo(
+    () => [
+      {
+        id: "admin" as const,
+        name: "Admin Config",
+        icon: Settings,
+        desc: "Manage API keys, log channels, and admin roles.",
+        category: "System",
+        isEnabled: true,
+        requiresKeys: false,
+      },
+      {
+        id: "verify" as const,
+        name: "Verification",
+        icon: Shield,
+        desc: "Automated role assignment and nickname syncing.",
+        category: "Modules",
+        isEnabled: guildConfig?.enabled_modules?.includes("verify"),
+        requiresKeys: true,
+      },
+      {
+        id: "reaction_roles" as const,
+        name: "Reaction Roles",
+        icon: Sparkles,
+        desc: "Assign roles based on message reactions.",
+        category: "Modules",
+        isEnabled: guildConfig?.enabled_modules?.includes("reaction_roles"),
+        requiresKeys: false,
+      },
+      {
+        id: "revive" as const,
+        name: "Revives",
+        icon: HeartPulse,
+        desc: "Request and track faction revives.",
+        category: "Modules",
+        isEnabled: guildConfig?.enabled_modules?.includes("revive"),
+        requiresKeys: true,
+      },
+      {
+        id: "assist" as const,
+        name: "Assist",
+        icon: Crosshair,
+        desc: "Browser-based tools for faction operations.",
+        category: "Modules",
+        isEnabled: guildConfig?.enabled_modules?.includes("assist"),
+        requiresKeys: true,
+      },
+      {
+        id: "mercenary" as const,
+        name: "Mercenary",
+        icon: Briefcase,
+        desc: "Contracts, target validation, and payout tracking.",
+        category: "Modules",
+        isEnabled: guildConfig?.enabled_modules?.includes("mercenary"),
+        requiresKeys: true,
+      },
+      {
+        id: "territories" as const,
+        name: "Territories",
+        icon: MapPin,
+        desc: "Territory and faction movement alerts.",
+        category: "Modules",
+        isEnabled:
+          guildConfig?.enabled_modules?.includes("territories") || true,
+      },
+    ],
+    [guildConfig],
+  );
 
   const handleGlobalSave = async () => {
     if (!moduleRef.current?.save) return;
@@ -196,20 +268,12 @@ export default function ConfigPage() {
   const [isLoggedOut, setIsLoggedOut] = useState(false);
 
   const performLogout = async () => {
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-      await fetch(`${API_BASE}/api/auth/sign-out`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}` }
-      });
-    } catch (err) {
-      console.error("Sign out failed:", err);
-    }
-    localStorage.removeItem("sentinel_session");
-    setIsLoggedOut(true);
-    setTimeout(() => {
-      window.close();
-    }, 500);
+    await performMasterLogout({
+      sessionToken,
+      setLoggedOut: setIsLoggedOut,
+      closeWindow: true,
+      closeWindowDelayMs: 500,
+    });
   };
 
   const confirmNavigate = () => {
@@ -253,19 +317,21 @@ export default function ConfigPage() {
               SESSION TERMINATED
             </h1>
             <p className="text-muted-foreground text-lg leading-relaxed">
-              Your command session has been securely closed and the access token has been burned.
+              Your command session has been securely closed and the access token
+              has been burned.
             </p>
           </div>
           <div className="pt-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">You can safely close this tactical window.</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+              You can safely close this tactical window.
+            </p>
           </div>
         </div>
       </div>
     );
   }
 
-  if (loading)
-    return <LoadingScreen />;
+  if (loading) return <LoadingScreen />;
 
   if (hasSession === false) {
     return (
@@ -282,12 +348,20 @@ export default function ConfigPage() {
               ACCESS DENIED
             </h1>
             <p className="text-muted-foreground text-lg leading-relaxed">
-              Sentinel uses secure, burn-on-read access links.
-              Please generate a new link from Discord using the <code className="bg-secondary px-2 py-0.5 rounded-md text-primary font-mono text-sm">/config</code> command.
+              Sentinel uses secure, burn-on-read access links. Please generate a
+              new link from Discord using the{" "}
+              <code className="bg-secondary px-2 py-0.5 rounded-md text-primary font-mono text-sm">
+                /config
+              </code>{" "}
+              command.
             </p>
           </div>
           <div className="pt-4">
-            <Button variant="outline" className="w-full h-12 rounded-xl group transition-all cursor-pointer" onClick={() => window.location.reload()}>
+            <Button
+              variant="outline"
+              className="w-full h-12 rounded-xl group transition-all cursor-pointer"
+              onClick={() => window.location.reload()}
+            >
               <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
               Try Again
             </Button>
@@ -297,7 +371,7 @@ export default function ConfigPage() {
     );
   }
 
-  const activeModule = modules.find(m => m.id === activeTab);
+  const activeModule = modules.find((m) => m.id === activeTab);
 
   return (
     <SidebarProvider>
@@ -309,7 +383,9 @@ export default function ConfigPage() {
               <AvatarFallback>S</AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="text-sm font-bold tracking-tight uppercase leading-none text-foreground">Sentinel</h2>
+              <h2 className="text-sm font-bold tracking-tight uppercase leading-none text-foreground">
+                Sentinel
+              </h2>
             </div>
           </div>
         </SidebarHeader>
@@ -322,29 +398,46 @@ export default function ConfigPage() {
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {modules.filter(m => m.category === cat).map((m) => {
-                    const isLocked = m.requiresKeys && !hasApiKeys;
-                    const isDisabled = !m.isEnabled || isLocked;
+                  {modules
+                    .filter((m) => m.category === cat)
+                    .map((m) => {
+                      const isLocked = m.requiresKeys && !hasApiKeys;
+                      const isDisabled = !m.isEnabled || isLocked;
 
-                    return (
-                      <SidebarMenuItem key={m.id}>
-                        <SidebarMenuButton
-                          disabled={isDisabled}
-                          onClick={() => handleTabSwitch(m.id)}
-                          isActive={activeTab === m.id}
-                          className="h-10"
-                        >
-                          <m.icon className={cn("w-4 h-4", activeTab === m.id ? "text-primary" : "text-muted-foreground")} />
-                          <span className="font-semibold text-sm text-foreground/80">{m.name}</span>
-                          {isLocked && (
-                            <Lock className="ml-auto w-3 h-3 text-destructive/50" />
-                          )}
-                          {!m.isEnabled && !isLocked && (
-                            <Badge variant="outline" className="ml-auto text-[8px] h-3 px-1 opacity-50">OFF</Badge>
-                          )}
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>)
-                  })}
+                      return (
+                        <SidebarMenuItem key={m.id}>
+                          <SidebarMenuButton
+                            disabled={isDisabled}
+                            onClick={() => handleTabSwitch(m.id)}
+                            isActive={activeTab === m.id}
+                            className="h-10"
+                          >
+                            <m.icon
+                              className={cn(
+                                "w-4 h-4",
+                                activeTab === m.id
+                                  ? "text-primary"
+                                  : "text-muted-foreground",
+                              )}
+                            />
+                            <span className="font-semibold text-sm text-foreground/80">
+                              {m.name}
+                            </span>
+                            {isLocked && (
+                              <Lock className="ml-auto w-3 h-3 text-destructive/50" />
+                            )}
+                            {!m.isEnabled && !isLocked && (
+                              <Badge
+                                variant="outline"
+                                className="ml-auto text-[8px] h-3 px-1 opacity-50"
+                              >
+                                OFF
+                              </Badge>
+                            )}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -352,20 +445,30 @@ export default function ConfigPage() {
         </SidebarContent>
 
         <SidebarFooter className="border-t border-border/50">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <Avatar>
-                <AvatarImage src={`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`} />
-                <AvatarFallback className="bg-primary/5 rounded-lg flex items-center justify-center">
-                  <UserCircle className="w-4 h-4 opacity-40 text-foreground" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="text-xs font-bold truncate text-foreground leading-none">{user?.global_name || user?.username}</p>
+          {user && (
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <Avatar>
+                  <AvatarImage
+                    src={
+                      user.id && user.avatar
+                        ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+                        : undefined
+                    }
+                  />
+                  <AvatarFallback className="bg-primary/5 rounded-lg flex items-center justify-center">
+                    <UserCircle className="w-4 h-4 opacity-40 text-foreground" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate text-foreground leading-none">
+                    {user?.global_name || user?.username}
+                  </p>
+                </div>
               </div>
+              <ModeToggle />
             </div>
-            <ModeToggle />
-          </div>
+          )}
           <Button
             variant="ghost"
             className="text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
@@ -378,7 +481,6 @@ export default function ConfigPage() {
       </Sidebar>
 
       <SidebarInset className="h-screen overflow-hidden flex flex-col">
-
         <header className="h-16 flex items-center rounded-t-xl justify-between px-8 border-b border-border/50 shrink-0 z-20 bg-background/50 backdrop-blur-md">
           <div className="flex items-center gap-4">
             <SidebarTrigger className="cursor-pointer text-primary" />
@@ -399,20 +501,30 @@ export default function ConfigPage() {
 
         <div className="flex-1 overflow-y-auto z-10">
           <div className="max-w-5xl mx-auto px-8 py-10">
-
             {!hasApiKeys && activeTab !== "admin" && (
               <div className="p-8 rounded-4xl bg-destructive/5 border border-destructive/20 flex flex-col items-center text-center space-y-4 mb-8 max-w-2xl mx-auto animate-in zoom-in-95 duration-500">
                 <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
                   <AlertCircle className="w-8 h-8 text-destructive" />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="text-xl font-black uppercase tracking-tight text-foreground">API KEY MISSING</h3>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-foreground">
+                    API KEY MISSING
+                  </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    The current module <span className="text-destructive font-bold uppercase">{activeModule?.name}</span> requires an active Torn API key to function.
-                    Please add a key in the <strong>Admin Config</strong> section to unlock this feature.
+                    The current module{" "}
+                    <span className="text-destructive font-bold uppercase">
+                      {activeModule?.name}
+                    </span>{" "}
+                    requires an active Torn API key to function. Please add a
+                    key in the <strong>Admin Config</strong> section to unlock
+                    this feature.
                   </p>
                 </div>
-                <Button onClick={() => setActiveTab("admin")} variant="destructive" className="rounded-xl px-8 font-bold cursor-pointer transition-transform hover:scale-105 active:scale-95">
+                <Button
+                  onClick={() => setActiveTab("admin")}
+                  variant="destructive"
+                  className="rounded-xl px-8 font-bold cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                >
                   GOTO ADMIN CONFIG
                 </Button>
               </div>
@@ -426,7 +538,6 @@ export default function ConfigPage() {
                 onDirtyChange={setIsDirty}
               />
             )}
-
 
             {activeTab === "verify" && (
               <VerificationConfig
@@ -447,7 +558,14 @@ export default function ConfigPage() {
               />
             )}
 
-
+            {activeTab === "mercenary" && (
+              <MercenaryConfig
+                ref={moduleRef}
+                sessionToken={sessionToken!}
+                initialData={guildConfig}
+                onDirtyChange={setIsDirty}
+              />
+            )}
 
             {activeTab === "reaction_roles" && (
               <ReactionRolesConfig
@@ -457,23 +575,39 @@ export default function ConfigPage() {
               />
             )}
 
-            {(activeTab !== "admin" && activeTab !== "verify" && activeTab !== "territories" && activeTab !== "reaction_roles" && hasApiKeys) && (
-              <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
-                <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
-                  {activeModule && <activeModule.icon className="w-10 h-10 text-muted-foreground opacity-20" />}
+            {activeTab !== "admin" &&
+              activeTab !== "verify" &&
+              activeTab !== "territories" &&
+              activeTab !== "reaction_roles" &&
+              activeTab !== "mercenary" &&
+              hasApiKeys && (
+                <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
+                  <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
+                    {activeModule && (
+                      <activeModule.icon className="w-10 h-10 text-muted-foreground opacity-20" />
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-bold uppercase tracking-tight text-foreground">
+                      Module Under Construction
+                    </h3>
+                    <p className="text-muted-foreground max-w-sm mx-auto text-sm leading-relaxed">
+                      The configuration interface for{" "}
+                      <span className="text-primary font-black uppercase">
+                        {activeModule?.name}
+                      </span>{" "}
+                      is being migrated to the new design system.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setActiveTab("admin")}
+                    className="rounded-xl font-bold px-6 cursor-pointer"
+                  >
+                    Return to Admin Config
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <h3 className="text-xl font-bold uppercase tracking-tight text-foreground">Module Under Construction</h3>
-                  <p className="text-muted-foreground max-w-sm mx-auto text-sm leading-relaxed">
-                    The configuration interface for <span className="text-primary font-black uppercase">{activeModule?.name}</span> is being migrated to the new design system.
-                  </p>
-                </div>
-                <Button variant="secondary" onClick={() => setActiveTab("admin")} className="rounded-xl font-bold px-6 cursor-pointer">
-                  Return to Admin Config
-                </Button>
-              </div>
-            )}
-
+              )}
           </div>
         </div>
 
@@ -485,7 +619,9 @@ export default function ConfigPage() {
                 <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center animate-pulse">
                   <AlertCircle className="w-4 h-4 text-yellow-500" />
                 </div>
-                <p className="text-sm font-bold text-foreground/80 tracking-tight">UNSAVED CHANGES</p>
+                <p className="text-sm font-bold text-foreground/80 tracking-tight">
+                  UNSAVED CHANGES
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -498,17 +634,12 @@ export default function ConfigPage() {
                 >
                   Discard
                 </Button>
-                <Button
-                  onClick={handleGlobalSave}
-                  disabled={saving}
-                >
+                <Button onClick={handleGlobalSave} disabled={saving}>
                   {saving ? (
-                    <TacticalLoader
-                      size="14"
-                      stroke="3"
-                      className="mr-2"
-                    />
-                  ) : <Save className="w-3 h-3 mr-2" />}
+                    <TacticalLoader size="14" stroke="3" className="mr-2" />
+                  ) : (
+                    <Save className="w-3 h-3 mr-2" />
+                  )}
                   {saving ? "SAVING..." : "SAVE CHANGES"}
                 </Button>
               </div>
@@ -517,12 +648,18 @@ export default function ConfigPage() {
         )}
       </SidebarInset>
 
-      <AlertDialog open={pendingTab !== null} onOpenChange={(open) => !open && setPendingTab(null)}>
+      <AlertDialog
+        open={pendingTab !== null}
+        onOpenChange={(open) => !open && setPendingTab(null)}
+      >
         <AlertDialogContent className="rounded-4xl border-border bg-background/95 backdrop-blur-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-xl font-black uppercase tracking-tight text-foreground">Discard Changes?</AlertDialogTitle>
+            <AlertDialogTitle className="text-xl font-black uppercase tracking-tight text-foreground">
+              Discard Changes?
+            </AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground font-medium">
-              You have unsaved configuration changes. Switching sections or signing out will permanently discard them.
+              You have unsaved configuration changes. Switching sections or
+              signing out will permanently discard them.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

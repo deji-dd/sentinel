@@ -16,4 +16,12 @@ export type {
   components as TornApiComponents,
   operations as TornApiOperations,
 } from "./generated/torn-api.js";
-export type { DB } from "./db/kysely-types.js";
+export type {
+  DB,
+  SentinelMercenaryConfig,
+  SentinelMercenaryContracts,
+  SentinelMercenaryPayoutBatches,
+  SentinelMercenaryPayoutItems,
+  SentinelMercenaryTargets,
+  SentinelMercenaryVerificationVault,
+} from "./db/kysely-types.js";

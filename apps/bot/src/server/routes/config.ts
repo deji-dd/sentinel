@@ -21,6 +21,537 @@ type GuildInfoSummary = {
   roles: Array<{ id: string; name: string }>;
 };
 
+function parseJsonArray(input: unknown): string[] {
+  if (Array.isArray(input)) {
+    return input.map((item) => String(item));
+  }
+
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item));
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+async function getFactionWarState(factionId: number): Promise<{
+  hasActiveWar: boolean;
+  hasUpcomingWar: boolean;
+}> {
+  const nowIso = new Date().toISOString();
+
+  const wars = await db
+    .selectFrom(TABLE_NAMES.WAR_LEDGER)
+    .select(["start_time", "end_time"])
+    .where((eb) =>
+      eb.or([
+        eb("assaulting_faction", "=", factionId),
+        eb("defending_faction", "=", factionId),
+      ]),
+    )
+    .where((eb) =>
+      eb.or([
+        eb("end_time", "is", null),
+        eb("end_time", ">", nowIso),
+        eb("start_time", ">", nowIso),
+      ]),
+    )
+    .limit(25)
+    .execute();
+
+  let hasActiveWar = false;
+  let hasUpcomingWar = false;
+
+  for (const war of wars) {
+    const start = war.start_time;
+    const end = war.end_time;
+
+    if (start > nowIso) {
+      hasUpcomingWar = true;
+      continue;
+    }
+
+    if (!end || end > nowIso) {
+      hasActiveWar = true;
+    }
+  }
+
+  return { hasActiveWar, hasUpcomingWar };
+}
+
+function normalizeMercenaryContractRow(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  row: any,
+) {
+  return {
+    ...row,
+    target_roles: parseJsonArray(row.target_roles_json),
+  };
+}
+
+configRouter.get("/mercenary", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session || !session.guild_id)
+      return res.status(401).json({ error: "Invalid or expired session" });
+
+    const guildId = session.guild_id;
+
+    const settings = await db
+      .selectFrom(TABLE_NAMES.MERCENARY_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
+
+    const contracts = await db
+      .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .orderBy("created_at", "desc")
+      .execute();
+
+    const normalizedContracts = contracts.map(normalizeMercenaryContractRow);
+
+    const activeContracts = normalizedContracts.filter((contract) =>
+      ["active", "paused"].includes(contract.status),
+    );
+
+    const pastContracts = normalizedContracts.filter(
+      (contract) => !["active", "paused"].includes(contract.status),
+    );
+
+    res.json({
+      settings: {
+        guild_id: guildId,
+        is_enabled: settings?.is_enabled ?? 0,
+        contract_announcement_channel_id:
+          settings?.contract_announcement_channel_id ?? null,
+        hit_post_channel_id: settings?.hit_post_channel_id ?? null,
+        payout_channel_id: settings?.payout_channel_id ?? null,
+        audit_channel_id: settings?.audit_channel_id ?? null,
+        default_target_scope: settings?.default_target_scope ?? "all_members",
+        default_idle_minutes: settings?.default_idle_minutes ?? null,
+        default_auto_finish_on_war_end:
+          settings?.default_auto_finish_on_war_end ?? 0,
+      },
+      active_contracts: activeContracts,
+      past_contracts: pastContracts,
+    });
+  } catch (error) {
+    console.error("[HTTP] Error fetching mercenary config:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+configRouter.post(
+  "/mercenary/settings",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService, discordClient } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const now = new Date().toISOString();
+
+      const {
+        is_enabled,
+        contract_announcement_channel_id,
+        hit_post_channel_id,
+        payout_channel_id,
+        audit_channel_id,
+        default_target_scope,
+        default_idle_minutes,
+        default_auto_finish_on_war_end,
+      } = req.body;
+
+      await db
+        .insertInto(TABLE_NAMES.MERCENARY_CONFIG)
+        .values({
+          guild_id: guildId,
+          is_enabled: is_enabled ? 1 : 0,
+          contract_announcement_channel_id:
+            contract_announcement_channel_id || null,
+          hit_post_channel_id: hit_post_channel_id || null,
+          payout_channel_id: payout_channel_id || null,
+          audit_channel_id: audit_channel_id || null,
+          default_target_scope: default_target_scope || "all_members",
+          default_idle_minutes: default_idle_minutes
+            ? Number(default_idle_minutes)
+            : null,
+          default_auto_finish_on_war_end: default_auto_finish_on_war_end
+            ? 1
+            : 0,
+          updated_by: session.discord_id,
+          updated_at: now,
+        })
+        .onConflict((oc) =>
+          oc.column("guild_id").doUpdateSet({
+            is_enabled: is_enabled ? 1 : 0,
+            contract_announcement_channel_id:
+              contract_announcement_channel_id || null,
+            hit_post_channel_id: hit_post_channel_id || null,
+            payout_channel_id: payout_channel_id || null,
+            audit_channel_id: audit_channel_id || null,
+            default_target_scope: default_target_scope || "all_members",
+            default_idle_minutes: default_idle_minutes
+              ? Number(default_idle_minutes)
+              : null,
+            default_auto_finish_on_war_end: default_auto_finish_on_war_end
+              ? 1
+              : 0,
+            updated_by: session.discord_id,
+            updated_at: now,
+          }),
+        )
+        .execute();
+
+      await logGuildAction(guildId, discordClient, {
+        title: "Mercenary Module Settings Updated",
+        description: `<@${session.discord_id}> updated mercenary module settings via Web Dashboard.`,
+      });
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[HTTP] Error saving mercenary settings:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+configRouter.post(
+  "/mercenary/contracts",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService, discordClient } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const {
+        title,
+        description,
+        contract_type,
+        pay_amount,
+        pay_currency,
+        pay_terms,
+        status,
+        start_at,
+        ends_at,
+        faction_id,
+        target_scope,
+        idle_minutes,
+        auto_finish_on_war_end,
+        min_level,
+        max_level,
+        target_roles,
+        require_faction_no_active_war,
+        require_faction_no_upcoming_war,
+      } = req.body;
+
+      if (!title || String(title).trim().length === 0) {
+        return res.status(400).json({ error: "Contract title is required" });
+      }
+
+      const factionIdNumber = Number(faction_id);
+      if (!Number.isInteger(factionIdNumber) || factionIdNumber <= 0) {
+        return res.status(400).json({ error: "Valid faction_id is required" });
+      }
+
+      const apiKey = await getPrimaryGuildApiKey(guildId);
+      if (!apiKey) {
+        return res.status(400).json({
+          error:
+            "No primary API key configured. Add one in Admin Config before creating contracts.",
+        });
+      }
+
+      const faction = await validateAndFetchFactionDetails(
+        factionIdNumber,
+        apiKey,
+      );
+      if (!faction) {
+        return res.status(400).json({
+          error:
+            "Faction verification failed. Check faction_id and API key scope.",
+        });
+      }
+
+      const warState = await getFactionWarState(factionIdNumber);
+      if (warState.hasActiveWar || warState.hasUpcomingWar) {
+        return res.status(400).json({
+          error:
+            "Faction has an active or upcoming war. Contract cannot be opened until this is clear.",
+          war_state: warState,
+        });
+      }
+
+      const requiresNoActiveWar = require_faction_no_active_war ? 1 : 0;
+      const requiresNoUpcomingWar = require_faction_no_upcoming_war ? 1 : 0;
+
+      if (requiresNoActiveWar && warState.hasActiveWar) {
+        return res.status(400).json({
+          error: "Faction currently has an active war.",
+        });
+      }
+
+      if (requiresNoUpcomingWar && warState.hasUpcomingWar) {
+        return res.status(400).json({
+          error: "Faction has an upcoming war.",
+        });
+      }
+
+      const now = new Date().toISOString();
+      const contractId = randomUUID();
+
+      await db
+        .insertInto(TABLE_NAMES.MERCENARY_CONTRACTS)
+        .values({
+          id: contractId,
+          guild_id: guildId,
+          title: String(title).trim(),
+          description: description || null,
+          contract_type: contract_type || "hit",
+          status: status || "active",
+          pay_amount: Number(pay_amount) || 0,
+          pay_currency: pay_currency || "cash",
+          pay_terms: pay_terms || null,
+          start_at: start_at || null,
+          ends_at: ends_at || null,
+          created_by: session.discord_id,
+          updated_at: now,
+          faction_id: factionIdNumber,
+          faction_name: faction.name,
+          target_scope: target_scope || "all_members",
+          idle_minutes: idle_minutes ? Number(idle_minutes) : null,
+          auto_finish_on_war_end: auto_finish_on_war_end ? 1 : 0,
+          min_level: min_level ? Number(min_level) : null,
+          max_level: max_level ? Number(max_level) : null,
+          target_roles_json: JSON.stringify(
+            Array.isArray(target_roles) ? target_roles : [],
+          ),
+          require_faction_no_active_war: requiresNoActiveWar,
+          require_faction_no_upcoming_war: requiresNoUpcomingWar,
+        })
+        .execute();
+
+      await logGuildAction(guildId, discordClient, {
+        title: "Mercenary Contract Created",
+        description: `<@${session.discord_id}> created contract **${String(title).trim()}** for faction **${faction.name}**.`,
+      });
+
+      const createdContract = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+        .selectAll()
+        .where("id", "=", contractId)
+        .executeTakeFirst();
+
+      res.json({
+        ok: true,
+        contract: createdContract
+          ? normalizeMercenaryContractRow(createdContract)
+          : null,
+      });
+    } catch (error) {
+      console.error("[HTTP] Error creating mercenary contract:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+configRouter.patch(
+  "/mercenary/contracts/:id",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService, discordClient } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const contractId = req.params.id;
+      const existing = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+        .selectAll()
+        .where("id", "=", contractId)
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      if (!existing) {
+        return res.status(404).json({ error: "Contract not found" });
+      }
+
+      const nextFactionId = req.body.faction_id
+        ? Number(req.body.faction_id)
+        : existing.faction_id;
+
+      if (!nextFactionId || !Number.isInteger(nextFactionId)) {
+        return res.status(400).json({ error: "Valid faction_id is required" });
+      }
+
+      const apiKey = await getPrimaryGuildApiKey(guildId);
+      if (!apiKey) {
+        return res.status(400).json({
+          error:
+            "No primary API key configured. Add one in Admin Config before updating contracts.",
+        });
+      }
+
+      const faction = await validateAndFetchFactionDetails(
+        nextFactionId,
+        apiKey,
+      );
+      if (!faction) {
+        return res.status(400).json({
+          error:
+            "Faction verification failed. Check faction_id and API key scope.",
+        });
+      }
+
+      const warState = await getFactionWarState(nextFactionId);
+      if (warState.hasActiveWar || warState.hasUpcomingWar) {
+        return res.status(400).json({
+          error:
+            "Faction has an active or upcoming war. Contract cannot be updated to this faction yet.",
+          war_state: warState,
+        });
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateData: any = {
+        updated_at: new Date().toISOString(),
+        faction_id: nextFactionId,
+        faction_name: faction.name,
+      };
+
+      if (req.body.title !== undefined) {
+        updateData.title = String(req.body.title).trim();
+      }
+      if (req.body.description !== undefined) {
+        updateData.description = req.body.description || null;
+      }
+      if (req.body.contract_type !== undefined) {
+        updateData.contract_type = req.body.contract_type;
+      }
+      if (req.body.pay_amount !== undefined) {
+        updateData.pay_amount = Number(req.body.pay_amount) || 0;
+      }
+      if (req.body.pay_currency !== undefined) {
+        updateData.pay_currency = req.body.pay_currency;
+      }
+      if (req.body.pay_terms !== undefined) {
+        updateData.pay_terms = req.body.pay_terms || null;
+      }
+      if (req.body.start_at !== undefined) {
+        updateData.start_at = req.body.start_at || null;
+      }
+      if (req.body.ends_at !== undefined) {
+        updateData.ends_at = req.body.ends_at || null;
+      }
+      if (req.body.target_scope !== undefined) {
+        updateData.target_scope = req.body.target_scope;
+      }
+      if (req.body.idle_minutes !== undefined) {
+        updateData.idle_minutes = req.body.idle_minutes
+          ? Number(req.body.idle_minutes)
+          : null;
+      }
+      if (req.body.auto_finish_on_war_end !== undefined) {
+        updateData.auto_finish_on_war_end = req.body.auto_finish_on_war_end
+          ? 1
+          : 0;
+      }
+      if (req.body.min_level !== undefined) {
+        updateData.min_level = req.body.min_level
+          ? Number(req.body.min_level)
+          : null;
+      }
+      if (req.body.max_level !== undefined) {
+        updateData.max_level = req.body.max_level
+          ? Number(req.body.max_level)
+          : null;
+      }
+      if (req.body.target_roles !== undefined) {
+        updateData.target_roles_json = JSON.stringify(
+          Array.isArray(req.body.target_roles) ? req.body.target_roles : [],
+        );
+      }
+      if (req.body.require_faction_no_active_war !== undefined) {
+        updateData.require_faction_no_active_war = req.body
+          .require_faction_no_active_war
+          ? 1
+          : 0;
+      }
+      if (req.body.require_faction_no_upcoming_war !== undefined) {
+        updateData.require_faction_no_upcoming_war = req.body
+          .require_faction_no_upcoming_war
+          ? 1
+          : 0;
+      }
+      if (req.body.status !== undefined) {
+        updateData.status = req.body.status;
+        if (["completed", "cancelled", "closed"].includes(req.body.status)) {
+          updateData.closed_at = new Date().toISOString();
+        }
+      }
+
+      await db
+        .updateTable(TABLE_NAMES.MERCENARY_CONTRACTS)
+        .set(updateData)
+        .where("id", "=", contractId)
+        .where("guild_id", "=", guildId)
+        .execute();
+
+      await logGuildAction(guildId, discordClient, {
+        title: "Mercenary Contract Updated",
+        description: `<@${session.discord_id}> updated contract **${existing.title}**.`,
+      });
+
+      const updatedContract = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+        .selectAll()
+        .where("id", "=", contractId)
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      res.json({
+        ok: true,
+        contract: updatedContract
+          ? normalizeMercenaryContractRow(updatedContract)
+          : null,
+      });
+    } catch (error) {
+      console.error("[HTTP] Error updating mercenary contract:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
 configRouter.get("/", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Missing session token" });

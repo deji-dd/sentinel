@@ -37,6 +37,10 @@ if (!botOwnerId) {
   throw new Error("Missing SENTINEL_DISCORD_USER_ID environment variable");
 }
 
+function getDashboardTargetPath(isAdminGuild: boolean): "/admin" | "/config" {
+  return isAdminGuild ? "/admin" : "/config";
+}
+
 function buildConfigViewMenuRow(
   enabledModules: string[] = [],
 ): ActionRowBuilder<StringSelectMenuBuilder> | null {
@@ -57,6 +61,15 @@ function buildConfigViewMenuRow(
         .setLabel("Assist Settings")
         .setValue("assist")
         .setDescription("Configure combat assist alert routing"),
+    );
+  }
+
+  if (enabledModules.includes("mercenary")) {
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Mercenary Settings")
+        .setValue("mercenary")
+        .setDescription("Contracts, verification, and payout rules"),
     );
   }
 
@@ -182,7 +195,7 @@ export async function execute(
       discordId: interaction.user.id,
       guildId: guildId,
       scope: "all",
-      targetPath: "/config",
+      targetPath: getDashboardTargetPath(isAdminGuild),
     });
 
     const apiUrl = getApiUrl();
@@ -304,6 +317,7 @@ export async function handleViewSelect(
       admin: null,
       revive: "revive",
       assist: "assist",
+      mercenary: "mercenary",
     };
     const requiredModule = moduleForView[selectedView];
     const enabledModules: string[] =
@@ -330,6 +344,25 @@ export async function handleViewSelect(
       await reviveHandlers.handleShowReviveSettings(interaction, true);
     } else if (selectedView === "assist") {
       await assistHandlers.handleShowAssistSettings(interaction, true);
+    } else if (selectedView === "mercenary") {
+      const helperEmbed = new EmbedBuilder()
+        .setColor(0x0ea5e9)
+        .setTitle("Mercenary Module")
+        .setDescription(
+          "Mercenary contract management is available in the **Web Dashboard** under the **Mercenary** tab.\n\nUse the **Open Web Dashboard** button from the main config menu.",
+        );
+
+      const backBtn = new ButtonBuilder()
+        .setCustomId("config_back_to_menu")
+        .setLabel("Back")
+        .setStyle(ButtonStyle.Secondary);
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+
+      await interaction.editReply({
+        embeds: [helperEmbed],
+        components: [row],
+      });
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -378,7 +411,7 @@ export async function handleBackToMenu(
         discordId: interaction.user.id,
         guildId: guildId,
         scope: "all",
-        targetPath: "/config",
+        targetPath: getDashboardTargetPath(isAdminGuild),
       });
       const apiUrl = getApiUrl();
       magicLinkUrl = `${apiUrl}/api/auth/magic-link?token=${token}`;

@@ -5,9 +5,10 @@
 
 import type { ColumnType } from "kysely";
 
-export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
-  ? ColumnType<S, I | undefined, U>
-  : ColumnType<T, T | undefined, T>;
+export type Generated<T> =
+  T extends ColumnType<infer S, infer I, infer U>
+    ? ColumnType<S, I | undefined, U>
+    : ColumnType<T, T | undefined, T>;
 
 export interface SentinelApiKeyUserMapping {
   api_key_hash: string;
@@ -234,6 +235,124 @@ export interface SentinelMapTerritories {
   territory_id: string;
 }
 
+export interface SentinelMercenaryContracts {
+  auto_finish_on_war_end: Generated<number>;
+  client_discord_id: string | null;
+  client_name: string | null;
+  client_torn_id: string | null;
+  closed_at: string | null;
+  contract_type: string;
+  created_at: Generated<string | null>;
+  created_by: string | null;
+  description: string | null;
+  ends_at: string | null;
+  faction_id: number | null;
+  faction_name: string | null;
+  guild_id: string | null;
+  id: string | null;
+  idle_minutes: number | null;
+  max_level: number | null;
+  min_level: number | null;
+  pay_amount: Generated<number>;
+  pay_currency: Generated<string>;
+  pay_terms: string | null;
+  require_faction_no_active_war: Generated<number>;
+  require_faction_no_upcoming_war: Generated<number>;
+  start_at: string | null;
+  status: Generated<string>;
+  target_roles_json: Generated<string>;
+  target_scope: Generated<string>;
+  title: string;
+  updated_at: Generated<string | null>;
+}
+
+export interface SentinelMercenaryConfig {
+  audit_channel_id: string | null;
+  contract_announcement_channel_id: string | null;
+  created_at: Generated<string | null>;
+  default_auto_finish_on_war_end: Generated<number>;
+  default_idle_minutes: number | null;
+  default_target_scope: Generated<string>;
+  guild_id: string;
+  hit_post_channel_id: string | null;
+  is_enabled: Generated<number>;
+  payout_channel_id: string | null;
+  updated_at: Generated<string | null>;
+  updated_by: string | null;
+}
+
+export interface SentinelMercenaryPayoutBatches {
+  completed_at: string | null;
+  contract_id: string;
+  created_at: Generated<string | null>;
+  created_by: string | null;
+  currency: Generated<string>;
+  generated_at: string | null;
+  id: string | null;
+  notes: string | null;
+  sent_at: string | null;
+  status: Generated<string>;
+  total_amount: Generated<number>;
+  total_entries: Generated<number>;
+  updated_at: Generated<string | null>;
+}
+
+export interface SentinelMercenaryPayoutItems {
+  amount: Generated<number>;
+  batch_id: string;
+  created_at: Generated<string | null>;
+  currency: Generated<string>;
+  id: string | null;
+  merc_discord_id: string;
+  merc_name: string | null;
+  merc_torn_id: string | null;
+  paid_at: string | null;
+  payout_reference: string | null;
+  status: Generated<string>;
+  updated_at: Generated<string | null>;
+  vault_id: string | null;
+}
+
+export interface SentinelMercenaryTargets {
+  contract_id: string;
+  created_at: Generated<string | null>;
+  faction_id: string | null;
+  id: string | null;
+  is_valid: Generated<number>;
+  notes: string | null;
+  priority: Generated<number>;
+  status: Generated<string>;
+  target_name: string;
+  target_torn_id: string | null;
+  target_type: Generated<string>;
+  updated_at: Generated<string | null>;
+}
+
+export interface SentinelMercenaryVerificationVault {
+  attacker_name: string | null;
+  attacker_torn_id: string | null;
+  attack_id: string | null;
+  attack_type: string | null;
+  contract_id: string;
+  created_at: Generated<string | null>;
+  defender_name: string | null;
+  defender_torn_id: string | null;
+  evidence: string | null;
+  id: string | null;
+  merc_discord_id: string | null;
+  merc_name: string | null;
+  merc_torn_id: string | null;
+  metadata_json: string | null;
+  occurred_at: string | null;
+  payout_amount: Generated<number | null>;
+  payout_status: Generated<string>;
+  result: string | null;
+  target_id: string | null;
+  updated_at: Generated<string | null>;
+  verified_at: string | null;
+  verified_by: string | null;
+}
+
 export interface SentinelRacketTenure {
   created_at: Generated<string>;
   ended_at: number | null;
@@ -274,10 +393,8 @@ export interface SentinelReactionRoleMessages {
   description: string | null;
   guild_id: string;
   id: number;
-  message_id: string;
   required_role_id: string | null;
   sync_roles: Generated<number | null>;
-  title: string;
   updated_at: Generated<string | null>;
 }
 
@@ -726,6 +843,12 @@ export interface DB {
   sentinel_map_sessions: SentinelMapSessions;
   sentinel_map_territories: SentinelMapTerritories;
   sentinel_maps: SentinelMaps;
+  sentinel_mercenary_config: SentinelMercenaryConfig;
+  sentinel_mercenary_contracts: SentinelMercenaryContracts;
+  sentinel_mercenary_payout_batches: SentinelMercenaryPayoutBatches;
+  sentinel_mercenary_payout_items: SentinelMercenaryPayoutItems;
+  sentinel_mercenary_targets: SentinelMercenaryTargets;
+  sentinel_mercenary_verification_vault: SentinelMercenaryVerificationVault;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;
   sentinel_reaction_role_config: SentinelReactionRoleConfig;

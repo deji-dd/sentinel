@@ -54,6 +54,12 @@ export const TABLE_NAMES = {
   MAP_TERRITORIES: "sentinel_map_territories",
   MAP_SESSIONS: "sentinel_map_sessions",
   MAP_HISTORY: "sentinel_map_history",
+  MERCENARY_CONFIG: "sentinel_mercenary_config",
+  MERCENARY_CONTRACTS: "sentinel_mercenary_contracts",
+  MERCENARY_TARGETS: "sentinel_mercenary_targets",
+  MERCENARY_VERIFICATION_VAULT: "sentinel_mercenary_verification_vault",
+  MERCENARY_PAYOUT_BATCHES: "sentinel_mercenary_payout_batches",
+  MERCENARY_PAYOUT_ITEMS: "sentinel_mercenary_payout_items",
 } as const;
 
 /** Alert module types */
