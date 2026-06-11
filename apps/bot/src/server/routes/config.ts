@@ -9,6 +9,7 @@ import {
   getPrimaryGuildApiKey,
 } from "../../lib/guild-api-keys.js";
 import { validateAndFetchFactionDetails } from "../../lib/faction-utils.js";
+import { tornApi } from "../../services/torn-client.js";
 import { validateTornApiKey } from "../../services/torn-client.js";
 import { logGuildSuccess, logGuildAction } from "../../lib/guild-logger.js";
 import { getServerContext } from "../context.js";
@@ -131,19 +132,25 @@ configRouter.get("/mercenary", async (req: Request, res: Response) => {
       (contract) => !["active", "paused"].includes(contract.status),
     );
 
+    const dibsConfig = await db
+      .selectFrom(TABLE_NAMES.MERCENARY_DIBS_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
+
     res.json({
       settings: {
         guild_id: guildId,
-        is_enabled: settings?.is_enabled ?? 0,
         contract_announcement_channel_id:
           settings?.contract_announcement_channel_id ?? null,
         hit_post_channel_id: settings?.hit_post_channel_id ?? null,
         payout_channel_id: settings?.payout_channel_id ?? null,
         audit_channel_id: settings?.audit_channel_id ?? null,
-        default_target_scope: settings?.default_target_scope ?? "all_members",
-        default_idle_minutes: settings?.default_idle_minutes ?? null,
-        default_auto_finish_on_war_end:
-          settings?.default_auto_finish_on_war_end ?? 0,
+        merc_registration_channel_id:
+          dibsConfig?.merc_registration_channel_id ?? null,
+        max_active_dibs_per_person: dibsConfig?.max_active_dibs_per_person ?? 5,
+        dibs_remaining_minutes: dibsConfig?.dibs_remaining_minutes ?? 15,
+        dibs_enabled: dibsConfig?.is_enabled ?? 1,
       },
       active_contracts: activeContracts,
       past_contracts: pastContracts,
@@ -171,51 +178,60 @@ configRouter.post(
       const now = new Date().toISOString();
 
       const {
-        is_enabled,
         contract_announcement_channel_id,
         hit_post_channel_id,
         payout_channel_id,
         audit_channel_id,
-        default_target_scope,
-        default_idle_minutes,
-        default_auto_finish_on_war_end,
+        merc_registration_channel_id,
+        max_active_dibs_per_person,
+        dibs_remaining_minutes,
+        dibs_enabled,
       } = req.body;
 
+      // Update main mercenary config
       await db
         .insertInto(TABLE_NAMES.MERCENARY_CONFIG)
         .values({
           guild_id: guildId,
-          is_enabled: is_enabled ? 1 : 0,
           contract_announcement_channel_id:
             contract_announcement_channel_id || null,
           hit_post_channel_id: hit_post_channel_id || null,
           payout_channel_id: payout_channel_id || null,
           audit_channel_id: audit_channel_id || null,
-          default_target_scope: default_target_scope || "all_members",
-          default_idle_minutes: default_idle_minutes
-            ? Number(default_idle_minutes)
-            : null,
-          default_auto_finish_on_war_end: default_auto_finish_on_war_end
-            ? 1
-            : 0,
           updated_by: session.discord_id,
           updated_at: now,
         })
         .onConflict((oc) =>
           oc.column("guild_id").doUpdateSet({
-            is_enabled: is_enabled ? 1 : 0,
             contract_announcement_channel_id:
               contract_announcement_channel_id || null,
             hit_post_channel_id: hit_post_channel_id || null,
             payout_channel_id: payout_channel_id || null,
             audit_channel_id: audit_channel_id || null,
-            default_target_scope: default_target_scope || "all_members",
-            default_idle_minutes: default_idle_minutes
-              ? Number(default_idle_minutes)
-              : null,
-            default_auto_finish_on_war_end: default_auto_finish_on_war_end
-              ? 1
-              : 0,
+            updated_by: session.discord_id,
+            updated_at: now,
+          }),
+        )
+        .execute();
+
+      // Update dibs config
+      await db
+        .insertInto(TABLE_NAMES.MERCENARY_DIBS_CONFIG)
+        .values({
+          guild_id: guildId,
+          merc_registration_channel_id: merc_registration_channel_id || null,
+          max_active_dibs_per_person: max_active_dibs_per_person ?? 5,
+          dibs_remaining_minutes: dibs_remaining_minutes ?? 15,
+          is_enabled: dibs_enabled ?? 1,
+          updated_by: session.discord_id,
+          updated_at: now,
+        })
+        .onConflict((oc) =>
+          oc.column("guild_id").doUpdateSet({
+            merc_registration_channel_id: merc_registration_channel_id || null,
+            max_active_dibs_per_person: max_active_dibs_per_person ?? 5,
+            dibs_remaining_minutes: dibs_remaining_minutes ?? 15,
+            is_enabled: dibs_enabled ?? 1,
             updated_by: session.discord_id,
             updated_at: now,
           }),
@@ -254,8 +270,6 @@ configRouter.post(
         description,
         contract_type,
         pay_amount,
-        pay_currency,
-        pay_terms,
         status,
         start_at,
         ends_at,
@@ -266,8 +280,8 @@ configRouter.post(
         min_level,
         max_level,
         target_roles,
-        require_faction_no_active_war,
-        require_faction_no_upcoming_war,
+        require_faction_active_war,
+        require_faction_upcoming_war,
       } = req.body;
 
       if (!title || String(title).trim().length === 0) {
@@ -307,8 +321,8 @@ configRouter.post(
         });
       }
 
-      const requiresNoActiveWar = require_faction_no_active_war ? 1 : 0;
-      const requiresNoUpcomingWar = require_faction_no_upcoming_war ? 1 : 0;
+      const requiresNoActiveWar = !require_faction_active_war ? 1 : 0;
+      const requiresNoUpcomingWar = !require_faction_upcoming_war ? 1 : 0;
 
       if (requiresNoActiveWar && warState.hasActiveWar) {
         return res.status(400).json({
@@ -332,18 +346,18 @@ configRouter.post(
           guild_id: guildId,
           title: String(title).trim(),
           description: description || null,
-          contract_type: contract_type || "hit",
+          contract_type: contract_type || "hosp",
           status: status || "active",
           pay_amount: Number(pay_amount) || 0,
-          pay_currency: pay_currency || "cash",
-          pay_terms: pay_terms || null,
+          pay_currency: "cash",
+          pay_terms: null,
           start_at: start_at || null,
           ends_at: ends_at || null,
           created_by: session.discord_id,
           updated_at: now,
           faction_id: factionIdNumber,
           faction_name: faction.name,
-          target_scope: target_scope || "all_members",
+          target_scope: target_scope || "offline_and_idle",
           idle_minutes: idle_minutes ? Number(idle_minutes) : null,
           auto_finish_on_war_end: auto_finish_on_war_end ? 1 : 0,
           min_level: min_level ? Number(min_level) : null,
@@ -358,7 +372,7 @@ configRouter.post(
 
       await logGuildAction(guildId, discordClient, {
         title: "Mercenary Contract Created",
-        description: `<@${session.discord_id}> created contract **${String(title).trim()}** for faction **${faction.name}**.`,
+        description: `<@${session.discord_id}> created **${String(title).trim()}** contract for faction ${faction.name}.`,
       });
 
       const createdContract = await db
@@ -461,12 +475,6 @@ configRouter.patch(
       if (req.body.pay_amount !== undefined) {
         updateData.pay_amount = Number(req.body.pay_amount) || 0;
       }
-      if (req.body.pay_currency !== undefined) {
-        updateData.pay_currency = req.body.pay_currency;
-      }
-      if (req.body.pay_terms !== undefined) {
-        updateData.pay_terms = req.body.pay_terms || null;
-      }
       if (req.body.start_at !== undefined) {
         updateData.start_at = req.body.start_at || null;
       }
@@ -501,15 +509,15 @@ configRouter.patch(
           Array.isArray(req.body.target_roles) ? req.body.target_roles : [],
         );
       }
-      if (req.body.require_faction_no_active_war !== undefined) {
-        updateData.require_faction_no_active_war = req.body
-          .require_faction_no_active_war
+      if (req.body.require_faction_active_war !== undefined) {
+        updateData.require_faction_no_active_war = !req.body
+          .require_faction_active_war
           ? 1
           : 0;
       }
-      if (req.body.require_faction_no_upcoming_war !== undefined) {
-        updateData.require_faction_no_upcoming_war = req.body
-          .require_faction_no_upcoming_war
+      if (req.body.require_faction_upcoming_war !== undefined) {
+        updateData.require_faction_no_upcoming_war = !req.body
+          .require_faction_upcoming_war
           ? 1
           : 0;
       }
@@ -547,6 +555,70 @@ configRouter.patch(
       });
     } catch (error) {
       console.error("[HTTP] Error updating mercenary contract:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+configRouter.get(
+  "/mercenary/faction/:id",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const factionId = Number(req.params.id);
+
+      if (!factionId || !Number.isInteger(factionId) || factionId <= 0) {
+        return res.status(400).json({ error: "Valid faction_id is required" });
+      }
+
+      const apiKey = await getPrimaryGuildApiKey(guildId);
+      if (!apiKey) {
+        return res.status(400).json({
+          error:
+            "No primary API key configured. Add one in Admin Config before verifying factions.",
+        });
+      }
+
+      const faction = await validateAndFetchFactionDetails(factionId, apiKey);
+      if (!faction) {
+        return res.status(400).json({
+          error:
+            "Faction verification failed. Check faction_id and API key scope.",
+        });
+      }
+
+      const membersResponse = await tornApi.get("/faction/{id}/members", {
+        apiKey,
+        pathParams: { id: String(factionId) },
+      });
+
+      // Extract available roles from faction members
+      const availableRoles = new Set<string>();
+      const members = membersResponse.members;
+      if (Array.isArray(members)) {
+        for (const member of members) {
+          if (member?.position && typeof member.position === "string") {
+            availableRoles.add(member.position);
+          }
+        }
+      }
+
+      res.json({
+        faction_name: faction.name,
+        available_roles: Array.from(availableRoles).sort(),
+        target_roles: Array.from(availableRoles).sort(),
+      });
+    } catch (error) {
+      console.error("[HTTP] Error verifying faction:", error);
       res.status(500).json({ error: "Server error" });
     }
   },

@@ -60,6 +60,10 @@ export const TABLE_NAMES = {
   MERCENARY_VERIFICATION_VAULT: "sentinel_mercenary_verification_vault",
   MERCENARY_PAYOUT_BATCHES: "sentinel_mercenary_payout_batches",
   MERCENARY_PAYOUT_ITEMS: "sentinel_mercenary_payout_items",
+  MERCENARY_DIBS_CONFIG: "sentinel_mercenary_dibs_config",
+  MERCENARY_REGISTERED_MERCS: "sentinel_mercenary_registered_mercs",
+  MERCENARY_DIBS: "sentinel_mercenary_dibs",
+  MERCENARY_POPULATIONS: "sentinel_mercenary_populations",
 } as const;
 
 /** Alert module types */

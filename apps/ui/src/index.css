@@ -147,6 +147,16 @@
     background: var(--color-muted-foreground);
   }
 
+  /* Number Input - Hide spinner arrows */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
   /* Territory Paths (SVG interactions) */
   .territory-path {
     transition:
