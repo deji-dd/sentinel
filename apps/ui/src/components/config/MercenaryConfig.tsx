@@ -27,6 +27,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { fetchWithFallback } from "@/lib/api-base";
 import {
@@ -48,14 +49,14 @@ type ContractStatus =
   | "closed";
 
 type MercenarySettings = {
-  is_enabled: number;
   contract_announcement_channel_id: string | null;
   hit_post_channel_id: string | null;
   payout_channel_id: string | null;
   audit_channel_id: string | null;
-  default_target_scope: string;
-  default_idle_minutes: number | null;
-  default_auto_finish_on_war_end: number;
+  merc_registration_channel_id: string | null;
+  max_active_dibs_per_person: number;
+  dibs_remaining_minutes: number;
+  dibs_enabled: number;
 };
 
 type MercenaryContract = {
@@ -87,39 +88,39 @@ type ContractDraft = {
   description: string;
   contract_type: string;
   pay_amount: string;
-  pay_currency: string;
-  pay_terms: string;
   start_at: string;
   ends_at: string;
   faction_id: string;
+  faction_name: string;
+  available_roles: string[];
   target_scope: string;
   idle_minutes: string;
   auto_finish_on_war_end: boolean;
   min_level: string;
   max_level: string;
-  require_faction_no_active_war: boolean;
-  require_faction_no_upcoming_war: boolean;
-  target_roles_csv: string;
+  require_faction_active_war: boolean;
+  require_faction_upcoming_war: boolean;
+  target_roles: string[];
 };
 
 const EMPTY_CONTRACT: ContractDraft = {
   title: "",
   description: "",
-  contract_type: "hit",
+  contract_type: "hosp",
   pay_amount: "0",
-  pay_currency: "cash",
-  pay_terms: "",
   start_at: "",
   ends_at: "",
   faction_id: "",
-  target_scope: "all_members",
-  idle_minutes: "",
-  auto_finish_on_war_end: false,
+  faction_name: "",
+  available_roles: [],
+  target_scope: "offline_and_idle",
+  idle_minutes: "15",
+  auto_finish_on_war_end: true,
   min_level: "",
   max_level: "",
-  require_faction_no_active_war: true,
-  require_faction_no_upcoming_war: true,
-  target_roles_csv: "",
+  require_faction_active_war: false,
+  require_faction_upcoming_war: true,
+  target_roles: [],
 };
 
 export const MercenaryConfig = forwardRef(
@@ -136,8 +137,8 @@ export const MercenaryConfig = forwardRef(
     ref,
   ) => {
     const [loading, setLoading] = useState(true);
-    const [savingSettings, setSavingSettings] = useState(false);
     const [savingContract, setSavingContract] = useState(false);
+    const [lookingUpFaction, setLookingUpFaction] = useState(false);
     const [settingsBaseline, setSettingsBaseline] =
       useState<MercenarySettings | null>(null);
     const [settings, setSettings] = useState<MercenarySettings | null>(null);
@@ -189,10 +190,58 @@ export const MercenaryConfig = forwardRef(
       loadData();
     }, [sessionToken]);
 
+    const lookupFaction = async (factionId: string) => {
+      if (!factionId.trim()) {
+        return;
+      }
+
+      setLookingUpFaction(true);
+      try {
+        const response = await fetchWithFallback(
+          `/api/config/mercenary/faction/${factionId}`,
+          {
+            headers: { Authorization: `Bearer ${sessionToken}` },
+          },
+        );
+
+        if (!response.ok) {
+          const body = await response
+            .json()
+            .catch(() => ({ error: "Failed to lookup faction" }));
+          throw new Error(body.error || "Faction not found or error verifying");
+        }
+
+        const factionData = await response.json();
+        const targetRoles =
+          factionData.target_roles || factionData.available_roles || [];
+        setDraft((current) => ({
+          ...current,
+          faction_id: factionId,
+          faction_name: factionData.faction_name || "",
+          title: factionData.faction_name || "",
+          available_roles: factionData.available_roles || [],
+          target_roles: targetRoles,
+        }));
+
+        toast.success("Faction verified");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to lookup faction",
+        );
+        setDraft((current) => ({
+          ...current,
+          faction_name: "",
+          available_roles: [],
+          target_roles: [],
+        }));
+      } finally {
+        setLookingUpFaction(false);
+      }
+    };
+
     const saveSettings = async () => {
       if (!settings) return false;
 
-      setSavingSettings(true);
       try {
         const response = await fetchWithFallback(
           "/api/config/mercenary/settings",
@@ -204,9 +253,6 @@ export const MercenaryConfig = forwardRef(
             },
             body: JSON.stringify({
               ...settings,
-              is_enabled: settings.is_enabled === 1,
-              default_auto_finish_on_war_end:
-                settings.default_auto_finish_on_war_end === 1,
             }),
           },
         );
@@ -226,8 +272,6 @@ export const MercenaryConfig = forwardRef(
           error instanceof Error ? error.message : "Failed to save settings",
         );
         return false;
-      } finally {
-        setSavingSettings(false);
       }
     };
 
@@ -239,19 +283,23 @@ export const MercenaryConfig = forwardRef(
       setDraft((current) => ({ ...current, [key]: value }));
     };
 
+    const updateTargetRoles = (roles: string[]) => {
+      setDraft((current) => ({ ...current, target_roles: roles }));
+    };
+
     const resetDraft = () => {
       setEditingContractId(null);
       setDraft(EMPTY_CONTRACT);
     };
 
     const submitContract = async () => {
-      if (!draft.title.trim()) {
-        toast.error("Contract title is required");
+      if (!draft.faction_id.trim()) {
+        toast.error("Faction ID is required");
         return;
       }
 
-      if (!draft.faction_id.trim()) {
-        toast.error("Faction ID is required");
+      if (!draft.title.trim()) {
+        toast.error("Contract title is required");
         return;
       }
 
@@ -262,23 +310,20 @@ export const MercenaryConfig = forwardRef(
           description: draft.description || null,
           contract_type: draft.contract_type,
           pay_amount: Number(draft.pay_amount) || 0,
-          pay_currency: draft.pay_currency,
-          pay_terms: draft.pay_terms || null,
           start_at: draft.start_at || null,
           ends_at: draft.ends_at || null,
           faction_id: Number(draft.faction_id),
           target_scope: draft.target_scope,
-          idle_minutes: draft.idle_minutes ? Number(draft.idle_minutes) : null,
+          idle_minutes:
+            draft.target_scope === "offline_and_idle" && draft.idle_minutes
+              ? Number(draft.idle_minutes)
+              : null,
           auto_finish_on_war_end: draft.auto_finish_on_war_end,
           min_level: draft.min_level ? Number(draft.min_level) : null,
           max_level: draft.max_level ? Number(draft.max_level) : null,
-          require_faction_no_active_war: draft.require_faction_no_active_war,
-          require_faction_no_upcoming_war:
-            draft.require_faction_no_upcoming_war,
-          target_roles: draft.target_roles_csv
-            .split(",")
-            .map((item) => item.trim())
-            .filter((item) => item.length > 0),
+          require_faction_active_war: draft.require_faction_active_war,
+          require_faction_upcoming_war: draft.require_faction_upcoming_war,
+          target_roles: draft.target_roles,
         };
 
         const endpoint = editingContractId
@@ -316,31 +361,56 @@ export const MercenaryConfig = forwardRef(
       }
     };
 
-    const editContract = (contract: MercenaryContract) => {
+    const editContract = async (contract: MercenaryContract) => {
       setEditingContractId(contract.id);
       setDraft({
         title: contract.title || "",
         description: contract.description || "",
-        contract_type: contract.contract_type || "hit",
+        contract_type: contract.contract_type || "hosp",
         pay_amount: String(contract.pay_amount || 0),
-        pay_currency: contract.pay_currency || "cash",
-        pay_terms: contract.pay_terms || "",
         start_at: contract.start_at || "",
         ends_at: contract.ends_at || "",
         faction_id: contract.faction_id ? String(contract.faction_id) : "",
-        target_scope: contract.target_scope || "all_members",
+        faction_name: contract.faction_name || "",
+        available_roles: [],
+        target_scope: contract.target_scope || "offline_and_idle",
         idle_minutes: contract.idle_minutes
           ? String(contract.idle_minutes)
-          : "",
+          : "15",
         auto_finish_on_war_end: contract.auto_finish_on_war_end === 1,
         min_level: contract.min_level ? String(contract.min_level) : "",
         max_level: contract.max_level ? String(contract.max_level) : "",
-        require_faction_no_active_war:
+        require_faction_active_war:
           contract.require_faction_no_active_war === 1,
-        require_faction_no_upcoming_war:
+        require_faction_upcoming_war:
           contract.require_faction_no_upcoming_war === 1,
-        target_roles_csv: (contract.target_roles || []).join(", "),
+        target_roles: contract.target_roles || [],
       });
+
+      // Fetch available roles from the faction
+      if (contract.faction_id) {
+        setLookingUpFaction(true);
+        try {
+          const response = await fetchWithFallback(
+            `/api/config/mercenary/faction/${contract.faction_id}`,
+            {
+              headers: { Authorization: `Bearer ${sessionToken}` },
+            },
+          );
+
+          if (response.ok) {
+            const factionData = await response.json();
+            setDraft((current) => ({
+              ...current,
+              available_roles: factionData.available_roles || [],
+            }));
+          }
+        } catch (error) {
+          console.error("Failed to fetch available roles:", error);
+        } finally {
+          setLookingUpFaction(false);
+        }
+      }
     };
 
     const updateContractStatus = async (
@@ -402,25 +472,6 @@ export const MercenaryConfig = forwardRef(
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 px-3 py-2">
-              <div className="space-y-0.5">
-                <p className="text-sm font-semibold">Enable Mercenary Module</p>
-                <p className="text-xs text-muted-foreground">
-                  Controls whether contract workflows are active for this guild.
-                </p>
-              </div>
-              <Switch
-                checked={settings.is_enabled === 1}
-                onCheckedChange={(checked) =>
-                  setSettings((current) =>
-                    current
-                      ? { ...current, is_enabled: checked ? 1 : 0 }
-                      : current,
-                  )
-                }
-              />
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Contract Announcement Channel</Label>
@@ -438,7 +489,7 @@ export const MercenaryConfig = forwardRef(
                     )
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select channel" />
                   </SelectTrigger>
                   <SelectContent>
@@ -470,7 +521,7 @@ export const MercenaryConfig = forwardRef(
                     )
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select channel" />
                   </SelectTrigger>
                   <SelectContent>
@@ -501,7 +552,7 @@ export const MercenaryConfig = forwardRef(
                     )
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select channel" />
                   </SelectTrigger>
                   <SelectContent>
@@ -532,7 +583,57 @@ export const MercenaryConfig = forwardRef(
                     )
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {availableChannels.map(
+                      (channel: { id: string; name: string }) => (
+                        <SelectItem key={channel.id} value={channel.id}>
+                          {channel.name}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader>
+            <div className="flex items-center gap-2 text-primary mb-1">
+              <Crosshair className="w-4 h-4" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
+                Dibs System
+              </span>
+            </div>
+            <CardTitle>Dibs Configuration</CardTitle>
+            <CardDescription>
+              Configure the dibs system for war-time mercenary coordination.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Merc Registration Channel</Label>
+                <Select
+                  value={settings.merc_registration_channel_id || "none"}
+                  onValueChange={(value) =>
+                    setSettings((current) =>
+                      current
+                        ? {
+                            ...current,
+                            merc_registration_channel_id:
+                              value === "none" ? null : value,
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select channel" />
                   </SelectTrigger>
                   <SelectContent>
@@ -549,85 +650,64 @@ export const MercenaryConfig = forwardRef(
               </div>
 
               <div className="space-y-2">
-                <Label>Default Target Scope</Label>
-                <Select
-                  value={settings.default_target_scope || "all_members"}
-                  onValueChange={(value) =>
-                    setSettings((current) =>
-                      current
-                        ? { ...current, default_target_scope: value }
-                        : current,
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all_members">All Members</SelectItem>
-                    <SelectItem value="offline_only">Offline Only</SelectItem>
-                    <SelectItem value="offline_and_idle">
-                      Offline and Idle
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Default Idle Minutes</Label>
+                <Label>Max Active Dibs Per Person</Label>
                 <Input
                   type="number"
-                  min={0}
-                  value={settings.default_idle_minutes ?? ""}
-                  onChange={(event) =>
+                  min={1}
+                  max={50}
+                  value={settings.max_active_dibs_per_person || 5}
+                  onChange={(e) =>
                     setSettings((current) =>
                       current
                         ? {
                             ...current,
-                            default_idle_minutes:
-                              event.target.value === ""
-                                ? null
-                                : Number(event.target.value),
+                            max_active_dibs_per_person: Number(e.target.value),
                           }
+                        : current,
+                    )
+                  }
+                  placeholder="5"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Dibs Remaining Time (minutes)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={settings.dibs_remaining_minutes || 15}
+                  onChange={(e) =>
+                    setSettings((current) =>
+                      current
+                        ? {
+                            ...current,
+                            dibs_remaining_minutes: Number(e.target.value),
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="15"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Only targets with this much time left in hospital show in dibs
+                  list
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label>Enable Dibs System</Label>
+                <Switch
+                  checked={Boolean(settings.dibs_enabled)}
+                  onCheckedChange={(v) =>
+                    setSettings((current) =>
+                      current
+                        ? { ...current, dibs_enabled: v ? 1 : 0 }
                         : current,
                     )
                   }
                 />
               </div>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 px-3 py-2">
-              <div className="space-y-0.5">
-                <p className="text-sm font-semibold">
-                  Default Auto-Finish on War End
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  New contracts inherit this unless overridden.
-                </p>
-              </div>
-              <Switch
-                checked={settings.default_auto_finish_on_war_end === 1}
-                onCheckedChange={(checked) =>
-                  setSettings((current) =>
-                    current
-                      ? {
-                          ...current,
-                          default_auto_finish_on_war_end: checked ? 1 : 0,
-                        }
-                      : current,
-                  )
-                }
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <Button
-                onClick={saveSettings}
-                disabled={savingSettings || !settingsDirty}
-              >
-                <Save className="w-4 h-4 mr-2" />
-                {savingSettings ? "Saving..." : "Save Mercenary Settings"}
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -649,194 +729,256 @@ export const MercenaryConfig = forwardRef(
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2 md:col-span-2">
-                <Label>Contract Title</Label>
-                <Input
-                  value={draft.title}
-                  onChange={(e) => updateDraft("title", e.target.value)}
-                  placeholder="Faction cleanup - week 1"
-                />
+            {/* Faction ID Verification Gate */}
+            {!draft.faction_name ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex gap-2 items-center">
+                  <ShieldAlert className="size-4 shrink-0" />
+                  Enter faction ID to verify and auto-populate contract details
+                </div>
+                <div className="space-y-2">
+                  <Label>Faction ID</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      value={draft.faction_id}
+                      onChange={(e) =>
+                        updateDraft("faction_id", e.target.value)
+                      }
+                      placeholder="12345"
+                    />
+                    <Button
+                      onClick={() => lookupFaction(draft.faction_id)}
+                      disabled={lookingUpFaction || !draft.faction_id.trim()}
+                    >
+                      {lookingUpFaction ? "Verifying..." : "Verify"}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>Description</Label>
-                <Textarea
-                  value={draft.description}
-                  onChange={(e) => updateDraft("description", e.target.value)}
-                  placeholder="Hit objectives, exclusions, and payout notes"
-                />
-              </div>
+            ) : (
+              <>
+                {/* Full Contract Form - After Faction Verification */}
+                <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200 flex gap-2 items-center">
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  Faction verified:{" "}
+                  <span className="font-semibold">{draft.faction_name}</span>
+                </div>
 
-              <div className="space-y-2">
-                <Label>Faction ID</Label>
-                <Input
-                  value={draft.faction_id}
-                  onChange={(e) => updateDraft("faction_id", e.target.value)}
-                  placeholder="12345"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Contract Type</Label>
-                <Select
-                  value={draft.contract_type}
-                  onValueChange={(v) => updateDraft("contract_type", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hit">Hit</SelectItem>
-                    <SelectItem value="mug">Mug</SelectItem>
-                    <SelectItem value="defend">Defend</SelectItem>
-                    <SelectItem value="mixed">Mixed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Contract Title</Label>
+                    <Input
+                      value={draft.title}
+                      onChange={(e) => updateDraft("title", e.target.value)}
+                      placeholder="Auto-populated from faction name"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Target Scope</Label>
-                <Select
-                  value={draft.target_scope}
-                  onValueChange={(v) => updateDraft("target_scope", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all_members">All Members</SelectItem>
-                    <SelectItem value="offline_only">Offline Only</SelectItem>
-                    <SelectItem value="offline_and_idle">
-                      Offline and Idle
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Idle Minutes (for idle scope)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={draft.idle_minutes}
-                  onChange={(e) => updateDraft("idle_minutes", e.target.value)}
-                  placeholder="30"
-                />
-              </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Notes</Label>
+                    <Textarea
+                      value={draft.description}
+                      onChange={(e) =>
+                        updateDraft("description", e.target.value)
+                      }
+                      placeholder="Use warlords on all hits"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Pay Amount</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={draft.pay_amount}
-                  onChange={(e) => updateDraft("pay_amount", e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Pay Currency</Label>
-                <Select
-                  value={draft.pay_currency}
-                  onValueChange={(v) => updateDraft("pay_currency", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="points">Points</SelectItem>
-                    <SelectItem value="item">Item</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="space-y-2">
+                    <Label>Contract Type</Label>
+                    <Select
+                      value={draft.contract_type}
+                      onValueChange={(v) => updateDraft("contract_type", v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="leave">Leave</SelectItem>
+                        <SelectItem value="mug">Mug</SelectItem>
+                        <SelectItem value="hosp">Hospitalize</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <Label>Pay Terms</Label>
-                <Textarea
-                  value={draft.pay_terms}
-                  onChange={(e) => updateDraft("pay_terms", e.target.value)}
-                  placeholder="Per verified hospitalize, bonus for chain finishers..."
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label>Target Scope</Label>
+                    <Select
+                      value={draft.target_scope}
+                      onValueChange={(v) => {
+                        updateDraft("target_scope", v);
+                        if (v !== "offline_and_idle") {
+                          updateDraft("idle_minutes", "");
+                        } else if (!draft.idle_minutes) {
+                          updateDraft("idle_minutes", "15");
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all_members">All Members</SelectItem>
+                        <SelectItem value="offline_only">
+                          Offline Only
+                        </SelectItem>
+                        <SelectItem value="offline_and_idle">
+                          Offline and Idle
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Min Level</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={draft.min_level}
-                  onChange={(e) => updateDraft("min_level", e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Max Level</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={draft.max_level}
-                  onChange={(e) => updateDraft("max_level", e.target.value)}
-                />
-              </div>
+                  {draft.target_scope === "offline_and_idle" && (
+                    <div className="space-y-2">
+                      <Label>Idle Minutes</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={draft.idle_minutes}
+                        onChange={(e) =>
+                          updateDraft("idle_minutes", e.target.value)
+                        }
+                        placeholder="15"
+                      />
+                    </div>
+                  )}
 
-              <div className="space-y-2 md:col-span-2">
-                <Label>Target Roles (comma-separated)</Label>
-                <Input
-                  value={draft.target_roles_csv}
-                  onChange={(e) =>
-                    updateDraft("target_roles_csv", e.target.value)
-                  }
-                  placeholder="member, xanax_user, trader"
-                />
-              </div>
-            </div>
+                  <div className="space-y-2">
+                    <Label>$/hit</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={draft.pay_amount}
+                      onChange={(e) =>
+                        updateDraft("pay_amount", e.target.value)
+                      }
+                      placeholder="0"
+                    />
+                  </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-border/50 p-3 bg-background/50">
-              <div className="flex items-center justify-between">
-                <Label>Auto-finish on war end</Label>
-                <Switch
-                  checked={draft.auto_finish_on_war_end}
-                  onCheckedChange={(v) =>
-                    updateDraft("auto_finish_on_war_end", v)
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label>Require no active war</Label>
-                <Switch
-                  checked={draft.require_faction_no_active_war}
-                  onCheckedChange={(v) =>
-                    updateDraft("require_faction_no_active_war", v)
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label>Require no upcoming war</Label>
-                <Switch
-                  checked={draft.require_faction_no_upcoming_war}
-                  onCheckedChange={(v) =>
-                    updateDraft("require_faction_no_upcoming_war", v)
-                  }
-                />
-              </div>
-            </div>
+                  <div className="space-y-2">
+                    <Label>Min Level</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={draft.min_level}
+                      onChange={(e) => updateDraft("min_level", e.target.value)}
+                      placeholder="1"
+                    />
+                  </div>
 
-            <div className="flex gap-2 justify-end">
-              {editingContractId && (
-                <Button variant="outline" onClick={resetDraft}>
-                  Cancel Edit
-                </Button>
-              )}
-              <Button onClick={submitContract} disabled={savingContract}>
-                {editingContractId ? (
-                  <Save className="w-4 h-4 mr-2" />
-                ) : (
-                  <Plus className="w-4 h-4 mr-2" />
-                )}
-                {savingContract
-                  ? "Saving..."
-                  : editingContractId
-                    ? "Update Contract"
-                    : "Create Contract"}
-              </Button>
-            </div>
+                  <div className="space-y-2">
+                    <Label>Max Level</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={draft.max_level}
+                      onChange={(e) => updateDraft("max_level", e.target.value)}
+                      placeholder="100"
+                    />
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Target Roles</Label>
+                    <div className="text-xs text-muted-foreground mb-2">
+                      {draft.available_roles.length} available from faction
+                    </div>
+                    <div className="rounded-md border border-input bg-background p-3 space-y-2 max-h-40 overflow-y-auto">
+                      {draft.available_roles.length > 0 ? (
+                        draft.available_roles.map((role) => (
+                          <div
+                            key={role}
+                            className="flex items-center space-x-2"
+                          >
+                            <Checkbox
+                              id={`role-${role}`}
+                              checked={draft.target_roles.includes(role)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  updateTargetRoles([
+                                    ...draft.target_roles,
+                                    role,
+                                  ]);
+                                } else {
+                                  updateTargetRoles(
+                                    draft.target_roles.filter(
+                                      (r) => r !== role,
+                                    ),
+                                  );
+                                }
+                              }}
+                            />
+                            <Label
+                              htmlFor={`role-${role}`}
+                              className="text-sm font-normal cursor-pointer"
+                            >
+                              {role}
+                            </Label>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Verify a faction to load roles
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-border/50 p-3 bg-background/50">
+                  <div className="flex items-center justify-between">
+                    <Label>Auto-finish on war end</Label>
+                    <Switch
+                      checked={draft.auto_finish_on_war_end}
+                      onCheckedChange={(v) =>
+                        updateDraft("auto_finish_on_war_end", v)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Require active war</Label>
+                    <Switch
+                      checked={draft.require_faction_active_war}
+                      onCheckedChange={(v) =>
+                        updateDraft("require_faction_active_war", v)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Require upcoming war</Label>
+                    <Switch
+                      checked={draft.require_faction_upcoming_war}
+                      onCheckedChange={(v) =>
+                        updateDraft("require_faction_upcoming_war", v)
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={resetDraft}>
+                    Cancel
+                  </Button>
+                  <Button onClick={submitContract} disabled={savingContract}>
+                    {editingContractId ? (
+                      <Save className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-2" />
+                    )}
+                    {savingContract
+                      ? "Saving..."
+                      : editingContractId
+                        ? "Update Contract"
+                        : "Create Contract"}
+                  </Button>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -871,19 +1013,24 @@ export const MercenaryConfig = forwardRef(
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                        <div>
                           <h4 className="font-semibold">{contract.title}</h4>
-                          <Badge variant="outline">{contract.status}</Badge>
-                          {contract.faction_name && (
-                            <Badge>{contract.faction_name}</Badge>
-                          )}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {contract.description || "No description"}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Scope: {contract.target_scope} • Pay:{" "}
-                          {contract.pay_amount} {contract.pay_currency}
+                          {contract.target_scope === "all_members"
+                            ? "All members"
+                            : contract.target_scope === "offline_only"
+                              ? "Offline only"
+                              : contract.target_scope === "offline_and_idle"
+                                ? `Offline and idle (${contract.idle_minutes}m+)`
+                                : contract.target_scope}{" "}
+                          •{" "}
+                          {contract.pay_amount > 0
+                            ? `$${contract.pay_amount.toLocaleString()}`
+                            : "No payment"}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -958,12 +1105,6 @@ export const MercenaryConfig = forwardRef(
                 ))}
               </TabsContent>
             </Tabs>
-
-            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex gap-2 items-start">
-              <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
-              Contract creation validates faction identity and blocks creation
-              when the faction has active/upcoming wars.
-            </div>
           </CardContent>
         </Card>
       </div>

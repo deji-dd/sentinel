@@ -37,7 +37,6 @@ app.set("trust proxy", 1);
 app.use(
   helmet({
     contentSecurityPolicy: false,
-    permissionsPolicy: false,
   }),
 );
 app.use(express.json());

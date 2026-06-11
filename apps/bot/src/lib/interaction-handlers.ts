@@ -15,6 +15,7 @@ import {
 import * as configCommand from "../commands/general/admin/config.js";
 import * as assistCommand from "../commands/general/assist/assist.js";
 import * as ttSelectorCommand from "../commands/general/territories/tt-selector.js";
+import * as mercenaryInteractions from "./mercenary-interactions.js";
 
 type ButtonHandler = (interaction: ButtonInteraction) => Promise<void>;
 type ModalHandler = (interaction: ModalSubmitInteraction) => Promise<void>;
@@ -83,6 +84,10 @@ const buttonPrefixHandlers: Array<{ prefix: string; handler: ButtonHandler }> =
       prefix: "assist_manage_back|",
       handler: assistCommand.handleManageBackButton,
     },
+    {
+      prefix: "merc_claim_",
+      handler: mercenaryInteractions.handleMercClaimButton,
+    },
   ];
 
 const modalHandlers = new Map<string, ModalHandler>([
@@ -118,6 +123,10 @@ const stringSelectPrefixHandlers: Array<{
   {
     prefix: "tt_selector_",
     handler: ttSelectorCommand.handleStringSelectMenuInteraction,
+  },
+  {
+    prefix: "merc_select_target|",
+    handler: mercenaryInteractions.handleMercSelectTarget,
   },
 ];
 

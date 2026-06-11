@@ -16,6 +16,7 @@ import {
   startRateLimitPruningWorker,
   startWarLedgerPruningWorker,
   startWorkerLogsPruningWorker,
+  startMercenaryPopulationWorker,
 } from "./public/index.js";
 
 export type WorkerScope = "private" | "public" | "all";
@@ -41,6 +42,7 @@ const PUBLIC_WORKERS: Starter[] = [
   startRateLimitPruningWorker,
   startWarLedgerPruningWorker,
   startWorkerLogsPruningWorker,
+  startMercenaryPopulationWorker,
 ];
 
 export function startWorkersForScope(scope: WorkerScope): number {

@@ -15,6 +15,7 @@ import * as burnMapCommand from "../commands/general/territories/burn-map.js";
 import * as allianceMapCommand from "../commands/general/territories/alliance-map.js";
 import * as assistCommand from "../commands/general/assist/assist.js";
 import * as ttSelectorCommand from "../commands/general/territories/tt-selector.js";
+import * as mercCommand from "../commands/general/mercenary/merc.js";
 
 /**
  * List of all regular (non-admin) command names
@@ -31,6 +32,7 @@ const REGULAR_COMMAND_NAMES = [
   "alliance-map",
   "assist",
   "tt-selector",
+  "merc",
 ];
 
 /**
@@ -85,6 +87,9 @@ export async function handleRegularCommand(
       break;
     case "tt-selector":
       await ttSelectorCommand.execute(interaction);
+      break;
+    case "merc":
+      await mercCommand.execute(interaction);
       break;
   }
 
