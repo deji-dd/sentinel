@@ -5,31 +5,47 @@
 
 import { Client, Events } from "discord.js";
 import { initHttpServer } from "./http-server.js";
-import { GuildSyncScheduler } from "./verification-sync.js";
-import { WarTrackerScheduler } from "./war-tracker-scheduler.js";
 import { getHttpPort } from "./bot-config.js";
-import { startReviveMaintenance } from "../commands/general/admin/handlers/revive.js";
+import {
+  syncAutoVerifyCronSchedules,
+  syncGlobalCronSchedules,
+  syncWarTrackerCronSchedules,
+} from "./cron-schedule-registry.js";
+import { TABLE_NAMES } from "@sentinel/shared";
+import { db } from "./db-client.js";
+
+import { Logger } from "./logger.js";
+
+const logger = new Logger("Bot");
 
 /**
  * Register client ready event handler
  */
 export function registerClientReadyEvent(client: Client): void {
   client.once(Events.ClientReady, (readyClient) => {
-    console.log(`Bot is online as ${readyClient.user.tag}`);
+    logger.success(`Online as ${readyClient.user.tag}`);
+
+    // Reset any stuck guild sync jobs from previous crashes/restarts
+    db.updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
+      .set({ in_progress: 0 })
+      .where("in_progress", "=", 1)
+      .execute()
+      .then((res) => {
+        const affected = Number(res[0]?.numUpdatedRows);
+        if (affected > 0) {
+          logger.info(`Reset ${affected} stuck guild sync job(s) from database lock state on startup`);
+        }
+      })
+      .catch((err) => {
+        logger.error("Failed to reset stuck guild sync jobs on startup", err);
+      });
 
     // Start HTTP server for worker communication
     const httpPort = getHttpPort();
     initHttpServer(client, httpPort);
 
-    // Start periodic guild sync scheduler
-    const guildSyncScheduler = new GuildSyncScheduler(client);
-    guildSyncScheduler.start();
-
-    // Start war tracker scheduler
-    const warTrackerScheduler = new WarTrackerScheduler(client);
-    warTrackerScheduler.start();
-
-    // Start revive maintenance scheduler
-    startReviveMaintenance(client);
+    void syncGlobalCronSchedules();
+    void syncAutoVerifyCronSchedules(readyClient);
+    void syncWarTrackerCronSchedules();
   });
 }

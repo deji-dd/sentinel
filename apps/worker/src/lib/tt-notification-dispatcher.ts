@@ -4,12 +4,13 @@
  */
 
 import { TABLE_NAMES, type TornFactionData } from "@sentinel/shared";
-import { logError } from "./logger.js";
+import { Logger } from "./logger.js";
 import { getAllSystemApiKeys } from "./api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || "http://localhost:3001";
+const logger = new Logger("TT Dispatcher");
 
 export interface TTEventNotification {
   guild_id: string;
@@ -884,8 +885,7 @@ async function sendEmbedsToChannel(
 
     if (!response.ok) {
       const error = await response.text();
-      logError(
-        "TT Dispatcher",
+      logger.error(
         `Failed to send to guild ${guildId}: ${response.status} ${error}`,
       );
     }
@@ -960,9 +960,6 @@ export async function processAndDispatchNotifications(
       }
     }
   } catch (error) {
-    logError(
-      "TT Dispatcher",
-      `Error processing notifications: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    logger.error("Error processing notifications", error);
   }
 }

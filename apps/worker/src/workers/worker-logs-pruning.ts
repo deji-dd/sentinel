@@ -1,10 +1,11 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { logDuration } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "worker_logs_pruning_worker";
+const logger = new Logger(WORKER_NAME);
 const PRUNE_CADENCE_SECONDS = 86400; // Prune once daily
 const RETENTION_DAYS = 30; // Keep 30 days of worker execution logs
 
@@ -36,19 +37,18 @@ async function pruneWorkerLogs(): Promise<void> {
   const duration = Date.now() - startTime;
 
   if (deletedCount > 0) {
-    logDuration(
-      WORKER_NAME,
+    logger.success(
       `Pruned ${deletedCount} worker logs older than ${RETENTION_DAYS} days`,
       duration,
     );
   } else {
-    logDuration(WORKER_NAME, "No old worker logs to prune", duration);
+    logger.success("No old worker logs to prune", duration);
   }
 }
 
 export function startWorkerLogsPruningWorker(): void {
   startDbScheduledRunner({
-    worker: "worker_logs_pruning_worker",
+    worker: WORKER_NAME,
     defaultCadenceSeconds: PRUNE_CADENCE_SECONDS,
     pollIntervalMs: 5000,
     handler: async () => {

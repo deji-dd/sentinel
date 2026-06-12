@@ -1,12 +1,13 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "torn_gyms_worker";
+const logger = new Logger(WORKER_NAME);
 const DAILY_CADENCE_SECONDS = 86400; // 24h
 const UPSERT_CHUNK_SIZE = 200;
 
@@ -150,7 +151,7 @@ async function syncTornGyms(): Promise<void> {
       .executeTakeFirst();
 
     if (!snapshotData) {
-      logError(WORKER_NAME, "Failed to fetch user snapshot: no data");
+      logger.error("Failed to fetch user snapshot: no data");
       throw new Error("No battlestats snapshot available");
     }
 
@@ -225,14 +226,12 @@ async function syncTornGyms(): Promise<void> {
     }
 
     const duration = Date.now() - startTime;
-    logDuration(
-      WORKER_NAME,
+    logger.success(
       `Sync completed for ${gyms.length} gyms`,
       duration,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logError(WORKER_NAME, `Sync failed: ${message}`);
+    logger.error("Sync failed", error, Date.now() - startTime);
     throw error;
   }
 }

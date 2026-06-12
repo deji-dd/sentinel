@@ -12,6 +12,10 @@ import { validateAndFetchFactionDetails } from "../../lib/faction-utils.js";
 import { tornApi } from "../../services/torn-client.js";
 import { validateTornApiKey } from "../../services/torn-client.js";
 import { logGuildSuccess, logGuildAction } from "../../lib/guild-logger.js";
+import {
+  syncAutoVerifyCronSchedule,
+  syncWarTrackerCronSchedules,
+} from "../../lib/cron-schedule-registry.js";
 import { getServerContext } from "../context.js";
 
 export const configRouter = Router();
@@ -903,6 +907,11 @@ configRouter.post("/", async (req: Request, res: Response) => {
         .where("guild_id", "=", guildId)
         .execute();
 
+      // Trigger scheduler update for auto-verify if it changed
+      if (changes.includes("Auto-Verify")) {
+        await syncAutoVerifyCronSchedule(guildId, discordClient);
+      }
+
       // Log the change
       await logGuildSuccess(
         guildId,
@@ -1402,9 +1411,24 @@ configRouter.post("/faction-roles", async (req: Request, res: Response) => {
         .execute();
     }
 
+    // Refresh the auto-verify schedule
+    const currentConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["auto_verify"])
+      .where("guild_id", "=", session.guild_id)
+      .executeTakeFirst();
+
+    await syncAutoVerifyCronSchedule(
+      session.guild_id,
+      discordClient,
+    );
+
+    const isNew = !id;
+    const targetFaction = faction_name || faction_id;
     await logGuildAction(session.guild_id, discordClient, {
-      title: "Faction Role Mapping Updated",
-      description: `<@${session.discord_id}> updated faction role mapping for faction ${faction_id} via Web Dashboard.`,
+      title: isNew ? `Faction Mapping Added: ${targetFaction}` : `Faction Mapping Updated: ${targetFaction}`,
+      description: isNew ? `Added by <@${session.discord_id}>` : `Updated by <@${session.discord_id}>`,
+      color: 0x22c55e, // Success (green)
     });
 
     res.json({ ok: true });
@@ -1429,15 +1453,39 @@ configRouter.delete(
 
       const { id } = req.params;
 
+      const mapping = await db
+        .selectFrom(TABLE_NAMES.FACTION_ROLES)
+        .select(["faction_id", "faction_name"])
+        .where("id", "=", id)
+        .where("guild_id", "=", session.guild_id)
+        .executeTakeFirst();
+
       await db
         .deleteFrom(TABLE_NAMES.FACTION_ROLES)
         .where("id", "=", id)
         .where("guild_id", "=", session.guild_id)
         .execute();
 
+      // Refresh the auto-verify schedule
+      const currentConfig = await db
+        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+        .select(["auto_verify"])
+        .where("guild_id", "=", session.guild_id)
+        .executeTakeFirst();
+
+      await syncAutoVerifyCronSchedule(
+        session.guild_id,
+        discordClient,
+      );
+
+      const targetFaction = mapping
+        ? (mapping.faction_name || mapping.faction_id)
+        : "Unknown Faction";
+
       await logGuildAction(session.guild_id, discordClient, {
-        title: "Faction Role Mapping Deleted",
-        description: `<@${session.discord_id}> deleted a faction role mapping via Web Dashboard.`,
+        title: `Faction Mapping Deleted: ${targetFaction}`,
+        description: `Deleted by <@${session.discord_id}>`,
+        color: 0xef4444, // Alert (red)
       });
 
       res.json({ ok: true });
@@ -1487,6 +1535,18 @@ configRouter.post("/api-keys", async (req: Request, res: Response) => {
       session.discord_id,
       primaryBool,
     );
+
+    const currentConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["auto_verify"])
+      .where("guild_id", "=", session.guild_id)
+      .executeTakeFirst();
+
+    await syncAutoVerifyCronSchedule(
+      session.guild_id,
+      discordClient,
+    );
+    await syncWarTrackerCronSchedules();
 
     // Log the addition (mask the key)
     const maskedKey = `...${api_key.slice(-4)}`;
@@ -1559,6 +1619,18 @@ configRouter.delete("/api-keys", async (req: Request, res: Response) => {
         ],
       });
     }
+
+    const currentConfig = await db
+      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+      .select(["auto_verify"])
+      .where("guild_id", "=", session.guild_id)
+      .executeTakeFirst();
+
+    await syncAutoVerifyCronSchedule(
+      session.guild_id,
+      discordClient,
+    );
+    await syncWarTrackerCronSchedules();
 
     res.json({ ok: true });
   } catch (error) {

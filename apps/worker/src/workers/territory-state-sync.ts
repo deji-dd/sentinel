@@ -40,7 +40,7 @@ import {
 } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import {
   processAndDispatchNotifications,
   type TTEventNotification,
@@ -48,6 +48,9 @@ import {
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
+
+const WORKER_NAME = "territory_state_sync";
+const logger = new Logger(WORKER_NAME);
 
 interface TTOwnershipChange {
   territory_id: string;
@@ -454,12 +457,12 @@ async function queueGuildNotifications(
 
 export function startTerritoryStateSyncWorker() {
   return startDbScheduledRunner({
-    worker: "territory_state_sync",
+    worker: WORKER_NAME,
     defaultCadenceSeconds: 96, // Will be updated based on key count
     getDynamicCadence: calculateCadence,
     handler: async () => {
       await executeSync({
-        name: "territory_state_sync",
+        name: WORKER_NAME,
         timeout: 180_000, // 3 minutes max (allows for rate limiting delays)
         handler: async () => {
           const startTime = Date.now();
@@ -485,8 +488,7 @@ export function startTerritoryStateSyncWorker() {
               .execute()) as TerritoryBlueprintRow[]; // Explicit limit - must be <= config.toml max_rows setting
 
             if (!allTTs || allTTs.length === 0) {
-              logDuration(
-                "territory_state_sync",
+              logger.success(
                 "No territories in blueprint",
                 Date.now() - startTime,
               );
@@ -510,10 +512,8 @@ export function startTerritoryStateSyncWorker() {
             const isCatchUp = await isCatchUpSync(cadence);
 
             if (isCatchUp) {
-              logDuration(
-                "territory_state_sync",
+              logger.warn(
                 `Catch-up sync detected (>2.5x cadence gap) - ownership notifications will be suppressed this run`,
-                0,
               );
             }
 
@@ -580,8 +580,7 @@ export function startTerritoryStateSyncWorker() {
 
               if (racketResponse.error) {
                 skipRackets = true;
-                logError(
-                  "territory_state_sync",
+                logger.error(
                   `Racket API error ${racketResponse.error.code}: ${racketResponse.error.error} - skipping racket sync this run`,
                 );
               } else {
@@ -589,9 +588,9 @@ export function startTerritoryStateSyncWorker() {
               }
             } catch (error) {
               skipRackets = true;
-              logError(
-                "territory_state_sync",
-                `Racket API request failed - skipping racket sync this run: ${error instanceof Error ? error.message : String(error)}`,
+              logger.error(
+                "Racket API request failed - skipping racket sync this run",
+                error,
               );
             }
 
@@ -607,8 +606,7 @@ export function startTerritoryStateSyncWorker() {
             // If hash matches last run, nothing changed - skip DB processing
             if (lastHash && currentHash === lastHash) {
               const duration = Date.now() - startTime;
-              logDuration(
-                "territory_state_sync",
+              logger.info(
                 `No changes detected (hash match) for ${allOwnershipData.length} territories`,
                 duration,
               );
@@ -776,7 +774,7 @@ export function startTerritoryStateSyncWorker() {
 
                 // Racket spawned
                 if (!oldRacketName && newRacketName) {
-                  console.log(`[RACKET] TT ${tt.id}: Racket spawned`);
+                  logger.debug(`[RACKET] TT ${tt.id}: Racket spawned`);
                   changedTerritories.add(tt.id);
                   // Create tenure for the faction that now occupies this territory with the racket
                   if (newFaction !== null) {
@@ -800,7 +798,7 @@ export function startTerritoryStateSyncWorker() {
                 }
                 // Racket despawned
                 else if (oldRacketName && !newRacketName) {
-                  console.log(`[RACKET] TT ${tt.id}: Racket despawned`);
+                  logger.debug(`[RACKET] TT ${tt.id}: Racket despawned`);
                   changedTerritories.add(tt.id);
                   // End tenure and calculate accumulated reward
                   let losingFactionAccumulatedReward: string | null = null;
@@ -839,7 +837,7 @@ export function startTerritoryStateSyncWorker() {
                   (oldRacketName !== newRacketName ||
                     oldRacketLevel !== newRacketLevel)
                 ) {
-                  console.log(`[RACKET] TT ${tt.id}: Racket level changed`);
+                  logger.debug(`[RACKET] TT ${tt.id}: Racket level changed`);
                   changedTerritories.add(tt.id);
                   notifications.push({
                     guild_id: "",
@@ -858,7 +856,7 @@ export function startTerritoryStateSyncWorker() {
                   newRacketName &&
                   oldBaseName !== newBaseName
                 ) {
-                  console.log(
+                  logger.debug(
                     `[RACKET] TT ${tt.id}: Racket type changed (despawn + spawn)`,
                   );
                   changedTerritories.add(tt.id);
@@ -1008,10 +1006,7 @@ export function startTerritoryStateSyncWorker() {
                   }
                 });
               } catch (error) {
-                logError(
-                  "territory_state_sync",
-                  `Failed to update territory states: ${error instanceof Error ? error.message : String(error)}`,
-                );
+                logger.error("Failed to update territory states", error);
                 throw error;
               }
 
@@ -1048,10 +1043,8 @@ export function startTerritoryStateSyncWorker() {
 
               // If catch-up sync, log suppressed ownership notification count
               if (isCatchUp && ownershipNotifications.length > 0) {
-                logDuration(
-                  "territory_state_sync",
+                logger.info(
                   `Suppressed ${ownershipNotifications.length} ownership change notification(s) during catch-up (racket notifications still sent)`,
-                  0,
                 );
               }
             }
@@ -1089,15 +1082,12 @@ export function startTerritoryStateSyncWorker() {
             });
 
             const duration = Date.now() - startTime;
-            logDuration(
-              "territory_state_sync",
+            logger.success(
               `Sync completed for ${allOwnershipData.length} territories (${ownershipChanges} ownership, ${racketChanges} racket changes [${racketSpawned} spawned, ${racketDespawned} despawned, ${racketLevelChanged} level changed], ${changedTerritories.size} DB updates)`,
               duration,
             );
           } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            logError("territory_state_sync", `Failed: ${message}`);
+            logger.error("Failed", error, Date.now() - startTime);
             throw error; // Re-throw so executeSync knows this failed
           }
         },

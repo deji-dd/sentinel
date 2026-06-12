@@ -10,37 +10,11 @@ import { logDuration, logError } from "../lib/logger.js";
 const TASK_NAME = "daily_summary";
 let summaryInFlight = false;
 
-/**
- * Get the next scheduled run time (00:05 TCT / 05:05 UTC)
- */
-function getNextRunTime(): Date {
-  const nowUtc = new Date();
-  const nextRun = new Date(nowUtc);
-
-  // Set to 05:05 UTC (00:05 TCT)
-  nextRun.setUTCHours(5, 5, 0, 0);
-
-  // If this time has already passed today, schedule for tomorrow
-  if (nextRun <= nowUtc) {
-    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-  }
-
-  return nextRun;
-}
-
-/**
- * Calculate milliseconds until next run
- */
-function getTimeUntilNextRun(): number {
-  const nextRun = getNextRunTime();
-  const now = new Date();
-  return nextRun.getTime() - now.getTime();
-}
 
 /**
  * Send the daily summary to the admin user
  */
-async function sendDailySummary(client: Client): Promise<void> {
+export async function performDailySummary(client: Client): Promise<void> {
   if (summaryInFlight) {
     return;
   }
@@ -84,27 +58,4 @@ async function sendDailySummary(client: Client): Promise<void> {
   }
 }
 
-/**
- * Start the daily summary scheduled task
- */
-export function startDailySummaryTask(client: Client): void {
-  const timeUntilFirst = getTimeUntilNextRun();
-  const nextRun = getNextRunTime();
 
-  console.log(
-    `[${TASK_NAME}] Next summary scheduled for ${nextRun.toISOString()} (${(timeUntilFirst / 1000 / 60).toFixed(0)} minutes from now)`,
-  );
-
-  // Schedule the first run
-  setTimeout(() => {
-    sendDailySummary(client);
-
-    // After first run, schedule it to run every 24 hours
-    setInterval(
-      () => {
-        sendDailySummary(client);
-      },
-      24 * 60 * 60 * 1000,
-    );
-  }, timeUntilFirst);
-}

@@ -1,7 +1,7 @@
 import { executeSync } from "../lib/sync.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
@@ -9,6 +9,8 @@ import { randomUUID } from "crypto";
 
 const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
 const PRUNING_WORKER_NAME = "user_snapshot_pruning_worker";
+const snapshotLogger = new Logger(SNAPSHOT_WORKER_NAME);
+const pruningLogger = new Logger(PRUNING_WORKER_NAME);
 const SNAPSHOT_CADENCE_SECONDS = 30; // Take snapshot every 30 seconds
 const PRUNE_CADENCE_SECONDS = 3600; // Prune old snapshots every hour
 const SNAPSHOT_PRUNE_BATCH_SIZE = 5000;
@@ -221,23 +223,9 @@ async function takeSnapshot(): Promise<void> {
       .execute();
 
     const duration = Date.now() - startTime;
-    logDuration(SNAPSHOT_WORKER_NAME, "Sync completed", duration);
+    snapshotLogger.success("Sync completed", duration);
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    let errorMessage = "Unknown error";
-    if (typeof error === "object" && error !== null && "message" in error) {
-      errorMessage = (error as { message: string }).message;
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
-    } else {
-      errorMessage = String(error);
-    }
-    const duration =
-      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
-    logError(
-      SNAPSHOT_WORKER_NAME,
-      `Sync failed: ${errorMessage} (${new Date().toISOString()}) (${duration})`,
-    );
+    snapshotLogger.error("Sync failed", error, Date.now() - startTime);
     throw error;
   }
 }
@@ -328,32 +316,16 @@ async function pruneSnapshots(): Promise<void> {
 
     const duration = Date.now() - startTime;
     if (deletedCount > 0) {
-      logDuration(
-        PRUNING_WORKER_NAME,
+      pruningLogger.success(
         `Sync completed (deleted ${deletedCount} old snapshots)`,
         duration,
       );
       return;
     }
 
-    logDuration(
-      PRUNING_WORKER_NAME,
-      "Sync completed (no snapshots to delete)",
-      duration,
-    );
+    pruningLogger.success("Sync completed (no snapshots to delete)", duration);
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    let errorMessage = "Unknown error";
-    if (typeof error === "object" && error !== null && "message" in error) {
-      errorMessage = (error as { message: string }).message;
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
-    } else {
-      errorMessage = String(error);
-    }
-    const duration =
-      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
-    logError(PRUNING_WORKER_NAME, `Sync failed: ${errorMessage} (${duration})`);
+    pruningLogger.error("Sync failed", error, Date.now() - startTime);
     throw error;
   }
 }

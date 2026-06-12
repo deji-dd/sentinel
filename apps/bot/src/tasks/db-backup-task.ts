@@ -13,32 +13,6 @@ import path from "path";
 const TASK_NAME = "db_backup";
 let backupInFlight = false;
 
-/**
- * Get the next scheduled run time (04:00 UTC)
- */
-function getNextRunTime(): Date {
-  const nowUtc = new Date();
-  const nextRun = new Date(nowUtc);
-
-  // Set to 04:00 UTC
-  nextRun.setUTCHours(4, 0, 0, 0);
-
-  // If this time has already passed today, schedule for tomorrow
-  if (nextRun <= nowUtc) {
-    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-  }
-
-  return nextRun;
-}
-
-/**
- * Calculate milliseconds until next run
- */
-function getTimeUntilNextRun(): number {
-  const nextRun = getNextRunTime();
-  const now = new Date();
-  return nextRun.getTime() - now.getTime();
-}
 
 /**
  * Perform the database backup and send to admin DM
@@ -134,27 +108,4 @@ export async function performBackup(client: Client): Promise<void> {
   }
 }
 
-/**
- * Start the database backup scheduled task
- */
-export function startDatabaseBackupTask(client: Client): void {
-  const timeUntilFirst = getTimeUntilNextRun();
-  const nextRun = getNextRunTime();
 
-  console.log(
-    `[${TASK_NAME}] Next backup scheduled for ${nextRun.toISOString()} (${(timeUntilFirst / 1000 / 60).toFixed(0)} minutes from now)`,
-  );
-
-  // Schedule the first run
-  setTimeout(() => {
-    performBackup(client);
-
-    // After first run, schedule it to run every 24 hours
-    setInterval(
-      () => {
-        performBackup(client);
-      },
-      24 * 60 * 60 * 1000,
-    );
-  }, timeUntilFirst);
-}

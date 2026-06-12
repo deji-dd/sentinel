@@ -1,10 +1,11 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
-import { logDuration } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "war_ledger_pruning_worker";
+const logger = new Logger(WORKER_NAME);
 const PRUNE_CADENCE_SECONDS = 86400; // Prune once daily
 const RETENTION_DAYS = 95; // Keep 95 days (assault-check needs 90 days + buffer)
 
@@ -25,11 +26,11 @@ async function pruneWarLedger(): Promise<void> {
     .execute();
 
   const duration = Date.now() - startTime;
-  logDuration(WORKER_NAME, "Sync completed", duration);
+  logger.success("Sync completed", duration);
 }
 export function startWarLedgerPruningWorker(): void {
   startDbScheduledRunner({
-    worker: "war_ledger_pruning_worker",
+    worker: WORKER_NAME,
     defaultCadenceSeconds: PRUNE_CADENCE_SECONDS,
     pollIntervalMs: 5000,
     handler: async () => {

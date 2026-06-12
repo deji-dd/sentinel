@@ -3,9 +3,11 @@
  * Provides live data fetch and embed building for tracked wars
  */
 
-import { EmbedBuilder } from "discord.js";
-import { getFactionNameCached, type TornApiComponents } from "@sentinel/shared";
+import { EmbedBuilder, Client } from "discord.js";
+import { getFactionNameCached, TABLE_NAMES, type TornApiComponents } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
+import { db } from "./db-client.js";
+import { getGuildApiKeys } from "./guild-api-keys.js";
 
 type FactionMember = TornApiComponents["schemas"]["FactionMember"];
 
@@ -270,4 +272,193 @@ export async function fetchTrackerData(
   );
 
   return { war, assaultingName, defendingName, enemyUsers };
+}
+
+async function getActiveApiKey(guildId: string): Promise<string | null> {
+  const apiKeys = await getGuildApiKeys(guildId);
+  return apiKeys.length > 0 ? apiKeys[0] : null;
+}
+
+function buildEndedEmbed(territoryId: string): EmbedBuilder {
+  const territoryUrl = `https://www.torn.com/city.php#terrName=${territoryId}`;
+  return new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle(`${territoryId} War Ended`)
+    .setDescription("This war is no longer active. Tracking disabled.")
+    .addFields({
+      name: "Territory",
+      value: `[${territoryId}](${territoryUrl})`,
+      inline: true,
+    });
+}
+
+async function updateTrackerMessage(
+  client: Client,
+  tracker: WarTrackerRecord,
+  war: TerritoryWarWithTerritory,
+  assaultingName: string,
+  defendingName: string,
+  assaultingFactionId: number,
+  defendingFactionId: number,
+  enemyUsers: string[],
+): Promise<void> {
+  if (!tracker.channel_id) {
+    return;
+  }
+
+  const channel = await client.channels
+    .fetch(tracker.channel_id)
+    .catch(() => null);
+  if (!channel || !channel.isTextBased() || !("send" in channel)) {
+    return;
+  }
+
+  const embed = buildWarTrackerEmbed(war, {
+    assaultingName,
+    defendingName,
+    assaultingFactionId,
+    defendingFactionId,
+    enemySide: tracker.enemy_side,
+    enemyUsers,
+    minAwayMinutes: tracker.min_away_minutes,
+    territoryId: tracker.territory_id,
+    lastUpdated: new Date(),
+  });
+
+  if (tracker.message_id) {
+    const message = await channel.messages
+      .fetch(tracker.message_id)
+      .catch(() => null);
+    if (message) {
+      await message.edit({ embeds: [embed] }).catch(() => {});
+      return;
+    }
+  }
+
+  const newMessage = await channel
+    .send({ embeds: [embed] })
+    .catch(() => null);
+  if (newMessage) {
+    await db
+      .updateTable(TABLE_NAMES.WAR_TRACKERS)
+      .set({
+        message_id: newMessage.id,
+        updated_at: new Date().toISOString(),
+      })
+      .where("guild_id", "=", tracker.guild_id)
+      .where("war_id", "=", tracker.war_id)
+      .execute();
+  }
+}
+
+async function handleWarEnded(tracker: WarTrackerRecord, client: Client): Promise<void> {
+  if (!tracker.channel_id || !tracker.message_id) {
+    await db
+      .updateTable(TABLE_NAMES.WAR_TRACKERS)
+      .set({
+        channel_id: null,
+        message_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .where("guild_id", "=", tracker.guild_id)
+      .where("war_id", "=", tracker.war_id)
+      .execute();
+    return;
+  }
+
+  const channel = await client.channels
+    .fetch(tracker.channel_id)
+    .catch(() => null);
+  if (channel && channel.isTextBased()) {
+    const message = await channel.messages
+      .fetch(tracker.message_id)
+      .catch(() => null);
+    if (message) {
+      await message.edit({
+        embeds: [buildEndedEmbed(tracker.territory_id)],
+      });
+    }
+  }
+
+  await db
+    .updateTable(TABLE_NAMES.WAR_TRACKERS)
+    .set({
+      channel_id: null,
+      message_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .where("guild_id", "=", tracker.guild_id)
+    .where("war_id", "=", tracker.war_id)
+    .execute();
+}
+
+export async function runWarTrackerGuildSync(
+  client: Client,
+  guildId: string,
+): Promise<void> {
+  const trackers = (await db
+    .selectFrom(TABLE_NAMES.WAR_TRACKERS)
+    .select([
+      "guild_id",
+      "war_id",
+      "territory_id",
+      "channel_id",
+      "message_id",
+      "enemy_side",
+      "min_away_minutes",
+    ])
+    .where("guild_id", "=", guildId)
+    .where("channel_id", "is not", null)
+    .execute()) as WarTrackerRecord[];
+
+  if (trackers.length === 0) {
+    return;
+  }
+
+  const apiKey = await getActiveApiKey(guildId);
+  if (!apiKey) {
+    return;
+  }
+
+  const warMap = await fetchActiveTerritoryWars(apiKey);
+
+  for (const tracker of trackers) {
+    const war = warMap.get(tracker.war_id);
+    if (!war) {
+      await handleWarEnded(tracker, client);
+      continue;
+    }
+
+    const assaultingName =
+      (await getFactionNameCached(war.assaulting_faction, tornApi, apiKey)) ||
+      `Faction ${war.assaulting_faction}`;
+    const defendingName =
+      (await getFactionNameCached(war.defending_faction, tornApi, apiKey)) ||
+      `Faction ${war.defending_faction}`;
+
+    const enemyFactionId =
+      tracker.enemy_side === "assaulting"
+        ? war.assaulting_faction
+        : war.defending_faction;
+    const enemyIds =
+      tracker.enemy_side === "assaulting" ? war.assaulters : war.defenders;
+
+    const enemyUsers = await resolveEnemyUsers(
+      apiKey,
+      enemyFactionId,
+      enemyIds,
+      tracker.min_away_minutes,
+    );
+
+    await updateTrackerMessage(
+      client,
+      tracker,
+      war,
+      assaultingName,
+      defendingName,
+      war.assaulting_faction,
+      war.defending_faction,
+      enemyUsers,
+    );
+  }
 }

@@ -5,12 +5,14 @@ import { getGuildApiKeys } from "./guild-api-keys.js";
 import { logGuildError, logGuildSuccess } from "./guild-logger.js";
 import { upsertVerifiedUser } from "./verified-users.js";
 import { tornApi } from "../services/torn-client.js";
+import { Logger } from "./logger.js";
+
+const logger = new Logger("Guild Sync");
 import {
   applyNicknameTemplate,
   type factionGenericResponse,
   type FactionRoleMapping,
   type GuildSyncJob,
-  isTruthyBoolean,
   isVerificationRecordStale,
   loadVerifiedUsersByDiscordIds,
   parseTextArray,
@@ -27,12 +29,9 @@ import {
  */
 export class GuildSyncScheduler {
   private client: Client;
-  private intervalId: ReturnType<typeof setInterval> | null = null;
   private tornApi: TornApiClient;
-  private readonly POLL_INTERVAL_MS = 60 * 1000; // Poll every 60s
   private readonly VERIFICATION_REFRESH_MS = 24 * 60 * 60 * 1000; // 24h
   private readonly VERIFIED_USER_QUERY_CHUNK_SIZE = 500;
-  private isPolling = false;
 
   constructor(client: Client) {
     this.client = client;
@@ -40,118 +39,44 @@ export class GuildSyncScheduler {
     this.tornApi = tornApi;
   }
 
-  /**
-   * Start the periodic scheduler
-   */
-  start(): void {
-    if (this.intervalId) {
-      console.log("[Guild Sync] Scheduler already running");
-      return;
+  async runGuildOnce(guildId: string): Promise<void> {
+    await this.clearStuckJobs();
+
+    let job = await db
+      .selectFrom(TABLE_NAMES.GUILD_SYNC_JOBS)
+      .select(["guild_id", "last_sync_at", "next_sync_at", "in_progress"])
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
+
+    if (!job) {
+      try {
+        await db
+          .insertInto(TABLE_NAMES.GUILD_SYNC_JOBS)
+          .values({
+            guild_id: guildId,
+            next_sync_at: new Date().toISOString(),
+            in_progress: 0,
+          })
+          .execute();
+
+        job = {
+          guild_id: guildId,
+          last_sync_at: null,
+          next_sync_at: new Date().toISOString(),
+          in_progress: 0,
+        };
+      } catch (err) {
+        logger.error(`Failed to self-heal missing sync job for guild ${guildId}`, err);
+        return;
+      }
     }
 
-    console.log("[Guild Sync] Scheduler starting (polling every 60s)");
-    this.intervalId = setInterval(() => {
-      this.pollAndSync().catch((error) => {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[Guild Sync] Scheduler error: ${msg}`);
-      });
-    }, this.POLL_INTERVAL_MS);
-
-    // Run immediately on start
-    this.pollAndSync().catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(`[Guild Sync] Initial sync error: ${msg}`);
+    await this.syncGuild({
+      guild_id: job.guild_id,
+      last_sync_at: job.last_sync_at,
+      next_sync_at: job.next_sync_at,
+      in_progress: job.in_progress,
     });
-  }
-
-  /**
-   * Stop the scheduler
-   */
-  stop(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-      console.log("[Guild Sync] Scheduler stopped");
-    }
-  }
-
-  /**
-   * Poll database for guilds needing sync and process them
-   */
-  private async pollAndSync(): Promise<void> {
-    if (this.isPolling) {
-      console.log(`[Guild Sync] Poll skipped (previous poll still running)`);
-      return;
-    }
-
-    this.isPolling = true;
-    try {
-      // Clear any jobs that have been stuck in_progress for over 30 minutes
-      await this.clearStuckJobs();
-
-      // Get all sync jobs that need to run
-      const jobsRaw = (await db
-        .selectFrom(TABLE_NAMES.GUILD_SYNC_JOBS)
-        .select(["guild_id", "last_sync_at", "next_sync_at", "in_progress"])
-        .where("in_progress", "=", 0)
-        .where("next_sync_at", "<=", new Date().toISOString())
-        .orderBy("next_sync_at", "asc")
-        .execute()) as Array<{
-        guild_id: string;
-        last_sync_at: string | null;
-        next_sync_at: string;
-        in_progress: number;
-      }>;
-
-      const jobs: GuildSyncJob[] = jobsRaw.map((job) => ({
-        guild_id: job.guild_id,
-        last_sync_at: job.last_sync_at,
-        next_sync_at: job.next_sync_at,
-        in_progress: job.in_progress,
-      }));
-
-      if (!jobs || jobs.length === 0) {
-        return;
-      }
-
-      const jobGuildIds = jobs.map((job: GuildSyncJob) => job.guild_id);
-      const guildConfigs = (await db
-        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-        .select(["guild_id", "auto_verify"])
-        .where("guild_id", "in", jobGuildIds)
-        .execute()) as Array<{
-        guild_id: string;
-        auto_verify: unknown;
-      }>;
-
-      const autoVerifyGuilds = new Set(
-        (guildConfigs || [])
-          .filter((config) => isTruthyBoolean(config.auto_verify))
-          .map((config) => config.guild_id),
-      );
-
-      const jobsToRun = jobs.filter((job: GuildSyncJob) =>
-        autoVerifyGuilds.has(job.guild_id),
-      );
-
-      if (jobsToRun.length === 0) {
-        return;
-      }
-
-      console.log(
-        `[Guild Sync] Found ${jobsToRun.length} guild(s) needing sync`,
-      );
-
-      // Process each guild sequentially (one at a time)
-      for (const job of jobsToRun as GuildSyncJob[]) {
-        await this.syncGuild(job);
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(`[Guild Sync] Poll error: ${msg}`);
-    } finally {
-      this.isPolling = false;
-    }
   }
 
   /**
@@ -168,8 +93,8 @@ export class GuildSyncScheduler {
 
     if (Number(lockResult.numUpdatedRows) === 0) {
       const lockErrorMessage = "Job is already in progress or missing";
-      console.error(
-        `[Guild Sync] Failed to lock job for guild ${job.guild_id}: ${lockErrorMessage}`,
+      logger.error(
+        `Failed to lock job for guild ${job.guild_id}: ${lockErrorMessage}`,
       );
       await logGuildError(
         job.guild_id,
@@ -193,7 +118,7 @@ export class GuildSyncScheduler {
         .executeTakeFirst();
 
       if (!configRow) {
-        console.error(`[Guild Sync] Guild ${job.guild_id} config not found`);
+        logger.error(`Guild ${job.guild_id} config not found`);
         await logGuildError(
           job.guild_id,
           this.client,
@@ -204,12 +129,9 @@ export class GuildSyncScheduler {
         return;
       }
 
-      if (!isTruthyBoolean(configRow.auto_verify)) {
-        console.log(
-          `[Guild Sync] Auto verification disabled for guild ${job.guild_id}. Skipping sync.`,
-        );
-        return;
-      }
+      // Resolve Discord guild and name early for logging
+      const discord = this.client.guilds.cache.get(job.guild_id);
+      const guildName = discord?.name || job.guild_id;
 
       // Prepare a clean config object with parsed arrays
       guildConfig = {
@@ -223,8 +145,8 @@ export class GuildSyncScheduler {
       const apiKeys = await getGuildApiKeys(job.guild_id);
 
       if (apiKeys.length === 0) {
-        console.error(
-          `[Guild Sync] No API keys configured (guild ${job.guild_id})`,
+        logger.error(
+          `No API keys configured (guild ${guildName})`,
         );
         await logGuildError(
           job.guild_id,
@@ -236,10 +158,8 @@ export class GuildSyncScheduler {
         return;
       }
 
-      // Get Discord guild
-      const discord = this.client.guilds.cache.get(job.guild_id);
       if (!discord) {
-        console.log(`[Guild Sync] Guild ${job.guild_id} not in cache`);
+        logger.warn(`Guild ${guildName} not in cache`);
         await logGuildError(
           job.guild_id,
           this.client,
@@ -352,8 +272,10 @@ export class GuildSyncScheduler {
         );
       }
       for (const mapping of factionMappings) {
-        mapping.member_role_ids.forEach((id) => managedRoleIds.add(id));
-        mapping.leader_role_ids.forEach((id) => managedRoleIds.add(id));
+        if (mapping.enabled !== false) {
+          mapping.member_role_ids.forEach((id) => managedRoleIds.add(id));
+          mapping.leader_role_ids.forEach((id) => managedRoleIds.add(id));
+        }
       }
       for (const rxMapping of reactionRoleSyncs) {
         rxMapping.mapped_role_ids.forEach((id) => managedRoleIds.add(id));
@@ -433,8 +355,8 @@ export class GuildSyncScheduler {
             await new Promise((resolve) => setTimeout(resolve, 100));
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            console.error(
-              `[Guild Sync] Error fetching faction ${factionId} members: ${msg}`,
+            logger.error(
+              `Error fetching faction ${factionId} members for guild ${guildName}: ${msg}`,
             );
           }
         }
@@ -445,6 +367,8 @@ export class GuildSyncScheduler {
       let unchangedCount = 0;
       let removedCount = 0;
       let errorCount = 0;
+      let totalRolesAdded = 0;
+      let totalRolesRemoved = 0;
 
       // Sync each guild member
       for (const member of membersToSync) {
@@ -502,8 +426,8 @@ export class GuildSyncScheduler {
             factionName = response.faction?.name || null;
 
             if (!name || !playerId) {
-              console.warn(
-                `[Guild Sync] Missing required fields for user ${member.id}`,
+              logger.warn(
+                `Missing required fields for user ${member.id} in guild ${guildName}`,
               );
               errorCount++;
               continue;
@@ -714,6 +638,23 @@ export class GuildSyncScheduler {
             rolesAdded.length > 0 ||
             rolesRemoved.length > 0
           ) {
+            if (rolesAdded.length > 0) {
+              totalRolesAdded += rolesAdded.length;
+            }
+            if (rolesRemoved.length > 0) {
+              totalRolesRemoved += rolesRemoved.length;
+            }
+
+            if (rolesAdded.length > 0 || rolesRemoved.length > 0) {
+              logger.debug(
+                `Roles updated for ${member.user.username} (${name} [${playerId}]): +${rolesAdded.length} / -${rolesRemoved.length} roles`,
+              );
+            } else if (isNewUser) {
+              logger.debug(`Verified user ${member.user.username} as ${name} [${playerId}]`);
+            } else if (nameChanged || factionChanged) {
+              logger.debug(`Updated info for user ${member.user.username} (${name} [${playerId}]): nameChanged=${nameChanged}, factionChanged=${factionChanged}`);
+            }
+
             const logFields: Array<{
               name: string;
               value: string;
@@ -806,13 +747,13 @@ export class GuildSyncScheduler {
             continue;
           }
 
-          console.error(`[Guild Sync] Error syncing user ${member.id}: ${msg}`);
+          logger.error(`Error syncing user ${member.id} in guild ${guildName}: ${msg}`);
           errorCount++;
         }
       }
 
-      console.log(
-        `[Guild Sync] Guild ${job.guild_id} sync complete: ${verifiedCount} verified, ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed, ${errorCount} errors`,
+      logger.info(
+        `Guild ${guildName} sync complete: ${verifiedCount} verified, ${updatedCount} updated, ${unchangedCount} unchanged, ${removedCount} removed, ${errorCount} errors. Role updates: ${totalRolesAdded} roles added, ${totalRolesRemoved} roles removed`,
       );
 
       if (errorCount > 0) {
@@ -860,13 +801,14 @@ export class GuildSyncScheduler {
         .executeTakeFirst();
 
       if (Number(result.numUpdatedRows) > 0) {
-        console.log(
-          `[Guild Sync] Cleared ${result.numUpdatedRows} stuck sync job(s)`,
+        logger.info(
+          `Cleared ${result.numUpdatedRows} stuck sync job(s)`,
         );
       }
     } catch (error) {
-      console.error(
-        `[Guild Sync] Error clearing stuck jobs: ${error instanceof Error ? error.message : String(error)}`,
+      logger.error(
+        `Error clearing stuck jobs`,
+        error,
       );
     }
   }

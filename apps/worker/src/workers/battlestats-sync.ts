@@ -8,7 +8,7 @@
 
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -17,6 +17,7 @@ import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { randomUUID } from "crypto";
 
 const WORKER_NAME = "battlestats_sync_worker";
+const logger = new Logger(WORKER_NAME);
 
 /**
  * Fetch the most recent battlestats snapshot from the database
@@ -113,8 +114,7 @@ async function syncBattlestats(): Promise<void> {
     // If stats are identical to the most recent snapshot, skip insertion
     if (recentSnapshot && isBattleStatsIdentical(newStats, recentSnapshot)) {
       const duration = Date.now() - startTime;
-      logDuration(
-        WORKER_NAME,
+      logger.success(
         "Sync completed (no changes, skipped insert)",
         duration,
       );
@@ -136,27 +136,13 @@ async function syncBattlestats(): Promise<void> {
       .execute();
 
     const duration = Date.now() - startTime;
-    logDuration(
-      WORKER_NAME,
+    logger.success(
       "Sync completed (inserted new snapshot)",
       duration,
     );
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    let errorMessage = "Unknown error";
-    if (typeof error === "object" && error !== null && "message" in error) {
-      errorMessage = (error as { message: string }).message;
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
-    } else {
-      errorMessage = String(error);
-    }
-    const duration =
-      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
-    logError(
-      WORKER_NAME,
-      `Sync failed: ${errorMessage} (${new Date().toISOString()}) (${duration})`,
-    );
+    const duration = Date.now() - startTime;
+    logger.error("Sync failed", error, duration);
     throw error;
   }
 }

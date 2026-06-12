@@ -11,13 +11,14 @@
  */
 
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { executeSync } from "../lib/sync.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "battlestats_pruning_worker";
 const RETENTION_DAYS = 30;
+const logger = new Logger(WORKER_NAME);
 
 interface SnapshotRow {
   id: string;
@@ -57,8 +58,7 @@ async function pruneBattlestats(): Promise<void> {
 
     if (!oldSnapshots || oldSnapshots.length === 0) {
       const duration = Date.now() - startTime;
-      logDuration(
-        WORKER_NAME,
+      logger.success(
         "Prune completed (no old snapshots to process)",
         duration,
       );
@@ -96,27 +96,13 @@ async function pruneBattlestats(): Promise<void> {
     }
 
     const duration = Date.now() - startTime;
-    logDuration(
-      WORKER_NAME,
+    logger.success(
       `Prune completed (deleted ${totalDeleted} intra-day snapshots older than ${RETENTION_DAYS} days)`,
       duration,
     );
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    let errorMessage = "Unknown error";
-    if (typeof error === "object" && error !== null && "message" in error) {
-      errorMessage = (error as { message: string }).message;
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
-    } else {
-      errorMessage = String(error);
-    }
-    const duration =
-      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
-    logError(
-      WORKER_NAME,
-      `Prune failed: ${errorMessage} (${new Date().toISOString()}) (${duration})`,
-    );
+    const duration = Date.now() - startTime;
+    logger.error("Prune failed", error, duration);
     throw error;
   }
 }

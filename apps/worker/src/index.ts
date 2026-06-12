@@ -1,6 +1,7 @@
 import { logSection } from "./lib/logger.js";
 import { initializeApiKeyMappings } from "./services/torn-client.js";
 import { startWorkersForScope, type WorkerScope } from "./workers/registry.js";
+import { resetStuckWorkerSchedules } from "@sentinel/shared";
 
 function resolveWorkerScope(): WorkerScope {
   const raw = (process.env.WORKER_SCOPE || "all").toLowerCase();
@@ -13,22 +14,29 @@ function resolveWorkerScope(): WorkerScope {
 }
 
 async function startAllWorkers(): Promise<void> {
-  logSection("🚀 Starting Sentinel workers");
+  logSection("Starting Sentinel workers");
 
   try {
+    // Reset any stuck/locked workers from previous runs
+    logSection("Resetting stuck worker schedules...");
+    const resetCount = await resetStuckWorkerSchedules();
+    if (resetCount > 0) {
+      console.log(`[Scheduler] Reset ${resetCount} stuck worker schedule(s)`);
+    }
+
     const scope = resolveWorkerScope();
-    logSection(`🧭 Worker scope: ${scope}`);
+    logSection(`Worker scope: ${scope}`);
 
     // Initialize API key mapping for rate limiting - CRITICAL, must succeed
-    logSection("🔐 Initializing rate limiting...");
+    logSection("Initializing rate limiting...");
     await initializeApiKeyMappings(scope);
 
     const startedCount = startWorkersForScope(scope);
-    logSection(`🧩 Started ${startedCount} worker runners`);
+    logSection(`Started ${startedCount} worker runners`);
 
-    logSection("✅ All workers started");
+    logSection("All workers started");
   } catch (error) {
-    console.error("❌ Failed to start workers:", error);
+    console.error("Failed to start workers:", error);
     process.exit(1);
   }
 }

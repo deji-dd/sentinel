@@ -1,6 +1,6 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logDuration, logError, logWarn } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
 import {
   upsertTornItems,
@@ -12,6 +12,7 @@ import { ApiKeyRotator } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 const WORKER_NAME = "torn_items_worker";
+const logger = new Logger(WORKER_NAME);
 const DAILY_CADENCE_SECONDS = 86400; // 24h
 
 function nextUtcThreeAm(): string {
@@ -109,7 +110,7 @@ async function syncTornItems(): Promise<void> {
   try {
     const apiKeys = await getAllSystemApiKeys("system");
     if (!apiKeys.length) {
-      logWarn(WORKER_NAME, "No system API keys available");
+      logger.warn("No system API keys available");
       return;
     }
 
@@ -143,21 +144,19 @@ async function syncTornItems(): Promise<void> {
     const items = normalizeItems(response, categoryNameToId);
 
     if (!items.length) {
-      logWarn(WORKER_NAME, "No items received from Torn API");
+      logger.warn("No items received from Torn API");
       return;
     }
 
     await upsertTornItems(items);
 
     const duration = Date.now() - startTime;
-    logDuration(
-      WORKER_NAME,
+    logger.success(
       `Sync completed for ${items.length} items`,
       duration,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logError(WORKER_NAME, `Sync failed: ${message}`);
+    logger.error("Sync failed", error, Date.now() - startTime);
     throw error;
   }
 }

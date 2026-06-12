@@ -1,17 +1,14 @@
 import { executeSync } from "../lib/sync.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "user_data_worker";
+const logger = new Logger(WORKER_NAME);
 const DB_WORKER_KEY = "user_data_worker";
-
-function formatDuration(ms: number): string {
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
-}
 
 async function syncUserDataHandler(): Promise<void> {
   const apiKey = await getSystemApiKey("personal");
@@ -49,14 +46,9 @@ async function syncUserDataHandler(): Promise<void> {
 
     // Success - log completion
     const duration = Date.now() - startTime;
-    logDuration(WORKER_NAME, `Sync completed`, duration);
+    logger.success("Sync completed", duration);
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logError(
-      WORKER_NAME,
-      `Profile sync failed: ${errorMessage} (${formatDuration(elapsed)})`,
-    );
+    logger.error("Profile sync failed", error, Date.now() - startTime);
     throw error; // Re-throw so executeSync knows this failed
   }
 }

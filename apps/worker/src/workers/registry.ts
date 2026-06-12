@@ -1,11 +1,12 @@
 import {
-  startUserDataWorker,
-  startTornGymsWorker,
-  startUserSnapshotWorker,
-  startUserSnapshotPruningWorker,
-  startTrainingRecommendationsWorker,
-  startBattlestatsSyncWorker,
-  startBattlestatsPruningWorker,
+  // startUserDataWorker,
+  // startTornGymsWorker,
+  // startUserSnapshotWorker,
+  // startUserSnapshotPruningWorker,
+  // startTrainingRecommendationsWorker,
+  // startBattlestatsSyncWorker,
+  // startBattlestatsPruningWorker,
+  startBotCronDispatcherWorker,
 } from "./private/index.js";
 import {
   startTornItemsWorker,
@@ -24,13 +25,14 @@ export type WorkerScope = "private" | "public" | "all";
 type Starter = () => void;
 
 const PRIVATE_WORKERS: Starter[] = [
-  startTornGymsWorker,
-  startUserDataWorker,
-  startUserSnapshotWorker,
-  startUserSnapshotPruningWorker,
-  startTrainingRecommendationsWorker,
-  startBattlestatsSyncWorker,
-  startBattlestatsPruningWorker,
+  // startTornGymsWorker,
+  // startUserDataWorker,
+  // startUserSnapshotWorker,
+  // startUserSnapshotPruningWorker,
+  // startTrainingRecommendationsWorker,
+  // startBattlestatsSyncWorker,
+  // startBattlestatsPruningWorker,
+  startBotCronDispatcherWorker,
 ];
 
 const PUBLIC_WORKERS: Starter[] = [

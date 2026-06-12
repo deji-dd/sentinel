@@ -44,6 +44,8 @@ export class PerUserRateLimiter implements RateLimitTracker {
   private requestCounter: number = 0; // Counter for logging every Nth request
   private initializationTime: number = Date.now(); // Track when rate limiter was created
   private startupGracePeriodMs: number = 30000; // 30-second grace period after startup to allow entries to settle
+  private lastCleanupTime: number = 0;
+  private cleanupIntervalMs: number = 10000; // clean up at most once every 10 seconds
 
   constructor(config: PerUserRateLimiterConfig) {
     this.db = config.db;
@@ -261,15 +263,19 @@ export class PerUserRateLimiter implements RateLimitTracker {
       return;
     }
 
-    // Periodic cleanup of old requests
-    try {
-      await this.cleanupOldRequests();
-    } catch (error) {
-      console.warn(
-        "[RateLimiter] Cleanup failed during rate limit check:",
-        error instanceof Error ? error.message : String(error),
-      );
-      // Continue despite cleanup failure - rate limiting is still important
+    // Periodic cleanup of old requests (throttled to avoid SQLite database lock contention)
+    const now = Date.now();
+    if (now - this.lastCleanupTime > this.cleanupIntervalMs) {
+      this.lastCleanupTime = now;
+      try {
+        await this.cleanupOldRequests();
+      } catch (error) {
+        console.warn(
+          "[RateLimiter] Cleanup failed during rate limit check:",
+          error instanceof Error ? error.message : String(error),
+        );
+        // Continue despite cleanup failure - rate limiting is still important
+      }
     }
 
     const userId = await this.getUserIdFromApiKey(apiKey);

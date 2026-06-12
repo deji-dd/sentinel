@@ -9,10 +9,12 @@
 
 import { getKysely, getDB } from "@sentinel/shared/db/sqlite.js";
 import { TABLE_NAMES } from "@sentinel/shared";
+import { Logger } from "./logger.js";
 
 const isDev = process.env.NODE_ENV === "development";
-console.log(
-  `[DB] Connected to ${isDev ? "local" : "production"} SQLite database`,
+const logger = new Logger("DB");
+logger.info(
+  `Connected to ${isDev ? "local" : "production"} SQLite database`,
 );
 
 // Export Kysely instance (type-safe query builder)
