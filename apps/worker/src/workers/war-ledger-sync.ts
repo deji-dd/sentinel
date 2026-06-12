@@ -10,11 +10,14 @@
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { executeSync } from "../lib/sync.js";
 import { processAndDispatchNotifications } from "../lib/tt-notification-dispatcher.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
+
+const WORKER_NAME = "war_ledger_sync";
+const logger = new Logger(WORKER_NAME);
 
 interface TerritoryWar {
   territory_war_id: number;
@@ -102,7 +105,7 @@ function calculateWarCadence(currentWarCount: number): number {
 
 export function startWarLedgerSyncWorker() {
   return startDbScheduledRunner({
-    worker: "war_ledger_sync",
+    worker: WORKER_NAME,
     defaultCadenceSeconds: 5, // Every 5 seconds for real-time war precision
     getDynamicCadence: async () => {
       // Return current calculated cadence based on recent activity
@@ -112,7 +115,7 @@ export function startWarLedgerSyncWorker() {
     },
     handler: async () => {
       return await executeSync({
-        name: "war_ledger_sync",
+        name: WORKER_NAME,
         timeout: 60_000, // 1 minute max
         handler: async () => {
           const startTime = Date.now();
@@ -151,10 +154,7 @@ export function startWarLedgerSyncWorker() {
                   (errorObj as { error?: unknown }).error ?? errorObj,
                 );
               }
-              logError(
-                "war_ledger_sync",
-                `API error (${new Date().toISOString()}): ${errorMsg}`,
-              );
+              logger.error(`API error: ${errorMsg}`);
               // Just return - no need to throw, API error is expected sometimes
               return;
             }
@@ -163,11 +163,7 @@ export function startWarLedgerSyncWorker() {
             const warEntries = Object.entries(data.territorywars || {});
 
             if (warEntries.length === 0) {
-              logDuration(
-                "war_ledger_sync",
-                "No active wars",
-                Date.now() - startTime,
-              );
+              logger.info("No active wars", Date.now() - startTime);
               return;
             }
 
@@ -183,11 +179,7 @@ export function startWarLedgerSyncWorker() {
             const validWars = wars;
 
             if (validWars.length === 0) {
-              logDuration(
-                "war_ledger_sync",
-                "No active wars",
-                Date.now() - startTime,
-              );
+              logger.info("No active wars", Date.now() - startTime);
               return;
             }
 
@@ -367,10 +359,7 @@ export function startWarLedgerSyncWorker() {
                   .execute();
               }
             } catch (error) {
-              logError(
-                "war_ledger_sync",
-                `Failed to upsert wars: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              logger.error("Failed to upsert wars", error);
               throw error;
             }
 
@@ -412,10 +401,7 @@ export function startWarLedgerSyncWorker() {
                     .execute();
                 }
               } catch (error) {
-                logError(
-                  "war_ledger_sync",
-                  `Failed to insert missing territory states: ${error instanceof Error ? error.message : String(error)}`,
-                );
+                logger.error("Failed to insert missing territory states", error);
               }
             }
 
@@ -428,17 +414,13 @@ export function startWarLedgerSyncWorker() {
                   .where("territory_id", "in", warringTerritories)
                   .execute();
               } catch (error) {
-                logError(
-                  "war_ledger_sync",
-                  `Failed to update territory state: ${error instanceof Error ? error.message : String(error)}`,
-                );
+                logger.error("Failed to update territory state", error);
                 // Don't return false - DB update failure shouldn't prevent ledger update
               }
             }
 
             const duration = Date.now() - startTime;
-            logDuration(
-              "war_ledger_sync",
+            logger.success(
               `Sync completed for ${validWars.length} wars (${newWars.length} new, ${endedWars.length} ended)`,
               duration,
             );
@@ -451,9 +433,7 @@ export function startWarLedgerSyncWorker() {
             // Update cadence calculation with current war count
             calculateWarCadence(validWars.length);
           } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            logError("war_ledger_sync", `Failed: ${message}`);
+            logger.error("Failed", error, Date.now() - startTime);
             throw error; // Re-throw so executeSync knows this failed
           }
         },

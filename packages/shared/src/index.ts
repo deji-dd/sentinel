@@ -6,6 +6,7 @@ export * from "./api-key-cooldown.js";
 export * from "./per-user-rate-limiter.js";
 export * from "./batch-operation-handler.js";
 export * from "./racket-reward.js";
+export * from "./worker-schedules.js";
 // NOTE: SQLite module not exported here to avoid bundling in Next.js
 // Worker and Bot should import directly: import { getDB } from "@sentinel/shared/db/sqlite.js"
 

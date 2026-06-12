@@ -5,6 +5,7 @@ import { rateLimit } from "express-rate-limit";
 import { type Client } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "./db-client.js";
+import { Logger } from "./logger.js";
 import { DatabaseIPRateLimiter } from "./assist-ip-rate-limiter.js";
 import { getAllowedOrigins } from "./bot-config.js";
 import { MagicLinkService } from "../services/magic-link-service.js";
@@ -13,6 +14,7 @@ import {
   authRouter,
   configRouter,
   adminRouter,
+  workerJobRouter,
   registerMapRoutes,
   registerAssistRoutes,
 } from "../server/routes/index.js";
@@ -158,10 +160,12 @@ export function initHttpServer(client: Client, port: number = 3001) {
   app.use("/api/auth", authRouter);
   app.use("/api/config", configRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/internal/worker-jobs", workerJobRouter);
 
+  const logger = new Logger("HTTP");
   // Start server
   app.listen(port, () => {
-    console.log(`[HTTP] Server listening on port ${port}`);
+    logger.info(`Server listening on port ${port}`);
   });
 
   return app;

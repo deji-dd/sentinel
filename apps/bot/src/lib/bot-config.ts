@@ -4,6 +4,9 @@
  */
 
 import { Client, GatewayIntentBits, Partials } from "discord.js";
+import { Logger } from "./logger.js";
+
+const logger = new Logger("Bot");
 
 // Determine environment
 const nodeEnv = (process.env.NODE_ENV || "").trim().toLowerCase();
@@ -20,7 +23,7 @@ export function initializeDatabaseConfig(): {
     ? process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db"
     : process.env.SQLITE_DB_PATH || "./data/sentinel.db";
 
-  console.log(`[Bot] Using SQLite database path: ${dbPath} (isDev: ${isDev})`);
+  logger.info(`Using SQLite database path: ${dbPath} (isDev: ${isDev})`);
 
   return { dbPath };
 }
@@ -39,8 +42,8 @@ export function initializeDiscordToken(): string {
     );
   }
 
-  console.log(
-    `[Bot] Using ${isDev ? "local" : "production"} Discord bot instance`,
+  logger.info(
+    `Using ${isDev ? "local" : "production"} Discord bot instance`,
   );
 
   return discordToken;

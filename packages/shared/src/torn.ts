@@ -207,49 +207,66 @@ export class TornApiClient {
 
     url += `?${params.toString()}`;
 
-    // Make request with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const maxAttempts = 3;
+    let lastError: any = null;
 
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-      const data = (await response.json()) as any;
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        });
 
-      // Check for Torn API error response
-      if (data && typeof data === "object" && "error" in data) {
-        const error = data.error as { code: number; error: string };
-        const errorMessage =
-          TORN_ERROR_CODES[error.code] ||
-          error.error ||
-          `Error code ${error.code}`;
+        const data = (await response.json()) as any;
 
-        // Call invalid key handler for error code 2 (Incorrect Key)
-        // This allows apps to soft-delete keys after multiple failures
-        if (error.code === 2 && this.onInvalidKey) {
-          await this.onInvalidKey(apiKey, error.code);
+        // Check for Torn API error response
+        if (data && typeof data === "object" && "error" in data) {
+          const error = data.error as { code: number; error: string };
+          const errorMessage =
+            TORN_ERROR_CODES[error.code] ||
+            error.error ||
+            `Error code ${error.code}`;
+
+          if (error.code === 2 && this.onInvalidKey) {
+            await this.onInvalidKey(apiKey, error.code);
+          }
+
+          throw new Error(errorMessage);
         }
 
-        throw new Error(errorMessage);
-      }
+        // Check for HTTP errors
+        if (!response.ok) {
+          throw new Error(`Torn API returned status ${response.status}`);
+        }
 
-      // Check for HTTP errors
-      if (!response.ok) {
-        throw new Error(`Torn API returned status ${response.status}`);
-      }
+        // Record request for rate limiting
+        if (this.rateLimitTracker) {
+          await this.rateLimitTracker.recordRequest(apiKey);
+        }
 
-      // Record request for rate limiting
-      if (this.rateLimitTracker) {
-        await this.rateLimitTracker.recordRequest(apiKey);
-      }
+        return data;
+      } catch (error: any) {
+        lastError = error;
+        const isNetworkOrTimeout =
+          error instanceof TypeError ||
+          error.name === "AbortError" ||
+          error.message.includes("status");
 
-      return data;
-    } finally {
-      clearTimeout(timeoutId);
+        if (!isNetworkOrTimeout || attempt === maxAttempts) {
+          throw error;
+        }
+
+        // Backoff: 200ms * attempt
+        const delay = 200 * attempt;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
+    throw lastError;
   }
 
   /**
@@ -288,49 +305,66 @@ export class TornApiClient {
 
     url += `?${params.toString()}`;
 
-    // Make request with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const maxAttempts = 3;
+    let lastError: any = null;
 
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-      const data = (await response.json()) as any;
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        });
 
-      // Check for Torn API error response
-      if (data && typeof data === "object" && "error" in data) {
-        const error = data.error as { code: number; error: string };
-        const errorMessage =
-          TORN_ERROR_CODES[error.code] ||
-          error.error ||
-          `Error code ${error.code}`;
+        const data = (await response.json()) as any;
 
-        // Call invalid key handler for error code 2 (Incorrect Key)
-        // This allows apps to soft-delete keys after multiple failures
-        if (error.code === 2 && this.onInvalidKey) {
-          await this.onInvalidKey(apiKey, error.code);
+        // Check for Torn API error response
+        if (data && typeof data === "object" && "error" in data) {
+          const error = data.error as { code: number; error: string };
+          const errorMessage =
+            TORN_ERROR_CODES[error.code] ||
+            error.error ||
+            `Error code ${error.code}`;
+
+          if (error.code === 2 && this.onInvalidKey) {
+            await this.onInvalidKey(apiKey, error.code);
+          }
+
+          throw new Error(errorMessage);
         }
 
-        throw new Error(errorMessage);
-      }
+        // Check for HTTP errors
+        if (!response.ok) {
+          throw new Error(`Torn API returned status ${response.status}`);
+        }
 
-      // Check for HTTP errors
-      if (!response.ok) {
-        throw new Error(`Torn API returned status ${response.status}`);
-      }
+        // Record request for rate limiting
+        if (this.rateLimitTracker) {
+          await this.rateLimitTracker.recordRequest(apiKey);
+        }
 
-      // Record request for rate limiting
-      if (this.rateLimitTracker) {
-        await this.rateLimitTracker.recordRequest(apiKey);
-      }
+        return data as T;
+      } catch (error: any) {
+        lastError = error;
+        const isNetworkOrTimeout =
+          error instanceof TypeError ||
+          error.name === "AbortError" ||
+          error.message.includes("status");
 
-      return data as T;
-    } finally {
-      clearTimeout(timeoutId);
+        if (!isNetworkOrTimeout || attempt === maxAttempts) {
+          throw error;
+        }
+
+        // Backoff: 200ms * attempt
+        const delay = 200 * attempt;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
+    throw lastError;
   }
 
   /**

@@ -20,9 +20,6 @@ import {
   handleReactionRoleAdd,
   handleReactionRoleRemove,
 } from "./lib/reaction-roles.js";
-import { startDailySummaryTask } from "./tasks/daily-summary-task.js";
-import { startDatabaseBackupTask } from "./tasks/db-backup-task.js";
-import { startTokenCleanupTask } from "./tasks/token-cleanup-task.js";
 
 // Initialize configuration
 initializeDatabaseConfig();
@@ -135,10 +132,5 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
     console.error("Error handling message reaction remove:", error);
   }
 });
-
-// Start scheduled tasks
-startDailySummaryTask(client);
-startDatabaseBackupTask(client);
-startTokenCleanupTask(client);
 
 await client.login(discordToken);

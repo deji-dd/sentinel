@@ -1,12 +1,13 @@
 import { executeSync } from "../lib/sync.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const TRAINING_RECOMMENDATIONS_WORKER_NAME = "training_recommendations_worker";
+const logger = new Logger(TRAINING_RECOMMENDATIONS_WORKER_NAME);
 const TRAINING_RECOMMENDATIONS_CADENCE_SECONDS = 600; // 10 minutes
 
 // Stat constants for gym gain formula
@@ -247,10 +248,9 @@ async function enrichItemsWithMarketPrices(
           lowest_market_price: lowestPrice,
         };
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        logError(
-          TRAINING_RECOMMENDATIONS_WORKER_NAME,
-          `Failed to fetch market price for item ${item.id} (${item.name}): ${errorMsg}`,
+        logger.error(
+          `Failed to fetch market price for item ${item.id} (${item.name})`,
+          error,
         );
 
         // Return item with price 0 on error
@@ -348,10 +348,7 @@ async function getTrainingBudget(currentSnapshot: {
     | undefined;
 
   if (!settingsData) {
-    logError(
-      TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      "Failed to fetch finance settings: No data",
-    );
+    logger.error("Failed to fetch finance settings: No data");
     return 0;
   }
 
@@ -527,10 +524,7 @@ async function _getBoosterCooldown(): Promise<number> {
     .executeTakeFirst()) as { booster: number | null } | undefined;
 
   if (!data) {
-    logError(
-      TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      "Failed to fetch booster cooldown: No data",
-    );
+    logger.error("Failed to fetch booster cooldown: No data");
     return 0;
   }
 
@@ -683,35 +677,16 @@ async function computeTrainingRecommendations(): Promise<void> {
       });
 
       const duration = Date.now() - startTime;
-      logDuration(
-        TRAINING_RECOMMENDATIONS_WORKER_NAME,
+      logger.success(
         `Sync completed (${recommendations.length} recommendations, main focus: ${buildPref.mainStat || "not set"})`,
         duration,
       );
     } else {
       const duration = Date.now() - startTime;
-      logDuration(
-        TRAINING_RECOMMENDATIONS_WORKER_NAME,
-        "Sync completed (no recommendations)",
-        duration,
-      );
+      logger.success("Sync completed (no recommendations)", duration);
     }
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    let errorMessage = "Unknown error";
-    if (typeof error === "object" && error !== null && "message" in error) {
-      errorMessage = (error as { message: string }).message;
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
-    } else {
-      errorMessage = String(error);
-    }
-    const duration =
-      elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(2)}s`;
-    logError(
-      TRAINING_RECOMMENDATIONS_WORKER_NAME,
-      `Sync failed: ${errorMessage} (${duration})`,
-    );
+    logger.error("Sync failed", error, Date.now() - startTime);
     throw error;
   }
 }

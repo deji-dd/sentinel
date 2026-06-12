@@ -24,9 +24,7 @@ import { logGuildError } from "../../../../lib/guild-logger.js";
 import { tornApi } from "../../../../services/torn-client.js";
 
 const REVIVE_REQUEST_TTL_SECONDS = 300;
-const REVIVE_MAINTENANCE_INTERVAL_MS = 60000;
 
-let reviveMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
 let reviveMaintenanceRunning = false;
 
 type ReviveConfig = {
@@ -1603,7 +1601,7 @@ async function ensureAllRequestPanels(client: Client): Promise<void> {
   }
 }
 
-async function runReviveMaintenance(client: Client): Promise<void> {
+export async function performReviveMaintenance(client: Client): Promise<void> {
   if (reviveMaintenanceRunning) {
     return;
   }
@@ -1620,15 +1618,4 @@ async function runReviveMaintenance(client: Client): Promise<void> {
   }
 }
 
-export function startReviveMaintenance(client: Client): void {
-  if (reviveMaintenanceTimer) {
-    return;
-  }
 
-  reviveMaintenanceTimer = setInterval(() => {
-    void runReviveMaintenance(client);
-  }, REVIVE_MAINTENANCE_INTERVAL_MS);
-
-  void runReviveMaintenance(client);
-  console.log("[Revive] Maintenance scheduler started");
-}

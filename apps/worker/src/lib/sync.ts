@@ -3,7 +3,7 @@
  * Handles lock mechanism to prevent overlapping syncs.
  */
 
-import { logWarn } from "./logger.js";
+import { Logger } from "./logger.js";
 
 interface SyncState {
   isRunning: boolean;
@@ -40,8 +40,7 @@ export async function executeSync(config: SyncConfig): Promise<boolean> {
 
     // If it's been running longer than timeout, force unlock and log warning
     if (elapsed > timeout) {
-      logWarn(
-        name,
+      new Logger(name).warn(
         `Previous sync exceeded timeout (${elapsed}ms > ${timeout}ms). Force unlocking.`,
       );
       state.isRunning = false;

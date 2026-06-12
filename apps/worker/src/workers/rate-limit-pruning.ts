@@ -1,10 +1,11 @@
 import { executeSync } from "../lib/sync.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logDuration } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const WORKER_NAME = "rate_limit_pruning_worker";
+const logger = new Logger(WORKER_NAME);
 const PRUNE_CADENCE_SECONDS = 3600; // Prune every hour
 const RETENTION_HOURS = 2; // Keep 2 hours of rate limit data (beyond the 60-second tracking window)
 
@@ -23,7 +24,7 @@ async function pruneRateLimitRequests(): Promise<void> {
     .execute();
 
   const duration = Date.now() - startTime;
-  logDuration(WORKER_NAME, "Sync completed", duration);
+  logger.success("Sync completed", duration);
 }
 
 export function startRateLimitPruningWorker(): void {

@@ -8,6 +8,17 @@ import type { DB } from "./kysely-types.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function logSQLite(message: string): void {
+  const COLORS = {
+    DIM: "\x1b[2m",
+    RESET: "\x1b[0m",
+    GREEN: "\x1b[32m",
+  };
+  const timestamp = `${COLORS.DIM}${new Date().toLocaleTimeString("en-US", { hour12: false })}${COLORS.RESET}`;
+  const prefix = `${COLORS.GREEN}[SQLite]${COLORS.RESET}`;
+  console.log(`${prefix} ${timestamp}: ${message}`);
+}
+
 /**
  * Find the workspace root by looking for pnpm-workspace.yaml
  */
@@ -87,14 +98,14 @@ class SQLiteDB {
       return this.db;
     }
 
-    console.log(
-      `[SQLite] Initializing database (${this.environment}) at: ${this.dbPath}`,
+    logSQLite(
+      `Initializing database (${this.environment}) at: ${this.dbPath}`,
     );
 
     // Ensure data directory exists
     const dbDir = dirname(this.dbPath);
     if (!existsSync(dbDir)) {
-      console.log(`[SQLite] Creating directory: ${dbDir}`);
+      logSQLite(`Creating directory: ${dbDir}`);
       mkdirSync(dbDir, { recursive: true });
     }
 
@@ -120,7 +131,7 @@ class SQLiteDB {
     // Check if database is empty and initialize schema if needed
     this.initializeSchemaIfEmpty();
 
-    console.log("[SQLite] Database initialized successfully");
+    logSQLite("Database initialized successfully");
 
     return this.db;
   }
@@ -164,12 +175,12 @@ class SQLiteDB {
       .get() as { count: number };
 
     if (tableCount.count === 0) {
-      console.log(
-        "[SQLite] Database is empty. Run migrations with 'pnpm sqlite:migrate' to initialize schema.",
+      logSQLite(
+        "Database is empty. Run migrations with 'pnpm sqlite:migrate' to initialize schema.",
       );
     } else {
-      console.log(
-        `[SQLite] Database already initialized with ${tableCount.count} tables`,
+      logSQLite(
+        `Database already initialized with ${tableCount.count} tables`,
       );
     }
   }
@@ -186,7 +197,7 @@ class SQLiteDB {
     if (this.db) {
       this.db.close();
       this.db = null;
-      console.log("[SQLite] Database connection closed");
+      logSQLite("Database connection closed");
     }
   }
 
@@ -217,13 +228,13 @@ export function getKysely(): Kysely<DB> {
 
 // Graceful shutdown handler
 process.on("SIGINT", () => {
-  console.log("\n[SQLite] Received SIGINT, closing database...");
+  logSQLite("Received SIGINT, closing database...");
   sqliteDB.close();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-  console.log("\n[SQLite] Received SIGTERM, closing database...");
+  logSQLite("Received SIGTERM, closing database...");
   sqliteDB.close();
   process.exit(0);
 });

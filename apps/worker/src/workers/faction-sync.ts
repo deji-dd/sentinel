@@ -7,7 +7,7 @@
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
@@ -21,6 +21,7 @@ export function startFactionSyncWorker() {
     defaultCadenceSeconds: 86400, // Run once daily (24 hours)
     handler: async () => {
       const startTime = Date.now();
+      const logger = new Logger("faction_sync");
       const db = getKysely();
 
       try {
@@ -39,22 +40,17 @@ export function startFactionSyncWorker() {
         ) as number[];
 
         if (uniqueFactionIds.length === 0) {
-          logDuration(
-            "faction_sync",
-            "No factions to sync",
-            Date.now() - startTime,
-          );
+          const duration = Date.now() - startTime;
+          logger.success("No factions to sync", duration);
           return true;
         }
 
-        console.log(
-          `[Faction Sync] Syncing ${uniqueFactionIds.length} factions`,
-        );
+        logger.info(`Syncing ${uniqueFactionIds.length} factions`);
 
         // Get available API keys and initialize rotator for load balancing
         const apiKeys = await getAllSystemApiKeys("system");
         if (!apiKeys.length) {
-          logError("faction_sync", "No system API key available");
+          logger.error("No system API key available");
           return false;
         }
 
@@ -123,10 +119,7 @@ export function startFactionSyncWorker() {
 
               return { success: true };
             } catch (error) {
-              // TornApiClient throws errors (including Torn API errors)
-              console.warn(
-                `[Faction Sync] Error syncing faction ${factionId}: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              logger.error(`Error syncing faction ${factionId}`, error);
               return { success: false };
             }
           });
@@ -137,19 +130,17 @@ export function startFactionSyncWorker() {
         }
 
         const duration = Date.now() - startTime;
-        console.log(
-          `[Faction Sync] Completed: ${successCount}/${uniqueFactionIds.length} synced, ${errorCount} errors`,
+        logger.info(
+          `Completed: ${successCount}/${uniqueFactionIds.length} synced, ${errorCount} errors`,
         );
-        logDuration(
-          "faction_sync",
+        logger.success(
           `Synced ${successCount} factions`,
           duration,
         );
 
         return true;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logError("faction_sync", `Sync failed: ${message}`);
+        logger.error("Sync failed", error);
         return false;
       }
     },

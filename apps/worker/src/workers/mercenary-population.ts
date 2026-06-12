@@ -7,10 +7,11 @@
 import { TABLE_NAMES, decryptApiKey } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
-import { logWarn, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 
 const db = getKysely();
+const logger = new Logger("mercenary_population");
 
 if (!process.env.ENCRYPTION_KEY) {
   throw new Error("ENCRYPTION_KEY environment variable is required");
@@ -40,10 +41,7 @@ export function startMercenaryPopulationWorker() {
         await checkAndUpdateWarStates();
         return true;
       } catch (error) {
-        logError(
-          "mercenary_population",
-          `Population error: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        logger.error("Population error", error);
         return false;
       }
     },
@@ -79,7 +77,7 @@ async function processGuildContracts(
 ) {
   const apiKey = await getPrimaryGuildApiKey(guildId);
   if (!apiKey) {
-    logWarn("mercenary_population", `No API key for guild ${guildId}`);
+    logger.warn(`No API key for guild ${guildId}`);
     return;
   }
 
@@ -111,10 +109,7 @@ async function processGuildContracts(
           .where("id", "=", contract.id)
           .execute()
           .catch((err: unknown) => {
-            logWarn(
-              "mercenary_population",
-              `Failed to update contract war state: ${err}`,
-            );
+            logger.error(`Failed to update contract war state`, err);
           });
       }
 
@@ -127,16 +122,10 @@ async function processGuildContracts(
         .where("id", "=", contract.id)
         .execute()
         .catch((err: unknown) => {
-          logWarn(
-            "mercenary_population",
-            `Failed to update last_population_at: ${err}`,
-          );
+          logger.error(`Failed to update last_population_at`, err);
         });
     } catch (error) {
-      logWarn(
-        "mercenary_population",
-        `Failed to check faction ${contract.faction_id} war state: ${error}`,
-      );
+      logger.error(`Failed to check faction ${contract.faction_id} war state`, error);
     }
   }
 }
@@ -166,10 +155,7 @@ async function getPrimaryGuildApiKey(guildId: string): Promise<string | null> {
   try {
     return decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
   } catch (error) {
-    logWarn(
-      "mercenary_population",
-      `Failed to decrypt primary guild API key for ${guildId}: ${error}`,
-    );
+    logger.error(`Failed to decrypt primary guild API key for ${guildId}`, error);
     return null;
   }
 }

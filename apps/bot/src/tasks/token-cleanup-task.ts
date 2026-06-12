@@ -1,15 +1,13 @@
-import { Client } from "discord.js";
 import { db } from "../lib/db-client.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
 const TASK_NAME = "token_cleanup";
-const CLEANUP_INTERVAL_MS = 1000 * 60 * 60; // Every hour
 let cleanupInFlight = false;
 
 /**
  * Clean up expired map sessions (UI access tokens)
  */
-async function performCleanup(): Promise<void> {
+export async function performTokenCleanup(): Promise<void> {
   if (cleanupInFlight) {
     return;
   }
@@ -52,17 +50,4 @@ async function performCleanup(): Promise<void> {
   }
 }
 
-/**
- * Start the token cleanup scheduled task
- */
-export function startTokenCleanupTask(_client: Client): void {
-  console.log(`[${TASK_NAME}] Token cleanup task started (Interval: 1 hour)`);
 
-  // Run once immediately
-  performCleanup();
-
-  // Then run every hour
-  setInterval(() => {
-    performCleanup();
-  }, CLEANUP_INTERVAL_MS);
-}

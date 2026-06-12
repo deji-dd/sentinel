@@ -9,11 +9,13 @@
 import { TABLE_NAMES, ApiKeyRotator } from "@sentinel/shared";
 import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getAllSystemApiKeys } from "../lib/api-keys.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { Logger } from "../lib/logger.js";
 import { tornApi } from "../services/torn-client.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 
 const DB_WRITE_CHUNK_SIZE = 250;
+const WORKER_NAME = "territory_blueprint_sync";
+const logger = new Logger(WORKER_NAME);
 
 function chunkArray<T>(rows: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -25,7 +27,7 @@ function chunkArray<T>(rows: T[], size: number): T[][] {
 
 export function startTerritoryBlueprintSyncWorker() {
   return startDbScheduledRunner({
-    worker: "territory_blueprint_sync",
+    worker: WORKER_NAME,
     defaultCadenceSeconds: 86400, // Once daily (24 hours)
     handler: async () => {
       const startTime = Date.now();
@@ -35,7 +37,7 @@ export function startTerritoryBlueprintSyncWorker() {
         // Get system API keys and initialize rotator for load balancing
         const apiKeys = await getAllSystemApiKeys("system");
         if (!apiKeys.length) {
-          logError("territory_blueprint_sync", "No system API key available");
+          logger.error("No system API key available");
           return false;
         }
 
@@ -71,11 +73,7 @@ export function startTerritoryBlueprintSyncWorker() {
         }
 
         if (!territories || territories.length === 0) {
-          logDuration(
-            "territory_blueprint_sync",
-            "No territories returned",
-            Date.now() - startTime,
-          );
+          logger.info("No territories returned", Date.now() - startTime);
           return true;
         }
 
@@ -122,10 +120,7 @@ export function startTerritoryBlueprintSyncWorker() {
               .execute();
           }
         } catch (error) {
-          logError(
-            "territory_blueprint_sync",
-            `Failed to upsert blueprints: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          logger.error("Failed to upsert blueprints", error);
           return false;
         }
 
@@ -152,25 +147,20 @@ export function startTerritoryBlueprintSyncWorker() {
                 .execute();
             }
           } catch (error) {
-            logError(
-              "territory_blueprint_sync",
-              `Failed to initialize territory states: ${error instanceof Error ? error.message : String(error)}`,
-            );
+            logger.error("Failed to initialize territory states", error);
             return false;
           }
         }
 
         const duration = Date.now() - startTime;
-        logDuration(
-          "territory_blueprint_sync",
+        logger.success(
           `Sync completed for ${territories.length} territories`,
           duration,
         );
 
         return true;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logError("territory_blueprint_sync", `Failed: ${message}`);
+        logger.error("Failed", error, Date.now() - startTime);
         return false;
       }
     },
