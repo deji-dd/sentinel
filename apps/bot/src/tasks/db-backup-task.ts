@@ -6,13 +6,48 @@
 
 import { Client, AttachmentBuilder, EmbedBuilder } from "discord.js";
 import { rawDb } from "../lib/db-client.js";
-import { logDuration, logError } from "../lib/logger.js";
+import { logDuration, logError, logInfo } from "../lib/logger.js";
 import fs from "fs";
 import path from "path";
 
 const TASK_NAME = "db_backup";
 let backupInFlight = false;
 
+/**
+ * Prune backup files older than 3 days
+ */
+function pruneOldBackups(tempDir: string): void {
+  try {
+    if (!fs.existsSync(tempDir)) {
+      return;
+    }
+
+    const files = fs.readdirSync(tempDir);
+    const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    let prunedCount = 0;
+
+    for (const file of files) {
+      if (file.startsWith("sentinel-backup-") && file.endsWith(".db")) {
+        const filePath = path.join(tempDir, file);
+        const stats = fs.statSync(filePath);
+        if (stats.mtimeMs < threeDaysAgo) {
+          fs.unlinkSync(filePath);
+          prunedCount++;
+        }
+      }
+    }
+
+    if (prunedCount > 0) {
+      logInfo(TASK_NAME, `Pruned ${prunedCount} old backup file(s) older than 3 days`);
+    }
+  } catch (error) {
+    let errorMessage = "Unknown error";
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    logError(TASK_NAME, `Failed to prune old backups: ${errorMessage}`);
+  }
+}
 
 /**
  * Perform the database backup and send to admin DM
@@ -30,6 +65,9 @@ export async function performBackup(client: Client): Promise<void> {
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
+
+  // Prune old backups before creating a new one
+  pruneOldBackups(tempDir);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupPath = path.join(tempDir, `sentinel-backup-${timestamp}.db`);
