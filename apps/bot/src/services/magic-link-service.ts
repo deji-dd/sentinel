@@ -1,6 +1,7 @@
 import { rawDb } from "../lib/db-client.js";
 import { randomBytes } from "node:crypto";
 import { EmbedBuilder, type Client } from "discord.js";
+import { Logger } from "../lib/logger.js";
 
 export interface TokenOptions {
   discordId: string;
@@ -211,13 +212,15 @@ export class MagicLinkService {
     );
   }
 
+  private logger = new Logger("AUTH");
+
   private async logActivity(message: string) {
-    console.log(`[AUTH] ${message}`);
+    this.logger.info(message);
     // Optional: Send to a log channel
   }
 
   private async alertAbuse(message: string) {
-    console.error(`[AUTH-ABUSE] ${message}`);
+    this.logger.error(`[ABUSE] ${message}`);
 
     const adminId = process.env.SENTINEL_DISCORD_USER_ID;
     if (!adminId) return;
@@ -232,7 +235,7 @@ export class MagicLinkService {
 
       await admin.send({ embeds: [embed] });
     } catch (err) {
-      console.error("Failed to send abuse alert to admin", err);
+      this.logger.error("Failed to send abuse alert to admin", err);
     }
   }
 }

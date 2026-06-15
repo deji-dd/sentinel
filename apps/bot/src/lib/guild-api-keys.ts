@@ -14,6 +14,9 @@ import { randomUUID } from "node:crypto";
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "./db-client.js";
+import { Logger } from "./logger.js";
+
+const logger = new Logger("GuildAPIKeys");
 
 if (!process.env.ENCRYPTION_KEY) {
   throw new Error("ENCRYPTION_KEY environment variable is required");
@@ -62,7 +65,7 @@ export async function getGuildApiKeys(guildId: string): Promise<string[]> {
       const decrypted = decryptApiKey(row.api_key_encrypted, ENCRYPTION_KEY);
       keys.push(decrypted);
     } catch (err) {
-      console.error("Failed to decrypt guild API key:", err);
+      logger.error("Failed to decrypt guild API key:", err);
     }
   }
 
@@ -92,7 +95,7 @@ export async function getPrimaryGuildApiKey(
   try {
     return decryptApiKey(data.api_key_encrypted, ENCRYPTION_KEY);
   } catch (err) {
-    console.error("Failed to decrypt primary guild API key:", err);
+    logger.error("Failed to decrypt primary guild API key:", err);
     return null;
   }
 }
@@ -227,7 +230,7 @@ export async function markGuildApiKeyInvalid(
     .executeTakeFirst()) as { user_id: number } | undefined;
 
   if (!mapping) {
-    console.warn(`Could not find guild API key mapping for invalid key`);
+    logger.warn(`Could not find guild API key mapping for invalid key`);
     return;
   }
 
@@ -242,7 +245,7 @@ export async function markGuildApiKeyInvalid(
     .execute()) as GuildApiKeyRow[];
 
   if (!keys || keys.length === 0) {
-    console.warn("Could not find guild API key records");
+    logger.warn("Could not find guild API key records");
     return;
   }
 
@@ -258,7 +261,7 @@ export async function markGuildApiKeyInvalid(
 
         // Soft-delete if threshold reached
         if (newCount >= threshold) {
-          console.warn(
+          logger.warn(
             `Guild API key (guild: ${guildId}) reached ${threshold} invalid attempts, soft-deleting`,
           );
 
@@ -294,7 +297,7 @@ export async function markGuildApiKeyInvalid(
     }
   }
 
-  console.warn("Guild API key not found for invalid marking");
+  logger.warn("Guild API key not found for invalid marking");
 }
 
 /**

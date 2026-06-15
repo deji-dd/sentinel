@@ -16,7 +16,6 @@ import * as ttSelectorCommand from "./commands/general/territories/tt-selector.j
 import * as statsCommand from "./commands/personal/stats.js";
 import * as assistCommand from "./commands/general/assist/assist.js";
 import * as revokeWebAccessCommand from "./commands/personal/admin/revoke-web-access.js";
-import * as mercCommand from "./commands/general/mercenary/merc.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -57,7 +56,6 @@ const commands = [
   statsCommand.data.toJSON(),
   assistCommand.data.toJSON(),
   revokeWebAccessCommand.data.toJSON(),
-  mercCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

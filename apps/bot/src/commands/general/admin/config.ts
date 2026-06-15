@@ -64,14 +64,7 @@ function buildConfigViewMenuRow(
     );
   }
 
-  if (enabledModules.includes("mercenary")) {
-    options.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Mercenary Settings")
-        .setValue("mercenary")
-        .setDescription("Contracts, verification, and payout rules"),
-    );
-  }
+
 
   if (options.length === 0) return null;
 
@@ -317,7 +310,7 @@ export async function handleViewSelect(
       admin: null,
       revive: "revive",
       assist: "assist",
-      mercenary: "mercenary",
+
     };
     const requiredModule = moduleForView[selectedView];
     const enabledModules: string[] =
@@ -344,26 +337,8 @@ export async function handleViewSelect(
       await reviveHandlers.handleShowReviveSettings(interaction, true);
     } else if (selectedView === "assist") {
       await assistHandlers.handleShowAssistSettings(interaction, true);
-    } else if (selectedView === "mercenary") {
-      const helperEmbed = new EmbedBuilder()
-        .setColor(0x0ea5e9)
-        .setTitle("Mercenary Module")
-        .setDescription(
-          "Mercenary contract management is available in the **Web Dashboard** under the **Mercenary** tab.\n\nUse the **Open Web Dashboard** button from the main config menu.",
-        );
-
-      const backBtn = new ButtonBuilder()
-        .setCustomId("config_back_to_menu")
-        .setLabel("Back")
-        .setStyle(ButtonStyle.Secondary);
-
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-      await interaction.editReply({
-        embeds: [helperEmbed],
-        components: [row],
-      });
     }
+
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Error in view select handler:", errorMsg);

@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { EmbedBuilder } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../lib/db-client.js";
+import { ensureMercRegistrationPanel } from "../../lib/mercenary-interactions.js";
 import {
   getGuildApiKeys,
   storeGuildApiKey,
@@ -15,8 +16,11 @@ import { logGuildSuccess, logGuildAction } from "../../lib/guild-logger.js";
 import {
   syncAutoVerifyCronSchedule,
   syncWarTrackerCronSchedules,
+  syncMercenaryTrackerCronSchedules,
 } from "../../lib/cron-schedule-registry.js";
 import { getServerContext } from "../context.js";
+import { runMercenaryTrackerGuildSync } from "../../lib/mercenary-tracker.js";
+import { postContractReport } from "../../lib/mercenary-reporter.js";
 
 export const configRouter = Router();
 
@@ -48,6 +52,7 @@ function parseJsonArray(input: unknown): string[] {
 async function getFactionWarState(factionId: number): Promise<{
   hasActiveWar: boolean;
   hasUpcomingWar: boolean;
+  upcomingWarStartTime: string | null;
 }> {
   const nowIso = new Date().toISOString();
 
@@ -72,6 +77,7 @@ async function getFactionWarState(factionId: number): Promise<{
 
   let hasActiveWar = false;
   let hasUpcomingWar = false;
+  let upcomingWarStartTime: string | null = null;
 
   for (const war of wars) {
     const start = war.start_time;
@@ -79,6 +85,9 @@ async function getFactionWarState(factionId: number): Promise<{
 
     if (start > nowIso) {
       hasUpcomingWar = true;
+      if (!upcomingWarStartTime || start < upcomingWarStartTime) {
+        upcomingWarStartTime = start;
+      }
       continue;
     }
 
@@ -87,7 +96,7 @@ async function getFactionWarState(factionId: number): Promise<{
     }
   }
 
-  return { hasActiveWar, hasUpcomingWar };
+  return { hasActiveWar, hasUpcomingWar, upcomingWarStartTime };
 }
 
 function normalizeMercenaryContractRow(
@@ -97,6 +106,8 @@ function normalizeMercenaryContractRow(
   return {
     ...row,
     target_roles: parseJsonArray(row.target_roles_json),
+    hit_count: 0,
+    total_payout: 0,
   };
 }
 
@@ -119,6 +130,28 @@ configRouter.get("/mercenary", async (req: Request, res: Response) => {
       .where("guild_id", "=", guildId)
       .executeTakeFirst();
 
+    // Query hits counts and totals grouped by contract_id
+    const hitsSummary = await db
+      .selectFrom(TABLE_NAMES.MERCENARY_VERIFICATION_VAULT)
+      .select([
+        "contract_id",
+        db.fn.count("id").as("hit_count"),
+        db.fn.sum("payout_amount").as("total_payout"),
+      ])
+      .where("result", "=", "verified")
+      .groupBy("contract_id")
+      .execute();
+
+    const summaryMap = new Map(
+      hitsSummary.map((s) => [
+        s.contract_id,
+        {
+          hit_count: Number(s.hit_count) || 0,
+          total_payout: Number(s.total_payout) || 0,
+        },
+      ]),
+    );
+
     const contracts = await db
       .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
       .selectAll()
@@ -126,7 +159,15 @@ configRouter.get("/mercenary", async (req: Request, res: Response) => {
       .orderBy("created_at", "desc")
       .execute();
 
-    const normalizedContracts = contracts.map(normalizeMercenaryContractRow);
+    const normalizedContracts = contracts.map((c) => {
+      const norm = normalizeMercenaryContractRow(c);
+      const summary = summaryMap.get(norm.id) || { hit_count: 0, total_payout: 0 };
+      return {
+        ...norm,
+        hit_count: summary.hit_count,
+        total_payout: summary.total_payout,
+      };
+    });
 
     const activeContracts = normalizedContracts.filter((contract) =>
       ["active", "paused"].includes(contract.status),
@@ -155,6 +196,7 @@ configRouter.get("/mercenary", async (req: Request, res: Response) => {
         max_active_dibs_per_person: dibsConfig?.max_active_dibs_per_person ?? 5,
         dibs_remaining_minutes: dibsConfig?.dibs_remaining_minutes ?? 15,
         dibs_enabled: dibsConfig?.is_enabled ?? 1,
+        merc_role_ids: parseJsonArray(settings?.merc_role_ids_json),
       },
       active_contracts: activeContracts,
       past_contracts: pastContracts,
@@ -190,7 +232,87 @@ configRouter.post(
         max_active_dibs_per_person,
         dibs_remaining_minutes,
         dibs_enabled,
+        merc_role_ids,
       } = req.body;
+
+      // Get current config to check if registration channel changed and track changes
+      const currentConfig = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONFIG)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      const currentDibs = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_DIBS_CONFIG)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      const changes: string[] = [];
+
+      if (
+        contract_announcement_channel_id !== undefined &&
+        contract_announcement_channel_id !==
+          (currentConfig?.contract_announcement_channel_id ?? null)
+      ) {
+        changes.push("Contract Announcement Channel");
+      }
+      if (
+        hit_post_channel_id !== undefined &&
+        hit_post_channel_id !== (currentConfig?.hit_post_channel_id ?? null)
+      ) {
+        changes.push("Hit Post Channel");
+      }
+      if (
+        payout_channel_id !== undefined &&
+        payout_channel_id !== (currentConfig?.payout_channel_id ?? null)
+      ) {
+        changes.push("Payout Channel");
+      }
+      if (
+        audit_channel_id !== undefined &&
+        audit_channel_id !== (currentConfig?.audit_channel_id ?? null)
+      ) {
+        changes.push("Audit Channel");
+      }
+      if (
+        merc_registration_channel_id !== undefined &&
+        merc_registration_channel_id !==
+          (currentConfig?.merc_registration_channel_id ?? null)
+      ) {
+        changes.push("Mercenary Registration Channel");
+      }
+      if (merc_role_ids !== undefined) {
+        const oldRoles = currentConfig?.merc_role_ids_json
+          ? parseJsonArray(currentConfig.merc_role_ids_json)
+          : [];
+        const newRoles = merc_role_ids || [];
+        if (
+          JSON.stringify([...oldRoles].sort()) !==
+          JSON.stringify([...newRoles].sort())
+        ) {
+          changes.push("Mercenary Role(s)");
+        }
+      }
+      if (
+        max_active_dibs_per_person !== undefined &&
+        max_active_dibs_per_person !==
+          (currentDibs?.max_active_dibs_per_person ?? 5)
+      ) {
+        changes.push("Max Active Dibs Per Person");
+      }
+      if (
+        dibs_remaining_minutes !== undefined &&
+        dibs_remaining_minutes !== (currentDibs?.dibs_remaining_minutes ?? 15)
+      ) {
+        changes.push("Dibs Remaining Minutes");
+      }
+      if (dibs_enabled !== undefined) {
+        const newVal = dibs_enabled ? 1 : 0;
+        if (newVal !== (currentDibs?.is_enabled ?? 1)) {
+          changes.push("Mercenary Dibs Module");
+        }
+      }
 
       // Update main mercenary config
       await db
@@ -202,6 +324,8 @@ configRouter.post(
           hit_post_channel_id: hit_post_channel_id || null,
           payout_channel_id: payout_channel_id || null,
           audit_channel_id: audit_channel_id || null,
+          merc_registration_channel_id: merc_registration_channel_id || null,
+          merc_role_ids_json: JSON.stringify(merc_role_ids || []),
           updated_by: session.discord_id,
           updated_at: now,
         })
@@ -212,6 +336,8 @@ configRouter.post(
             hit_post_channel_id: hit_post_channel_id || null,
             payout_channel_id: payout_channel_id || null,
             audit_channel_id: audit_channel_id || null,
+            merc_registration_channel_id: merc_registration_channel_id || null,
+            merc_role_ids_json: JSON.stringify(merc_role_ids || []),
             updated_by: session.discord_id,
             updated_at: now,
           }),
@@ -242,9 +368,56 @@ configRouter.post(
         )
         .execute();
 
+      // Handle old registration message cleanup if channel changed or was cleared
+      if (
+        currentConfig &&
+        currentConfig.merc_registration_channel_id &&
+        currentConfig.merc_registration_message_id
+      ) {
+        if (
+          currentConfig.merc_registration_channel_id !==
+          merc_registration_channel_id
+        ) {
+          try {
+            const oldChannel = await discordClient.channels.fetch(
+              currentConfig.merc_registration_channel_id,
+            );
+            if (oldChannel && oldChannel.isTextBased()) {
+              const oldMsg = await oldChannel.messages.fetch(
+                currentConfig.merc_registration_message_id,
+              );
+              if (oldMsg) await oldMsg.delete();
+            }
+          } catch (e) {
+            console.error("Failed to delete old registration message:", e);
+          }
+        }
+      }
+
+      // Ensure/post the registration panel in the configured channel
+      if (merc_registration_channel_id) {
+        await ensureMercRegistrationPanel(discordClient, guildId);
+      } else {
+        await db
+          .updateTable(TABLE_NAMES.MERCENARY_CONFIG)
+          .set({ merc_registration_message_id: null })
+          .where("guild_id", "=", guildId)
+          .execute();
+      }
+
       await logGuildAction(guildId, discordClient, {
         title: "Mercenary Module Settings Updated",
-        description: `<@${session.discord_id}> updated mercenary module settings via Web Dashboard.`,
+        description: `<@${session.discord_id}> updated mercenary module settings.`,
+        fields:
+          changes.length > 0
+            ? [
+                {
+                  name: "Settings Updated",
+                  value: changes.join(", "),
+                  inline: false,
+                },
+              ]
+            : undefined,
       });
 
       res.json({ ok: true });
@@ -280,12 +453,9 @@ configRouter.post(
         faction_id,
         target_scope,
         idle_minutes,
-        auto_finish_on_war_end,
         min_level,
         max_level,
         target_roles,
-        require_faction_active_war,
-        require_faction_upcoming_war,
       } = req.body;
 
       if (!title || String(title).trim().length === 0) {
@@ -316,30 +486,6 @@ configRouter.post(
         });
       }
 
-      const warState = await getFactionWarState(factionIdNumber);
-      if (warState.hasActiveWar || warState.hasUpcomingWar) {
-        return res.status(400).json({
-          error:
-            "Faction has an active or upcoming war. Contract cannot be opened until this is clear.",
-          war_state: warState,
-        });
-      }
-
-      const requiresNoActiveWar = !require_faction_active_war ? 1 : 0;
-      const requiresNoUpcomingWar = !require_faction_upcoming_war ? 1 : 0;
-
-      if (requiresNoActiveWar && warState.hasActiveWar) {
-        return res.status(400).json({
-          error: "Faction currently has an active war.",
-        });
-      }
-
-      if (requiresNoUpcomingWar && warState.hasUpcomingWar) {
-        return res.status(400).json({
-          error: "Faction has an upcoming war.",
-        });
-      }
-
       const now = new Date().toISOString();
       const contractId = randomUUID();
 
@@ -363,20 +509,169 @@ configRouter.post(
           faction_name: faction.name,
           target_scope: target_scope || "offline_and_idle",
           idle_minutes: idle_minutes ? Number(idle_minutes) : null,
-          auto_finish_on_war_end: auto_finish_on_war_end ? 1 : 0,
+          auto_finish_on_war_end: 0,
           min_level: min_level ? Number(min_level) : null,
           max_level: max_level ? Number(max_level) : null,
           target_roles_json: JSON.stringify(
             Array.isArray(target_roles) ? target_roles : [],
           ),
-          require_faction_no_active_war: requiresNoActiveWar,
-          require_faction_no_upcoming_war: requiresNoUpcomingWar,
+          require_faction_no_active_war: 0,
+          require_faction_no_upcoming_war: 0,
         })
         .execute();
 
       await logGuildAction(guildId, discordClient, {
         title: "Mercenary Contract Created",
         description: `<@${session.discord_id}> created **${String(title).trim()}** contract for faction ${faction.name}.`,
+      });
+
+      // Fetch mercenary config for announcements
+      const config = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONFIG)
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      if (config?.contract_announcement_channel_id) {
+        try {
+          const annChannel = await discordClient.channels
+            .fetch(config.contract_announcement_channel_id)
+            .catch(() => null);
+          if (annChannel && annChannel.isTextBased()) {
+            let rolePings = "";
+            if (config.merc_role_ids_json) {
+              try {
+                const roleIds = JSON.parse(config.merc_role_ids_json);
+                if (Array.isArray(roleIds)) {
+                  rolePings = roleIds.map((id) => `<@&${id}>`).join(" ");
+                }
+              } catch {
+                // Invalid JSON in merc_role_ids_json, skip role pings
+              }
+            }
+
+            let startText = "**Starting Now**";
+            if (start_at) {
+              const startTimestamp = Math.floor(
+                new Date(start_at).getTime() / 1000,
+              );
+              if (new Date(start_at) > new Date()) {
+                startText = `**Starting <t:${startTimestamp}:R>**`;
+              } else {
+                startText = `**Started <t:${startTimestamp}:R>**`;
+              }
+            }
+
+            let contractTypeText = "Mixed / Any";
+            if (contract_type === "hosp") {
+              contractTypeText = "Hospitalize";
+            } else if (contract_type === "leave") {
+              contractTypeText = "Leave on Street";
+            } else if (contract_type === "mug") {
+              contractTypeText = "Mug";
+            } else if (contract_type === "mixed") {
+              contractTypeText = "Mixed";
+            }
+
+            let targetScopeText = "All Members";
+            if (target_scope === "offline_only") {
+              targetScopeText = "Offline Only";
+            } else if (target_scope === "offline_and_idle") {
+              targetScopeText = `Offline & Idle (${idle_minutes || 0}m+)`;
+            }
+
+            let levelText = "Any Level";
+            if (min_level && max_level) {
+              levelText = `${min_level} - ${max_level}`;
+            } else if (min_level) {
+              levelText = `${min_level}+`;
+            } else if (max_level) {
+              levelText = `≤${max_level}`;
+            }
+
+            const embed = new EmbedBuilder()
+              .setColor(0x10b981)
+              .setTitle(`New Mercenary Contract: ${String(title).trim()}`)
+              .setDescription(description || "No description provided.")
+              .addFields(
+                {
+                  name: "Target Faction",
+                  value: `${faction.name} [${factionIdNumber}]`,
+                  inline: true,
+                },
+                {
+                  name: "Payout",
+                  value:
+                    pay_amount > 0
+                      ? `$${Number(pay_amount).toLocaleString()} per hit`
+                      : "No payment",
+                  inline: true,
+                },
+                { name: "Start Status", value: startText, inline: true },
+                {
+                  name: "Contract Type",
+                  value: contractTypeText,
+                  inline: true,
+                },
+                {
+                  name: "Target Scope",
+                  value: targetScopeText,
+                  inline: true,
+                },
+                {
+                  name: "Target Levels",
+                  value: levelText,
+                  inline: true,
+                },
+              );
+
+            const rolesList = Array.isArray(target_roles) ? target_roles : [];
+            if (rolesList.length > 0) {
+              let isAllSelected = false;
+              try {
+                const membersResponse = await tornApi.get("/faction/{id}/members", {
+                  apiKey,
+                  pathParams: { id: String(factionIdNumber) },
+                });
+                const availableRoles = new Set<string>();
+                const members = membersResponse.members;
+                if (members && typeof members === "object") {
+                  const memberList = Array.isArray(members) ? members : Object.values(members);
+                  for (const member of memberList) {
+                    if (member && typeof member === "object" && "position" in member && typeof member.position === "string") {
+                      availableRoles.add(member.position);
+                    }
+                  }
+                }
+                if (availableRoles.size > 0 && rolesList.length >= availableRoles.size && rolesList.every((r: string) => availableRoles.has(r))) {
+                  isAllSelected = true;
+                }
+              } catch (err) {
+                console.error("Failed to fetch faction members for roles check:", err);
+              }
+
+              embed.addFields({
+                name: "Target Roles",
+                value: isAllSelected ? "All Roles" : rolesList.join(", "),
+                inline: false,
+              });
+            }
+
+            embed.setFooter({ text: "Sentinel" }).setTimestamp();
+
+            await annChannel.send({
+              content: rolePings ? `${rolePings}!` : undefined,
+              embeds: [embed],
+            });
+          }
+        } catch (err) {
+          console.error("Failed to post mercenary contract announcement:", err);
+        }
+      }
+
+      // Sync cron schedules immediately to trigger target tracking
+      await syncMercenaryTrackerCronSchedules().catch((err) => {
+        console.error("Failed to sync mercenary tracker cron schedules:", err);
       });
 
       const createdContract = await db
@@ -411,8 +706,8 @@ configRouter.patch(
       if (!session || !session.guild_id)
         return res.status(401).json({ error: "Invalid or expired session" });
 
-      const guildId = session.guild_id;
-      const contractId = req.params.id;
+      const guildId = session.guild_id as string;
+      const contractId = req.params.id as string;
       const existing = await db
         .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
         .selectAll()
@@ -451,14 +746,7 @@ configRouter.patch(
         });
       }
 
-      const warState = await getFactionWarState(nextFactionId);
-      if (warState.hasActiveWar || warState.hasUpcomingWar) {
-        return res.status(400).json({
-          error:
-            "Faction has an active or upcoming war. Contract cannot be updated to this faction yet.",
-          war_state: warState,
-        });
-      }
+
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updateData: any = {
@@ -493,11 +781,6 @@ configRouter.patch(
           ? Number(req.body.idle_minutes)
           : null;
       }
-      if (req.body.auto_finish_on_war_end !== undefined) {
-        updateData.auto_finish_on_war_end = req.body.auto_finish_on_war_end
-          ? 1
-          : 0;
-      }
       if (req.body.min_level !== undefined) {
         updateData.min_level = req.body.min_level
           ? Number(req.body.min_level)
@@ -513,24 +796,16 @@ configRouter.patch(
           Array.isArray(req.body.target_roles) ? req.body.target_roles : [],
         );
       }
-      if (req.body.require_faction_active_war !== undefined) {
-        updateData.require_faction_no_active_war = !req.body
-          .require_faction_active_war
-          ? 1
-          : 0;
-      }
-      if (req.body.require_faction_upcoming_war !== undefined) {
-        updateData.require_faction_no_upcoming_war = !req.body
-          .require_faction_upcoming_war
-          ? 1
-          : 0;
-      }
+
       if (req.body.status !== undefined) {
         updateData.status = req.body.status;
         if (["completed", "cancelled", "closed"].includes(req.body.status)) {
           updateData.closed_at = new Date().toISOString();
         }
       }
+
+      const oldStatus = existing.status;
+      const newStatus = req.body.status !== undefined ? req.body.status : oldStatus;
 
       await db
         .updateTable(TABLE_NAMES.MERCENARY_CONTRACTS)
@@ -539,11 +814,6 @@ configRouter.patch(
         .where("guild_id", "=", guildId)
         .execute();
 
-      await logGuildAction(guildId, discordClient, {
-        title: "Mercenary Contract Updated",
-        description: `<@${session.discord_id}> updated contract **${existing.title}**.`,
-      });
-
       const updatedContract = await db
         .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
         .selectAll()
@@ -551,14 +821,151 @@ configRouter.patch(
         .where("guild_id", "=", guildId)
         .executeTakeFirst();
 
+      // Trigger completion report if newly completed/closed/cancelled
+      if (
+        ["completed", "cancelled", "closed"].includes(newStatus) &&
+        !["completed", "cancelled", "closed"].includes(oldStatus)
+      ) {
+        void postContractReport(discordClient, contractId, guildId as string).catch((err) => {
+          console.error("Failed to post contract completion report:", err);
+        });
+      } else {
+        // Otherwise, send change notification to mercenary announcement channel
+        const settings = await db
+          .selectFrom(TABLE_NAMES.MERCENARY_CONFIG)
+          .selectAll()
+          .where("guild_id", "=", guildId)
+          .executeTakeFirst();
+
+        if (settings?.contract_announcement_channel_id && updatedContract) {
+          const annChannel = await discordClient.channels
+            .fetch(settings.contract_announcement_channel_id)
+            .catch(() => null);
+          if (annChannel && annChannel.isTextBased()) {
+            let targetScopeText = "All Members";
+            if (updatedContract.target_scope === "offline_only") {
+              targetScopeText = "Offline Only";
+            } else if (updatedContract.target_scope === "offline_and_idle") {
+              targetScopeText = `Offline & Idle (${updatedContract.idle_minutes || 0}m+)`;
+            }
+
+            const changeEmbed = new EmbedBuilder()
+              .setColor(0xf59e0b) // Amber color for update
+              .setTitle(`Mercenary Contract Updated: ${updatedContract.title}`)
+              .setDescription(`The contract details have been updated by an administrator.`)
+              .addFields(
+                {
+                  name: "Target Faction",
+                  value: `${updatedContract.faction_name || "Unknown"} [${updatedContract.faction_id || "N/A"}]`,
+                  inline: true,
+                },
+                {
+                  name: "Payout",
+                  value:
+                    updatedContract.pay_amount > 0
+                      ? `$${Number(updatedContract.pay_amount).toLocaleString()} per hit`
+                      : "No payment",
+                  inline: true,
+                },
+                {
+                  name: "Target Scope",
+                  value: targetScopeText,
+                  inline: true,
+                },
+                {
+                  name: "Contract Type",
+                  value: updatedContract.contract_type === "hosp" ? "Hospitalize" : updatedContract.contract_type === "mug" ? "Mug" : updatedContract.contract_type === "leave" ? "Leave on Street" : "Mixed",
+                  inline: true,
+                },
+              );
+
+            if (updatedContract.description) {
+              changeEmbed.addFields({ name: "Notes", value: updatedContract.description, inline: false });
+            }
+
+            await annChannel.send({ embeds: [changeEmbed] }).catch(() => {});
+          }
+        }
+      }
+
+      await logGuildAction(guildId, discordClient, {
+        title: "Mercenary Contract Updated",
+        description: `<@${session.discord_id}> updated contract **${existing.title}**.`,
+      });
+
+      // Sync tracking and schedules immediately on update
+      void syncMercenaryTrackerCronSchedules().catch(console.error);
+      void runMercenaryTrackerGuildSync(discordClient, guildId).catch(
+        console.error,
+      );
+
+      const hitSummary = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_VERIFICATION_VAULT)
+        .select([
+          db.fn.count("id").as("hit_count"),
+          db.fn.sum("payout_amount").as("total_payout"),
+        ])
+        .where("contract_id", "=", contractId)
+        .where("result", "=", "verified")
+        .executeTakeFirst();
+
       res.json({
         ok: true,
         contract: updatedContract
-          ? normalizeMercenaryContractRow(updatedContract)
+          ? {
+              ...normalizeMercenaryContractRow(updatedContract),
+              hit_count: Number(hitSummary?.hit_count) || 0,
+              total_payout: Number(hitSummary?.total_payout) || 0,
+            }
           : null,
       });
     } catch (error) {
       console.error("[HTTP] Error updating mercenary contract:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+configRouter.get(
+  "/mercenary/contracts/:id/hits",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
+
+    const { magicLinkService } = getServerContext(req);
+
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session || !session.guild_id)
+        return res.status(401).json({ error: "Invalid or expired session" });
+
+      const guildId = session.guild_id;
+      const contractId = req.params.id;
+
+      // 1. Verify contract belongs to guild
+      const contract = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+        .select("id")
+        .where("id", "=", contractId)
+        .where("guild_id", "=", guildId)
+        .executeTakeFirst();
+
+      if (!contract) {
+        return res.status(404).json({ error: "Contract not found" });
+      }
+
+      // 2. Fetch all verified and invalid hits from vault
+      const hits = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_VERIFICATION_VAULT)
+        .selectAll()
+        .where("contract_id", "=", contractId)
+        .where("result", "in", ["verified", "invalid_type"])
+        .orderBy("occurred_at", "desc")
+        .execute();
+
+      res.json({ hits });
+    } catch (error) {
+      console.error("[HTTP] Error fetching contract hits:", error);
       res.status(500).json({ error: "Server error" });
     }
   },
@@ -616,10 +1023,14 @@ configRouter.get(
         }
       }
 
+      const warState = await getFactionWarState(factionId);
+
       res.json({
         faction_name: faction.name,
         available_roles: Array.from(availableRoles).sort(),
         target_roles: Array.from(availableRoles).sort(),
+        has_active_war: warState.hasActiveWar,
+        has_upcoming_war: warState.hasUpcomingWar,
       });
     } catch (error) {
       console.error("[HTTP] Error verifying faction:", error);
@@ -917,10 +1328,10 @@ configRouter.post("/", async (req: Request, res: Response) => {
         guildId,
         discordClient,
         "System Configuration Updated",
-        `<@${session.discord_id}> updated the guild configuration via Web Dashboard.`,
+        `<@${session.discord_id}> updated the guild configuration.`,
         [
           {
-            name: "Updated Settings",
+            name: "Settings Updated",
             value: changes.join(", "),
             inline: false,
           },
@@ -1065,7 +1476,7 @@ configRouter.post("/reaction-roles", async (req: Request, res: Response) => {
 
     await logGuildAction(session.guild_id, discordClient, {
       title: "Reaction Role Message Created",
-      description: `<@${session.discord_id}> created a new reaction role message in <#${channel_id}> via Web Dashboard.`,
+      description: `<@${session.discord_id}> created a new reaction role message in <#${channel_id}>.`,
     });
 
     res.json({ ok: true, message: messageRecord });
@@ -1199,7 +1610,7 @@ configRouter.patch(
 
       await logGuildAction(session.guild_id, discordClient, {
         title: "Reaction Role Message Updated",
-        description: `<@${session.discord_id}> updated a reaction role message in <#${existing.channel_id}> via Web Dashboard.`,
+        description: `<@${session.discord_id}> updated a reaction role message in <#${existing.channel_id}>.`,
       });
 
       res.json({ ok: true });
@@ -1267,7 +1678,7 @@ configRouter.delete(
 
       await logGuildAction(session.guild_id, discordClient, {
         title: "Reaction Role Message Deleted",
-        description: `<@${session.discord_id}> deleted a reaction role message via Web Dashboard.`,
+        description: `<@${session.discord_id}> deleted a reaction role message.`,
         color: 0xef4444,
       });
 
@@ -1412,22 +1823,17 @@ configRouter.post("/faction-roles", async (req: Request, res: Response) => {
     }
 
     // Refresh the auto-verify schedule
-    const currentConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["auto_verify"])
-      .where("guild_id", "=", session.guild_id)
-      .executeTakeFirst();
-
-    await syncAutoVerifyCronSchedule(
-      session.guild_id,
-      discordClient,
-    );
+    await syncAutoVerifyCronSchedule(session.guild_id, discordClient);
 
     const isNew = !id;
     const targetFaction = faction_name || faction_id;
     await logGuildAction(session.guild_id, discordClient, {
-      title: isNew ? `Faction Mapping Added: ${targetFaction}` : `Faction Mapping Updated: ${targetFaction}`,
-      description: isNew ? `Added by <@${session.discord_id}>` : `Updated by <@${session.discord_id}>`,
+      title: isNew
+        ? `Faction Mapping Added: ${targetFaction}`
+        : `Faction Mapping Updated: ${targetFaction}`,
+      description: isNew
+        ? `Added by <@${session.discord_id}>`
+        : `Updated by <@${session.discord_id}>`,
       color: 0x22c55e, // Success (green)
     });
 
@@ -1467,19 +1873,10 @@ configRouter.delete(
         .execute();
 
       // Refresh the auto-verify schedule
-      const currentConfig = await db
-        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-        .select(["auto_verify"])
-        .where("guild_id", "=", session.guild_id)
-        .executeTakeFirst();
-
-      await syncAutoVerifyCronSchedule(
-        session.guild_id,
-        discordClient,
-      );
+      await syncAutoVerifyCronSchedule(session.guild_id, discordClient);
 
       const targetFaction = mapping
-        ? (mapping.faction_name || mapping.faction_id)
+        ? mapping.faction_name || mapping.faction_id
         : "Unknown Faction";
 
       await logGuildAction(session.guild_id, discordClient, {
@@ -1536,16 +1933,7 @@ configRouter.post("/api-keys", async (req: Request, res: Response) => {
       primaryBool,
     );
 
-    const currentConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["auto_verify"])
-      .where("guild_id", "=", session.guild_id)
-      .executeTakeFirst();
-
-    await syncAutoVerifyCronSchedule(
-      session.guild_id,
-      discordClient,
-    );
+    await syncAutoVerifyCronSchedule(session.guild_id, discordClient);
     await syncWarTrackerCronSchedules();
 
     // Log the addition (mask the key)
@@ -1554,7 +1942,7 @@ configRouter.post("/api-keys", async (req: Request, res: Response) => {
       session.guild_id,
       discordClient,
       "API Key Added",
-      `<@${session.discord_id}> added a new Torn API key (${maskedKey}) via Web Dashboard.`,
+      `<@${session.discord_id}> added a new Torn API key (${maskedKey}).`,
     );
 
     res.json({ ok: true });
@@ -1608,7 +1996,7 @@ configRouter.delete("/api-keys", async (req: Request, res: Response) => {
 
       await logGuildAction(session.guild_id, discordClient, {
         title: "API Key Removed",
-        description: `<@${session.discord_id}> removed a Torn API key via Web Dashboard.`,
+        description: `<@${session.discord_id}> removed a Torn API key.`,
         color: 0xef4444,
         fields: [
           {
@@ -1620,16 +2008,7 @@ configRouter.delete("/api-keys", async (req: Request, res: Response) => {
       });
     }
 
-    const currentConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["auto_verify"])
-      .where("guild_id", "=", session.guild_id)
-      .executeTakeFirst();
-
-    await syncAutoVerifyCronSchedule(
-      session.guild_id,
-      discordClient,
-    );
+    await syncAutoVerifyCronSchedule(session.guild_id, discordClient);
     await syncWarTrackerCronSchedules();
 
     res.json({ ok: true });

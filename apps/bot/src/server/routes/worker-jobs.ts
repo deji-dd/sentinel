@@ -6,6 +6,7 @@ import { performTokenCleanup } from "../../tasks/token-cleanup-task.js";
 import { performReviveMaintenance } from "../../commands/general/admin/handlers/revive.js";
 import { GuildSyncScheduler } from "../../lib/verification-sync.js";
 import { runWarTrackerGuildSync } from "../../lib/war-tracker.js";
+import { runMercenaryTrackerGuildSync } from "../../lib/mercenary-tracker.js";
 import { isDev } from "../../lib/bot-config.js";
 
 type WorkerJobRequest = {
@@ -59,6 +60,13 @@ async function runWarTrackerOnce(
   await runWarTrackerGuildSync(client, guildId);
 }
 
+async function runMercenaryTrackerOnce(
+  client: Client,
+  guildId: string,
+): Promise<void> {
+  await runMercenaryTrackerGuildSync(client, guildId);
+}
+
 workerJobRouter.post("/execute", async (req: Request, res: Response) => {
   if (!ensureBridgeAuth(req, res)) {
     return;
@@ -100,6 +108,12 @@ workerJobRouter.post("/execute", async (req: Request, res: Response) => {
         return;
       }
       await runWarTrackerOnce(discordClient, guildId);
+    } else if (workerName.startsWith("bot:mercenary_tracker:")) {
+      if (!guildId) {
+        res.status(400).json({ error: "Missing guildId metadata" });
+        return;
+      }
+      await runMercenaryTrackerOnce(discordClient, guildId);
     } else {
       res.status(404).json({ error: `Unknown worker job '${workerName}'` });
       return;

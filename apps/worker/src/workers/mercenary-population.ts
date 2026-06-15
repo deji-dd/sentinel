@@ -131,10 +131,23 @@ async function processGuildContracts(
 }
 
 async function getActiveMercenaryContracts() {
+  const nowIso = new Date().toISOString();
   return db
     .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
     .selectAll()
     .where("status", "=", "active")
+    .where((eb) =>
+      eb.and([
+        eb.or([
+          eb("start_at", "is", null),
+          eb("start_at", "<=", nowIso),
+        ]),
+        eb.or([
+          eb("ends_at", "is", null),
+          eb("ends_at", ">", nowIso),
+        ]),
+      ]),
+    )
     .execute();
 }
 

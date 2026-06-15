@@ -44,6 +44,9 @@ const buttonHandlers = new Map<string, ButtonHandler>([
   ["assist_set_ping_role", configCommand.handleAssistSetPingRole],
   ["assist_set_script_roles", configCommand.handleAssistSetScriptRoles],
   ["assist_manage_users", configCommand.handleAssistManageUsers],
+  ["merc_register_button", mercenaryInteractions.handleMercRegisterButton],
+  ["merc_update_key_button", mercenaryInteractions.handleMercUpdateKeyButton],
+  ["merc_unregister_button", mercenaryInteractions.handleMercUnregisterButton],
 ]);
 
 const buttonPrefixHandlers: Array<{ prefix: string; handler: ButtonHandler }> =
@@ -88,12 +91,25 @@ const buttonPrefixHandlers: Array<{ prefix: string; handler: ButtonHandler }> =
       prefix: "merc_claim_",
       handler: mercenaryInteractions.handleMercClaimButton,
     },
+    {
+      prefix: "merc_attack_",
+      handler: mercenaryInteractions.handleMercAttackButton,
+    },
+    {
+      prefix: "merc_page_prev_",
+      handler: mercenaryInteractions.handleMercPageButton,
+    },
+    {
+      prefix: "merc_page_next_",
+      handler: mercenaryInteractions.handleMercPageButton,
+    },
   ];
 
 const modalHandlers = new Map<string, ModalHandler>([
   ["revive_min_hosp_modal", configCommand.handleReviveSetMinHospModal],
   ["revive_request_other_modal", configCommand.handleReviveRequestOtherModal],
   ["tt_selector_create_modal", ttSelectorCommand.handleModalSubmitInteraction],
+  ["merc_register_modal", mercenaryInteractions.handleMercRegisterModal],
 ]);
 
 const stringSelectHandlers = new Map<string, StringSelectHandler>([

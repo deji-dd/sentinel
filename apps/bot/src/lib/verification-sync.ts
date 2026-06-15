@@ -1,10 +1,10 @@
 import { type Client } from "discord.js";
-import { TABLE_NAMES, TornApiClient, getNextApiKey } from "@sentinel/shared";
+import { TABLE_NAMES, TornApiClient, getNextApiKey, decryptApiKey } from "@sentinel/shared";
 import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
-import { logGuildError, logGuildSuccess } from "./guild-logger.js";
+import { logGuildError, logGuildSuccess, logGuildWarning } from "./guild-logger.js";
 import { upsertVerifiedUser } from "./verified-users.js";
-import { tornApi } from "../services/torn-client.js";
+import { tornApi, validateTornApiKey } from "../services/torn-client.js";
 import { Logger } from "./logger.js";
 
 const logger = new Logger("Guild Sync");
@@ -258,6 +258,95 @@ export class GuildSyncScheduler {
         }
       }
 
+      // Get all registered active mercenaries in this guild
+      const registeredMercs = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_REGISTERED_MERCS)
+        .select(["id", "discord_id", "api_key", "torn_id", "torn_name", "updated_at"])
+        .where("guild_id", "=", job.guild_id)
+        .where("is_active", "=", 1)
+        .execute();
+
+      // Get mercenary config and role ids
+      const mercConfig = await db
+        .selectFrom(TABLE_NAMES.MERCENARY_CONFIG)
+        .select(["merc_role_ids_json"])
+        .where("guild_id", "=", job.guild_id)
+        .executeTakeFirst();
+      const mercRoleIds = parseTextArray(mercConfig?.merc_role_ids_json);
+
+      // Routine check for active registered mercenaries' API keys (check every 12 hours)
+      const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+      if (ENCRYPTION_KEY) {
+        const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+        const mercsToCheck = registeredMercs.filter(m => {
+          if (!m.api_key) return false;
+          if (!m.updated_at) return true;
+          const updatedTime = new Date(m.updated_at.replace(" ", "T")).getTime();
+          return isNaN(updatedTime) || updatedTime < twelveHoursAgo;
+        });
+
+        for (const merc of mercsToCheck) {
+          if (!merc.api_key) continue;
+          let decryptedKey = "";
+          try {
+            decryptedKey = decryptApiKey(merc.api_key, ENCRYPTION_KEY);
+          } catch (decryptErr) {
+            logger.error(`Failed to decrypt API key for mercenary ${merc.torn_name} [${merc.torn_id}]`, decryptErr);
+            continue;
+          }
+
+          try {
+            // Validate the key
+            await validateTornApiKey(decryptedKey);
+            // If valid, update updated_at to now to defer the next check
+            await db
+              .updateTable(TABLE_NAMES.MERCENARY_REGISTERED_MERCS)
+              .set({ updated_at: new Date().toISOString() })
+              .where("id", "=", merc.id)
+              .execute();
+          } catch (validateErr) {
+            const errorMsg = validateErr instanceof Error ? validateErr.message : String(validateErr);
+            logger.warn(`API key validation failed for mercenary ${merc.torn_name} [${merc.torn_id}] during routine check. Deregistering. Error: ${errorMsg}`);
+
+            // Mark as inactive
+            const now = new Date().toISOString();
+            await db
+              .updateTable(TABLE_NAMES.MERCENARY_REGISTERED_MERCS)
+              .set({
+                is_active: 0,
+                deregistered_at: now,
+                updated_at: now,
+              })
+              .where("id", "=", merc.id)
+              .execute();
+
+            // Strip roles if possible
+            if (mercRoleIds.length > 0) {
+              try {
+                const member = await discord.members.fetch(merc.discord_id);
+                for (const roleId of mercRoleIds) {
+                  if (member.roles.cache.has(roleId)) {
+                    await member.roles.remove(roleId, "Auto-sync: Mercenary API key became invalid");
+                  }
+                }
+              } catch (roleErr) {
+                logger.error(`Failed to strip roles for deregistered mercenary ${merc.discord_id}:`, roleErr);
+              }
+            }
+
+            // Log action to guild audit logs
+            await logGuildWarning(
+              job.guild_id,
+              this.client,
+              "Mercenary Auto-Deregistered",
+              `${merc.torn_name ? `**${merc.torn_name} [${merc.torn_id}]**` : `<@${merc.discord_id}>`} was automatically removed from the mercenary system because their API key is no longer valid.\nReason: ${errorMsg}`,
+            );
+          }
+        }
+      }
+
+      const mercDiscordIds = new Set(registeredMercs.map((m) => m.discord_id));
+
       // Get managed roles (verified role(s) + all faction roles)
       const managedRoleIds = new Set<string>();
       if (guildConfig.verified_role_id) {
@@ -279,6 +368,9 @@ export class GuildSyncScheduler {
       }
       for (const rxMapping of reactionRoleSyncs) {
         rxMapping.mapped_role_ids.forEach((id) => managedRoleIds.add(id));
+      }
+      for (const roleId of mercRoleIds) {
+        managedRoleIds.add(roleId);
       }
 
       // Filter members to sync: only those who ARE verified OR carry a managed role
@@ -514,6 +606,9 @@ export class GuildSyncScheduler {
             );
           }
 
+          // Track all roles this user should keep across verification and faction roles
+          const rolesUserShouldKeep = new Set<string>(rolesToAssign);
+
           for (const roleId of rolesToAssign) {
             if (!member.roles.cache.has(roleId)) {
               const addResult = await member.roles
@@ -546,6 +641,7 @@ export class GuildSyncScheduler {
                 // Add member roles
                 currentFactionMapping.member_role_ids.forEach((roleId) => {
                   rolesUserShouldHave.add(roleId);
+                  rolesUserShouldKeep.add(roleId);
                 });
 
                 // Add leader roles if they are a leader
@@ -558,12 +654,14 @@ export class GuildSyncScheduler {
                   if (isLeader) {
                     currentFactionMapping.leader_role_ids.forEach((roleId) => {
                       rolesUserShouldHave.add(roleId);
+                      rolesUserShouldKeep.add(roleId);
                     });
                   }
                 } else {
                   currentFactionMapping.leader_role_ids.forEach((roleId) => {
                     if (member.roles.cache.has(roleId)) {
                       rolesUserShouldHave.add(roleId);
+                      rolesUserShouldKeep.add(roleId);
                     }
                   });
                 }
@@ -600,6 +698,34 @@ export class GuildSyncScheduler {
                   if (addResult) {
                     rolesAdded.push(roleId);
                   }
+                }
+              }
+            }
+          }
+
+          // Enforce mercenary roles state: strictly add if registered merc, remove if not
+          if (mercRoleIds.length > 0) {
+            const isMerc = mercDiscordIds.has(member.id);
+            for (const roleId of mercRoleIds) {
+              const userHasRole = member.roles.cache.has(roleId);
+              if (userHasRole && !isMerc) {
+                // If they should keep the role from verified config or faction mapping, do not remove it
+                if (rolesUserShouldKeep.has(roleId)) continue;
+
+                const removeResult = await member.roles
+                  .remove(roleId, "Auto-sync: Not a registered mercenary")
+                  .then(() => true)
+                  .catch(() => false);
+                if (removeResult) {
+                  rolesRemoved.push(roleId);
+                }
+              } else if (!userHasRole && isMerc) {
+                const addResult = await member.roles
+                  .add(roleId, "Auto-sync: Registered mercenary")
+                  .then(() => true)
+                  .catch(() => false);
+                if (addResult) {
+                  rolesAdded.push(roleId);
                 }
               }
             }

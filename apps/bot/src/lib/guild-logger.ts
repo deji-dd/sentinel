@@ -64,6 +64,7 @@ export async function logGuildAction(
     const embed = new EmbedBuilder()
       .setColor(options.color ?? 0x3b82f6)
       .setTitle(options.title)
+      .setFooter({ text: "Sentinel" })
       .setTimestamp();
 
     if (options.description) {
