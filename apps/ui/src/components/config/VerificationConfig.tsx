@@ -7,13 +7,7 @@ import {
   useCallback,
 } from "react";
 import { LoadingScreen, TacticalLoader } from "@/components/loading-screen";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -87,11 +81,13 @@ export const VerificationConfig = forwardRef(
       initialData,
       onConfigUpdate,
       onDirtyChange,
+      activeSubTab = "settings",
     }: {
       sessionToken: string;
       initialData?: any;
       onConfigUpdate?: (data: any) => void;
       onDirtyChange?: (isDirty: boolean) => void;
+      activeSubTab?: "settings" | "mappings";
     },
     ref,
   ) => {
@@ -105,9 +101,6 @@ export const VerificationConfig = forwardRef(
     );
     const [nicknameTemplate, setNicknameTemplate] = useState(
       initialData?.nickname_template || "{name}#{id}",
-    );
-    const [verifiedRoleId, setVerifiedRoleId] = useState(
-      initialData?.verified_role_id || "",
     );
     const [verifiedRoleIds, setVerifiedRoleIds] = useState<string[]>(
       Array.isArray(initialData?.verified_role_ids)
@@ -145,7 +138,6 @@ export const VerificationConfig = forwardRef(
         // Pre-fill state
         setAutoVerify(configData.auto_verify === 1);
         setNicknameTemplate(configData.nickname_template || "{name}#{id}");
-        setVerifiedRoleId(configData.verified_role_id || "none");
         setVerifiedRoleIds(configData.verified_role_ids || []);
         setFactionListChannelId(configData.faction_list_channel_id || "none");
 
@@ -254,9 +246,6 @@ export const VerificationConfig = forwardRef(
         const isAutoVerifyChanged = (autoVerify ? 1 : 0) !== config.auto_verify;
         const isNicknameChanged =
           nicknameTemplate !== (config.nickname_template || "{name}#{id}");
-        const isVerifiedRoleChanged =
-          (verifiedRoleId === "none" ? "" : verifiedRoleId) !==
-          (config.verified_role_id || "");
 
         const isVerifiedRolesChanged =
           JSON.stringify([...verifiedRoleIds].sort()) !==
@@ -268,10 +257,9 @@ export const VerificationConfig = forwardRef(
 
         onDirtyChange?.(
           isAutoVerifyChanged ||
-            isNicknameChanged ||
-            isVerifiedRoleChanged ||
-            isVerifiedRolesChanged ||
-            isFactionChannelChanged,
+          isNicknameChanged ||
+          isVerifiedRolesChanged ||
+          isFactionChannelChanged,
         );
       };
 
@@ -280,7 +268,6 @@ export const VerificationConfig = forwardRef(
     }, [
       autoVerify,
       nicknameTemplate,
-      verifiedRoleId,
       verifiedRoleIds,
       factionListChannelId,
       config,
@@ -298,7 +285,7 @@ export const VerificationConfig = forwardRef(
           body: JSON.stringify({
             auto_verify: autoVerify,
             nickname_template: nicknameTemplate,
-            verified_role_id: verifiedRoleId === "none" ? null : verifiedRoleId,
+            verified_role_id: null,
             verified_role_ids: verifiedRoleIds,
             faction_list_channel_id:
               factionListChannelId === "none" ? null : factionListChannelId,
@@ -416,25 +403,24 @@ export const VerificationConfig = forwardRef(
 
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          {/* Core Settings */}
-          <Card className="border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300">
-            <CardHeader>
-              <div className="flex items-center gap-2 text-primary mb-1">
+        {activeSubTab === "settings" && (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-primary">
                 <Shield className="w-4 h-4" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
                   Core
                 </span>
               </div>
-              <CardTitle className="text-foreground">
+              <h2 className="text-2xl font-black tracking-tight text-foreground">
                 Verification Engine
-              </CardTitle>
-              <CardDescription className="text-muted-foreground/80">
-                Configure how members are verified and identified within the
-                guild.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+              </h2>
+              <p className="text-sm text-muted-foreground/80">
+                Configure how members are verified and identified within the guild.
+              </p>
+            </div>
+
+            <div className="space-y-6 bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs max-w-3xl">
               <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/50">
                 <div className="space-y-0.5">
                   <Label className="text-sm font-bold text-foreground">
@@ -484,25 +470,31 @@ export const VerificationConfig = forwardRef(
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="outline"
-                      className="w-full justify-between h-11 px-4 rounded-xl bg-background/50 border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all group"
+                      className="w-full justify-between h-11 px-4 rounded-xl bg-background/50 border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all group text-foreground"
                     >
                       <div className="flex items-center gap-2 overflow-hidden">
-                        <Shield className="w-4 h-4 text-primary opacity-50 group-hover:opacity-100 transition-opacity" />
-                        <span className="truncate font-bold text-sm">
+                        <Shield className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                        <span
+                          className={cn(
+                            "truncate font-bold text-sm",
+                            verifiedRoleIds.length === 0 &&
+                            "text-muted-foreground",
+                          )}
+                        >
                           {verifiedRoleIds.length === 0
                             ? "Select Verified Roles"
                             : verifiedRoleIds
-                                .map(
-                                  (id) =>
-                                    availableRoles.find(
-                                      (r: GuildItem) => r.id === id,
-                                    )?.name,
-                                )
-                                .filter(Boolean)
-                                .join(", ")}
+                              .map(
+                                (id) =>
+                                  availableRoles.find(
+                                    (r: GuildItem) => r.id === id,
+                                  )?.name,
+                              )
+                              .filter(Boolean)
+                              .join(", ")}
                         </span>
                       </div>
-                      <ChevronDown className="w-4 h-4 opacity-50" />
+                      <ChevronDown className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
@@ -570,7 +562,7 @@ export const VerificationConfig = forwardRef(
                 >
                   <SelectTrigger className="w-full h-11 px-4 rounded-xl bg-background/50 border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all group font-bold">
                     <div className="flex items-center gap-2 overflow-hidden">
-                      <Hash className="w-4 h-4 text-primary opacity-50 group-hover:opacity-100 transition-opacity" />
+                      <Hash className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                       <SelectValue placeholder="Select Channel" />
                     </div>
                   </SelectTrigger>
@@ -599,32 +591,33 @@ export const VerificationConfig = forwardRef(
                   published.
                 </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
+        )}
 
-          {/* Faction Roles Section */}
-          <Card className="border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div>
-                <div className="flex items-center gap-2 text-primary mb-1">
+        {activeSubTab === "mappings" && (
+          <div className="space-y-6">
+            <div className="flex flex-row items-center justify-between gap-4">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 text-primary">
                   <Users className="w-4 h-4" />
                   <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
                     Assignments
                   </span>
                 </div>
-                <CardTitle className="text-foreground">
+                <h2 className="text-2xl font-black tracking-tight text-foreground">
                   Faction Role Mappings
-                </CardTitle>
-                <CardDescription className="text-muted-foreground/80">
-                  Map specific factions to Discord roles with granular
-                  member/leader distinction.
-                </CardDescription>
+                </h2>
+                <p className="text-sm text-muted-foreground/80">
+                  Map specific factions to Discord roles with granular member/leader distinction.
+                </p>
               </div>
-              <Button onClick={() => handleOpenModal()} size="sm">
-                <Plus /> Add
+              <Button onClick={() => handleOpenModal()} size="sm" className="shrink-0">
+                <Plus className="w-4 h-4 mr-2" /> Add Mapping
               </Button>
-            </CardHeader>
-            <CardContent>
+            </div>
+
+            <div className="space-y-5 bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs">
               <div className="max-h-150 overflow-y-auto pr-2 custom-scrollbar">
                 <div className="grid grid-cols-1 gap-3 pt-2 pb-2">
                   {sortedFactionRoles.map((fr) => (
@@ -657,11 +650,11 @@ export const VerificationConfig = forwardRef(
                             {fr.faction_id}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 shrink-0 group-hover:opacity-100 transition-opacity">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 rounded-lg hover:bg-primary/10 hover:text-primary cursor-pointer"
+                            className="h-7 w-7 rounded-lg hover:bg-primary/70 hover:text-background cursor-pointer bg-primary"
                             onClick={() => handleOpenModal(fr)}
                           >
                             <Settings2 className="w-3.5 h-3.5" />
@@ -669,7 +662,7 @@ export const VerificationConfig = forwardRef(
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 rounded-lg hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                            className="h-7 w-7 rounded-lg hover:bg-destructive/70 hover:text-background bg-destructive cursor-pointer"
                             onClick={() => setDeleteConfirm(fr.id)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -735,9 +728,9 @@ export const VerificationConfig = forwardRef(
                   )}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </div>
+        )}
 
         {/* Faction Role Dialog */}
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -810,7 +803,7 @@ export const VerificationConfig = forwardRef(
                     className={cn(
                       "space-y-6 transition-all duration-300",
                       !isFactionValidated &&
-                        "opacity-40 pointer-events-none grayscale",
+                      "opacity-40 pointer-events-none grayscale",
                     )}
                   >
                     <div className="space-y-2">
@@ -879,7 +872,7 @@ export const VerificationConfig = forwardRef(
                 className={cn(
                   "flex flex-col h-125 transition-all duration-300",
                   !isFactionValidated &&
-                    "opacity-40 pointer-events-none grayscale",
+                  "opacity-40 pointer-events-none grayscale",
                 )}
               >
                 <div className="p-6 border-b border-border/50 bg-secondary/5 flex items-center justify-between gap-4">

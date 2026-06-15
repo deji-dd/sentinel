@@ -14,6 +14,9 @@ import {
   SidebarFooter,
   SidebarTrigger,
   SidebarInset,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
 } from "@/components/ui/sidebar";
 import { LoadingScreen, TacticalLoader } from "@/components/loading-screen";
 import {
@@ -58,11 +61,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 type ModuleId =
   | "admin"
   | "verify"
+  | "verification_settings"
+  | "verification_mappings"
   | "reaction_roles"
   | "revive"
   | "assist"
   | "territories"
-  | "mercenary";
+  | "mercenary"
+  | "mercenary_settings"
+  | "mercenary_dibs"
+  | "mercenary_contracts";
 
 export default function ConfigPage() {
   const navigate = useNavigate();
@@ -372,7 +380,15 @@ export default function ConfigPage() {
     );
   }
 
-  const activeModule = modules.find((m) => m.id === activeTab);
+  const activeModule = modules.find(
+    (m) =>
+      m.id ===
+      (activeTab.startsWith("mercenary")
+        ? "mercenary"
+        : activeTab.startsWith("verification")
+        ? "verify"
+        : activeTab),
+  );
 
   return (
     <SidebarProvider>
@@ -400,10 +416,151 @@ export default function ConfigPage() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {modules
-                    .filter((m) => m.category === cat)
+                    .filter((m) => m.category === cat && m.isEnabled)
                     .map((m) => {
                       const isLocked = m.requiresKeys && !hasApiKeys;
-                      const isDisabled = !m.isEnabled || isLocked;
+                      const isDisabled = isLocked;
+                      const isMercenary = m.id === "mercenary";
+                      const isMercActive =
+                        activeTab === "mercenary" ||
+                        activeTab.startsWith("mercenary_");
+                      const isVerify = m.id === "verify";
+                      const isVerifyActive =
+                        activeTab === "verify" ||
+                        activeTab.startsWith("verification_");
+
+                      if (isMercenary) {
+                        return (
+                          <SidebarMenuItem key={m.id}>
+                            <SidebarMenuButton
+                              disabled={isDisabled}
+                              onClick={() =>
+                                handleTabSwitch("mercenary_settings")
+                              }
+                              isActive={isMercActive}
+                              className="h-10"
+                            >
+                              <m.icon
+                                className={cn(
+                                  "w-4 h-4",
+                                  isMercActive
+                                    ? "text-primary"
+                                    : "text-muted-foreground",
+                                )}
+                              />
+                              <span className="font-semibold text-sm text-foreground/80">
+                                {m.name}
+                              </span>
+                              {isLocked && (
+                                <Lock className="ml-auto w-3 h-3 text-destructive/50" />
+                              )}
+                            </SidebarMenuButton>
+                            {isMercActive && !isLocked && (
+                              <SidebarMenuSub className="animate-in slide-in-from-left-2 duration-300">
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton
+                                    isActive={
+                                      activeTab === "mercenary_settings" ||
+                                      activeTab === "mercenary"
+                                    }
+                                    onClick={() =>
+                                      handleTabSwitch("mercenary_settings")
+                                    }
+                                    className="cursor-pointer"
+                                  >
+                                    Module Settings
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton
+                                    isActive={activeTab === "mercenary_dibs"}
+                                    onClick={() =>
+                                      handleTabSwitch("mercenary_dibs")
+                                    }
+                                    className="cursor-pointer"
+                                  >
+                                    Dibs Config
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton
+                                    isActive={
+                                      activeTab === "mercenary_contracts"
+                                    }
+                                    onClick={() =>
+                                      handleTabSwitch("mercenary_contracts")
+                                    }
+                                    className="cursor-pointer"
+                                  >
+                                    Contracts
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              </SidebarMenuSub>
+                            )}
+                          </SidebarMenuItem>
+                        );
+                      }
+
+                      if (isVerify) {
+                        return (
+                          <SidebarMenuItem key={m.id}>
+                            <SidebarMenuButton
+                              disabled={isDisabled}
+                              onClick={() =>
+                                handleTabSwitch("verification_settings")
+                              }
+                              isActive={isVerifyActive}
+                              className="h-10"
+                            >
+                              <m.icon
+                                className={cn(
+                                  "w-4 h-4",
+                                  isVerifyActive
+                                    ? "text-primary"
+                                    : "text-muted-foreground",
+                                )}
+                              />
+                              <span className="font-semibold text-sm text-foreground/80">
+                                {m.name}
+                              </span>
+                              {isLocked && (
+                                <Lock className="ml-auto w-3 h-3 text-destructive/50" />
+                              )}
+                            </SidebarMenuButton>
+                            {isVerifyActive && !isLocked && (
+                              <SidebarMenuSub className="animate-in slide-in-from-left-2 duration-300">
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton
+                                    isActive={
+                                      activeTab === "verification_settings" ||
+                                      activeTab === "verify"
+                                    }
+                                    onClick={() =>
+                                      handleTabSwitch("verification_settings")
+                                    }
+                                    className="cursor-pointer"
+                                  >
+                                    Module Settings
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton
+                                    isActive={
+                                      activeTab === "verification_mappings"
+                                    }
+                                    onClick={() =>
+                                      handleTabSwitch("verification_mappings")
+                                    }
+                                    className="cursor-pointer"
+                                  >
+                                    Faction Mappings
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              </SidebarMenuSub>
+                            )}
+                          </SidebarMenuItem>
+                        );
+                      }
 
                       return (
                         <SidebarMenuItem key={m.id}>
@@ -540,12 +697,19 @@ export default function ConfigPage() {
               />
             )}
 
-            {activeTab === "verify" && (
+            {(activeTab === "verify" ||
+              activeTab === "verification_settings" ||
+              activeTab === "verification_mappings") && (
               <VerificationConfig
                 ref={moduleRef}
                 sessionToken={sessionToken!}
                 onConfigUpdate={setGuildConfig}
                 onDirtyChange={setIsDirty}
+                activeSubTab={
+                  activeTab === "verify"
+                    ? "settings"
+                    : (activeTab.replace("verification_", "") as any)
+                }
               />
             )}
 
@@ -559,12 +723,20 @@ export default function ConfigPage() {
               />
             )}
 
-            {activeTab === "mercenary" && (
+            {(activeTab === "mercenary" ||
+              activeTab === "mercenary_settings" ||
+              activeTab === "mercenary_dibs" ||
+              activeTab === "mercenary_contracts") && (
               <MercenaryConfig
                 ref={moduleRef}
                 sessionToken={sessionToken!}
                 initialData={guildConfig}
                 onDirtyChange={setIsDirty}
+                activeSubTab={
+                  activeTab === "mercenary"
+                    ? "settings"
+                    : (activeTab.replace("mercenary_", "") as any)
+                }
               />
             )}
 
@@ -582,9 +754,10 @@ export default function ConfigPage() {
 
             {activeTab !== "admin" &&
               activeTab !== "verify" &&
+              !activeTab.startsWith("verification") &&
               activeTab !== "territories" &&
               activeTab !== "reaction_roles" &&
-              activeTab !== "mercenary" &&
+              !activeTab.startsWith("mercenary") &&
               hasApiKeys && (
                 <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
                   <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">

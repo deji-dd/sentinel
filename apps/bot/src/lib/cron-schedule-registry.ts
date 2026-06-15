@@ -170,3 +170,77 @@ export async function syncAutoVerifyCronSchedules(client?: Client): Promise<void
     await syncAutoVerifyCronSchedule(row.guild_id, client);
   }
 }
+
+export async function syncMercenaryTrackerCronSchedules(): Promise<void> {
+  // Find guilds that have active mercenary contracts
+  const contractRows = await db
+    .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+    .select(["guild_id"])
+    .where("status", "=", "active")
+    .distinct()
+    .execute();
+
+  const activeGuildIds = new Set(contractRows.map((row) => row.guild_id).filter(Boolean) as string[]);
+
+  const allGuilds = await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["guild_id"])
+    .execute();
+
+  for (const row of allGuilds) {
+    const guildId = row.guild_id;
+    const workerName = buildWorkerName("bot:mercenary_tracker", guildId);
+
+    if (!activeGuildIds.has(guildId)) {
+      await setWorkerScheduleEnabled(workerName, false);
+      continue;
+    }
+
+    // Get count of registered mercenary keys
+    const mercKeysCountRow = await db
+      .selectFrom(TABLE_NAMES.MERCENARY_REGISTERED_MERCS)
+      .select(db.fn.count("id").as("count"))
+      .where("guild_id", "=", guildId)
+      .where("is_active", "=", 1)
+      .where("api_key", "is not", null)
+      .executeTakeFirst();
+
+    const keysCount = Number(mercKeysCountRow?.count || 0);
+
+    // Dynamic cadence based on number of registered keys
+    // 0-1 keys: 15s, 2-4 keys: 5s, 5+ keys: 3s
+    let cadenceSeconds = 15;
+    if (keysCount >= 5) {
+      cadenceSeconds = 3;
+    } else if (keysCount >= 2) {
+      cadenceSeconds = 5;
+    }
+
+    logger.success(
+      `Enabling mercenary-tracker worker schedule for guild ${guildId} (keys: ${keysCount}, cadence: ${cadenceSeconds}s)`,
+    );
+    await ensureWorkerRegistered({
+      name: workerName,
+      cadenceSeconds,
+      metadata: { guildId },
+    });
+
+    // Force execution immediately
+    const workerRow = await db
+      .selectFrom(TABLE_NAMES.WORKERS)
+      .select(["id"])
+      .where("name", "=", workerName)
+      .executeTakeFirst();
+
+    if (workerRow) {
+      await db
+        .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+        .set({
+          force_run: 1,
+          next_run_at: new Date().toISOString(),
+        })
+        .where("worker_id", "=", workerRow.id)
+        .execute();
+    }
+  }
+}

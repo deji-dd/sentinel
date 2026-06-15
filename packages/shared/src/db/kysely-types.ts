@@ -282,6 +282,8 @@ export interface SentinelMercenaryConfig {
   hit_post_channel_id: string | null;
   is_enabled: Generated<number>;
   merc_registration_channel_id: string | null;
+  merc_role_ids_json: Generated<string>;
+  merc_registration_message_id: string | null;
   payout_channel_id: string | null;
   updated_at: Generated<string | null>;
   updated_by: string | null;
@@ -299,6 +301,7 @@ export interface SentinelMercenaryDibsConfig {
 }
 
 export interface SentinelMercenaryRegisteredMercs {
+  api_key: string | null;
   created_at: Generated<string>;
   deregistered_at: string | null;
   discord_id: string;
@@ -382,6 +385,8 @@ export interface SentinelMercenaryTargets {
   status: Generated<string>;
   target_name: string;
   target_torn_id: string | null;
+  message_id: string | null;
+  channel_id: string | null;
   target_type: Generated<string>;
   updated_at: Generated<string | null>;
 }

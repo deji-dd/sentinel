@@ -63,7 +63,10 @@ class BotSqliteRateLimiter {
   }
 }
 
+import { Logger } from "../lib/logger.js";
+
 const rateLimiter = new BotSqliteRateLimiter();
+const logger = new Logger("TornAPI");
 
 export interface ValidatedKeyInfo {
   playerId: number;
@@ -76,7 +79,7 @@ export interface ValidatedKeyInfo {
 export const tornApi = new TornApiClient({
   rateLimitTracker: rateLimiter,
   onInvalidKey: async (apiKey: string) => {
-    console.warn(
+    logger.warn(
       `Invalid guild API key detected (error code 2), marking for deletion`,
     );
     await markGuildApiKeyInvalid(apiKey, 3); // Soft-delete after 3 failures
@@ -94,6 +97,7 @@ export { ApiKeyRotator, BatchOperationHandler };
  */
 export async function validateTornApiKey(
   apiKey: string,
+  minAccessLevel: number = 3,
 ): Promise<ValidatedKeyInfo> {
   // Validate API key format
   if (!/^[a-zA-Z0-9]{16}$/.test(apiKey)) {
@@ -106,6 +110,19 @@ export async function validateTornApiKey(
   // Validate response structure
   if (!keyData.info?.user?.id) {
     throw new Error("Invalid response from Torn API");
+  }
+
+  // Ensure key has the required minimum access level
+  const currentAccessLevel = keyData.info.access?.level ?? 0;
+  if (currentAccessLevel < minAccessLevel) {
+    const levelsMap: Record<number, string> = {
+      1: "Public Access",
+      2: "Minimal Access",
+      3: "Limited Access",
+      4: "Full Access",
+    };
+    const requiredStr = levelsMap[minAccessLevel] || `Level ${minAccessLevel}`;
+    throw new Error(`API Key access level is not high enough. ${requiredStr} or higher is required.`);
   }
 
   return {

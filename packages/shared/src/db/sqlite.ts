@@ -16,7 +16,7 @@ function logSQLite(message: string): void {
   };
   const timestamp = `${COLORS.DIM}${new Date().toLocaleTimeString("en-US", { hour12: false })}${COLORS.RESET}`;
   const prefix = `${COLORS.GREEN}[SQLite]${COLORS.RESET}`;
-  console.log(`${prefix} ${timestamp}: ${message}`);
+  console.debug(`${prefix} ${timestamp}: ${message}`);
 }
 
 /**

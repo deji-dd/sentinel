@@ -10,20 +10,23 @@ import {
   syncAutoVerifyCronSchedules,
   syncGlobalCronSchedules,
   syncWarTrackerCronSchedules,
+  syncMercenaryTrackerCronSchedules,
 } from "./cron-schedule-registry.js";
+import { ensureAllMercRegistrationPanels } from "./mercenary-interactions.js";
+import { runMercenaryTrackerGuildSync } from "./mercenary-tracker.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "./db-client.js";
 
 import { Logger } from "./logger.js";
 
-const logger = new Logger("Bot");
+const logger = new Logger("ClientEvents");
 
 /**
  * Register client ready event handler
  */
 export function registerClientReadyEvent(client: Client): void {
   client.once(Events.ClientReady, (readyClient) => {
-    logger.success(`Online as ${readyClient.user.tag}`);
+    logger.info(`🤖 Bot logged in as ${readyClient.user.tag}!`);
 
     // Reset any stuck guild sync jobs from previous crashes/restarts
     db.updateTable(TABLE_NAMES.GUILD_SYNC_JOBS)
@@ -47,5 +50,29 @@ export function registerClientReadyEvent(client: Client): void {
     void syncGlobalCronSchedules();
     void syncAutoVerifyCronSchedules(readyClient);
     void syncWarTrackerCronSchedules();
+    void syncMercenaryTrackerCronSchedules();
+    void ensureAllMercRegistrationPanels(readyClient);
+
+    // Run mercenary tracker sync immediately on startup for all guilds with active contracts
+    void (async () => {
+      try {
+        const contractRows = await db
+          .selectFrom(TABLE_NAMES.MERCENARY_CONTRACTS)
+          .select(["guild_id"])
+          .where("status", "=", "active")
+          .distinct()
+          .execute();
+
+        for (const row of contractRows) {
+          if (row.guild_id) {
+            runMercenaryTrackerGuildSync(readyClient, row.guild_id).catch((err) => {
+              logger.error(`Error during startup mercenary sync for guild ${row.guild_id}:`, err);
+            });
+          }
+        }
+      } catch (err) {
+        logger.error("Error starting startup mercenary sync:", err);
+      }
+    })();
   });
 }

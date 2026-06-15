@@ -23,7 +23,7 @@ export function initializeDatabaseConfig(): {
     ? process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db"
     : process.env.SQLITE_DB_PATH || "./data/sentinel.db";
 
-  logger.info(`Using SQLite database path: ${dbPath} (isDev: ${isDev})`);
+  logger.debug(`Using SQLite database path: ${dbPath} (isDev: ${isDev})`);
 
   return { dbPath };
 }
@@ -42,7 +42,7 @@ export function initializeDiscordToken(): string {
     );
   }
 
-  logger.info(
+  logger.debug(
     `Using ${isDev ? "local" : "production"} Discord bot instance`,
   );
 

@@ -13,7 +13,7 @@ import { Logger } from "./logger.js";
 
 const isDev = process.env.NODE_ENV === "development";
 const logger = new Logger("DB");
-logger.info(
+logger.debug(
   `Connected to ${isDev ? "local" : "production"} SQLite database`,
 );
 
