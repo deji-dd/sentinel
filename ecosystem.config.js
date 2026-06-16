@@ -32,7 +32,7 @@ module.exports = {
       cwd: "/home/deji/repos/sentinel/apps/worker",
       script: "dist/index.js",
       interpreter: "node",
-      node_args: [],
+      node_args: ["--max-old-space-size=220"],
       env: {
         ...workerEnv,
         NODE_ENV: "production",
@@ -41,7 +41,7 @@ module.exports = {
       exec_mode: "fork",
       autorestart: true,
       watch: false,
-      max_memory_restart: "250M",
+      max_memory_restart: "300M",
       error_file: "./logs/worker-error.log",
       out_file: "./logs/worker-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",

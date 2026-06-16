@@ -12,6 +12,8 @@
     "worker:dev": "pnpm --filter worker dev",
     "worker:build": "pnpm --filter worker build",
     "worker:lint": "pnpm --filter worker lint",
+    "worker:test:speed": "pnpm --filter worker task src/scripts/run-speed-tests.ts",
+    "test": "pnpm worker:test:speed",
     "ui:dev": "pnpm --filter ui dev",
     "ui:build": "pnpm --filter ui build",
     "shared:build": "pnpm --filter shared build",

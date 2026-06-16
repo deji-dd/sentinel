@@ -1,5 +1,9 @@
+import { initializeNetworkPipelining } from "./lib/network.js";
+initializeNetworkPipelining();
+
 import { logSection } from "./lib/logger.js";
 import { initializeApiKeyMappings } from "./services/torn-client.js";
+import { initializeRateLimitCache } from "./lib/rate-limit-tracker-per-user.js";
 import { startWorkersForScope, type WorkerScope } from "./workers/registry.js";
 import { resetStuckWorkerSchedules } from "@sentinel/shared";
 
@@ -30,6 +34,7 @@ async function startAllWorkers(): Promise<void> {
     // Initialize API key mapping for rate limiting - CRITICAL, must succeed
     logSection("Initializing rate limiting...");
     await initializeApiKeyMappings(scope);
+    await initializeRateLimitCache();
 
     const startedCount = startWorkersForScope(scope);
     logSection(`Started ${startedCount} worker runners`);

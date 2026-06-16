@@ -1,7 +1,7 @@
 /**
- * Per-user rate limit tracking using database.
+ * Per-user rate limit tracking using memory RAM Map and SQLite write-behind.
  * Tracks API requests per API key to ensure no single key exceeds limits.
- * Persists across restarts and coordinates across multiple instances.
+ * Decouples SQLite reads and writes from the active API execution path.
  */
 
 import { createHash, randomUUID } from "crypto";
@@ -11,9 +11,12 @@ import { getKysely } from "@sentinel/shared/db/sqlite.js";
 const TRACKER_TABLE = TABLE_NAMES.RATE_LIMIT_REQUESTS_PER_USER;
 const API_KEY_USER_MAPPING_TABLE = TABLE_NAMES.API_KEY_USER_MAPPING;
 const WINDOW_MS = 60000; // 1 minute window
-const MAX_REQUESTS_PER_WINDOW = 50; // Per-user limit: 50 req/min (Torn allows 100 per key, use 50 for safety)
+const MAX_REQUESTS_PER_WINDOW = 50; // Per-user limit: 50 req/min
 const CLEANUP_INTERVAL_MS = 30000;
 let lastCleanupAt = 0;
+
+// Global in-memory cache for rate limiting: api_key_hash -> Array of timestamps (ms)
+const ramMap = new Map<string, number[]>();
 
 async function getMappedUserIdByApiKeyHash(keyHash: string): Promise<number> {
   const db = getKysely();
@@ -45,54 +48,90 @@ function hashApiKey(apiKey: string): string {
 }
 
 /**
- * Record a new request for an API key
+ * Initialize the RAM cache with active rate-limit records from SQLite.
+ * This should be called once on worker startup.
  */
-export async function recordRequestPerUser(apiKey: string): Promise<void> {
-  const keyHash = hashApiKey(apiKey);
-  const now = new Date().toISOString();
-
-  try {
-    const db = getKysely();
-    const userId = await getMappedUserIdByApiKeyHash(keyHash);
-
-    await db
-      .insertInto(TRACKER_TABLE)
-      .values({
-        id: randomUUID(),
-        api_key_hash: keyHash,
-        requested_at: now,
-        user_id: userId || null,
-      })
-      .execute();
-  } catch (error) {
-    console.error("Failed to record per-user request:", error);
-  }
-}
-
-/**
- * Get count of requests for an API key in the current window
- */
-export async function getRequestCountPerUser(apiKey: string): Promise<number> {
-  const keyHash = hashApiKey(apiKey);
+export async function initializeRateLimitCache(): Promise<void> {
+  const db = getKysely();
   const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
   try {
-    const db = getKysely();
-    const row = await db
+    const rows = await db
       .selectFrom(TRACKER_TABLE)
-      .select((eb) => eb.fn.count("id").as("count"))
-      .where("api_key_hash", "=", keyHash)
+      .select(["api_key_hash", "requested_at"])
       .where("requested_at", ">=", windowStart)
-      .executeTakeFirst();
+      .execute();
 
-    return Number(row?.count ?? 0);
-  } catch {
-    return 0;
+    let recordCount = 0;
+    for (const row of rows) {
+      const time = new Date(row.requested_at).getTime();
+      const existing = ramMap.get(row.api_key_hash) || [];
+      existing.push(time);
+      existing.sort((a, b) => a - b);
+      ramMap.set(row.api_key_hash, existing);
+      recordCount += 1;
+    }
+
+    console.log(
+      `[RateLimitCache] Initialized RAM cache with ${recordCount} active records for ${ramMap.size} keys.`,
+    );
+  } catch (error) {
+    console.error("Failed to initialize rate limit cache:", error);
   }
 }
 
 /**
- * Check if an API key is rate limited
+ * Record a new request for an API key in-memory, and perform write-behind to SQLite.
+ */
+export async function recordRequestPerUser(apiKey: string): Promise<void> {
+  const keyHash = hashApiKey(apiKey);
+  const now = Date.now();
+
+  // 1. Update in-memory RAM cache instantly
+  const timestamps = ramMap.get(keyHash) || [];
+  timestamps.push(now);
+  ramMap.set(keyHash, timestamps);
+
+  // 2. Perform background write-behind to SQLite (non-blocking)
+  getMappedUserIdByApiKeyHash(keyHash)
+    .then((userId) => {
+      const db = getKysely();
+      return db
+        .insertInto(TRACKER_TABLE)
+        .values({
+          id: randomUUID(),
+          api_key_hash: keyHash,
+          requested_at: new Date(now).toISOString(),
+          user_id: userId || null,
+        })
+        .execute();
+    })
+    .catch((error) => {
+      console.error(
+        "Failed to write-behind rate limit request to SQLite:",
+        error,
+      );
+    });
+}
+
+/**
+ * Get count of requests for an API key in the current window (memory-only)
+ */
+export async function getRequestCountPerUser(apiKey: string): Promise<number> {
+  const keyHash = hashApiKey(apiKey);
+  const now = Date.now();
+  const timestamps = ramMap.get(keyHash) || [];
+
+  const active = timestamps.filter((t) => t >= now - WINDOW_MS);
+  if (active.length !== timestamps.length) {
+    ramMap.set(keyHash, active);
+  }
+
+  return active.length;
+}
+
+/**
+ * Check if an API key is rate limited (memory-only)
  */
 export async function isRateLimitedPerUser(apiKey: string): Promise<boolean> {
   const count = await getRequestCountPerUser(apiKey);
@@ -100,41 +139,41 @@ export async function isRateLimitedPerUser(apiKey: string): Promise<boolean> {
 }
 
 /**
- * Get oldest request timestamp for an API key in current window
+ * Get oldest request timestamp for an API key in current window (memory-only)
  */
 export async function getOldestRequestPerUser(
   apiKey: string,
 ): Promise<Date | null> {
   const keyHash = hashApiKey(apiKey);
-  const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
+  const now = Date.now();
+  const timestamps = ramMap.get(keyHash) || [];
 
-  try {
-    const db = getKysely();
-    const data = await db
-      .selectFrom(TRACKER_TABLE)
-      .select("requested_at")
-      .where("api_key_hash", "=", keyHash)
-      .where("requested_at", ">=", windowStart)
-      .orderBy("requested_at", "asc")
-      .limit(1)
-      .executeTakeFirst();
-
-    if (!data) {
-      return null;
-    }
-
-    return new Date(data.requested_at);
-  } catch {
+  const active = timestamps.filter((t) => t >= now - WINDOW_MS);
+  if (active.length === 0) {
     return null;
   }
+
+  return new Date(active[0]);
 }
 
 /**
- * Clean up old request records for all keys (older than window)
+ * Clean up old request records in RAM, and prune the SQLite table in the background.
  */
 export async function cleanupOldRequestsPerUser(): Promise<void> {
-  const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
+  const now = Date.now();
 
+  // 1. Clean RAM cache
+  for (const [keyHash, timestamps] of ramMap.entries()) {
+    const active = timestamps.filter((t) => t >= now - WINDOW_MS);
+    if (active.length === 0) {
+      ramMap.delete(keyHash);
+    } else if (active.length !== timestamps.length) {
+      ramMap.set(keyHash, active);
+    }
+  }
+
+  // 2. Perform background DB cleanup
+  const windowStart = new Date(now - WINDOW_MS).toISOString();
   try {
     const db = getKysely();
     await db
@@ -142,12 +181,13 @@ export async function cleanupOldRequestsPerUser(): Promise<void> {
       .where("requested_at", "<", windowStart)
       .execute();
   } catch (error) {
-    console.error("Failed to cleanup per-user requests:", error);
+    console.error("Failed to cleanup old database rate limit requests:", error);
   }
 }
 
 /**
  * Wait if necessary to ensure we don't exceed per-user rate limit.
+ * Uses local memory lookups and non-blocking cleanup calls.
  */
 export async function waitIfNeededPerUser(apiKey: string): Promise<void> {
   const now = Date.now();

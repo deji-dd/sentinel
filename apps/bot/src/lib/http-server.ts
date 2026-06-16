@@ -10,11 +10,9 @@ import { DatabaseIPRateLimiter } from "./assist-ip-rate-limiter.js";
 import { getAllowedOrigins } from "./bot-config.js";
 import { MagicLinkService } from "../services/magic-link-service.js";
 import {
-  webhookRouter,
   authRouter,
   configRouter,
   adminRouter,
-  workerJobRouter,
   registerMapRoutes,
   registerAssistRoutes,
 } from "../server/routes/index.js";
@@ -156,11 +154,9 @@ export function initHttpServer(client: Client, port: number = 3001) {
     magicLinkService,
   });
 
-  app.use("/", webhookRouter);
   app.use("/api/auth", authRouter);
   app.use("/api/config", configRouter);
   app.use("/api/admin", adminRouter);
-  app.use("/internal/worker-jobs", workerJobRouter);
 
   const logger = new Logger("HTTP");
   // Start server

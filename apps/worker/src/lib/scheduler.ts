@@ -20,7 +20,7 @@ export interface RunConfig {
 }
 
 interface ActiveTimer {
-  timeoutId: NodeJS.Timeout;
+  timeoutId: ReturnType<typeof setTimeout>;
   nextRunTime: number; // Scheduled UTC millisecond timestamp
 }
 
@@ -203,13 +203,29 @@ function startCentralCoordinator(): void {
 
   const coordinatorLogger = new Logger("scheduler_coordinator");
 
+  // Pre-declared operational variables for V8 GC optimization
+  let db: ReturnType<typeof getKysely>;
+  let now: string;
+  let schedules: Array<{
+    name: string;
+    next_run_at: string;
+    backoff_until: string | null;
+    force_run: number | boolean;
+  }>;
+  let workerName: string;
+  let forceRun: boolean;
+  let targetTimeStr: string | null;
+  let targetTime: number;
+  let active: { timeoutId: ReturnType<typeof setTimeout>; nextRunTime: number } | undefined;
+  let workerId: string | undefined;
+
   setInterval(async () => {
     try {
-      const db = getKysely();
-      const now = new Date().toISOString();
+      db = getKysely();
+      now = new Date().toISOString();
 
       // Query all enabled worker schedules to see if they need rescheduling or forced execution
-      const schedules = await db
+      schedules = await db
         .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
         .innerJoin(
           TABLE_NAMES.WORKERS,
@@ -223,27 +239,27 @@ function startCentralCoordinator(): void {
           `${TABLE_NAMES.WORKER_SCHEDULES}.force_run as force_run`,
         ])
         .where(`${TABLE_NAMES.WORKER_SCHEDULES}.enabled`, "=", 1)
-        .execute();
+        .execute() as typeof schedules;
 
       for (const schedule of schedules) {
-        const workerName = schedule.name;
+        workerName = schedule.name;
         
         // Skip if this worker is not registered/active in the current process scope
         if (!registeredWorkers.has(workerName)) {
           continue;
         }
 
-        const forceRun = Number(schedule.force_run) === 1;
-        const targetTimeStr = schedule.backoff_until && new Date(schedule.backoff_until).getTime() > Date.now()
+        forceRun = Number(schedule.force_run) === 1;
+        targetTimeStr = schedule.backoff_until && new Date(schedule.backoff_until).getTime() > Date.now()
           ? schedule.backoff_until
           : schedule.next_run_at;
 
-        const targetTime = new Date(targetTimeStr).getTime();
-        const active = activeTimers.get(workerName);
+        targetTime = targetTimeStr ? new Date(targetTimeStr).getTime() : 0;
+        active = activeTimers.get(workerName);
 
         if (forceRun) {
           // Clear lock/force flag immediately (so it doesn't loop trigger)
-          const workerId = registeredWorkerIds.get(workerName);
+          workerId = registeredWorkerIds.get(workerName);
           if (workerId) {
             await db
               .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
@@ -253,7 +269,7 @@ function startCentralCoordinator(): void {
           }
           // Trigger execution immediately
           scheduleWorkerTimeout(workerName, now);
-        } else if (!active || targetTime < active.nextRunTime) {
+        } else if (targetTimeStr && (!active || targetTime < active.nextRunTime)) {
           // If the worker has no active timeout scheduled, or its next_run_at was rescheduled to be earlier
           scheduleWorkerTimeout(workerName, targetTimeStr);
         }
