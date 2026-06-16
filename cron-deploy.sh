@@ -13,6 +13,16 @@ trap 'flock -u 9' EXIT
 # Allow overriding repo directory via env var, default to hardcoded path
 REPO_DIR="${SENTINEL_REPO_DIR:-/home/deji/repos/sentinel}"
 BRANCH="main"
+
+# Load NVM to ensure the updated Node.js version is used in non-interactive shells (like cron)
+export NVM_DIR="${HOME}/.nvm"
+if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+  # Sourcing nvm.sh defines the `nvm` bash function
+  . "${NVM_DIR}/nvm.sh"
+  # Use the default NVM node version, fall back to "node" (latest version) if default is missing
+  nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+fi
+
 PNPM_HOME="${HOME}/.local/share/pnpm"
 PATH="${PNPM_HOME}:${PATH}"
 
