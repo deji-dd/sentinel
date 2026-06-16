@@ -5,6 +5,7 @@
 
 import { Client, Events } from "discord.js";
 import { initHttpServer } from "./http-server.js";
+import { startIpcServer } from "./ipc-server.js";
 import { getHttpPort } from "./bot-config.js";
 import {
   syncAutoVerifyCronSchedules,
@@ -46,6 +47,9 @@ export function registerClientReadyEvent(client: Client): void {
     // Start HTTP server for worker communication
     const httpPort = getHttpPort();
     initHttpServer(client, httpPort);
+
+    // Start Unix Domain Socket IPC server
+    startIpcServer(readyClient);
 
     void syncGlobalCronSchedules();
     void syncAutoVerifyCronSchedules(readyClient);

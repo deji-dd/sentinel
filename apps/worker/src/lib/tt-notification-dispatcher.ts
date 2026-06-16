@@ -8,8 +8,8 @@ import { Logger } from "./logger.js";
 import { getAllSystemApiKeys } from "./api-keys.js";
 import { tornApi } from "../services/torn-client.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
+import { sendIpcRequest } from "./ipc-client.js";
 
-const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || "http://localhost:3001";
 const logger = new Logger("TT Dispatcher");
 
 export interface TTEventNotification {
@@ -873,20 +873,15 @@ async function sendEmbedsToChannel(
   embeds: Record<string, unknown>[],
 ): Promise<void> {
   for (const embed of embeds) {
-    const response = await fetch(`${BOT_WEBHOOK_URL}/send-guild-message`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        guildId,
-        channelId,
-        embed,
-      }),
+    const response = await sendIpcRequest("send-guild-message", {
+      guildId,
+      channelId,
+      embed,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
+    if (!response.success) {
       logger.error(
-        `Failed to send to guild ${guildId}: ${response.status} ${error}`,
+        `Failed to send to guild ${guildId}: ${response.error || "Unknown IPC error"}${response.details ? ` - ${response.details}` : ""}`,
       );
     }
   }

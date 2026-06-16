@@ -6,20 +6,20 @@ import {
   insertWorkerLog,
 } from "@sentinel/shared";
 import { Logger } from "../lib/logger.js";
+import { sendIpcRequest } from "../lib/ipc-client.js";
 
-const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || "http://localhost:3001";
-const isDev =
-  (process.env.NODE_ENV || "").trim().toLowerCase() === "development" ||
-  (process.env.NODE_ENV || "").trim().toLowerCase() === "dev";
-const WORKER_BRIDGE_SECRET =
-  process.env.WORKER_BRIDGE_SECRET ||
-  process.env.BOT_WORKER_BRIDGE_SECRET ||
-  (isDev ? "dev-secret-bridge-token" : "");
 const POLL_INTERVAL_MS = 5000;
 const logger = new Logger("bot_cron_dispatch");
 
 let inFlight = false;
 let started = false;
+
+// Pre-allocated operational variables for V8 GC optimization
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dueSchedules: any[];
+let claimed: boolean;
+let startedAt: string;
+let errorMessage: string;
 
 function parseMetadata(
   metadata: string | null | undefined,
@@ -47,25 +47,14 @@ async function dispatchJob(schedule: {
   attempts: number;
   metadata?: string | null;
 }): Promise<void> {
-  const response = await fetch(
-    `${BOT_WEBHOOK_URL}/internal/worker-jobs/execute`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${WORKER_BRIDGE_SECRET}`,
-      },
-      body: JSON.stringify({
-        workerName: schedule.worker_name,
-        metadata: parseMetadata(schedule.metadata),
-      }),
-    },
-  );
+  const response = await sendIpcRequest("execute-job", {
+    workerName: schedule.worker_name,
+    metadata: parseMetadata(schedule.metadata),
+  });
 
-  if (!response.ok) {
-    const responseText = await response.text().catch(() => "");
+  if (!response.success) {
     throw new Error(
-      `Bot job execution failed for ${schedule.worker_name}: ${response.status} ${response.statusText}${responseText ? ` - ${responseText}` : ""}`,
+      `Bot job execution failed for ${schedule.worker_name}: ${response.error || "Unknown IPC error"}${response.details ? ` - ${response.details}` : ""}`,
     );
   }
 
@@ -93,32 +82,27 @@ async function pollAndDispatch(): Promise<void> {
 
   inFlight = true;
   try {
-    if (!WORKER_BRIDGE_SECRET) {
-      logger.error("WORKER_BRIDGE_SECRET is missing");
-      return;
-    }
-
-    const dueSchedules = await fetchDueWorkerSchedules({
+    dueSchedules = await fetchDueWorkerSchedules({
       workerNamePrefix: "bot:",
       limit: 100,
     });
 
     for (const schedule of dueSchedules) {
-      const claimed = await claimWorker(schedule.worker_id);
+      claimed = await claimWorker(schedule.worker_id);
       if (!claimed) {
         continue;
       }
 
-      const startedAt = new Date().toISOString();
+      startedAt = new Date().toISOString();
       try {
         await dispatchJob(schedule);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await failWorker(schedule.worker_id, schedule.attempts, message);
+        errorMessage = error instanceof Error ? error.message : String(error);
+        await failWorker(schedule.worker_id, schedule.attempts, errorMessage);
         await insertWorkerLog({
           worker_id: schedule.worker_id,
           status: "error",
-          error_message: message,
+          error_message: errorMessage,
           run_started_at: startedAt,
           run_finished_at: new Date().toISOString(),
         });
