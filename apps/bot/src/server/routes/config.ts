@@ -18,6 +18,7 @@ import {
   syncWarTrackerCronSchedules,
   syncMercenaryTrackerCronSchedules,
   syncBazaarMugCronSchedule,
+  syncAllGuildCronSchedules,
 } from "../../lib/cron-schedule-registry.js";
 import { getServerContext } from "../context.js";
 import { runMercenaryTrackerGuildSync } from "../../lib/mercenary-tracker.js";
@@ -1322,6 +1323,10 @@ configRouter.post("/", async (req: Request, res: Response) => {
       // Trigger scheduler update for auto-verify if it changed
       if (changes.includes("Auto-Verify")) {
         await syncAutoVerifyCronSchedule(guildId, discordClient);
+      }
+
+      if (changes.includes("Modules")) {
+        await syncAllGuildCronSchedules(guildId, discordClient);
       }
 
       // Log the change

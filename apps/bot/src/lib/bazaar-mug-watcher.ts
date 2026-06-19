@@ -16,14 +16,70 @@ function isValidSnowflake(id: string | null | undefined): boolean {
   return Boolean(id && /^\d{17,20}$/.test(id));
 }
 
+// Helper to parse relative last action time into minutes
+function parseRelativeTimeToMinutes(relativeStr: string | null | undefined): number {
+  if (!relativeStr) return 0;
+  const str = relativeStr.toLowerCase();
+  
+  const match = str.match(/(\d+)/);
+  if (!match) return 0;
+  const num = parseInt(match[1], 10);
+  
+  if (str.includes("minute")) {
+    return num;
+  } else if (str.includes("hour")) {
+    return num * 60;
+  } else if (str.includes("day")) {
+    return num * 1440;
+  }
+  return 0;
+}
+
 export class BazaarMugWatcher {
   private guildId: string;
   private client: Client;
   private isStopped = false;
   private muggableTargetIds: string[] = [];
   private targetBazaarValues = new Map<string, number>();
+  private targetBazaarQuantities = new Map<string, number>();
   private playerMetadata = new Map<string, { name: string; level: number; state: string; lastActionStatus: string; lastAction: string; lastUpdated?: number }>();
   private currentPage = 0;
+
+  public getBazaarScore(playerId: string): number {
+    const totalValue = this.targetBazaarValues.get(playerId) ?? 0;
+    const totalQuantity = this.targetBazaarQuantities.get(playerId) ?? 0;
+    if (totalValue <= 0 || totalQuantity <= 0) return 0;
+
+    // 1. Value Score (max 40)
+    // log10 scale: $1M is 0, $10M is 20, $100M is 40 (clamped to 40)
+    const valueScore = Math.min(40, Math.log10(Math.max(1, totalValue / 1000000)) * 20);
+
+    // 2. Quantity Score (max 30)
+    // 1 item: 30 pts, 21+ items: 0 pts
+    const quantityScore = Math.max(0, 30 - (totalQuantity - 1) * 1.5);
+
+    // 3. Status Score (max 30)
+    // Base: Offline = 15 pts, Idle = 3 pts
+    // Time Offline Bonus: 15 mins offline = +1 pt, max 15 pts at 225 mins offline
+    const meta = this.playerMetadata.get(playerId);
+    let statusScore = 0;
+    if (meta) {
+      const status = meta.lastActionStatus;
+      const minutesOffline = parseRelativeTimeToMinutes(meta.lastAction);
+      
+      let basePoints = 0;
+      if (status === "Offline") {
+        basePoints = 15;
+      } else if (status === "Idle") {
+        basePoints = 3;
+      }
+      
+      const timeBonus = Math.min(15, Math.floor(minutesOffline / 15));
+      statusScore = basePoints + timeBonus;
+    }
+
+    return Math.round(Math.min(100, Math.max(0, valueScore + quantityScore + statusScore)));
+  }
 
   constructor(guildId: string, client: Client) {
     this.guildId = guildId;
@@ -241,6 +297,7 @@ export class BazaarMugWatcher {
             for (const key of this.targetBazaarValues.keys()) {
               if (!targetSet.has(key)) {
                 this.targetBazaarValues.delete(key);
+                this.targetBazaarQuantities.delete(key);
               }
             }
 
@@ -317,11 +374,16 @@ export class BazaarMugWatcher {
                 ? items.reduce((sum: number, item: any) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0)
                 : 0;
 
+              const totalQty = Array.isArray(items)
+                ? items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0)
+                : 0;
+
               const pastVal = this.targetBazaarValues.get(playerId);
+              const pastQty = this.targetBazaarQuantities.get(playerId);
               let valueChanged = false;
 
               if (pastVal !== undefined) {
-                if (pastVal !== currentVal) {
+                if (pastVal !== currentVal || pastQty !== totalQty) {
                   valueChanged = true;
                 }
                 const delta = pastVal - currentVal;
@@ -354,6 +416,7 @@ export class BazaarMugWatcher {
               }
 
               this.targetBazaarValues.set(playerId, currentVal);
+              this.targetBazaarQuantities.set(playerId, totalQty);
 
               if (valueChanged) {
                 await this.updateLiveDashboard(this.muggableTargetIds, config, targetChannelId);
@@ -380,8 +443,26 @@ export class BazaarMugWatcher {
     if (!isValidSnowflake(channelId)) return;
 
     try {
-      const itemsPerPage = 5;
-      const totalPages = Math.max(1, Math.ceil(validIds.length / itemsPerPage));
+      const filteredIds = validIds.filter((id) => {
+        const val = this.targetBazaarValues.get(id);
+        return val === undefined || val >= config.min_bazaar_drop_threshold;
+      });
+
+      // Sort by score descending (undefined/Scanning at the bottom)
+      filteredIds.sort((a, b) => {
+        const isScanningA = this.targetBazaarValues.get(a) === undefined;
+        const isScanningB = this.targetBazaarValues.get(b) === undefined;
+        if (isScanningA && !isScanningB) return 1;
+        if (!isScanningA && isScanningB) return -1;
+        if (isScanningA && isScanningB) return 0;
+
+        const scoreA = this.getBazaarScore(a);
+        const scoreB = this.getBazaarScore(b);
+        return scoreB - scoreA;
+      });
+
+      const itemsPerPage = 4;
+      const totalPages = Math.max(1, Math.ceil(filteredIds.length / itemsPerPage));
       if (this.currentPage >= totalPages) {
         this.currentPage = totalPages - 1;
       }
@@ -390,21 +471,26 @@ export class BazaarMugWatcher {
       }
 
       const startIndex = this.currentPage * itemsPerPage;
-      const pageIds = validIds.slice(startIndex, startIndex + itemsPerPage);
+      const pageIds = filteredIds.slice(startIndex, startIndex + itemsPerPage);
 
       let targetListStr = "";
-      if (validIds.length === 0) {
-        targetListStr = "No muggable targets found. All monitored players are currently online, traveling, hospitalized, or jailed.";
+      if (filteredIds.length === 0) {
+        targetListStr = "No muggable targets found. All monitored players are currently online, traveling, hospitalized, jailed, or have bazaar values below the threshold.";
       } else {
         targetListStr = pageIds
           .map((id) => {
             const meta = this.playerMetadata.get(id);
-            const currentVal = this.targetBazaarValues.get(id) ?? 0;
-            const valueStr = currentVal > 0 ? `$${currentVal.toLocaleString()}` : "Scanning...";
+            const currentVal = this.targetBazaarValues.get(id);
+            const isScanning = currentVal === undefined;
+            const scoreVal = isScanning ? undefined : this.getBazaarScore(id);
+            const valueStr = !isScanning
+              ? (currentVal > 0 ? `$${currentVal.toLocaleString()}` : "$0")
+              : "Scanning...";
+            const scoreStr = scoreVal !== undefined ? ` \u2022 Score: **${scoreVal}**` : "";
             const nameStr = meta ? meta.name : "Unknown";
             const statusStr = meta ? `${meta.lastActionStatus} (${meta.lastAction})` : "Unknown";
             const checkedStr = meta?.lastUpdated ? `<t:${Math.floor(meta.lastUpdated / 1000)}:R>` : "Pending";
-            return `[${nameStr} [${id}]](https://www.torn.com/profiles.php?XID=${id}) \u2022 [Attack](https://www.torn.com/loader.php?sid=attack&user2ID=${id})\n${statusStr} \u2022 ${valueStr} \u2022 Checked ${checkedStr}`;
+            return `[${nameStr} [${id}]](https://www.torn.com/profiles.php?XID=${id}) \u2022 [Attack](https://www.torn.com/loader.php?sid=attack&user2ID=${id})\n${statusStr} \u2022 ${valueStr}${scoreStr} \u2022 Checked ${checkedStr}`;
           })
           .join("\n\n");
       }
@@ -412,7 +498,7 @@ export class BazaarMugWatcher {
       const embed = new EmbedBuilder()
         .setColor(0x3b82f6)
         .setTitle(`Bazaar Mug Live Dashboard`)
-        .setDescription(`Monitoring **${this.playerMetadata.size}** players \u2022 **${validIds.length}** muggable (offline/idle)\nPage **${this.currentPage + 1}**/${totalPages}`)
+        .setDescription(`Monitoring **${this.playerMetadata.size}** players \u2022 **${filteredIds.length}** muggable (offline/idle)\nPage **${this.currentPage + 1}**/${totalPages}`)
         .addFields(
           { name: "Targets", value: targetListStr.slice(0, 1023) }
         )
@@ -647,8 +733,26 @@ export class BazaarMugWatcher {
         return;
       }
 
-      const itemsPerPage = 5;
-      const totalPages = Math.max(1, Math.ceil(this.muggableTargetIds.length / itemsPerPage));
+      const filteredIds = this.muggableTargetIds.filter((id) => {
+        const val = this.targetBazaarValues.get(id);
+        return val === undefined || val >= config.min_bazaar_drop_threshold;
+      });
+
+      // Sort by score descending (undefined/Scanning at the bottom)
+      filteredIds.sort((a, b) => {
+        const isScanningA = this.targetBazaarValues.get(a) === undefined;
+        const isScanningB = this.targetBazaarValues.get(b) === undefined;
+        if (isScanningA && !isScanningB) return 1;
+        if (!isScanningA && isScanningB) return -1;
+        if (isScanningA && isScanningB) return 0;
+
+        const scoreA = this.getBazaarScore(a);
+        const scoreB = this.getBazaarScore(b);
+        return scoreB - scoreA;
+      });
+
+      const itemsPerPage = 4;
+      const totalPages = Math.max(1, Math.ceil(filteredIds.length / itemsPerPage));
       
       this.currentPage += direction;
       if (this.currentPage >= totalPages) {
@@ -659,21 +763,26 @@ export class BazaarMugWatcher {
       }
 
       const startIndex = this.currentPage * itemsPerPage;
-      const pageIds = this.muggableTargetIds.slice(startIndex, startIndex + itemsPerPage);
+      const pageIds = filteredIds.slice(startIndex, startIndex + itemsPerPage);
 
       let targetListStr = "";
-      if (this.muggableTargetIds.length === 0) {
-        targetListStr = "No muggable targets found. All monitored players are currently online, traveling, hospitalized, or jailed.";
+      if (filteredIds.length === 0) {
+        targetListStr = "No muggable targets found. All monitored players are currently online, traveling, hospitalized, jailed, or have bazaar values below the threshold.";
       } else {
         targetListStr = pageIds
           .map((id) => {
             const meta = this.playerMetadata.get(id);
-            const currentVal = this.targetBazaarValues.get(id) ?? 0;
-            const valueStr = currentVal > 0 ? `$${currentVal.toLocaleString()}` : "Scanning...";
+            const currentVal = this.targetBazaarValues.get(id);
+            const isScanning = currentVal === undefined;
+            const scoreVal = isScanning ? undefined : this.getBazaarScore(id);
+            const valueStr = !isScanning
+              ? (currentVal > 0 ? `$${currentVal.toLocaleString()}` : "$0")
+              : "Scanning...";
+            const scoreStr = scoreVal !== undefined ? ` \u2022 Score: **${scoreVal}**` : "";
             const nameStr = meta ? meta.name : "Unknown";
             const statusStr = meta ? `${meta.lastActionStatus} (${meta.lastAction})` : "Unknown";
             const checkedStr = meta?.lastUpdated ? `<t:${Math.floor(meta.lastUpdated / 1000)}:R>` : "Pending";
-            return `[${nameStr} [${id}]](https://www.torn.com/profiles.php?XID=${id}) \u2022 [Attack](https://www.torn.com/loader.php?sid=attack&user2ID=${id})\n${statusStr} \u2022 ${valueStr} \u2022 Checked ${checkedStr}`;
+            return `[${nameStr} [${id}]](https://www.torn.com/profiles.php?XID=${id}) \u2022 [Attack](https://www.torn.com/loader.php?sid=attack&user2ID=${id})\n${statusStr} \u2022 ${valueStr}${scoreStr} \u2022 Checked ${checkedStr}`;
           })
           .join("\n\n");
       }
@@ -681,7 +790,7 @@ export class BazaarMugWatcher {
       const embed = new EmbedBuilder()
         .setColor(0x3b82f6)
         .setTitle(`Bazaar Mug Live Dashboard`)
-        .setDescription(`Monitoring **${this.playerMetadata.size}** players \u2022 **${this.muggableTargetIds.length}** muggable (offline/idle)\nPage **${this.currentPage + 1}**/${totalPages}`)
+        .setDescription(`Monitoring **${this.playerMetadata.size}** players \u2022 **${filteredIds.length}** muggable (offline/idle)\nPage **${this.currentPage + 1}**/${totalPages}`)
         .addFields(
           { name: "Targets", value: targetListStr.slice(0, 1023) }
         )

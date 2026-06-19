@@ -4,6 +4,7 @@ import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../lib/db-client.js";
 import { getServerContext } from "../context.js";
 import { performBackup } from "../../tasks/db-backup-task.js";
+import { syncAllGuildCronSchedules } from "../../lib/cron-schedule-registry.js";
 
 export const adminRouter = Router();
 
@@ -182,7 +183,8 @@ adminRouter.patch(
   "/guilds/:id/modules",
   async (req: Request, res: Response) => {
     const { modules } = req.body;
-    const guildId = req.params.id;
+    const guildId = req.params.id as string;
+    const { discordClient } = getServerContext(req);
 
     try {
       const modulesToSave = Array.from(new Set(["admin", ...(modules || [])]));
@@ -192,6 +194,8 @@ adminRouter.patch(
         .where("guild_id", "=", guildId)
         .execute();
 
+      await syncAllGuildCronSchedules(guildId, discordClient);
+
       res.json({ ok: true, modules: modulesToSave });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -200,12 +204,16 @@ adminRouter.patch(
 );
 
 adminRouter.delete("/guilds/:id", async (req: Request, res: Response) => {
-  const guildId = req.params.id;
+  const guildId = req.params.id as string;
+  const { discordClient } = getServerContext(req);
   try {
     await db
       .deleteFrom(TABLE_NAMES.GUILD_CONFIG)
       .where("guild_id", "=", guildId)
       .execute();
+
+    await syncAllGuildCronSchedules(guildId, discordClient);
+
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
