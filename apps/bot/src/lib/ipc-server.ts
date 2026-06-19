@@ -9,6 +9,7 @@ import { performReviveMaintenance } from "../commands/general/admin/handlers/rev
 import { GuildSyncScheduler } from "./verification-sync.js";
 import { runWarTrackerGuildSync } from "./war-tracker.js";
 import { runMercenaryTrackerGuildSync } from "./mercenary-tracker.js";
+import { runBazaarMugSeedSync } from "./bazaar-mug-seed.js";
 
 const logger = new Logger("IPC_Server");
 const DEFAULT_SOCKET_PATH = "/tmp/sentinel-ipc.sock";
@@ -178,6 +179,11 @@ async function handleIpcRequest(req: any, client: Client): Promise<any> {
             return { success: false, error: "Missing guildId metadata" };
           }
           await runMercenaryTrackerGuildSync(client, guildId);
+        } else if (workerName.startsWith("bot:bazaar_mug_seed:")) {
+          if (!guildId) {
+            return { success: false, error: "Missing guildId metadata" };
+          }
+          await runBazaarMugSeedSync(client, guildId);
         } else {
           return { success: false, error: `Unknown worker job '${workerName}'` };
         }

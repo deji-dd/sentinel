@@ -64,6 +64,8 @@ export const TABLE_NAMES = {
   MERCENARY_REGISTERED_MERCS: "sentinel_mercenary_registered_mercs",
   MERCENARY_DIBS: "sentinel_mercenary_dibs",
   MERCENARY_POPULATIONS: "sentinel_mercenary_populations",
+  BAZAAR_MUG_CONFIG: "sentinel_bazaar_mug_config",
+  BAZAAR_MUG_TARGETS: "sentinel_bazaar_mug_targets",
 } as const;
 
 /** Alert module types */

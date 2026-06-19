@@ -12,6 +12,7 @@ import {
   syncGlobalCronSchedules,
   syncWarTrackerCronSchedules,
   syncMercenaryTrackerCronSchedules,
+  syncBazaarMugCronSchedules,
 } from "./cron-schedule-registry.js";
 import { ensureAllMercRegistrationPanels } from "./mercenary-interactions.js";
 import { runMercenaryTrackerGuildSync } from "./mercenary-tracker.js";
@@ -55,6 +56,7 @@ export function registerClientReadyEvent(client: Client): void {
     void syncAutoVerifyCronSchedules(readyClient);
     void syncWarTrackerCronSchedules();
     void syncMercenaryTrackerCronSchedules();
+    void syncBazaarMugCronSchedules(readyClient);
     void ensureAllMercRegistrationPanels(readyClient);
 
     // Run mercenary tracker sync immediately on startup for all guilds with active contracts

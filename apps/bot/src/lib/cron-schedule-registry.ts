@@ -8,6 +8,7 @@ import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";
 import { Logger } from "./logger.js";
 import { type Client } from "discord.js";
+import { startBazaarMugWatcher, stopBazaarMugWatcher } from "./bazaar-mug-watcher.js";
 
 const logger = new Logger("Scheduler");
 
@@ -242,5 +243,83 @@ export async function syncMercenaryTrackerCronSchedules(): Promise<void> {
         .where("worker_id", "=", workerRow.id)
         .execute();
     }
+  }
+}
+
+export async function syncBazaarMugCronSchedule(
+  guildId: string,
+  client?: Client | boolean,
+): Promise<void> {
+  let discordClient: Client | undefined = undefined;
+  if (client && typeof client === "object") {
+    discordClient = client;
+  }
+
+  const workerName = buildWorkerName("bot:bazaar_mug_seed", guildId);
+
+  // Check if Bazaar Mug is enabled in config
+  const config = await db
+    .selectFrom(TABLE_NAMES.BAZAAR_MUG_CONFIG)
+    .select(["is_enabled"])
+    .where("guild_id", "=", guildId)
+    .executeTakeFirst();
+
+  const isModuleEnabled = config?.is_enabled === 1;
+  const guildApiKeys = await getGuildApiKeys(guildId);
+  const shouldBeEnabled = isModuleEnabled && guildApiKeys.length > 0;
+
+  const guildName = discordClient?.guilds.cache.get(guildId)?.name || guildId;
+
+  const currentSchedule = await db
+    .selectFrom(TABLE_NAMES.WORKER_SCHEDULES)
+    .innerJoin(TABLE_NAMES.WORKERS, `${TABLE_NAMES.WORKERS}.id`, `${TABLE_NAMES.WORKER_SCHEDULES}.worker_id`)
+    .select([
+      `${TABLE_NAMES.WORKER_SCHEDULES}.enabled`,
+      `${TABLE_NAMES.WORKER_SCHEDULES}.cadence_seconds`
+    ])
+    .where(`${TABLE_NAMES.WORKERS}.name`, "=", workerName)
+    .executeTakeFirst();
+
+  const CADENCE_SECONDS = 21600; // 6 hours
+
+  if (shouldBeEnabled) {
+    if (discordClient) {
+      await startBazaarMugWatcher(guildId, discordClient);
+    }
+    if (
+      currentSchedule &&
+      currentSchedule.enabled === 1 &&
+      currentSchedule.cadence_seconds === CADENCE_SECONDS
+    ) {
+      return;
+    }
+
+    logger.success(`Enabling bazaar-mug-seed worker schedule for guild ${guildName} (cadence: ${CADENCE_SECONDS}s)`);
+    await ensureWorkerRegistered({
+      name: workerName,
+      cadenceSeconds: CADENCE_SECONDS,
+      initialNextRunAt: new Date().toISOString(), // Run immediately when newly enabled
+      metadata: { guildId },
+    });
+  } else {
+    await stopBazaarMugWatcher(guildId);
+    if (!currentSchedule || currentSchedule.enabled === 0) {
+      return;
+    }
+
+    const reason = guildApiKeys.length === 0 ? "no API keys configured" : "module disabled";
+    logger.warn(`Disabling bazaar-mug-seed worker schedule for guild ${guildName} (${reason})`);
+    await setWorkerScheduleEnabled(workerName, false);
+  }
+}
+
+export async function syncBazaarMugCronSchedules(client?: Client): Promise<void> {
+  const guildRows = (await db
+    .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+    .select(["guild_id"])
+    .execute()) as Array<{ guild_id: string }>;
+
+  for (const row of guildRows) {
+    await syncBazaarMugCronSchedule(row.guild_id, client);
   }
 }

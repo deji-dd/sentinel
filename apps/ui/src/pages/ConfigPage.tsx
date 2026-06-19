@@ -33,6 +33,7 @@ import {
   Save,
   MapPin,
   Briefcase,
+  ShoppingBag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -41,6 +42,7 @@ import { VerificationConfig } from "@/components/config/VerificationConfig";
 import { TerritoryNotificationsConfig } from "@/components/config/TerritoryNotificationsConfig";
 import { ReactionRolesConfig } from "@/components/config/ReactionRolesConfig";
 import { MercenaryConfig } from "@/components/config/MercenaryConfig";
+import { BazaarMugConfig } from "@/components/config/BazaarMugConfig";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { performMasterLogout } from "@/lib/logout";
@@ -70,7 +72,8 @@ type ModuleId =
   | "mercenary"
   | "mercenary_settings"
   | "mercenary_dibs"
-  | "mercenary_contracts";
+  | "mercenary_contracts"
+  | "bazaar_mug";
 
 export default function ConfigPage() {
   const navigate = useNavigate();
@@ -254,13 +257,22 @@ export default function ConfigPage() {
         requiresKeys: true,
       },
       {
+        id: "bazaar_mug" as const,
+        name: "Bazaar Mugs",
+        icon: ShoppingBag,
+        desc: "Track player bazaars and alert on lucrative mug targets.",
+        category: "Modules",
+        isEnabled: guildConfig?.enabled_modules?.includes("bazaar_mug"),
+        requiresKeys: true,
+      },
+      {
         id: "territories" as const,
         name: "Territories",
         icon: MapPin,
         desc: "Territory and faction movement alerts.",
         category: "Modules",
         isEnabled:
-          guildConfig?.enabled_modules?.includes("territories") || true,
+          guildConfig?.enabled_modules?.includes("territories"),
       },
     ],
     [guildConfig],
@@ -752,12 +764,22 @@ export default function ConfigPage() {
               />
             )}
 
+            {activeTab === "bazaar_mug" && (
+              <BazaarMugConfig
+                ref={moduleRef}
+                sessionToken={sessionToken!}
+                initialData={guildConfig}
+                onDirtyChange={setIsDirty}
+              />
+            )}
+
             {activeTab !== "admin" &&
               activeTab !== "verify" &&
               !activeTab.startsWith("verification") &&
               activeTab !== "territories" &&
               activeTab !== "reaction_roles" &&
               !activeTab.startsWith("mercenary") &&
+              activeTab !== "bazaar_mug" &&
               hasApiKeys && (
                 <div className="py-24 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 duration-500 opacity-60">
                   <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
