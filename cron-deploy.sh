@@ -42,10 +42,10 @@ fi
 
 echo "Fetching latest from ${BRANCH}..."
 git fetch --quiet origin "${BRANCH}" || { echo "ERROR: git fetch failed"; exit 1; }
-LOCAL_SHA=$(git rev-parse HEAD)
+PRE_PULL_SHA=$(git rev-parse HEAD)
 REMOTE_SHA=$(git rev-parse "origin/${BRANCH}")
 
-if [[ "${LOCAL_SHA}" == "${REMOTE_SHA}" ]]; then
+if [[ "${PRE_PULL_SHA}" == "${REMOTE_SHA}" ]]; then
   echo "No updates on ${BRANCH}; exiting."
   exit 0
 fi
@@ -56,11 +56,11 @@ git pull --ff-only origin "${BRANCH}" || { echo "ERROR: git pull failed"; exit 1
 echo "Installing dependencies..."
 pnpm install --frozen-lockfile --child-concurrency 1
 
-# Check if bot or worker folders have changes; skip build if neither changed
-if ! git diff origin/${BRANCH} --quiet -- apps/bot apps/worker; then
-  echo "Changes detected in bot/worker; proceeding with build..."
+# Check if build-relevant folders have changes; skip build if none changed
+if ! git diff "${PRE_PULL_SHA}" HEAD --quiet -- apps/bot apps/worker packages/shared sqlite/migrations; then
+  echo "Changes detected in build-relevant folders; proceeding with build..."
 else
-  echo "No changes in bot or worker folders; skipping build."
+  echo "No changes in build-relevant folders; skipping build."
   echo "Deploy complete."
   exit 0
 fi
