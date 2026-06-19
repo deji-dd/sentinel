@@ -29,4 +29,6 @@ export type {
   SentinelMercenaryPayoutItems,
   SentinelMercenaryTargets,
   SentinelMercenaryVerificationVault,
+  SentinelBazaarMugConfig,
+  SentinelBazaarMugTargets,
 } from "./db/kysely-types.js";

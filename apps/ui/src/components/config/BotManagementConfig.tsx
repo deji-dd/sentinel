@@ -358,6 +358,7 @@ export const BotManagementConfig = forwardRef(
                         "revive",
                         "assist",
                         "mercenary",
+                        "bazaar_mug",
                       ].map((modId) => (
                         <div
                           key={modId}

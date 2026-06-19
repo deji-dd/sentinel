@@ -103,6 +103,32 @@ const buttonPrefixHandlers: Array<{ prefix: string; handler: ButtonHandler }> =
       prefix: "merc_page_next_",
       handler: mercenaryInteractions.handleMercPageButton,
     },
+    {
+      prefix: "bazaar_mug_page_prev|",
+      handler: async (interaction) => {
+        const guildId = interaction.customId.split("|")[1];
+        const { activeWatchers } = await import("./bazaar-mug-watcher.js");
+        const watcher = activeWatchers.get(guildId);
+        if (watcher) {
+          await watcher.changePage(interaction, -1);
+        } else {
+          await interaction.reply({ content: "Watcher is not active for this guild.", ephemeral: true });
+        }
+      }
+    },
+    {
+      prefix: "bazaar_mug_page_next|",
+      handler: async (interaction) => {
+        const guildId = interaction.customId.split("|")[1];
+        const { activeWatchers } = await import("./bazaar-mug-watcher.js");
+        const watcher = activeWatchers.get(guildId);
+        if (watcher) {
+          await watcher.changePage(interaction, 1);
+        } else {
+          await interaction.reply({ content: "Watcher is not active for this guild.", ephemeral: true });
+        }
+      }
+    }
   ];
 
 const modalHandlers = new Map<string, ModalHandler>([

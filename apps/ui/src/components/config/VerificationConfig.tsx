@@ -405,21 +405,6 @@ export const VerificationConfig = forwardRef(
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
         {activeSubTab === "settings" && (
           <div className="space-y-6">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 text-primary">
-                <Shield className="w-4 h-4" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                  Core
-                </span>
-              </div>
-              <h2 className="text-2xl font-black tracking-tight text-foreground">
-                Verification Engine
-              </h2>
-              <p className="text-sm text-muted-foreground/80">
-                Configure how members are verified and identified within the guild.
-              </p>
-            </div>
-
             <div className="space-y-6 bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs max-w-3xl">
               <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/50">
                 <div className="space-y-0.5">
@@ -597,21 +582,8 @@ export const VerificationConfig = forwardRef(
 
         {activeSubTab === "mappings" && (
           <div className="space-y-6">
-            <div className="flex flex-row items-center justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2 text-primary">
-                  <Users className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                    Assignments
-                  </span>
-                </div>
-                <h2 className="text-2xl font-black tracking-tight text-foreground">
-                  Faction Role Mappings
-                </h2>
-                <p className="text-sm text-muted-foreground/80">
-                  Map specific factions to Discord roles with granular member/leader distinction.
-                </p>
-              </div>
+            <div className="flex flex-row items-center justify-end gap-4">
+
               <Button onClick={() => handleOpenModal()} size="sm" className="shrink-0">
                 <Plus className="w-4 h-4 mr-2" /> Add Mapping
               </Button>

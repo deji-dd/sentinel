@@ -17,6 +17,7 @@ import {
   syncAutoVerifyCronSchedule,
   syncWarTrackerCronSchedules,
   syncMercenaryTrackerCronSchedules,
+  syncBazaarMugCronSchedule,
 } from "../../lib/cron-schedule-registry.js";
 import { getServerContext } from "../context.js";
 import { runMercenaryTrackerGuildSync } from "../../lib/mercenary-tracker.js";
@@ -2017,3 +2018,145 @@ configRouter.delete("/api-keys", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+configRouter.get("/bazaar-mug", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session || !session.guild_id)
+      return res.status(401).json({ error: "Invalid or expired session" });
+
+    const guildId = session.guild_id;
+
+    const settings = await db
+      .selectFrom(TABLE_NAMES.BAZAAR_MUG_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
+
+    res.json({
+      settings: {
+        guild_id: guildId,
+        is_enabled: settings?.is_enabled ?? 0,
+        min_bazaar_drop_threshold: settings?.min_bazaar_drop_threshold ?? 10000000,
+        ping_role_id: settings?.ping_role_id ?? null,
+        notification_channel_id: settings?.notification_channel_id ?? null,
+        target_player_ids: parseJsonArray(settings?.target_player_ids_json),
+      },
+    });
+  } catch (error) {
+    console.error("[HTTP] Error fetching bazaar-mug config:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService, discordClient } = getServerContext(req);
+
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session || !session.guild_id)
+      return res.status(401).json({ error: "Invalid or expired session" });
+
+    const guildId = session.guild_id;
+    const now = new Date().toISOString();
+
+    const {
+      is_enabled,
+      min_bazaar_drop_threshold,
+      ping_role_id,
+      notification_channel_id,
+      target_player_ids,
+    } = req.body;
+
+    const currentConfig = await db
+      .selectFrom(TABLE_NAMES.BAZAAR_MUG_CONFIG)
+      .selectAll()
+      .where("guild_id", "=", guildId)
+      .executeTakeFirst();
+
+    const changes: string[] = [];
+
+    if (is_enabled !== undefined) {
+      const newVal = is_enabled ? 1 : 0;
+      if (newVal !== (currentConfig?.is_enabled ?? 0)) {
+        changes.push(is_enabled ? "Enabled module" : "Disabled module");
+      }
+    }
+    if (min_bazaar_drop_threshold !== undefined && min_bazaar_drop_threshold !== (currentConfig?.min_bazaar_drop_threshold ?? 10000000)) {
+      changes.push(`Minimum Bazaar Drop Threshold to $${Number(min_bazaar_drop_threshold).toLocaleString()}`);
+    }
+    if (ping_role_id !== undefined && ping_role_id !== (currentConfig?.ping_role_id ?? null)) {
+      changes.push("Mention Role");
+    }
+    if (notification_channel_id !== undefined && notification_channel_id !== (currentConfig?.notification_channel_id ?? null)) {
+      changes.push("Notification Channel");
+    }
+    if (target_player_ids !== undefined) {
+      const oldPlayers = currentConfig?.target_player_ids_json
+        ? parseJsonArray(currentConfig.target_player_ids_json)
+        : [];
+      const newPlayers = target_player_ids || [];
+      if (
+        JSON.stringify([...oldPlayers].sort()) !==
+        JSON.stringify([...newPlayers].sort())
+      ) {
+        changes.push("Target Player Watchlist");
+      }
+    }
+
+    if (changes.length > 0) {
+      await db
+        .insertInto(TABLE_NAMES.BAZAAR_MUG_CONFIG)
+        .values({
+          guild_id: guildId,
+          is_enabled: is_enabled ? 1 : 0,
+          min_bazaar_drop_threshold: Number(min_bazaar_drop_threshold) || 10000000,
+          ping_role_id: ping_role_id || null,
+          notification_channel_id: notification_channel_id || null,
+          target_player_ids_json: JSON.stringify(target_player_ids || []),
+          created_at: now,
+          updated_at: now,
+        })
+        .onConflict((oc) =>
+          oc.column("guild_id").doUpdateSet({
+            is_enabled: is_enabled ? 1 : 0,
+            min_bazaar_drop_threshold: Number(min_bazaar_drop_threshold) || 10000000,
+            ping_role_id: ping_role_id || null,
+            notification_channel_id: notification_channel_id || null,
+            target_player_ids_json: JSON.stringify(target_player_ids || []),
+            updated_at: now,
+          }),
+        )
+        .execute();
+
+      await logGuildSuccess(
+        guildId,
+        discordClient,
+        "Bazaar Mug Configuration Updated",
+        `<@${session.discord_id}> updated the Bazaar Mug configuration.`,
+        [
+          {
+            name: "Settings Updated",
+            value: changes.join(", "),
+            inline: false,
+          },
+        ],
+      );
+    }
+    await syncBazaarMugCronSchedule(guildId, discordClient);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[HTTP] Error updating bazaar-mug config:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+

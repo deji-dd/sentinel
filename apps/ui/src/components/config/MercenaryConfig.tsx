@@ -36,9 +36,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import {
-  Briefcase,
   ShieldAlert,
-  Crosshair,
   Pause,
   Play,
   CircleOff,
@@ -340,8 +338,8 @@ export const MercenaryConfig = forwardRef(
     };
 
     useEffect(() => {
-       loadData();
-     }, [sessionToken]);
+      loadData();
+    }, [sessionToken]);
 
     useEffect(() => {
       if (!dashboardContract) {
@@ -680,20 +678,7 @@ export const MercenaryConfig = forwardRef(
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
         {activeSubTab === "settings" && (
           <div className="space-y-6">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 text-primary">
-                <Briefcase className="w-4 h-4" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                  Module Hub
-                </span>
-              </div>
-              <h2 className="text-2xl font-black tracking-tight text-foreground">
-                Mercenary Module Settings
-              </h2>
-              <p className="text-sm text-muted-foreground/80">
-                Configure module-level channels and defaults for contract execution.
-              </p>
-            </div>
+
 
             <div className="space-y-5 bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -947,20 +932,7 @@ export const MercenaryConfig = forwardRef(
 
         {activeSubTab === "dibs" && (
           <div className="space-y-6">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 text-primary">
-                <Crosshair className="w-4 h-4" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                  Dibs System
-                </span>
-              </div>
-              <h2 className="text-2xl font-black tracking-tight text-foreground">
-                Dibs Configuration
-              </h2>
-              <p className="text-sm text-muted-foreground/80">
-                Configure the dibs system for war-time mercenary coordination.
-              </p>
-            </div>
+
 
             <div className="space-y-5 bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1040,20 +1012,7 @@ export const MercenaryConfig = forwardRef(
 
         {activeSubTab === "contracts" && (
           <div className="space-y-6">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 text-primary">
-                <Crosshair className="w-4 h-4" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                  Contracts
-                </span>
-              </div>
-              <h2 className="text-2xl font-black tracking-tight text-foreground">
-                Mercenary Contracts
-              </h2>
-              <p className="text-sm text-muted-foreground/80">
-                Create new contracts, verify faction requirements, and coordinate mercenary coordination.
-              </p>
-            </div>
+
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
               {/* Left Column: Create Contract */}

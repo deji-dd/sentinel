@@ -5,10 +5,9 @@
 
 import type { ColumnType } from "kysely";
 
-export type Generated<T> =
-  T extends ColumnType<infer S, infer I, infer U>
-    ? ColumnType<S, I | undefined, U>
-    : ColumnType<T, T | undefined, T>;
+export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S, I | undefined, U>
+  : ColumnType<T, T | undefined, T>;
 
 export interface SentinelApiKeyUserMapping {
   api_key_hash: string;
@@ -95,6 +94,27 @@ export interface SentinelBattlestatsSnapshots {
   speed: number;
   strength: number;
   total_stats: number;
+}
+
+export interface SentinelBazaarMugConfig {
+  created_at: Generated<string>;
+  dashboard_message_id: string | null;
+  guild_id: string | null;
+  is_enabled: Generated<number>;
+  min_bazaar_drop_threshold: Generated<number>;
+  notification_channel_id: string | null;
+  ping_role_id: string | null;
+  target_player_ids_json: Generated<string>;
+  updated_at: Generated<string>;
+}
+
+export interface SentinelBazaarMugTargets {
+  created_at: Generated<string>;
+  guild_id: string;
+  player_id: string;
+  player_name: string | null;
+  source: string;
+  updated_at: Generated<string>;
 }
 
 export interface SentinelDashboardSessions {
@@ -235,6 +255,25 @@ export interface SentinelMapTerritories {
   territory_id: string;
 }
 
+export interface SentinelMercenaryConfig {
+  audit_channel_id: string | null;
+  contract_announcement_channel_id: string | null;
+  created_at: Generated<string | null>;
+  default_auto_finish_on_war_end: Generated<number>;
+  default_idle_minutes: number | null;
+  default_target_scope: Generated<string>;
+  dibs_enabled: Generated<number>;
+  guild_id: string | null;
+  hit_post_channel_id: string | null;
+  is_enabled: Generated<number>;
+  merc_registration_channel_id: string | null;
+  merc_registration_message_id: Generated<string | null>;
+  merc_role_ids_json: Generated<string | null>;
+  payout_channel_id: string | null;
+  updated_at: Generated<string | null>;
+  updated_by: string | null;
+}
+
 export interface SentinelMercenaryContracts {
   auto_finish_on_war_end: Generated<number>;
   client_discord_id: string | null;
@@ -248,10 +287,10 @@ export interface SentinelMercenaryContracts {
   ends_at: string | null;
   faction_id: number | null;
   faction_name: string | null;
-  in_war: Generated<number>;
   guild_id: string | null;
   id: string | null;
   idle_minutes: number | null;
+  in_war: Generated<number>;
   last_population_at: string | null;
   max_level: number | null;
   min_level: number | null;
@@ -265,81 +304,35 @@ export interface SentinelMercenaryContracts {
   target_roles_json: Generated<string>;
   target_scope: Generated<string>;
   title: string;
+  updated_at: Generated<string | null>;
   war_end_at: string | null;
   war_start_at: string | null;
-  updated_at: Generated<string | null>;
 }
 
-export interface SentinelMercenaryConfig {
-  audit_channel_id: string | null;
-  contract_announcement_channel_id: string | null;
+export interface SentinelMercenaryDibs {
+  claimed_at: Generated<string | null>;
+  completed_at: string | null;
+  contract_id: string;
   created_at: Generated<string | null>;
-  default_auto_finish_on_war_end: Generated<number>;
-  default_idle_minutes: number | null;
-  default_target_scope: Generated<string>;
-  dibs_enabled: Generated<number>;
-  guild_id: string;
-  hit_post_channel_id: string | null;
-  is_enabled: Generated<number>;
-  merc_registration_channel_id: string | null;
-  merc_role_ids_json: Generated<string>;
-  merc_registration_message_id: string | null;
-  payout_channel_id: string | null;
+  expires_at: string | null;
+  guild_id: string | null;
+  id: string | null;
+  merc_discord_id: string;
+  status: Generated<string>;
+  target_name: string;
+  target_torn_id: string;
   updated_at: Generated<string | null>;
-  updated_by: string | null;
 }
 
 export interface SentinelMercenaryDibsConfig {
   created_at: Generated<string | null>;
   dibs_remaining_minutes: Generated<number>;
-  guild_id: string;
+  guild_id: string | null;
   is_enabled: Generated<number>;
   max_active_dibs_per_person: Generated<number>;
   merc_registration_channel_id: string | null;
   updated_at: Generated<string | null>;
   updated_by: string | null;
-}
-
-export interface SentinelMercenaryRegisteredMercs {
-  api_key: string | null;
-  created_at: Generated<string>;
-  deregistered_at: string | null;
-  discord_id: string;
-  guild_id: string;
-  id: string;
-  is_active: Generated<number>;
-  registered_at: Generated<string>;
-  torn_id: string | null;
-  torn_name: string | null;
-  updated_at: Generated<string>;
-}
-
-export interface SentinelMercenaryDibs {
-  claimed_at: Generated<string>;
-  completed_at: string | null;
-  contract_id: string;
-  created_at: Generated<string>;
-  expires_at: string | null;
-  guild_id: string;
-  id: string;
-  merc_discord_id: string;
-  status: Generated<string>;
-  target_name: string;
-  target_torn_id: string;
-  updated_at: Generated<string>;
-}
-
-export interface SentinelMercenaryPopulations {
-  channel_id: string | null;
-  contract_id: string;
-  created_at: Generated<string>;
-  eligible_mercs_count: number | null;
-  guild_id: string;
-  id: string;
-  message_id: string | null;
-  posted_at: Generated<string>;
-  population_type: string;
-  target_count: Generated<number>;
 }
 
 export interface SentinelMercenaryPayoutBatches {
@@ -374,28 +367,55 @@ export interface SentinelMercenaryPayoutItems {
   vault_id: string | null;
 }
 
+export interface SentinelMercenaryPopulations {
+  channel_id: string | null;
+  contract_id: string;
+  created_at: Generated<string | null>;
+  eligible_mercs_count: number | null;
+  guild_id: string;
+  id: string | null;
+  message_id: string | null;
+  population_type: string;
+  posted_at: Generated<string | null>;
+  target_count: Generated<number>;
+}
+
+export interface SentinelMercenaryRegisteredMercs {
+  api_key: Generated<string | null>;
+  created_at: Generated<string | null>;
+  deregistered_at: string | null;
+  discord_id: string;
+  guild_id: string;
+  id: string | null;
+  is_active: Generated<number>;
+  registered_at: Generated<string | null>;
+  torn_id: string | null;
+  torn_name: string | null;
+  updated_at: Generated<string | null>;
+}
+
 export interface SentinelMercenaryTargets {
+  channel_id: string | null;
   contract_id: string;
   created_at: Generated<string | null>;
   faction_id: string | null;
   id: string | null;
   is_valid: Generated<number>;
+  message_id: string | null;
   notes: string | null;
   priority: Generated<number>;
   status: Generated<string>;
   target_name: string;
   target_torn_id: string | null;
-  message_id: string | null;
-  channel_id: string | null;
   target_type: Generated<string>;
   updated_at: Generated<string | null>;
 }
 
 export interface SentinelMercenaryVerificationVault {
-  attacker_name: string | null;
-  attacker_torn_id: string | null;
   attack_id: string | null;
   attack_type: string | null;
+  attacker_name: string | null;
+  attacker_torn_id: string | null;
   contract_id: string;
   created_at: Generated<string | null>;
   defender_name: string | null;
@@ -895,6 +915,8 @@ export interface DB {
   sentinel_assist_tokens: SentinelAssistTokens;
   sentinel_auth_tokens: SentinelAuthTokens;
   sentinel_battlestats_snapshots: SentinelBattlestatsSnapshots;
+  sentinel_bazaar_mug_config: SentinelBazaarMugConfig;
+  sentinel_bazaar_mug_targets: SentinelBazaarMugTargets;
   sentinel_dashboard_sessions: SentinelDashboardSessions;
   sentinel_destination_travel_times: SentinelDestinationTravelTimes;
   sentinel_faction_roles: SentinelFactionRoles;
@@ -912,10 +934,10 @@ export interface DB {
   sentinel_mercenary_contracts: SentinelMercenaryContracts;
   sentinel_mercenary_dibs: SentinelMercenaryDibs;
   sentinel_mercenary_dibs_config: SentinelMercenaryDibsConfig;
-  sentinel_mercenary_populations: SentinelMercenaryPopulations;
-  sentinel_mercenary_registered_mercs: SentinelMercenaryRegisteredMercs;
   sentinel_mercenary_payout_batches: SentinelMercenaryPayoutBatches;
   sentinel_mercenary_payout_items: SentinelMercenaryPayoutItems;
+  sentinel_mercenary_populations: SentinelMercenaryPopulations;
+  sentinel_mercenary_registered_mercs: SentinelMercenaryRegisteredMercs;
   sentinel_mercenary_targets: SentinelMercenaryTargets;
   sentinel_mercenary_verification_vault: SentinelMercenaryVerificationVault;
   sentinel_racket_tenure: SentinelRacketTenure;

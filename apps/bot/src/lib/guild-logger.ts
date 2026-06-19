@@ -32,8 +32,8 @@ export async function logGuildAction(
       .limit(1)
       .executeTakeFirst()) as { log_channel_id: string | null } | undefined;
 
-    if (!guildConfig?.log_channel_id) {
-      // Guild doesn't have logging enabled, skip silently
+    if (!guildConfig?.log_channel_id || !/^\d{17,20}$/.test(guildConfig.log_channel_id)) {
+      // Guild doesn't have logging enabled or it is not a valid snowflake, skip silently
       return;
     }
 
