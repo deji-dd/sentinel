@@ -3,7 +3,7 @@
  * Updates personal dashboard embeds in Discord channels configured by the user.
  */
 
-import { Client, EmbedBuilder } from "discord.js";
+import { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { db } from "../lib/db-client.js";
 import { Logger } from "../lib/logger.js";
 import { TABLE_NAMES } from "@sentinel/shared";
@@ -18,7 +18,6 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
   }
 
   taskInFlight = true;
-  const startTime = Date.now();
 
   try {
     const userId = process.env.SENTINEL_USER_ID;
@@ -73,7 +72,8 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
       channelId: string,
       messageId: string | null,
       embed: EmbedBuilder,
-      dbFieldName: string
+      dbFieldName: string,
+      components?: any[]
     ): Promise<string | null> => {
       try {
         const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -88,10 +88,10 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
         }
 
         if (message) {
-          await message.edit({ embeds: [embed] });
+          await message.edit({ embeds: [embed], components: components || [] });
           return messageId;
         } else {
-          const sentMessage = await channel.send({ embeds: [embed] });
+          const sentMessage = await channel.send({ embeds: [embed], components: components || [] });
           // Update database with the new message ID
           await db
             .updateTable(TABLE_NAMES.PERSONAL_SETTINGS)
@@ -120,13 +120,10 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
             { name: "Optimal Stat to Train", value: recs.stat, inline: true },
             { name: "Active Gym", value: recs.activeGymName, inline: true },
             { name: "Current Energy", value: `${recs.currentEnergy} / ${recs.maxEnergy} E`, inline: true },
+            { name: "Current Happy", value: `${recs.currentHappy.toLocaleString()} / ${recs.maxHappy.toLocaleString()}`, inline: true },
             { name: "Recommendation", value: recs.text, inline: false }
           )
           .setTimestamp();
-
-        if (recs.gymRecommendation) {
-          embedRec.addFields({ name: "Gym Advice", value: recs.gymRecommendation, inline: false });
-        }
 
         await updateOrCreateMessage(
           personalSettings.energy_dashboard_rec_channel_id,
@@ -171,13 +168,6 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
           total: 0,
         };
 
-        const getProgressBar = (pct: number) => {
-          const width = 10;
-          const filled = Math.min(width, Math.round((pct / 100) * width));
-          const empty = width - filled;
-          return "[" + "█".repeat(filled) + "░".repeat(empty) + "]";
-        };
-
         const statsFields: string[] = [];
         const statsKeys = ["strength", "speed", "defense", "dexterity"] as const;
         const labels = { strength: "Strength", speed: "Speed", defense: "Defense", dexterity: "Dexterity" };
@@ -188,10 +178,9 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
           const currentPct = current.total > 0 ? (value / current.total) * 100 : 0;
           const deviation = currentPct - targetPct;
           const deviationText = Math.abs(deviation) < 0.05 ? "Balanced" : `${deviation > 0 ? "+" : ""}${deviation.toFixed(1)}%`;
-          const bar = getProgressBar(currentPct);
           
           statsFields.push(
-            `**${labels[key]}**: ${value.toLocaleString()} (${currentPct.toFixed(1)}% / Target: ${targetPct.toFixed(1)}%) \n${bar} [${deviationText}]`
+            `**${labels[key]}**: ${value.toLocaleString()} (${currentPct.toFixed(1)}% / Target: ${targetPct.toFixed(1)}%) [${deviationText}]`
           );
         }
 
@@ -223,12 +212,12 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
           .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
           .select(["created_at", "total_stats", "strength", "speed", "defense", "dexterity"])
           .orderBy("created_at", "desc")
-          .limit(12) // Fetch slightly more to ensure unique UTC days
+          .limit(1000) // fetch up to 1000 rows to ensure spanning many days
           .execute();
 
         const dailySnapshotsMap = new Map<string, typeof snapshots[0]>();
         for (const snap of snapshots) {
-          const dateStr = snap.created_at.split("T")[0]; // YYYY-MM-DD (UTC/TCT)
+          const dateStr = snap.created_at.slice(0, 10); // YYYY-MM-DD
           if (!dailySnapshotsMap.has(dateStr)) {
             dailySnapshotsMap.set(dateStr, snap);
           }
@@ -316,11 +305,32 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
           )
           .setTimestamp();
 
+        // Create range buttons
+        const buttonsRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId("energy_gains_range|1")
+            .setLabel("1 Day")
+            .setStyle(days === 1 ? ButtonStyle.Primary : ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("energy_gains_range|7")
+            .setLabel("7 Days")
+            .setStyle(days === 7 ? ButtonStyle.Primary : ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("energy_gains_range|14")
+            .setLabel("14 Days")
+            .setStyle(days === 14 ? ButtonStyle.Primary : ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("energy_gains_range|30")
+            .setLabel("30 Days")
+            .setStyle(days === 30 ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        );
+
         await updateOrCreateMessage(
           personalSettings.energy_dashboard_gains_channel_id,
           personalSettings.energy_dashboard_gains_message_id,
           embedGains,
-          "energy_dashboard_gains_message_id"
+          "energy_dashboard_gains_message_id",
+          [buttonsRow]
         );
       } catch (err) {
         logger.error("Failed to sync Live TCT Stat Gain Counter display:", err);
