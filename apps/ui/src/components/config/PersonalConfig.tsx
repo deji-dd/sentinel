@@ -46,12 +46,22 @@ interface PersonalSettings {
   target_defense_ratio?: number;
   target_speed_ratio?: number;
   target_dexterity_ratio?: number;
+  energy_dashboard_rec_channel_id?: string | null;
+  energy_dashboard_rec_message_id?: string | null;
+  energy_dashboard_target_channel_id?: string | null;
+  energy_dashboard_target_message_id?: string | null;
+  energy_dashboard_graph_channel_id?: string | null;
+  energy_dashboard_graph_message_id?: string | null;
+  energy_dashboard_gains_channel_id?: string | null;
+  energy_dashboard_gains_message_id?: string | null;
+  energy_dashboard_gains_days?: number;
 }
 
 interface PersonalConfigProps {
   sessionToken: string;
   onDirtyChange?: (isDirty: boolean) => void;
-  view?: "alerts" | "oracle" | "logging";
+  view?: "alerts" | "oracle" | "logging" | "energy";
+  subView?: "gym" | "alerts" | "dashboard";
 }
 
 interface MilestoneData {
@@ -147,7 +157,7 @@ const calculateBaldrsRatios = (highStat: string, secondaryStat: string) => {
 };
 
 export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
-  ({ sessionToken, onDirtyChange, view = "alerts" }, ref) => {
+  ({ sessionToken, onDirtyChange, view = "alerts", subView: propSubView }, ref) => {
     const [loading, setLoading] = useState(true);
     const [milestones, setMilestones] = useState<MilestoneOracleResponse | null>(null);
     const [loadingMilestones, setLoadingMilestones] = useState(true);
@@ -155,6 +165,9 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
     const [settings, setSettings] = useState<PersonalSettings | null>(null);
     const [settingsBaseline, setSettingsBaseline] = useState<PersonalSettings | null>(null);
     const [channels, setChannels] = useState<{ id: string; name: string }[]>([]);
+    
+    const [internalSubView] = useState<"gym" | "alerts" | "dashboard">("gym");
+    const subView = propSubView || internalSubView;
     
     // String inputs for soft threshold and aggressive interval to allow full clearing
     const [softThresholdInput, setSoftThresholdInput] = useState("");
@@ -271,7 +284,7 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
 
     // Load milestones dynamically on tab/timeframe changes
     useEffect(() => {
-      if (view === "oracle") {
+      if (view === "oracle" || view === "energy") {
         loadMilestones(false, timeframe);
       }
     }, [sessionToken, view, timeframe]);
@@ -460,7 +473,7 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
 
         toast.success("Personal settings saved");
         await loadData(true);
-        if (view === "oracle") {
+        if (view === "oracle" || view === "energy") {
           await loadMilestones(true, timeframe);
         }
         return true;
@@ -696,12 +709,12 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
     };
 
     // Loading checks optimized for active view
-    if (view === "oracle") {
-      if (loadingMilestones) {
+    if (view === "oracle" || (view === "energy" && subView === "gym")) {
+      if (loadingMilestones || loading || !settings) {
         return (
           <LoadingScreen
             fullScreen={false}
-            subMessage="Loading Milestone Oracle"
+            subMessage={`Loading ${view === "energy" ? "Energy System" : "Milestone Oracle"}`}
           />
         );
       }
@@ -716,9 +729,34 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
       }
     }
 
-    if (view === "alerts" && settings) {
+    const renderSubTabs = () => {
+      // Hiding page tabs in Energy page per requirements since sidebar sub-pages are used instead.
+      return null;
+    };
+
+    if ((view === "alerts" || (view === "energy" && subView === "alerts")) && settings) {
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 max-w-2xl mx-auto">
+          {renderSubTabs()}
+
+          {/* Recommendation Preview Box on Settings Tab under Energy view */}
+          {view === "energy" && milestones?.recommendation && (
+            <div className="bg-primary/5 border border-primary/25 p-4 rounded-3xl space-y-2 relative overflow-hidden shadow-sm">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary animate-pulse" />
+                <span className="text-xs font-bold text-foreground uppercase tracking-wider">Current Training Recommendation</span>
+              </div>
+              <p className="text-xs text-foreground/80 leading-relaxed font-semibold">
+                {milestones.recommendation.text}
+              </p>
+              {milestones.recommendation.gymRecommendation && (
+                <p className="text-[11px] text-amber-500 font-medium pt-1">
+                  {milestones.recommendation.gymRecommendation}
+                </p>
+              )}
+            </div>
+          )}
           {/* Energy Alerts Enable Card */}
           <div className="bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs flex items-center justify-between shadow-lg">
             <div className="space-y-0.5">
@@ -871,9 +909,10 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
       );
     }
 
-    if (view === "oracle" && milestones) {
+    if ((view === "oracle" || (view === "energy" && subView === "gym")) && milestones) {
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 max-w-4xl mx-auto">
+          {renderSubTabs()}
           {/* Top Panel: Summary & Sync Status */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs shadow-md space-y-4">
@@ -1401,6 +1440,185 @@ export const PersonalConfig = forwardRef<any, PersonalConfigProps>(
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (view === "energy" && subView === "dashboard" && settings) {
+      return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 max-w-2xl mx-auto">
+          <div className="bg-secondary/5 border border-border/30 rounded-3xl p-6 backdrop-blur-xs shadow-md space-y-6">
+            <div className="flex items-center gap-2 text-foreground font-bold border-b border-border/30 pb-3">
+              <Settings className="w-4 h-4 text-primary" />
+              <span>Discord Energy Dashboard Configuration</span>
+            </div>
+            
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Configure personal Discord channels where Sentinel will post and automatically update live energy and combat stat dashboard panels. Clear a channel selection to delete its dashboard panel.
+            </p>
+
+            {/* Display 1: Training Recommendation */}
+            <div className="space-y-2">
+              <Label className="text-sm font-bold text-foreground">Training Recommendation Channel</Label>
+              <Select
+                value={settings.energy_dashboard_rec_channel_id || "none"}
+                onValueChange={(val) =>
+                  setSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          energy_dashboard_rec_channel_id: val === "none" ? null : val,
+                        }
+                      : null
+                  )
+                }
+              >
+                <SelectTrigger className="w-full bg-background border-border/50">
+                  <SelectValue placeholder="Select channel for training recommendations" />
+                </SelectTrigger>
+                <SelectContent className="bg-background border-border">
+                  <SelectItem value="none">Disabled (No dashboard)</SelectItem>
+                  {channels.map((ch) => (
+                    <SelectItem key={ch.id} value={ch.id}>
+                      #{ch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground/80">
+                Displays your recommended stat to train, active gym name, current energy status, and active build info.
+              </p>
+            </div>
+
+            {/* Display 2: Stats to Target */}
+            <div className="space-y-2 border-t border-border/10 pt-4">
+              <Label className="text-sm font-bold text-foreground">Stats to Target Channel</Label>
+              <Select
+                value={settings.energy_dashboard_target_channel_id || "none"}
+                onValueChange={(val) =>
+                  setSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          energy_dashboard_target_channel_id: val === "none" ? null : val,
+                        }
+                      : null
+                  )
+                }
+              >
+                <SelectTrigger className="w-full bg-background border-border/50">
+                  <SelectValue placeholder="Select channel for stats to target" />
+                </SelectTrigger>
+                <SelectContent className="bg-background border-border">
+                  <SelectItem value="none">Disabled (No dashboard)</SelectItem>
+                  {channels.map((ch) => (
+                    <SelectItem key={ch.id} value={ch.id}>
+                      #{ch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground/80">
+                Displays progress bars comparing your current stat values and percentages against your configured target build percentages.
+              </p>
+            </div>
+
+            {/* Display 3: Graph / History */}
+            <div className="space-y-2 border-t border-border/10 pt-4">
+              <Label className="text-sm font-bold text-foreground">Stat History / Graph Channel</Label>
+              <Select
+                value={settings.energy_dashboard_graph_channel_id || "none"}
+                onValueChange={(val) =>
+                  setSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          energy_dashboard_graph_channel_id: val === "none" ? null : val,
+                        }
+                      : null
+                  )
+                }
+              >
+                <SelectTrigger className="w-full bg-background border-border/50">
+                  <SelectValue placeholder="Select channel for stat history" />
+                </SelectTrigger>
+                <SelectContent className="bg-background border-border">
+                  <SelectItem value="none">Disabled (No dashboard)</SelectItem>
+                  {channels.map((ch) => (
+                    <SelectItem key={ch.id} value={ch.id}>
+                      #{ch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground/80">
+                Displays historical stat totals and specific daily gains for each of the last 7 days.
+              </p>
+            </div>
+
+            {/* Display 4: Live Stat Gain Counter */}
+            <div className="space-y-4 border-t border-border/10 pt-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-bold text-foreground">Live Stat Gain Counter Channel</Label>
+                <Select
+                  value={settings.energy_dashboard_gains_channel_id || "none"}
+                  onValueChange={(val) =>
+                    setSettings((current) =>
+                      current
+                        ? {
+                            ...current,
+                            energy_dashboard_gains_channel_id: val === "none" ? null : val,
+                          }
+                        : null
+                    )
+                  }
+                >
+                  <SelectTrigger className="w-full bg-background border-border/50">
+                    <SelectValue placeholder="Select channel for live gain counter" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border-border">
+                    <SelectItem value="none">Disabled (No dashboard)</SelectItem>
+                    {channels.map((ch) => (
+                      <SelectItem key={ch.id} value={ch.id}>
+                        #{ch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground/80">
+                  Displays live gym training gains aggregated strictly relative to Torn City Time (UTC).
+                </p>
+              </div>
+
+              {settings.energy_dashboard_gains_channel_id && (
+                <div className="space-y-2 bg-secondary/10 border border-border/20 p-4 rounded-2xl animate-in fade-in duration-200">
+                  <Label htmlFor="gains-days-input" className="text-xs font-bold text-foreground uppercase tracking-wider">Aggregation Range (Days)</Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      id="gains-days-input"
+                      type="number"
+                      min="1"
+                      max="30"
+                      value={settings.energy_dashboard_gains_days || 1}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 1 && val <= 30) {
+                          setSettings((current) =>
+                            current ? { ...current, energy_dashboard_gains_days: val } : null
+                          );
+                        }
+                      }}
+                      className="w-24 bg-background border-border/50 text-sm font-mono"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Display aggregate gains for the last {settings.energy_dashboard_gains_days || 1} day(s) (1 = today only, starting 00:00 TCT).
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       );

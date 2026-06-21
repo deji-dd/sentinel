@@ -8,6 +8,29 @@
 
 PRAGMA foreign_keys = OFF;
 
+-- Ensure tables exist first so SELECT * from them does not fail if empty DB setup
+CREATE TABLE IF NOT EXISTS sentinel_rate_limit_requests_per_user (
+  id TEXT,
+  api_key_hash TEXT,
+  requested_at TEXT,
+  user_id INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS sentinel_worker_logs (
+  id TEXT,
+  worker_id TEXT,
+  run_started_at TEXT,
+  run_finished_at TEXT,
+  duration_ms INTEGER,
+  status TEXT,
+  message TEXT,
+  error_message TEXT,
+  created_at TEXT,
+  is_limited INTEGER,
+  limited_until TEXT,
+  last_error_at TEXT
+);
+
 -- =====================================================================
 -- Table 1: sentinel_rate_limit_requests_per_user
 -- =====================================================================

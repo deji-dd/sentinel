@@ -12,7 +12,6 @@ trap 'flock -u 9' EXIT
 
 # Allow overriding repo directory via env var, default to hardcoded path
 REPO_DIR="${SENTINEL_REPO_DIR:-/home/deji/repos/sentinel}"
-BRANCH="main"
 
 # Load NVM to ensure the updated Node.js version is used in non-interactive shells (like cron)
 export NVM_DIR="${HOME}/.nvm"
@@ -33,6 +32,12 @@ if [[ ! -d "${REPO_DIR}" ]]; then
 fi
 
 cd "${REPO_DIR}"
+
+# Dynamically detect branch, defaulting to main
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+if [[ "${BRANCH}" == "HEAD" ]]; then
+  BRANCH="main"
+fi
 
 # Exit if local changes exist (avoid clobbering)
 if ! git diff --quiet || ! git diff --cached --quiet; then

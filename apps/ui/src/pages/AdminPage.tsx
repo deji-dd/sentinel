@@ -6,8 +6,6 @@ import {
   Sparkles,
   UserCircle,
   Zap,
-  Bell,
-  Target,
   ShieldAlert,
   AlertCircle,
   Save,
@@ -31,6 +29,9 @@ import {
   SidebarFooter,
   SidebarInset,
   SidebarTrigger,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -44,7 +45,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type TabId = "global" | "alerts" | "oracle" | "logging";
+type TabId = "global" | "energy_gym" | "energy_alerts" | "energy_dashboard" | "logging";
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -52,9 +53,14 @@ export default function AdminPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [hasSession, setHasSession] = useState<boolean | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>(
-    (searchParams.get("tab") as TabId) || "global",
-  );
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "oracle" || tab === "gym") return "energy_gym";
+    if (tab === "alerts") return "energy_alerts";
+    if (tab === "dashboard") return "energy_dashboard";
+    if (tab === "energy") return "energy_gym";
+    return (tab as TabId) || "global";
+  });
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingTab, setPendingTab] = useState<TabId | "logout" | null>(null);
@@ -255,11 +261,12 @@ export default function AdminPage() {
     });
   };
 
-  const handleTabSwitch = (id: TabId) => {
+  const handleTabSwitch = (id: TabId | "energy") => {
+    const targetId = id === "energy" ? ("energy_gym" as TabId) : id;
     if (isDirty) {
-      setPendingTab(id);
+      setPendingTab(targetId);
     } else {
-      setActiveTab(id);
+      setActiveTab(targetId);
     }
   };
 
@@ -283,8 +290,7 @@ export default function AdminPage() {
 
   const tabs = [
     { id: "global" as const, name: "Global Control", icon: Zap },
-    { id: "alerts" as const, name: "Alert Rules", icon: Bell },
-    { id: "oracle" as const, name: "Milestone Oracle", icon: Target },
+    { id: "energy" as const, name: "Energy", icon: Sparkles },
     { id: "logging" as const, name: "Error Logging", icon: ShieldAlert },
   ];
 
@@ -316,26 +322,85 @@ export default function AdminPage() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {tabs.map((t) => (
-                  <SidebarMenuItem key={t.id}>
-                    <SidebarMenuButton
-                      isActive={activeTab === t.id}
-                      onClick={() => handleTabSwitch(t.id)}
-                      className="h-11 cursor-pointer"
-                    >
-                      <t.icon
-                        className={
-                          activeTab === t.id
-                            ? "text-primary"
-                            : "text-muted-foreground"
-                        }
-                      />
-                      <span className="font-bold tracking-wide text-foreground/80">
-                        {t.name}
-                      </span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                {tabs.map((t) => {
+                  const isEnergy = t.id === "energy";
+                  const isActive = isEnergy ? activeTab.startsWith("energy") : activeTab === t.id;
+
+                  if (isEnergy) {
+                    return (
+                      <SidebarMenuItem key={t.id}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() => handleTabSwitch("energy_gym")}
+                          className="h-11 cursor-pointer"
+                        >
+                          <t.icon
+                            className={
+                              isActive
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            }
+                          />
+                          <span className="font-bold tracking-wide text-foreground/80">
+                            {t.name}
+                          </span>
+                        </SidebarMenuButton>
+                        {isActive && (
+                          <SidebarMenuSub className="animate-in slide-in-from-left-2 duration-300">
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                isActive={activeTab === "energy_gym"}
+                                onClick={() => handleTabSwitch("energy_gym")}
+                                className="cursor-pointer font-bold text-foreground/75"
+                              >
+                                Gym
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                isActive={activeTab === "energy_alerts"}
+                                onClick={() => handleTabSwitch("energy_alerts")}
+                                className="cursor-pointer font-bold text-foreground/75"
+                              >
+                                Alert Settings
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                isActive={activeTab === "energy_dashboard"}
+                                onClick={() => handleTabSwitch("energy_dashboard")}
+                                className="cursor-pointer font-bold text-foreground/75"
+                              >
+                                Dashboard Config
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          </SidebarMenuSub>
+                        )}
+                      </SidebarMenuItem>
+                    );
+                  }
+
+                  return (
+                    <SidebarMenuItem key={t.id}>
+                      <SidebarMenuButton
+                        isActive={isActive}
+                        onClick={() => handleTabSwitch(t.id)}
+                        className="h-11 cursor-pointer"
+                      >
+                        <t.icon
+                          className={
+                            isActive
+                              ? "text-primary"
+                              : "text-muted-foreground"
+                          }
+                        />
+                        <span className="font-bold tracking-wide text-foreground/80">
+                          {t.name}
+                        </span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -387,7 +452,9 @@ export default function AdminPage() {
                 System Administration
               </div>
               <h1 className="text-xl font-black tracking-tight flex items-center gap-2 text-foreground">
-                {tabs.find((t) => t.id === activeTab)?.name}
+                {activeTab.startsWith("energy")
+                  ? `Energy - ${activeTab === "energy_gym" ? "Gym" : activeTab === "energy_alerts" ? "Alert Settings" : "Dashboard Config"}`
+                  : tabs.find((t) => t.id === activeTab)?.name}
               </h1>
             </div>
           </div>
@@ -404,21 +471,13 @@ export default function AdminPage() {
               </div>
             )}
 
-            {activeTab === "alerts" && (
+            {activeTab.startsWith("energy") && (
               <PersonalConfig
                 ref={moduleRef}
                 sessionToken={sessionToken!}
                 onDirtyChange={setIsDirty}
-                view="alerts"
-              />
-            )}
-
-            {activeTab === "oracle" && (
-              <PersonalConfig
-                ref={moduleRef}
-                sessionToken={sessionToken!}
-                onDirtyChange={setIsDirty}
-                view="oracle"
+                view="energy"
+                subView={activeTab.replace("energy_", "") as "gym" | "alerts" | "dashboard"}
               />
             )}
 
