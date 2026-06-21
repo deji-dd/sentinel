@@ -92,6 +92,8 @@ export async function ensureWorkerRegistered(
       enabled,
       metadata,
       updated_at: now,
+      attempts: 0,
+      backoff_until: null,
     };
 
     if (options.initialNextRunAt) {
@@ -115,6 +117,8 @@ export async function ensureWorkerRegistered(
       force_run: 0,
       next_run_at: options.initialNextRunAt || now,
       metadata,
+      attempts: 0,
+      backoff_until: null,
     })
     .execute();
 
@@ -269,13 +273,15 @@ export async function failWorker(
   const cappedAttempts = nextAttempts > 10 ? 5 : nextAttempts;
   const backoffSeconds = Math.min(Math.pow(2, cappedAttempts) * 60, 3600);
   const db = getKysely();
+  const nextRun = new Date(Date.now() + backoffSeconds * 1000).toISOString();
 
   await db
     .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
     .set({
       force_run: 0,
       attempts: cappedAttempts,
-      backoff_until: new Date(Date.now() + backoffSeconds * 1000).toISOString(),
+      next_run_at: nextRun,
+      backoff_until: nextRun,
       updated_at: new Date().toISOString(),
     })
     .where("worker_id", "=", workerId)

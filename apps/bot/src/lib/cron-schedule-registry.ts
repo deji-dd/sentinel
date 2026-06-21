@@ -48,16 +48,19 @@ export async function syncGlobalCronSchedules(): Promise<void> {
   await ensureWorkerRegistered({
     name: "bot:token_cleanup",
     cadenceSeconds: TOKEN_CLEANUP_CADENCE_SECONDS,
+    initialNextRunAt: new Date().toISOString(),
   });
 
   await ensureWorkerRegistered({
     name: "bot:revive_maintenance",
     cadenceSeconds: REVIVE_MAINTENANCE_CADENCE_SECONDS,
+    initialNextRunAt: new Date().toISOString(),
   });
 
   await ensureWorkerRegistered({
     name: "bot:energy_dashboard",
     cadenceSeconds: 60,
+    initialNextRunAt: new Date().toISOString(),
   });
 }
 
