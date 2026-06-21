@@ -1,6 +1,7 @@
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../lib/db-client.js";
-import { tornApi } from "../services/torn-client.js";
+import { Kysely } from "kysely";
+import type { DB } from "./db/kysely-types.js";
+import { TABLE_NAMES } from "./constants.js";
+import { TornApiClient } from "./torn.js";
 
 export interface FactionPerks {
   strength: number;
@@ -31,8 +32,10 @@ export interface TrainingRecommendationResult {
 }
 
 export async function getPersonalTrainingRecommendations(
+  db: Kysely<DB>,
   userId: string,
-  apiKey?: string
+  apiKey?: string,
+  tornApi?: TornApiClient
 ): Promise<TrainingRecommendationResult> {
   // 1. Fetch current battle stats from snapshots
   const stats = await db
@@ -152,7 +155,8 @@ export async function getPersonalTrainingRecommendations(
   const factionPerks: FactionPerks = { strength: 0, defense: 0, speed: 0, dexterity: 0 };
   if (apiKey) {
     try {
-      const perksResponse = await tornApi.getRaw<any>("/user", apiKey, {
+      const client = tornApi || new TornApiClient();
+      const perksResponse = await client.getRaw<any>("/user", apiKey, {
         selections: "perks",
       });
 

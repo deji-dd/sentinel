@@ -54,6 +54,11 @@ export async function syncGlobalCronSchedules(): Promise<void> {
     name: "bot:revive_maintenance",
     cadenceSeconds: REVIVE_MAINTENANCE_CADENCE_SECONDS,
   });
+
+  await ensureWorkerRegistered({
+    name: "bot:energy_dashboard",
+    cadenceSeconds: 60,
+  });
 }
 
 export async function syncAutoVerifyCronSchedule(

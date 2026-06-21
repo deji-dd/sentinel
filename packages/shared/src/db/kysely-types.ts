@@ -213,6 +213,17 @@ export interface SentinelGuildSyncJobs {
   updated_at: Generated<string | null>;
 }
 
+export interface SentinelGymTrainLogs {
+  created_at: Generated<string>;
+  energy: number;
+  gain: number;
+  gym_id: number | null;
+  happy: Generated<number>;
+  log_id: string | null;
+  stat: string;
+  timestamp: number;
+}
+
 export interface SentinelMapHistory {
   created_at: Generated<string | null>;
   created_by: string;
@@ -436,33 +447,31 @@ export interface SentinelMercenaryVerificationVault {
   verified_by: string | null;
 }
 
-export interface SentinelGymTrainLogs {
-  log_id: string;
-  timestamp: number;
-  stat: string;
-  gain: number;
-  energy: number;
-  happy: number;
-  gym_id: number | null;
-  created_at: Generated<string>;
-}
-
 export interface SentinelPersonalSettings {
-  user_id: string;
+  admin_log_channel_id: string | null;
   discord_id: string;
-  energy_alerts_enabled: Generated<number>;
-  energy_soft_threshold: Generated<number>;
-  energy_aggressive_interval_mins: Generated<number>;
+  energy_aggressive_interval_mins: Generated<number | null>;
+  energy_alerts_enabled: Generated<number | null>;
+  energy_dashboard_gains_channel_id: string | null;
+  energy_dashboard_gains_days: Generated<number | null>;
+  energy_dashboard_gains_message_id: string | null;
+  energy_dashboard_graph_channel_id: string | null;
+  energy_dashboard_graph_message_id: string | null;
+  energy_dashboard_rec_channel_id: string | null;
+  energy_dashboard_rec_message_id: string | null;
+  energy_dashboard_target_channel_id: string | null;
+  energy_dashboard_target_message_id: string | null;
+  energy_soft_threshold: Generated<number | null>;
+  error_pings_enabled: Generated<number | null>;
   last_energy_alert_sent_at: string | null;
   last_energy_alert_type: string | null;
-  admin_log_channel_id: string | null;
-  error_pings_enabled: Generated<number>;
   selected_build: Generated<string>;
-  target_strength_ratio: Generated<number>;
   target_defense_ratio: Generated<number>;
-  target_speed_ratio: Generated<number>;
   target_dexterity_ratio: Generated<number>;
+  target_speed_ratio: Generated<number>;
+  target_strength_ratio: Generated<number>;
   updated_at: Generated<string>;
+  user_id: string | null;
 }
 
 export interface SentinelRacketTenure {

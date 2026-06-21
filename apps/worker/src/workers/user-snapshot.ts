@@ -7,6 +7,7 @@ import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { randomUUID } from "crypto";
 import { sendIpcRequest } from "../lib/ipc-client.js";
+import { getPersonalTrainingRecommendations } from "@sentinel/shared/training-recommendations.js";
 
 const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
 const PRUNING_WORKER_NAME = "user_snapshot_pruning_worker";
@@ -279,18 +280,29 @@ async function takeSnapshot(): Promise<void> {
         if (shouldAlert && alertType) {
           const nowIso = new Date().toISOString();
           
+          let recText = "";
+          try {
+            const recs = await getPersonalTrainingRecommendations(db, personalSettings.user_id, apiKey, tornApi);
+            recText = `\n\nOptimal training focus: **${recs.stat}**\n${recs.text}`;
+            if (recs.gymRecommendation) {
+              recText += `\n*${recs.gymRecommendation}*`;
+            }
+          } catch (recError) {
+            snapshotLogger.error("Failed to fetch recommendation for alert DM", recError);
+          }
+
           // Guidelines check: Always use embeds, no emojis, Sentinel footer and timestamp in footer
           const embedTitle = alertType === "aggressive" 
             ? "CRITICAL: Energy Bar Full" 
             : "Alert: Energy Approaching Full";
             
-          const embedDescription = alertType === "aggressive"
+          const baseDescription = alertType === "aggressive"
             ? `Your energy bar is completely full (${energyCurrent}/${energyMaximum}). Use it immediately to avoid wasting regeneration.`
             : `Your energy bar has reached ${energyCurrent}/${energyMaximum} (threshold: ${softThreshold}).`;
 
           const embed = {
             title: embedTitle,
-            description: embedDescription,
+            description: baseDescription + recText,
             color: alertType === "aggressive" ? 0xef4444 : 0xf59e0b, // Red or Amber
             footer: {
               text: "Sentinel",

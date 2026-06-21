@@ -2234,7 +2234,7 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Missing session token" });
 
-  const { magicLinkService } = getServerContext(req);
+  const { magicLinkService, discordClient } = getServerContext(req);
   try {
     const session = await magicLinkService.validateSession(token, "config");
     if (!session) return res.status(401).json({ error: "Invalid or expired session" });
@@ -2249,6 +2249,12 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
     }
 
+    const currentSettings = await db
+      .selectFrom(TABLE_NAMES.PERSONAL_SETTINGS)
+      .selectAll()
+      .where("user_id", "=", String(userId))
+      .executeTakeFirst();
+
     const {
       energy_alerts_enabled,
       energy_soft_threshold,
@@ -2260,6 +2266,15 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
       target_defense_ratio,
       target_speed_ratio,
       target_dexterity_ratio,
+      energy_dashboard_rec_channel_id,
+      energy_dashboard_rec_message_id,
+      energy_dashboard_target_channel_id,
+      energy_dashboard_target_message_id,
+      energy_dashboard_graph_channel_id,
+      energy_dashboard_graph_message_id,
+      energy_dashboard_gains_channel_id,
+      energy_dashboard_gains_message_id,
+      energy_dashboard_gains_days,
     } = req.body;
 
     const softThreshold = Number(energy_soft_threshold);
@@ -2293,6 +2308,73 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
         .json({ error: `Target stat build ratios must add up to exactly 100% (currently ${totalRatio}%)` });
     }
 
+    const gainsDays = Number(energy_dashboard_gains_days);
+    if (energy_dashboard_gains_days !== undefined && (isNaN(gainsDays) || gainsDays < 1 || gainsDays > 30)) {
+      return res
+        .status(400)
+        .json({ error: "Gains days must be a number between 1 and 30" });
+    }
+
+    const cleanupOldMessage = async (oldChannelId: string | null, oldMessageId: string | null, newChannelId: string | null) => {
+      if (oldChannelId && oldMessageId && oldChannelId !== newChannelId) {
+        try {
+          const oldChannel = await discordClient.channels.fetch(oldChannelId).catch(() => null);
+          if (oldChannel && oldChannel.isTextBased()) {
+            const oldMsg = await oldChannel.messages.fetch(oldMessageId).catch(() => null);
+            if (oldMsg) {
+              await oldMsg.delete().catch(() => null);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to delete old dashboard message:", e);
+        }
+      }
+    };
+
+    const dashboardRecChannel = energy_dashboard_rec_channel_id || null;
+    let dashboardRecMessage = energy_dashboard_rec_message_id || null;
+    if (currentSettings && currentSettings.energy_dashboard_rec_channel_id !== dashboardRecChannel) {
+      await cleanupOldMessage(
+        currentSettings.energy_dashboard_rec_channel_id,
+        currentSettings.energy_dashboard_rec_message_id,
+        dashboardRecChannel
+      );
+      dashboardRecMessage = null;
+    }
+
+    const dashboardTargetChannel = energy_dashboard_target_channel_id || null;
+    let dashboardTargetMessage = energy_dashboard_target_message_id || null;
+    if (currentSettings && currentSettings.energy_dashboard_target_channel_id !== dashboardTargetChannel) {
+      await cleanupOldMessage(
+        currentSettings.energy_dashboard_target_channel_id,
+        currentSettings.energy_dashboard_target_message_id,
+        dashboardTargetChannel
+      );
+      dashboardTargetMessage = null;
+    }
+
+    const dashboardGraphChannel = energy_dashboard_graph_channel_id || null;
+    let dashboardGraphMessage = energy_dashboard_graph_message_id || null;
+    if (currentSettings && currentSettings.energy_dashboard_graph_channel_id !== dashboardGraphChannel) {
+      await cleanupOldMessage(
+        currentSettings.energy_dashboard_graph_channel_id,
+        currentSettings.energy_dashboard_graph_message_id,
+        dashboardGraphChannel
+      );
+      dashboardGraphMessage = null;
+    }
+
+    const dashboardGainsChannel = energy_dashboard_gains_channel_id || null;
+    let dashboardGainsMessage = energy_dashboard_gains_message_id || null;
+    if (currentSettings && currentSettings.energy_dashboard_gains_channel_id !== dashboardGainsChannel) {
+      await cleanupOldMessage(
+        currentSettings.energy_dashboard_gains_channel_id,
+        currentSettings.energy_dashboard_gains_message_id,
+        dashboardGainsChannel
+      );
+      dashboardGainsMessage = null;
+    }
+
     const now = new Date().toISOString();
 
     await db
@@ -2310,6 +2392,15 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
         target_defense_ratio: defenseRatio,
         target_speed_ratio: speedRatio,
         target_dexterity_ratio: dexterityRatio,
+        energy_dashboard_rec_channel_id: dashboardRecChannel,
+        energy_dashboard_rec_message_id: dashboardRecMessage,
+        energy_dashboard_target_channel_id: dashboardTargetChannel,
+        energy_dashboard_target_message_id: dashboardTargetMessage,
+        energy_dashboard_graph_channel_id: dashboardGraphChannel,
+        energy_dashboard_graph_message_id: dashboardGraphMessage,
+        energy_dashboard_gains_channel_id: dashboardGainsChannel,
+        energy_dashboard_gains_message_id: dashboardGainsMessage,
+        energy_dashboard_gains_days: isNaN(gainsDays) ? 1 : gainsDays,
         updated_at: now,
       })
       .onConflict((oc) =>
@@ -2324,6 +2415,15 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
           target_defense_ratio: defenseRatio,
           target_speed_ratio: speedRatio,
           target_dexterity_ratio: dexterityRatio,
+          energy_dashboard_rec_channel_id: dashboardRecChannel,
+          energy_dashboard_rec_message_id: dashboardRecMessage,
+          energy_dashboard_target_channel_id: dashboardTargetChannel,
+          energy_dashboard_target_message_id: dashboardTargetMessage,
+          energy_dashboard_graph_channel_id: dashboardGraphChannel,
+          energy_dashboard_graph_message_id: dashboardGraphMessage,
+          energy_dashboard_gains_channel_id: dashboardGainsChannel,
+          energy_dashboard_gains_message_id: dashboardGainsMessage,
+          energy_dashboard_gains_days: isNaN(gainsDays) ? 1 : gainsDays,
           updated_at: now,
         }),
       )
@@ -2332,7 +2432,7 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
     // Log update to admin logging channel
     const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
     await sendAdminSystemLog(
-      getServerContext(req).discordClient,
+      discordClient,
       "info",
       `Owner <@${session.discord_id}> updated Personal Settings (alerts_enabled: ${energy_alerts_enabled ? "yes" : "no"}, soft_threshold: ${softThreshold}, logging_channel: ${admin_log_channel_id || "none"})`
     ).catch(() => {});
@@ -2603,8 +2703,8 @@ configRouter.get("/personal/milestones", async (req: Request, res: Response) => 
       console.error("[HTTP] Failed to fetch/decrypt personal API key:", err);
     }
 
-    const { getPersonalTrainingRecommendations } = await import("../../utils/training-recommendations.js");
-    const recs = await getPersonalTrainingRecommendations(String(userId), apiKey);
+    const { getPersonalTrainingRecommendations } = await import("@sentinel/shared/training-recommendations.js");
+    const recs = await getPersonalTrainingRecommendations(db, String(userId), apiKey);
 
     // 7. Run projection for milestones (foregoing past milestones, returning only the single next target)
     const targetMilestones = [10000000, 50000000, 100000000, 250000000, 500000000, 1000000000, 2000000000];

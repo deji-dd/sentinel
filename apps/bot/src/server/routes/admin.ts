@@ -5,6 +5,7 @@ import { db } from "../../lib/db-client.js";
 import { getServerContext } from "../context.js";
 import { performBackup } from "../../tasks/db-backup-task.js";
 import { syncAllGuildCronSchedules } from "../../lib/cron-schedule-registry.js";
+import { getPersonalTrainingRecommendations } from "@sentinel/shared/training-recommendations.js";
 
 export const adminRouter = Router();
 
@@ -296,4 +297,91 @@ adminRouter.post("/sync-gym", async (req: Request, res: Response) => {
     console.error("[AdminRouter] Error triggering manual historical gym logs sync:", error);
     res.status(500).json({ error: (error as Error).message });
   }
+});
+
+// 6. Scaffold Server-Sent Events (SSE) live energy dashboard stream
+adminRouter.get("/live-energy", async (req: Request, res: Response) => {
+  // Set headers for Server-Sent Events (SSE)
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders(); // Establish SSE stream
+
+  // Send initial handshake / event
+  const sendEvent = (data: any) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent({ status: "connected", message: "Energy stream established" });
+
+  // Poll database every 5 seconds for the latest energy data & recommendations
+  const intervalId = setInterval(async () => {
+    try {
+      const userId = process.env.SENTINEL_USER_ID;
+      if (!userId) {
+        sendEvent({ error: "SENTINEL_USER_ID not configured" });
+        return;
+      }
+
+      // Fetch latest snapshot
+      const userSnapshot = await db
+        .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+        .select(["energy_current", "energy_maximum", "happy_current", "happy_maximum"])
+        .orderBy("created_at", "desc")
+        .limit(1)
+        .executeTakeFirst();
+
+      if (!userSnapshot) {
+        sendEvent({ error: "No energy snapshots available" });
+        return;
+      }
+
+      // Fetch training recommendations
+      let apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+      try {
+        const keyRow = await db
+          .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
+          .select("api_key_encrypted")
+          .where("key_type", "=", "personal")
+          .where("is_primary", "=", 1)
+          .where("deleted_at", "is", null)
+          .executeTakeFirst();
+        
+        if (keyRow?.api_key_encrypted && process.env.ENCRYPTION_KEY) {
+          const { decryptApiKey } = await import("@sentinel/shared");
+          apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
+        }
+      } catch (err) {
+        console.error("[live-energy] Failed to fetch/decrypt personal API key:", err);
+      }
+
+      const recs = await getPersonalTrainingRecommendations(db, String(userId), apiKey);
+
+      sendEvent({
+        timestamp: new Date().toISOString(),
+        energy: {
+          current: userSnapshot.energy_current,
+          maximum: userSnapshot.energy_maximum,
+          percent: Math.round((Number(userSnapshot.energy_current) / Number(userSnapshot.energy_maximum)) * 100),
+        },
+        happy: {
+          current: userSnapshot.happy_current,
+          maximum: userSnapshot.happy_maximum,
+        },
+        recommendation: {
+          stat: recs.stat,
+          statKey: recs.statKey,
+          text: recs.text,
+          gymRecommendation: recs.gymRecommendation,
+        },
+      });
+    } catch (err) {
+      sendEvent({ error: "Error compiling dashboard stats" });
+    }
+  }, 5000);
+
+  req.on("close", () => {
+    clearInterval(intervalId);
+    res.end();
+  });
 });

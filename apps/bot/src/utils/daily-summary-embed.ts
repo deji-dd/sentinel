@@ -114,8 +114,8 @@ async function buildStatsSummaryEmbed(
       console.error("[daily_summary_embed] Failed to fetch/decrypt personal API key:", err);
     }
 
-    const { getPersonalTrainingRecommendations } = await import("./training-recommendations.js");
-    const recs = await getPersonalTrainingRecommendations(userId, apiKey);
+    const { getPersonalTrainingRecommendations } = await import("@sentinel/shared/training-recommendations.js");
+    const recs = await getPersonalTrainingRecommendations(db, userId, apiKey);
 
     const recLines = [
       `Optimal Focus: **${recs.stat}**`,
