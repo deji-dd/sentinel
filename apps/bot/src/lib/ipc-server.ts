@@ -10,6 +10,7 @@ import { GuildSyncScheduler } from "./verification-sync.js";
 import { runWarTrackerGuildSync } from "./war-tracker.js";
 import { runMercenaryTrackerGuildSync } from "./mercenary-tracker.js";
 import { runBazaarMugSeedSync } from "./bazaar-mug-seed.js";
+import { sendAdminSystemLog } from "./admin-logger.js";
 
 const logger = new Logger("IPC_Server");
 const DEFAULT_SOCKET_PATH = "/tmp/sentinel-ipc.sock";
@@ -145,6 +146,15 @@ async function handleIpcRequest(req: any, client: Client): Promise<any> {
 
         await user.send({ embeds: [embed] });
         return { success: true, recipient: user.tag };
+      }
+
+      case "send-admin-log": {
+        const { level, message, errorStack } = payload || {};
+        if (!level || !message) {
+          return { success: false, error: "Missing level or message" };
+        }
+        await sendAdminSystemLog(client, level, message, errorStack);
+        return { success: true };
       }
 
       case "execute-job": {

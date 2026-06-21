@@ -7,7 +7,7 @@ import { ChatInputCommandInteraction, Client, EmbedBuilder } from "discord.js";
 import * as forceRunCommand from "../commands/personal/admin/force-run.js";
 import * as botAdminCommand from "../commands/personal/admin/bot-admin.js";
 import * as deployCommandsCommand from "../commands/personal/admin/deploy-commands.js";
-import * as addBotCommand from "../commands/personal/admin/add-bot.js";
+import * as inviteCommand from "../commands/personal/admin/invite.js";
 import * as dbBackupCommand from "../commands/personal/admin/db-backup.js";
 import * as revokeWebAccessCommand from "../commands/personal/admin/revoke-web-access.js";
 
@@ -17,8 +17,10 @@ import * as revokeWebAccessCommand from "../commands/personal/admin/revoke-web-a
 function createUnauthorizedEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xef4444)
-    .setTitle("❌ Not Authorized")
-    .setDescription("You are not authorized to use this command.");
+    .setTitle("Not Authorized")
+    .setDescription("You are not authorized to use this command.")
+    .setFooter({ text: "Sentinel" })
+    .setTimestamp();
 }
 
 /**
@@ -67,8 +69,8 @@ export async function handleAdminCommand(
     case "deploy-commands":
       await deployCommandsCommand.execute(interaction, client);
       break;
-    case "add-bot":
-      await addBotCommand.execute(interaction);
+    case "invite":
+      await inviteCommand.execute(interaction);
       break;
     case "db-backup":
       await dbBackupCommand.execute(interaction, client);
@@ -92,7 +94,7 @@ export function isAdminCommandName(commandName: string): boolean {
     "bot-admin",
     "force-run",
     "deploy-commands",
-    "add-bot",
+    "invite",
     "db-backup",
     "test-verification-dms",
     "revoke-web-access",

@@ -1,9 +1,20 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { LoadingScreen } from "@/components/loading-screen";
-import { LogOut, Sparkles, UserCircle, Zap } from "lucide-react";
+import { LoadingScreen, TacticalLoader } from "@/components/loading-screen";
+import {
+  LogOut,
+  Sparkles,
+  UserCircle,
+  Zap,
+  Bell,
+  Target,
+  ShieldAlert,
+  AlertCircle,
+  Save,
+} from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { BotManagementConfig } from "@/components/config/BotManagementConfig";
+import { PersonalConfig } from "@/components/config/PersonalConfig";
 import { performMasterLogout } from "@/lib/logout";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +33,18 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+type TabId = "global" | "alerts" | "oracle" | "logging";
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -29,6 +52,13 @@ export default function AdminPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [hasSession, setHasSession] = useState<boolean | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>(
+    (searchParams.get("tab") as TabId) || "global",
+  );
+  const [isDirty, setIsDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [pendingTab, setPendingTab] = useState<TabId | "logout" | null>(null);
+  const moduleRef = useRef<any>(null);
   const tokenPersistHandled = useRef(false);
   const authBootstrapStarted = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -209,13 +239,54 @@ export default function AdminPage() {
     }
   }, [hasSession, loading, navigate]);
 
-  const handleSignOut = async () => {
+  const handleSignOut = () => {
+    if (isDirty) {
+      setPendingTab("logout");
+    } else {
+      performLogout();
+    }
+  };
+
+  const performLogout = async () => {
     await performMasterLogout({
       sessionToken,
       navigate,
       redirectTo: "/",
     });
   };
+
+  const handleTabSwitch = (id: TabId) => {
+    if (isDirty) {
+      setPendingTab(id);
+    } else {
+      setActiveTab(id);
+    }
+  };
+
+  const confirmNavigate = () => {
+    if (pendingTab === "logout") {
+      performLogout();
+    } else if (pendingTab) {
+      setActiveTab(pendingTab);
+      setIsDirty(false);
+    }
+    setPendingTab(null);
+  };
+
+  const handleGlobalSave = async () => {
+    if (!moduleRef.current?.save) return;
+    setSaving(true);
+    const success = await moduleRef.current.save();
+    if (success) setIsDirty(false);
+    setSaving(false);
+  };
+
+  const tabs = [
+    { id: "global" as const, name: "Global Control", icon: Zap },
+    { id: "alerts" as const, name: "Alert Rules", icon: Bell },
+    { id: "oracle" as const, name: "Milestone Oracle", icon: Target },
+    { id: "logging" as const, name: "Error Logging", icon: ShieldAlert },
+  ];
 
   if (loading) return <LoadingScreen subMessage="Authenticating Manager..." />;
 
@@ -245,14 +316,26 @@ export default function AdminPage() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton isActive={true} className="h-11">
-                    <Zap />
-                    <span className="font-bold tracking-wide text-foreground/80">
-                      Global Control
-                    </span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {tabs.map((t) => (
+                  <SidebarMenuItem key={t.id}>
+                    <SidebarMenuButton
+                      isActive={activeTab === t.id}
+                      onClick={() => handleTabSwitch(t.id)}
+                      className="h-11 cursor-pointer"
+                    >
+                      <t.icon
+                        className={
+                          activeTab === t.id
+                            ? "text-primary"
+                            : "text-muted-foreground"
+                        }
+                      />
+                      <span className="font-bold tracking-wide text-foreground/80">
+                        {t.name}
+                      </span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -285,7 +368,7 @@ export default function AdminPage() {
           )}
           <Button
             variant="ghost"
-            className="text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
+            className="text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors cursor-pointer"
             onClick={handleSignOut}
           >
             <LogOut className="w-3 h-3 mr-2" />
@@ -298,21 +381,127 @@ export default function AdminPage() {
         <header className="h-16 flex items-center rounded-t-xl justify-between px-8 border-b border-border/50 shrink-0 z-20 bg-background/50 backdrop-blur-md">
           <div className="flex items-center gap-4">
             <SidebarTrigger className="cursor-pointer text-primary" />
-            <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.25em] text-primary/70">
-              <Sparkles className="w-3 h-3" />
-              System Administration
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.25em] text-primary/70">
+                <Sparkles className="w-3 h-3" />
+                System Administration
+              </div>
+              <h1 className="text-xl font-black tracking-tight flex items-center gap-2 text-foreground">
+                {tabs.find((t) => t.id === activeTab)?.name}
+              </h1>
             </div>
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto z-10">
-          <div className="max-w-5xl mx-auto px-8 py-10">
-            <div className="grid gap-8 animate-in fade-in zoom-in-95 duration-1000 delay-200">
-              <BotManagementConfig sessionToken={sessionToken!} />
-            </div>
+          <div className="max-w-5xl mx-auto py-10">
+            {activeTab === "global" && (
+              <div className="grid gap-8 animate-in fade-in zoom-in-95 duration-1000 delay-200">
+                <BotManagementConfig
+                  sessionToken={sessionToken!}
+                  ref={moduleRef}
+                />
+              </div>
+            )}
+
+            {activeTab === "alerts" && (
+              <PersonalConfig
+                ref={moduleRef}
+                sessionToken={sessionToken!}
+                onDirtyChange={setIsDirty}
+                view="alerts"
+              />
+            )}
+
+            {activeTab === "oracle" && (
+              <PersonalConfig
+                ref={moduleRef}
+                sessionToken={sessionToken!}
+                onDirtyChange={setIsDirty}
+                view="oracle"
+              />
+            )}
+
+            {activeTab === "logging" && (
+              <PersonalConfig
+                ref={moduleRef}
+                sessionToken={sessionToken!}
+                onDirtyChange={setIsDirty}
+                view="logging"
+              />
+            )}
           </div>
         </div>
+
+        {/* Global Unsaved Changes Banner */}
+        {isDirty && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-8 duration-500 w-full max-w-xl px-6">
+            <div className="bg-popover border border-border p-3 pl-6 pr-3 rounded-2xl shadow-2xl flex items-center justify-between gap-8 backdrop-blur-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center animate-pulse">
+                  <AlertCircle className="w-4 h-4 text-yellow-500" />
+                </div>
+                <p className="text-sm font-bold text-foreground/80 tracking-tight">
+                  UNSAVED CHANGES
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    window.location.reload();
+                  }}
+                  className="text-primary cursor-pointer"
+                >
+                  Discard
+                </Button>
+                <Button
+                  onClick={handleGlobalSave}
+                  disabled={saving}
+                  className="cursor-pointer"
+                >
+                  {saving ? (
+                    <TacticalLoader size="14" stroke="3" className="mr-2" />
+                  ) : (
+                    <Save className="w-3 h-3 mr-2" />
+                  )}
+                  {saving ? "SAVING..." : "SAVE CHANGES"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </SidebarInset>
+
+      <AlertDialog
+        open={pendingTab !== null}
+        onOpenChange={(open) => !open && setPendingTab(null)}
+      >
+        <AlertDialogContent className="rounded-4xl border-border bg-background/95 backdrop-blur-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-black uppercase tracking-tight text-foreground">
+              Discard Changes?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground font-medium">
+              You have unsaved personal configuration changes. Switching
+              sections or signing out will permanently discard them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              Stay Here
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmNavigate}
+              variant="destructive"
+              className="cursor-pointer"
+            >
+              Discard & Proceed
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarProvider>
   );
 }

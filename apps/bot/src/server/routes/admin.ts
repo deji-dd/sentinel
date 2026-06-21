@@ -36,6 +36,15 @@ adminRouter.post("/backups", async (req: Request, res: Response) => {
   const { discordClient } = getServerContext(req);
   try {
     await performBackup(discordClient);
+
+    // Log the backup action
+    const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+    await sendAdminSystemLog(
+      discordClient,
+      "info",
+      `Owner <@${(req as any).session.discord_id}> triggered a manual database backup.`
+    ).catch(() => {});
+
     res.json({ ok: true, message: "Backup triggered and sent to DMs" });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -44,51 +53,19 @@ adminRouter.post("/backups", async (req: Request, res: Response) => {
 
 // 2. Deploy Commands
 adminRouter.post("/deploy", async (req: Request, res: Response) => {
-  const isDev = process.env.NODE_ENV === "development";
-  const token = isDev
-    ? process.env.DISCORD_BOT_TOKEN_LOCAL
-    : process.env.DISCORD_BOT_TOKEN;
-  const clientId = isDev
-    ? process.env.DISCORD_CLIENT_ID_LOCAL
-    : process.env.DISCORD_CLIENT_ID;
-  const adminGuildId = process.env.ADMIN_GUILD_ID;
-
-  if (!token || !clientId || !adminGuildId) {
-    return res
-      .status(500)
-      .json({ error: "Missing configuration for deployment" });
-  }
-
   try {
-    const rest = new REST({ version: "10" }).setToken(token);
+    const { deployAllGuildCommands } = await import("../../lib/deploy-commands-helper.js");
+    const result = await deployAllGuildCommands();
 
-    // In a real app, importing all commands here might be messy,
-    // but we'll follow the pattern from deploy-commands.ts.
-    // For now, let's just trigger a generic deployment report or mirror the logic.
-    // NOTE: This usually takes time, so we might want to run it semi-asyncly.
+    // Log the deploy action
+    const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+    await sendAdminSystemLog(
+      getServerContext(req).discordClient,
+      "info",
+      `Owner <@${(req as any).session.discord_id}> triggered a command deployment across all guilds (Success: ${result.success}, Failed: ${result.failure}).`
+    ).catch(() => {});
 
-    // We'll respond immediately and run deployment in background or just wait.
-    // Given the request, we'll wait since it's an admin action.
-
-    const configCommand =
-      await import("../../commands/general/admin/config.js");
-    const verifyCommand =
-      await import("../../commands/general/verification/verify.js");
-    const verifyallCommand =
-      await import("../../commands/general/verification/verifyall.js");
-
-    const commands = [
-      configCommand.data.toJSON(),
-      verifyCommand.data.toJSON(),
-      verifyallCommand.data.toJSON(),
-      // ... we could add more or just deploy the core set
-    ];
-
-    await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
-      body: commands,
-    });
-
-    res.json({ ok: true, message: "Commands deployed to Admin Guild" });
+    res.json({ ok: true, message: `Commands deployed to ${result.success} guilds. (Failed: ${result.failure})` });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -173,6 +150,18 @@ adminRouter.post("/guilds", async (req: Request, res: Response) => {
       // Ignore sync job creation failures
     }
 
+    // Deploy commands for the new guild immediately
+    const { deployGuildCommands } = await import("../../lib/deploy-commands-helper.js");
+    await deployGuildCommands(guildId);
+
+    // Log the new guild config initialization
+    const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+    await sendAdminSystemLog(
+      getServerContext(req).discordClient,
+      "info",
+      `Owner <@${(req as any).session.discord_id}> initialized guild config for server ID: ${guildId}`
+    ).catch(() => {});
+
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -196,6 +185,18 @@ adminRouter.patch(
 
       await syncAllGuildCronSchedules(guildId, discordClient);
 
+      // Redeploy commands for the guild since its modules changed
+      const { deployGuildCommands } = await import("../../lib/deploy-commands-helper.js");
+      await deployGuildCommands(guildId);
+
+      // Log module update action
+      const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+      await sendAdminSystemLog(
+        discordClient,
+        "info",
+        `Owner <@${(req as any).session.discord_id}> updated modules for guild ID: ${guildId} to: [${modulesToSave.join(", ")}]`
+      ).catch(() => {});
+
       res.json({ ok: true, modules: modulesToSave });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -214,8 +215,85 @@ adminRouter.delete("/guilds/:id", async (req: Request, res: Response) => {
 
     await syncAllGuildCronSchedules(guildId, discordClient);
 
+    // Log deletion action
+    const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+    await sendAdminSystemLog(
+      discordClient,
+      "info",
+      `Owner <@${(req as any).session.discord_id}> deleted config for guild ID: ${guildId}`
+    ).catch(() => {});
+
     res.json({ ok: true });
   } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// 4. Fetch Admin Guild Channels (for logging/alerts config dropdown)
+adminRouter.get("/channels", async (req: Request, res: Response) => {
+  const { discordClient } = getServerContext(req);
+  const adminGuildId = process.env.ADMIN_GUILD_ID;
+
+  if (!adminGuildId) {
+    return res.status(500).json({ error: "ADMIN_GUILD_ID not configured" });
+  }
+
+  try {
+    const guild = discordClient.guilds.cache.get(adminGuildId) || await discordClient.guilds.fetch(adminGuildId);
+    if (!guild) {
+      return res.status(404).json({ error: "Admin Guild not found" });
+    }
+
+    const channels = await guild.channels.fetch();
+    const textChannels = Array.from(channels.values())
+      .filter((c): c is any => c !== null && c.isTextBased())
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+      }));
+
+    res.json(textChannels);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});// 5. Force Sync Gym Logs
+adminRouter.post("/sync-gym", async (req: Request, res: Response) => {
+  try {
+    console.log("[AdminRouter] Manual historical gym logs sync triggered by owner via API");
+
+    const worker = await db
+      .selectFrom(TABLE_NAMES.WORKERS)
+      .select("id")
+      .where("name", "=", "torn_gyms_worker")
+      .limit(1)
+      .executeTakeFirst();
+
+    if (!worker) {
+      console.warn("[AdminRouter] Gym worker not registered yet in sentinel_workers table.");
+      return res.status(404).json({ error: "Gym worker not registered yet" });
+    }
+
+    await db
+      .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+      .set({ force_run: 1 })
+      .where("worker_id", "=", worker.id)
+      .execute();
+
+    console.log(`[AdminRouter] Set force_run = 1 in database for worker_id: ${worker.id}`);
+
+    // Log force-sync action
+    const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+    await sendAdminSystemLog(
+      getServerContext(req).discordClient,
+      "info",
+      `Owner <@${(req as any).session.discord_id}> triggered manual historical gym sync queue.`
+    ).catch((err) => {
+      console.error("[AdminRouter] Failed to send admin system log to Discord:", err);
+    });
+
+    res.json({ ok: true, message: "Sync worker triggered successfully" });
+  } catch (error) {
+    console.error("[AdminRouter] Error triggering manual historical gym logs sync:", error);
     res.status(500).json({ error: (error as Error).message });
   }
 });

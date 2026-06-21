@@ -258,12 +258,12 @@ function startCentralCoordinator(): void {
         active = activeTimers.get(workerName);
 
         if (forceRun) {
-          // Clear lock/force flag immediately (so it doesn't loop trigger)
+          // Clear lock/force flag immediately and set next_run_at to now so it's due
           workerId = registeredWorkerIds.get(workerName);
           if (workerId) {
             await db
               .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
-              .set({ force_run: 0 })
+              .set({ force_run: 0, next_run_at: now })
               .where("worker_id", "=", workerId)
               .execute();
           }

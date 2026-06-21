@@ -90,9 +90,9 @@ export async function execute(
 
     const guildId = interaction.guildId;
     const adminGuildId = process.env.ADMIN_GUILD_ID;
-    const isAdminGuild = guildId === adminGuildId;
+    const userIsBotOwner = interaction.user.id === botOwnerId;
 
-    if (!guildId) {
+    if (!guildId && !userIsBotOwner) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Error")
@@ -104,11 +104,14 @@ export async function execute(
       return;
     }
 
+    const isAdminGuild = guildId === adminGuildId || !guildId;
+    const effectiveGuildId = guildId || adminGuildId || "DM";
+
     // Check if guild is configured
     let guildConfig = await db
       .selectFrom(TABLE_NAMES.GUILD_CONFIG)
       .selectAll()
-      .where("guild_id", "=", guildId)
+      .where("guild_id", "=", effectiveGuildId)
       .executeTakeFirst();
 
     if (!guildConfig && isAdminGuild) {
@@ -116,7 +119,7 @@ export async function execute(
       await db
         .insertInto(TABLE_NAMES.GUILD_CONFIG)
         .values({
-          guild_id: guildId,
+          guild_id: effectiveGuildId,
           enabled_modules: JSON.stringify(["admin"]),
           admin_role_ids: JSON.stringify([]),
           verified_role_ids: JSON.stringify([]),
@@ -126,7 +129,7 @@ export async function execute(
       guildConfig = await db
         .selectFrom(TABLE_NAMES.GUILD_CONFIG)
         .selectAll()
-        .where("guild_id", "=", guildId)
+        .where("guild_id", "=", effectiveGuildId)
         .executeTakeFirst();
     }
 
@@ -149,8 +152,6 @@ export async function execute(
       typeof guildConfig.admin_role_ids === "string"
         ? JSON.parse(guildConfig.admin_role_ids)
         : guildConfig.admin_role_ids || [];
-
-    const userIsBotOwner = interaction.user.id === botOwnerId;
 
     if (!userIsBotOwner && adminRoleIds.length > 0) {
       // Admin roles are set, check if user has one of them
@@ -186,7 +187,7 @@ export async function execute(
     const magicLinkService = new MagicLinkService(interaction.client);
     const token = await magicLinkService.createToken({
       discordId: interaction.user.id,
-      guildId: guildId,
+      guildId: effectiveGuildId,
       scope: "all",
       targetPath: getDashboardTargetPath(isAdminGuild),
     });

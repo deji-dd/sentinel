@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { EmbedBuilder } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../lib/db-client.js";
+import { sql } from "kysely";
 import { ensureMercRegistrationPanel } from "../../lib/mercenary-interactions.js";
 import {
   getGuildApiKeys,
@@ -2164,4 +2165,536 @@ configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+configRouter.get("/personal", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+
+    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+    if (session.discord_id !== botOwnerId) {
+      return res.status(403).json({ error: "Forbidden: Owner access only" });
+    }
+
+    const userId = process.env.SENTINEL_USER_ID;
+    if (!userId) {
+      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+    }
+
+    let settings = await db
+      .selectFrom(TABLE_NAMES.PERSONAL_SETTINGS)
+      .selectAll()
+      .where("user_id", "=", String(userId))
+      .executeTakeFirst();
+
+    if (!settings) {
+      const now = new Date().toISOString();
+      const defaultSettings = {
+        user_id: String(userId),
+        discord_id: String(botOwnerId),
+        energy_alerts_enabled: 0,
+        energy_soft_threshold: 130,
+        energy_aggressive_interval_mins: 5,
+        last_energy_alert_sent_at: null,
+        last_energy_alert_type: null,
+        admin_log_channel_id: null,
+        error_pings_enabled: 1,
+        selected_build: "balanced",
+        target_strength_ratio: 25.0,
+        target_defense_ratio: 25.0,
+        target_speed_ratio: 25.0,
+        target_dexterity_ratio: 25.0,
+        updated_at: now,
+      };
+
+      await db
+        .insertInto(TABLE_NAMES.PERSONAL_SETTINGS)
+        .values(defaultSettings as any)
+        .execute();
+
+      settings = await db
+        .selectFrom(TABLE_NAMES.PERSONAL_SETTINGS)
+        .selectAll()
+        .where("user_id", "=", String(userId))
+        .executeTakeFirst();
+    }
+
+    res.json(settings);
+  } catch (error) {
+    console.error("[HTTP] Error fetching personal config:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+configRouter.post("/personal", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+
+    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+    if (session.discord_id !== botOwnerId) {
+      return res.status(403).json({ error: "Forbidden: Owner access only" });
+    }
+
+    const userId = process.env.SENTINEL_USER_ID;
+    if (!userId) {
+      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+    }
+
+    const {
+      energy_alerts_enabled,
+      energy_soft_threshold,
+      energy_aggressive_interval_mins,
+      admin_log_channel_id,
+      error_pings_enabled,
+      selected_build,
+      target_strength_ratio,
+      target_defense_ratio,
+      target_speed_ratio,
+      target_dexterity_ratio,
+    } = req.body;
+
+    const softThreshold = Number(energy_soft_threshold);
+    if (isNaN(softThreshold) || softThreshold < 0 || softThreshold > 150) {
+      return res
+        .status(400)
+        .json({ error: "Energy soft threshold must be a number between 0 and 150" });
+    }
+
+    const aggressiveInterval = Number(energy_aggressive_interval_mins);
+    if (
+      isNaN(aggressiveInterval) ||
+      aggressiveInterval < 1 ||
+      aggressiveInterval > 1440
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Energy aggressive interval must be a number between 1 and 1440 minutes" });
+    }
+
+    const build = typeof selected_build === "string" ? selected_build.toLowerCase() : "balanced";
+    const strengthRatio = Number(target_strength_ratio) || 0;
+    const defenseRatio = Number(target_defense_ratio) || 0;
+    const speedRatio = Number(target_speed_ratio) || 0;
+    const dexterityRatio = Number(target_dexterity_ratio) || 0;
+
+    const totalRatio = strengthRatio + defenseRatio + speedRatio + dexterityRatio;
+    if (Math.abs(totalRatio - 100) > 0.5) {
+      return res
+        .status(400)
+        .json({ error: `Target stat build ratios must add up to exactly 100% (currently ${totalRatio}%)` });
+    }
+
+    const now = new Date().toISOString();
+
+    await db
+      .insertInto(TABLE_NAMES.PERSONAL_SETTINGS)
+      .values({
+        user_id: String(userId),
+        discord_id: String(botOwnerId),
+        energy_alerts_enabled: energy_alerts_enabled ? 1 : 0,
+        energy_soft_threshold: softThreshold,
+        energy_aggressive_interval_mins: aggressiveInterval,
+        admin_log_channel_id: admin_log_channel_id || null,
+        error_pings_enabled: error_pings_enabled ? 1 : 0,
+        selected_build: build,
+        target_strength_ratio: strengthRatio,
+        target_defense_ratio: defenseRatio,
+        target_speed_ratio: speedRatio,
+        target_dexterity_ratio: dexterityRatio,
+        updated_at: now,
+      })
+      .onConflict((oc) =>
+        oc.column("user_id").doUpdateSet({
+          energy_alerts_enabled: energy_alerts_enabled ? 1 : 0,
+          energy_soft_threshold: softThreshold,
+          energy_aggressive_interval_mins: aggressiveInterval,
+          admin_log_channel_id: admin_log_channel_id || null,
+          error_pings_enabled: error_pings_enabled ? 1 : 0,
+          selected_build: build,
+          target_strength_ratio: strengthRatio,
+          target_defense_ratio: defenseRatio,
+          target_speed_ratio: speedRatio,
+          target_dexterity_ratio: dexterityRatio,
+          updated_at: now,
+        }),
+      )
+      .execute();
+
+    // Log update to admin logging channel
+    const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
+    await sendAdminSystemLog(
+      getServerContext(req).discordClient,
+      "info",
+      `Owner <@${session.discord_id}> updated Personal Settings (alerts_enabled: ${energy_alerts_enabled ? "yes" : "no"}, soft_threshold: ${softThreshold}, logging_channel: ${admin_log_channel_id || "none"})`
+    ).catch(() => {});
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[HTTP] Error updating personal config:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+configRouter.get("/personal/milestones", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+
+    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+    if (session.discord_id !== botOwnerId) {
+      return res.status(403).json({ error: "Forbidden: Owner access only" });
+    }
+
+    const userId = process.env.SENTINEL_USER_ID;
+    if (!userId) {
+      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+    }
+
+    // 1. Fetch current battle stats from snapshots
+    const stats = await db
+      .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+      .selectAll()
+      .orderBy("created_at", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    const statsData = stats
+      ? {
+          strength: stats.strength,
+          speed: stats.speed,
+          defense: stats.defense,
+          dexterity: stats.dexterity,
+          total_stats: stats.total_stats,
+        }
+      : {
+          strength: 50000,
+          speed: 50000,
+          defense: 50000,
+          dexterity: 50000,
+          total_stats: 200000,
+        };
+
+    // 2. Fetch latest user snapshot (active gym, current/max happy, current/max energy)
+    const userSnapshot = await db
+      .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+      .select(["active_gym", "happy_current", "happy_maximum", "energy_current", "energy_maximum"])
+      .orderBy("created_at", "desc")
+      .limit(1)
+      .executeTakeFirst();
+    
+    let activeGym = {
+      name: "Premier Fitness",
+      strength: 20,
+      speed: 20,
+      defense: 20,
+      dexterity: 20,
+    };
+
+    if (userSnapshot?.active_gym) {
+      const gym = await db
+        .selectFrom(TABLE_NAMES.TORN_GYMS)
+        .selectAll()
+        .where("id", "=", userSnapshot.active_gym)
+        .executeTakeFirst();
+      if (gym) {
+        activeGym = {
+          name: gym.name,
+          strength: gym.strength,
+          speed: gym.speed,
+          defense: gym.defense,
+          dexterity: gym.dexterity,
+        };
+      }
+    }
+
+    // 3. Compute happiness and energy stats from the latest snapshot
+    const maxHappy = userSnapshot?.happy_maximum ? Number(userSnapshot.happy_maximum) : 5000;
+    const currentHappy = userSnapshot?.happy_current ? Number(userSnapshot.happy_current) : 5000;
+    const currentEnergy = userSnapshot?.energy_current ? Number(userSnapshot.energy_current) : 0;
+    const maxEnergy = userSnapshot?.energy_maximum ? Number(userSnapshot.energy_maximum) : 150;
+    const avgHappy = maxHappy; // Use player maximum happy as training baseline
+
+    // Average daily energy
+    const fourteenDaysAgo = Math.floor(Date.now() / 1000) - 14 * 24 * 60 * 60;
+    const recentEnergy = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .select(db.fn.sum("energy").as("total_energy"))
+      .where("timestamp", ">=", fourteenDaysAgo)
+      .executeTakeFirst();
+    
+    const totalEnergy = parseFloat(recentEnergy?.total_energy as string) || 0;
+    let avgDailyEnergy = totalEnergy / 14;
+    
+    if (avgDailyEnergy < 50) {
+      // Calculate avg over actual log range if data spans less than 14 days
+      const firstLog = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select("timestamp")
+        .orderBy("timestamp", "asc")
+        .limit(1)
+        .executeTakeFirst();
+      
+      if (firstLog) {
+        const daysSpan = Math.max(1, Math.ceil((Date.now() / 1000 - Number(firstLog.timestamp)) / (24 * 60 * 60)));
+        const allTimeEnergy = await db
+          .selectFrom("sentinel_gym_train_logs" as any)
+          .select(db.fn.sum("energy").as("total_energy"))
+          .executeTakeFirst();
+        const totalAllTimeEnergy = parseFloat(allTimeEnergy?.total_energy as string) || 0;
+        avgDailyEnergy = totalAllTimeEnergy / daysSpan;
+      }
+    }
+    
+    if (avgDailyEnergy < 50) {
+      avgDailyEnergy = 250; // default to standard active player training
+    }
+
+    // Stat distribution
+    const distributionLogs = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .select(["stat", db.fn.count("log_id").as("count")])
+      .groupBy("stat")
+      .execute();
+    
+    const distCounts: Record<string, number> = {
+      strength: 0,
+      speed: 0,
+      defense: 0,
+      dexterity: 0,
+    };
+    let totalCount = 0;
+    for (const item of distributionLogs) {
+      const s = String(item.stat).toLowerCase();
+      const count = Number(item.count);
+      if (s in distCounts) {
+        distCounts[s] = count;
+        totalCount += count;
+      }
+    }
+
+    const distributionPercentages = {
+      strength: totalCount > 0 ? distCounts.strength / totalCount : 0.25,
+      speed: totalCount > 0 ? distCounts.speed / totalCount : 0.25,
+      defense: totalCount > 0 ? distCounts.defense / totalCount : 0.25,
+      dexterity: totalCount > 0 ? distCounts.dexterity / totalCount : 0.25,
+    };
+
+    // 4. Fetch daily history for charts based on timeframe (7d, 30d, 90d, or all)
+    const timeframe = typeof req.query.timeframe === "string" ? req.query.timeframe.toLowerCase() : "30d";
+    let daysLimit = 30;
+    if (timeframe === "7d") daysLimit = 7;
+    else if (timeframe === "90d") daysLimit = 90;
+    else if (timeframe === "all") daysLimit = 3650; // 10 years
+
+    let daysAgoTimestamp = Math.floor(Date.now() / 1000) - daysLimit * 24 * 60 * 60;
+    if (timeframe === "all") {
+      daysAgoTimestamp = 0; // fetch all records
+    }
+
+    const dailyHistoryLogs = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .select([
+        sql`date(timestamp, 'unixepoch', 'localtime')`.as("day"),
+        "stat",
+        db.fn.sum("gain").as("total_gain"),
+        db.fn.sum("energy").as("total_energy"),
+      ])
+      .where("timestamp", ">=", daysAgoTimestamp)
+      .groupBy(["day", "stat"])
+      .orderBy("day", "asc")
+      .execute();
+
+    const historyMap: Record<string, any> = {};
+    for (const log of dailyHistoryLogs) {
+      const day = String(log.day);
+      if (!historyMap[day]) {
+        historyMap[day] = {
+          day,
+          strength: 0,
+          speed: 0,
+          defense: 0,
+          dexterity: 0,
+          energy: 0,
+        };
+      }
+      const stat = String(log.stat).toLowerCase();
+      const gain = parseFloat(String(log.total_gain || 0));
+      const energy = parseInt(String(log.total_energy || 0), 10);
+      if (stat === "strength") historyMap[day].strength += gain;
+      else if (stat === "speed") historyMap[day].speed += gain;
+      else if (stat === "defense") historyMap[day].defense += gain;
+      else if (stat === "dexterity") historyMap[day].dexterity += gain;
+      
+      historyMap[day].energy += energy;
+    }
+    const history = Object.values(historyMap).sort((a: any, b: any) => a.day.localeCompare(b.day));
+
+    // 5. Fetch sync status & metadata
+    const totalLogsCount = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .select(db.fn.count("log_id").as("count"))
+      .executeTakeFirst();
+    const count = Number(totalLogsCount?.count || 0);
+
+    const oldestLog = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .select("timestamp")
+      .orderBy("timestamp", "asc")
+      .limit(1)
+      .executeTakeFirst();
+
+    const latestLogRecord = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .select("timestamp")
+      .orderBy("timestamp", "desc")
+      .limit(1)
+      .executeTakeFirst();
+
+    const scheduleRow = await db
+      .selectFrom("sentinel_worker_schedules")
+      .innerJoin("sentinel_workers", "sentinel_worker_schedules.worker_id", "sentinel_workers.id")
+      .select([
+        "sentinel_worker_schedules.last_run_at as last_run_at",
+        "sentinel_worker_schedules.next_run_at as next_run_at",
+        "sentinel_worker_schedules.metadata as metadata"
+      ])
+      .where("sentinel_workers.name", "=", "torn_gyms_worker")
+      .executeTakeFirst();
+
+    let isBackfillComplete = false;
+    if (scheduleRow?.metadata) {
+      try {
+        const parsed = JSON.parse(scheduleRow.metadata);
+        if (parsed.backfill_complete) {
+          isBackfillComplete = true;
+        }
+      } catch {}
+    }
+
+    // 6. Fetch Target Ratios and Compute Training Recommendations via shared utility
+    let apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+    try {
+      const keyRow = await db
+        .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
+        .select("api_key_encrypted")
+        .where("key_type", "=", "personal")
+        .where("is_primary", "=", 1)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst();
+      
+      if (keyRow?.api_key_encrypted && process.env.ENCRYPTION_KEY) {
+        const { decryptApiKey } = await import("@sentinel/shared");
+        apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
+      }
+    } catch (err) {
+      console.error("[HTTP] Failed to fetch/decrypt personal API key:", err);
+    }
+
+    const { getPersonalTrainingRecommendations } = await import("../../utils/training-recommendations.js");
+    const recs = await getPersonalTrainingRecommendations(String(userId), apiKey);
+
+    // 7. Run projection for milestones (foregoing past milestones, returning only the single next target)
+    const targetMilestones = [10000000, 50000000, 100000000, 250000000, 500000000, 1000000000, 2000000000];
+    const statsKeys = ["strength", "speed", "defense", "dexterity"] as const;
+
+    const projections = statsKeys.map((key) => {
+      const currentVal = statsData[key];
+      const baseGymMult = (activeGym[key] || 20);
+      const perkPct = recs.factionPerks[key] || 0;
+      const gymMult = (baseGymMult / 10) * (1 + perkPct / 100);
+      const allocation = distributionPercentages[key];
+      const dailyEnergyForStat = avgDailyEnergy * allocation;
+
+      // Find the first target greater than currentVal, or default to a rounded double logic if all exceeded
+      const nextMilestoneTarget = targetMilestones.find((t) => t > currentVal) || 
+        (Math.ceil(currentVal / 1000000000) * 1000000000 + 1000000000);
+      const filteredMilestoneTargets = [nextMilestoneTarget];
+
+      const milestones = filteredMilestoneTargets.map((target) => {
+        let days = null;
+        if (target <= currentVal) {
+          days = 0;
+        } else if (dailyEnergyForStat > 0) {
+          const happyVal = avgHappy;
+          const A = 1.15 * gymMult * 10 * (3.48e-7 * Math.log(happyVal) + 3.09e-6);
+          const B = 1.15 * gymMult * 10 * (6.83e-5 * happyVal - 0.03);
+          
+          if (A > 0) {
+            const n = (1 / A) * Math.log((target + B / A) / (currentVal + B / A));
+            const energyReq = n * 10;
+            days = Math.max(0, energyReq / dailyEnergyForStat);
+          }
+        }
+
+        return {
+          target,
+          days: days !== null ? Math.round(days * 10) / 10 : null,
+          energy: days !== null ? Math.round(days * dailyEnergyForStat) : null,
+        };
+      });
+
+      return {
+        stat: key,
+        currentValue: currentVal,
+        allocation: Math.round(allocation * 100),
+        dailyEnergy: Math.round(dailyEnergyForStat),
+        milestones,
+      };
+    });
+
+    res.json({
+      currentStats: {
+        strength: statsData.strength,
+        speed: statsData.speed,
+        defense: statsData.defense,
+        dexterity: statsData.dexterity,
+        total: statsData.total_stats,
+      },
+      activeGym: activeGym.name,
+      avgHappy,
+      maxHappy,
+      currentHappy,
+      avgDailyEnergy: Math.round(avgDailyEnergy),
+      projections,
+      history,
+      syncStatus: {
+        totalRecords: count,
+        lastSyncAt: scheduleRow?.last_run_at || null,
+        nextRunAt: scheduleRow?.next_run_at || null,
+        isBackfillComplete,
+        oldestLogTimestamp: oldestLog ? Number(oldestLog.timestamp) : null,
+        latestLogTimestamp: latestLogRecord ? Number(latestLogRecord.timestamp) : null,
+      },
+      recommendation: {
+        stat: recs.stat,
+        statKey: recs.statKey,
+        diff: recs.diff,
+        text: recs.text,
+        gymRecommendation: recs.gymRecommendation,
+        currentEnergy: recs.currentEnergy,
+        maxEnergy: recs.maxEnergy,
+        factionPerks: recs.factionPerks,
+        buildInfo: recs.buildInfo,
+      }
+    });
+
+  } catch (error) {
+    console.error("[HTTP] Error fetching milestones projection:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 

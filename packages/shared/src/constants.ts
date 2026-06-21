@@ -14,6 +14,7 @@ export const TABLE_NAMES = {
   TORN_ITEMS: "sentinel_torn_items",
   TORN_CATEGORIES: "sentinel_torn_categories",
   TORN_GYMS: "sentinel_torn_gyms",
+  GYM_TRAIN_LOGS: "sentinel_gym_train_logs",
   TORN_DESTINATIONS: "sentinel_torn_destinations",
   DESTINATION_TRAVEL_TIMES: "sentinel_destination_travel_times",
   RATE_LIMIT_REQUESTS_PER_USER: "sentinel_rate_limit_requests_per_user",
@@ -66,6 +67,7 @@ export const TABLE_NAMES = {
   MERCENARY_POPULATIONS: "sentinel_mercenary_populations",
   BAZAAR_MUG_CONFIG: "sentinel_bazaar_mug_config",
   BAZAAR_MUG_TARGETS: "sentinel_bazaar_mug_targets",
+  PERSONAL_SETTINGS: "sentinel_personal_settings",
 } as const;
 
 /** Alert module types */

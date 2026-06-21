@@ -1,6 +1,20 @@
 import { initializeNetworkPipelining } from "./lib/network.js";
 initializeNetworkPipelining();
 
+// Global process error handlers to prevent crashes on transient network socket drops
+process.on("uncaughtException", (err) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("other side closed") || msg.includes("UND_ERR_SOCKET") || msg.includes("ECONNRESET") || msg.includes("socket hang up")) {
+    console.warn("[Process] Gracefully caught transient network socket error:", msg);
+  } else {
+    console.error("[Process] Uncaught Exception:", err);
+  }
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[Process] Unhandled Rejection at:", promise, "reason:", reason);
+});
+
 import { logSection } from "./lib/logger.js";
 import { initializeApiKeyMappings } from "./services/torn-client.js";
 import { initializeRateLimitCache } from "./lib/rate-limit-tracker-per-user.js";

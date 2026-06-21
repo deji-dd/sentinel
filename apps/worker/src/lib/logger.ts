@@ -1,6 +1,7 @@
 /**
  * Logger utility with color support and consistent formatting for different workers
  */
+import { sendIpcRequest } from "./ipc-client.js";
 
 const COLORS = {
   RESET: "\x1b[0m",
@@ -110,17 +111,26 @@ export class Logger {
 
   error(message: string, error?: unknown, durationMs?: number): void {
     let detailedMessage = message;
+    let stackTrace = "";
     if (error !== undefined) {
       if (error instanceof Error) {
         detailedMessage += ` - Error: ${error.message}`;
         if (error.stack) {
           detailedMessage += `\n${error.stack}`;
+          stackTrace = error.stack;
         }
       } else {
         detailedMessage += ` - Error: ${String(error)}`;
       }
     }
     console.error(this.formatMessage("error", colorize(detailedMessage, COLORS.RED), durationMs));
+
+    // Send error log via IPC to the bot to dispatch to Discord admin log channel
+    sendIpcRequest("send-admin-log", {
+      level: "error",
+      message: `[Worker:${this.name}] ${message}${error instanceof Error ? ` - ${error.message}` : ""}`,
+      errorStack: stackTrace || String(error || ""),
+    }).catch(() => {});
   }
 
   debug(message: string, durationMs?: number): void {

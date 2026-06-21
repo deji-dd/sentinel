@@ -1,6 +1,8 @@
 /**
  * Logger utility with color support and consistent formatting for the Discord bot
  */
+import { getGlobalClient } from "./global-client.js";
+import { sendAdminSystemLog } from "./admin-logger.js";
 
 const COLORS = {
   RESET: "\x1b[0m",
@@ -58,6 +60,10 @@ export function logDuration(task: string, message: string, _ms: number): void {
 
 export function logError(task: string, message: string): void {
   console.error(formatLegacyMessage(task, colorize(`ERROR: ${message}`, COLORS.RED), COLORS.RED));
+  const client = getGlobalClient();
+  if (client) {
+    sendAdminSystemLog(client, "error", `[Bot:${task}] ${message}`).catch(() => {});
+  }
 }
 
 export function logInfo(task: string, message: string): void {
@@ -95,17 +101,29 @@ export class Logger {
 
   error(message: string, error?: unknown): void {
     let detailedMessage = message;
+    let stackTrace = "";
     if (error !== undefined) {
       if (error instanceof Error) {
         detailedMessage += ` - Error: ${error.message}`;
         if (error.stack) {
           detailedMessage += `\n${error.stack}`;
+          stackTrace = error.stack;
         }
       } else {
         detailedMessage += ` - Error: ${String(error)}`;
       }
     }
     console.error(this.formatMessage("error", colorize(detailedMessage, COLORS.RED)));
+
+    const client = getGlobalClient();
+    if (client) {
+      sendAdminSystemLog(
+        client,
+        "error",
+        `[Bot:${this.name}] ${message}${error instanceof Error ? ` - ${error.message}` : ""}`,
+        stackTrace || String(error || ""),
+      ).catch(() => {});
+    }
   }
 
   debug(message: string): void {

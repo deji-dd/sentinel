@@ -10,6 +10,9 @@ import {
   type DailyStatsSummary,
 } from "./daily-summary.js";
 
+import { db } from "../lib/db-client.js";
+import { TABLE_NAMES } from "@sentinel/shared";
+
 const COLORS = {
   positive: 0x43b581, // Green
   neutral: 0x7289da, // Discord blurple
@@ -22,7 +25,7 @@ const COLORS = {
  */
 export async function buildDailySummaryEmbed(): Promise<EmbedBuilder> {
   const summary = await calculateDailyStatsSummary();
-  return buildStatsSummaryEmbed(
+  return await buildStatsSummaryEmbed(
     summary,
     `📊 Daily Stats Summary - ${formatTctDate(summary.date)}`,
   );
@@ -31,20 +34,20 @@ export async function buildDailySummaryEmbed(): Promise<EmbedBuilder> {
 /**
  * Build a Discord embed for stats summary with custom timeframe
  */
-export function buildStatsSummaryEmbedForTimeframe(
+export async function buildStatsSummaryEmbedForTimeframe(
   summary: DailyStatsSummary,
   title: string,
-): EmbedBuilder {
-  return buildStatsSummaryEmbed(summary, title);
+): Promise<EmbedBuilder> {
+  return await buildStatsSummaryEmbed(summary, title);
 }
 
 /**
  * Internal helper to build the embed
  */
-function buildStatsSummaryEmbed(
+async function buildStatsSummaryEmbed(
   summary: DailyStatsSummary,
   title: string,
-): EmbedBuilder {
+): Promise<EmbedBuilder> {
   const embed = new EmbedBuilder()
     .setColor(
       summary.needsAttention.length > 0 ? COLORS.warning : COLORS.positive,
@@ -89,6 +92,47 @@ function buildStatsSummaryEmbed(
     value: distributionValue,
     inline: false,
   });
+
+  // Training & Gym Focus Field
+  try {
+    const userId = process.env.SENTINEL_USER_ID || "1";
+    let apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+    try {
+      const keyRow = await db
+        .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
+        .select("api_key_encrypted")
+        .where("key_type", "=", "personal")
+        .where("is_primary", "=", 1)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst();
+      
+      if (keyRow?.api_key_encrypted && process.env.ENCRYPTION_KEY) {
+        const { decryptApiKey } = await import("@sentinel/shared");
+        apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
+      }
+    } catch (err) {
+      console.error("[daily_summary_embed] Failed to fetch/decrypt personal API key:", err);
+    }
+
+    const { getPersonalTrainingRecommendations } = await import("./training-recommendations.js");
+    const recs = await getPersonalTrainingRecommendations(userId, apiKey);
+
+    const recLines = [
+      `Optimal Focus: **${recs.stat}**`,
+      `Recommendation: ${recs.text}`,
+    ];
+    if (recs.gymRecommendation) {
+      recLines.push(`Gym Switch: *${recs.gymRecommendation}*`);
+    }
+
+    embed.addFields({
+      name: "💡 Training & Gym Focus",
+      value: recLines.join("\n"),
+      inline: false,
+    });
+  } catch (err) {
+    console.error("Failed to append recommendations to daily summary embed:", err);
+  }
 
   // Attention Needed Field (if applicable)
   if (summary.needsAttention.length > 0) {

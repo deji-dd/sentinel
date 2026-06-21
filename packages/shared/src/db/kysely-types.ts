@@ -436,6 +436,35 @@ export interface SentinelMercenaryVerificationVault {
   verified_by: string | null;
 }
 
+export interface SentinelGymTrainLogs {
+  log_id: string;
+  timestamp: number;
+  stat: string;
+  gain: number;
+  energy: number;
+  happy: number;
+  gym_id: number | null;
+  created_at: Generated<string>;
+}
+
+export interface SentinelPersonalSettings {
+  user_id: string;
+  discord_id: string;
+  energy_alerts_enabled: Generated<number>;
+  energy_soft_threshold: Generated<number>;
+  energy_aggressive_interval_mins: Generated<number>;
+  last_energy_alert_sent_at: string | null;
+  last_energy_alert_type: string | null;
+  admin_log_channel_id: string | null;
+  error_pings_enabled: Generated<number>;
+  selected_build: Generated<string>;
+  target_strength_ratio: Generated<number>;
+  target_defense_ratio: Generated<number>;
+  target_speed_ratio: Generated<number>;
+  target_dexterity_ratio: Generated<number>;
+  updated_at: Generated<string>;
+}
+
 export interface SentinelRacketTenure {
   created_at: Generated<string>;
   ended_at: number | null;
@@ -925,6 +954,7 @@ export interface DB {
   sentinel_guild_audit: SentinelGuildAudit;
   sentinel_guild_config: SentinelGuildConfig;
   sentinel_guild_sync_jobs: SentinelGuildSyncJobs;
+  sentinel_gym_train_logs: SentinelGymTrainLogs;
   sentinel_map_history: SentinelMapHistory;
   sentinel_map_labels: SentinelMapLabels;
   sentinel_map_sessions: SentinelMapSessions;
@@ -940,6 +970,7 @@ export interface DB {
   sentinel_mercenary_registered_mercs: SentinelMercenaryRegisteredMercs;
   sentinel_mercenary_targets: SentinelMercenaryTargets;
   sentinel_mercenary_verification_vault: SentinelMercenaryVerificationVault;
+  sentinel_personal_settings: SentinelPersonalSettings;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;
   sentinel_reaction_role_config: SentinelReactionRoleConfig;

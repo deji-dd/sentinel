@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 
 export const data = new SlashCommandBuilder()
-  .setName("add-bot")
+  .setName("invite")
   .setDescription("Generate an invite link to add this bot to other guilds");
 
 export async function execute(
@@ -20,8 +20,10 @@ export async function execute(
     if (!clientId) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
-        .setTitle("❌ Configuration Error")
-        .setDescription("Discord client ID not configured");
+        .setTitle("Configuration Error")
+        .setDescription("Discord client ID not configured")
+        .setFooter({ text: "Sentinel" })
+        .setTimestamp();
 
       await interaction.reply({
         embeds: [errorEmbed],
@@ -31,7 +33,7 @@ export async function execute(
 
     // Permissions: Administrator (includes all permissions)
     const permissions = [
-      "Administrator", // Includes all permissions
+      "Administrator",
     ];
     const permissionBits = BigInt(8); // ADMINISTRATOR = 1 << 3 = 8
 
@@ -39,22 +41,22 @@ export async function execute(
 
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle("🔗 Invite Bot to Guild")
+      .setTitle("Invite Bot to Guild")
       .setDescription(
         "Click the link below to add this bot to another Discord guild:",
       )
       .addFields(
         {
-          name: "📎 Invite Link",
+          name: "Invite Link",
           value: `[Add Sentinel Bot](${inviteUrl})`,
         },
         {
-          name: "🔐 Permissions",
+          name: "Permissions",
           value: permissions.join(", "),
         },
       )
       .setFooter({
-        text: "Only server administrators can authorize bot additions",
+        text: "Sentinel",
       })
       .setTimestamp();
 
@@ -63,11 +65,13 @@ export async function execute(
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error in add-bot command:", errorMsg);
+    console.error("Error in invite command:", errorMsg);
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
-      .setTitle("❌ Error")
-      .setDescription(errorMsg);
+      .setTitle("Error")
+      .setDescription(errorMsg)
+      .setFooter({ text: "Sentinel" })
+      .setTimestamp();
 
     await interaction.reply({
       embeds: [errorEmbed],
