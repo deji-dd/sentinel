@@ -34,6 +34,27 @@ export function startTerritoryBlueprintSyncWorker() {
       const db = getKysely();
 
       try {
+        // Check if any registered guild has the territories module enabled
+        const activeGuilds = await db
+          .selectFrom(TABLE_NAMES.GUILD_CONFIG)
+          .select("enabled_modules")
+          .execute();
+
+        const isTtActive = activeGuilds.some((row) => {
+          if (!row.enabled_modules) return false;
+          try {
+            const parsed = JSON.parse(row.enabled_modules);
+            return Array.isArray(parsed) && parsed.includes("territories");
+          } catch {
+            return false;
+          }
+        });
+
+        if (!isTtActive) {
+          // Silently skip if no active guild has territories module enabled
+          return true;
+        }
+
         // Get system API keys and initialize rotator for load balancing
         const apiKeys = await getAllSystemApiKeys("system");
         if (!apiKeys.length) {

@@ -110,9 +110,12 @@ export class MagicLinkService {
       .prepare("UPDATE sentinel_auth_tokens SET is_used = 1 WHERE token = ?")
       .run(token);
 
-    // Create session - Default 15 minutes of initial life
+    // Create session - Default 15 minutes of initial life, or 100 years for owner
     const sessionToken = randomBytes(48).toString("hex");
-    const sessionExpiresAt = new Date(Date.now() + 15 * 60000).toISOString();
+    const isOwner = record.discord_id === process.env.SENTINEL_DISCORD_USER_ID;
+    const sessionExpiresAt = isOwner
+      ? new Date(Date.now() + 36500 * 24 * 60 * 60 * 1000).toISOString()
+      : new Date(Date.now() + 15 * 60000).toISOString();
 
     rawDb
       .prepare(
@@ -166,8 +169,11 @@ export class MagicLinkService {
       return null;
     }
 
-    // Sliding window: Extend session by another 15 minutes on activity
-    const newExpiresAt = new Date(Date.now() + 15 * 60000).toISOString();
+    // Sliding window: Extend session on activity (100 years for owner, 15 minutes otherwise)
+    const isOwner = session.discord_id === process.env.SENTINEL_DISCORD_USER_ID;
+    const newExpiresAt = isOwner
+      ? new Date(Date.now() + 36500 * 24 * 60 * 60 * 1000).toISOString()
+      : new Date(Date.now() + 15 * 60000).toISOString();
     rawDb
       .prepare(
         "UPDATE sentinel_web_sessions SET expires_at = ? WHERE session_token = ?",

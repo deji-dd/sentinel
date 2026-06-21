@@ -151,6 +151,33 @@ export async function calculateDailyStatsSummary(): Promise<DailyStatsSummary> {
     total: snapshotA.total_stats - snapshotB.total_stats,
   };
 
+  // Fetch personal settings for dynamic target ratios
+  const userId = process.env.SENTINEL_USER_ID || "1";
+  const personalSettings = await db
+    .selectFrom(TABLE_NAMES.PERSONAL_SETTINGS)
+    .selectAll()
+    .where("user_id", "=", String(userId))
+    .executeTakeFirst();
+
+  const targets = {
+    strength: {
+      min: Math.max(0, (personalSettings?.target_strength_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_strength_ratio ?? 25) + 1.5),
+    },
+    defense: {
+      min: Math.max(0, (personalSettings?.target_defense_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_defense_ratio ?? 25) + 1.5),
+    },
+    speed: {
+      min: Math.max(0, (personalSettings?.target_speed_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_speed_ratio ?? 25) + 1.5),
+    },
+    dexterity: {
+      min: Math.max(0, (personalSettings?.target_dexterity_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_dexterity_ratio ?? 25) + 1.5),
+    },
+  };
+
   // Calculate distribution
   const total = snapshotA.total_stats;
   const needsAttention: string[] = [];
@@ -160,24 +187,28 @@ export async function calculateDailyStatsSummary(): Promise<DailyStatsSummary> {
       snapshotA.strength,
       total,
       "strength",
+      targets.strength,
       needsAttention,
     ),
     speed: calculateStatDistribution(
       snapshotA.speed,
       total,
       "speed",
+      targets.speed,
       needsAttention,
     ),
     defense: calculateStatDistribution(
       snapshotA.defense,
       total,
       "defense",
+      targets.defense,
       needsAttention,
     ),
     dexterity: calculateStatDistribution(
       snapshotA.dexterity,
       total,
       "dexterity",
+      targets.dexterity,
       needsAttention,
     ),
   };
@@ -230,6 +261,33 @@ export async function calculateStatsSummaryForTimeframe(
     total: snapshotA.total_stats - snapshotB.total_stats,
   };
 
+  // Fetch personal settings for dynamic target ratios
+  const userId = process.env.SENTINEL_USER_ID || "1";
+  const personalSettings = await db
+    .selectFrom(TABLE_NAMES.PERSONAL_SETTINGS)
+    .selectAll()
+    .where("user_id", "=", String(userId))
+    .executeTakeFirst();
+
+  const targets = {
+    strength: {
+      min: Math.max(0, (personalSettings?.target_strength_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_strength_ratio ?? 25) + 1.5),
+    },
+    defense: {
+      min: Math.max(0, (personalSettings?.target_defense_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_defense_ratio ?? 25) + 1.5),
+    },
+    speed: {
+      min: Math.max(0, (personalSettings?.target_speed_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_speed_ratio ?? 25) + 1.5),
+    },
+    dexterity: {
+      min: Math.max(0, (personalSettings?.target_dexterity_ratio ?? 25) - 1.5),
+      max: Math.min(100, (personalSettings?.target_dexterity_ratio ?? 25) + 1.5),
+    },
+  };
+
   // Calculate distribution based on current stats
   const total = snapshotA.total_stats;
   const needsAttention: string[] = [];
@@ -239,24 +297,28 @@ export async function calculateStatsSummaryForTimeframe(
       snapshotA.strength,
       total,
       "strength",
+      targets.strength,
       needsAttention,
     ),
     speed: calculateStatDistribution(
       snapshotA.speed,
       total,
       "speed",
+      targets.speed,
       needsAttention,
     ),
     defense: calculateStatDistribution(
       snapshotA.defense,
       total,
       "defense",
+      targets.defense,
       needsAttention,
     ),
     dexterity: calculateStatDistribution(
       snapshotA.dexterity,
       total,
       "dexterity",
+      targets.dexterity,
       needsAttention,
     ),
   };
@@ -285,11 +347,11 @@ export async function calculateStatsSummaryForTimeframe(
 function calculateStatDistribution(
   value: number,
   total: number,
-  statName: keyof typeof STAT_DISTRIBUTION_TARGET,
+  statName: string,
+  target: { min: number; max: number },
   needsAttention: string[],
 ): DailyStatsSummary["distribution"]["strength"] {
   const percentage = total > 0 ? (value / total) * 100 : 0;
-  const target = STAT_DISTRIBUTION_TARGET[statName];
   const withinTarget = percentage >= target.min && percentage <= target.max;
 
   // Calculate deviation from target range
@@ -303,7 +365,7 @@ function calculateStatDistribution(
   // Flag if stat is outside target range
   if (!withinTarget) {
     needsAttention.push(
-      `${capitalize(statName)}: ${percentage.toFixed(1)}% (target: ${target.min}-${target.max}%)`,
+      `${capitalize(statName)}: ${percentage.toFixed(1)}% (target: ${target.min.toFixed(1)}-${target.max.toFixed(1)}%)`,
     );
   }
 

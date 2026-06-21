@@ -6,6 +6,7 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { randomUUID } from "crypto";
+import { sendIpcRequest } from "../lib/ipc-client.js";
 
 const SNAPSHOT_WORKER_NAME = "user_snapshot_worker";
 const PRUNING_WORKER_NAME = "user_snapshot_pruning_worker";
@@ -222,6 +223,108 @@ async function takeSnapshot(): Promise<void> {
       })
       .execute();
 
+    // Energy notification check logic
+    try {
+      const ownerDiscordId = process.env.SENTINEL_DISCORD_USER_ID;
+      if (!ownerDiscordId) {
+        snapshotLogger.error("SENTINEL_DISCORD_USER_ID environment variable is not configured in worker environment");
+      }
+
+      const personalSettings = await db
+        .selectFrom("sentinel_personal_settings" as any)
+        .selectAll()
+        .where("discord_id", "=", ownerDiscordId || "")
+        .executeTakeFirst();
+
+      if (personalSettings && personalSettings.energy_alerts_enabled === 1) {
+        const softThreshold = personalSettings.energy_soft_threshold ?? 130;
+        const aggressiveIntervalMins = personalSettings.energy_aggressive_interval_mins ?? 5;
+        const lastAlertSentAt = personalSettings.last_energy_alert_sent_at;
+        const lastAlertType = personalSettings.last_energy_alert_type;
+
+        let shouldAlert = false;
+        let alertType: "soft" | "aggressive" | null = null;
+
+        if (energyCurrent >= energyMaximum) {
+          // Check aggressive alert cooldown
+          const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
+          const isCooldownPassed = !lastAlertSentAt || 
+            (Date.now() - new Date(lastAlertSentAt).getTime() >= aggressiveCooldownMs);
+
+          if (isCooldownPassed || lastAlertType !== "aggressive") {
+            shouldAlert = true;
+            alertType = "aggressive";
+          }
+        } else if (energyCurrent >= softThreshold) {
+          // Trigger soft alert once
+          if (lastAlertType !== "soft" && lastAlertType !== "aggressive") {
+            shouldAlert = true;
+            alertType = "soft";
+          }
+        } else {
+          // If energy falls below soft threshold, reset the state
+          if (lastAlertType !== null) {
+            await db
+              .updateTable("sentinel_personal_settings" as any)
+              .set({
+                last_energy_alert_type: null,
+                last_energy_alert_sent_at: null,
+                updated_at: new Date().toISOString(),
+              })
+              .where("user_id", "=", personalSettings.user_id)
+              .execute();
+          }
+        }
+
+        if (shouldAlert && alertType) {
+          const nowIso = new Date().toISOString();
+          
+          // Guidelines check: Always use embeds, no emojis, Sentinel footer and timestamp in footer
+          const embedTitle = alertType === "aggressive" 
+            ? "CRITICAL: Energy Bar Full" 
+            : "Alert: Energy Approaching Full";
+            
+          const embedDescription = alertType === "aggressive"
+            ? `Your energy bar is completely full (${energyCurrent}/${energyMaximum}). Use it immediately to avoid wasting regeneration.`
+            : `Your energy bar has reached ${energyCurrent}/${energyMaximum} (threshold: ${softThreshold}).`;
+
+          const embed = {
+            title: embedTitle,
+            description: embedDescription,
+            color: alertType === "aggressive" ? 0xef4444 : 0xf59e0b, // Red or Amber
+            footer: {
+              text: "Sentinel",
+            },
+            timestamp: nowIso,
+          };
+
+          // Send IPC request to the bot to deliver the DM
+          const ipcResponse = await sendIpcRequest("send-dm", {
+            discordId: personalSettings.discord_id,
+            embed,
+          });
+
+          if (ipcResponse.success) {
+            // Update last alert state in settings
+            await db
+              .updateTable("sentinel_personal_settings" as any)
+              .set({
+                last_energy_alert_type: alertType,
+                last_energy_alert_sent_at: nowIso,
+                updated_at: nowIso,
+              })
+              .where("user_id", "=", personalSettings.user_id)
+              .execute();
+            snapshotLogger.debug(`Sent ${alertType} energy alert DM to owner`);
+          } else {
+            snapshotLogger.error(`Failed to send energy alert DM via IPC: ${ipcResponse.error}`);
+          }
+        }
+      }
+    } catch (alertError) {
+      snapshotLogger.error("Failed running energy alert checks", alertError);
+    }
+
     const duration = Date.now() - startTime;
     snapshotLogger.success("Sync completed", duration);
   } catch (error) {
@@ -242,17 +345,7 @@ async function pruneSnapshots(): Promise<void> {
       Date.now() - 7 * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    // Strategy: Keep only the first snapshot of each hour after 1 week
-    // This is complex to implement in a single query, so we'll use a different approach:
-    // 1. Delete all snapshots older than 1 week that are NOT on the hour
-    // 2. This keeps hourly snapshots (created_at minute/second = 0) while removing the 30s cadence ones
-
-    // For simplicity, we'll delete all snapshots older than 1 week where the minute is not :00 or :30
-    // Actually, let's be smarter: keep one snapshot per hour (the first one in each hour)
-
     const db = getKysely();
-    // Stream old snapshots in ascending order and only keep the first snapshot per hour.
-    // Cursor-based batching prevents large memory spikes as this table grows.
     const snapshotsToKeep = new Set<string>();
     const seenHours = new Set<string>();
     let cursorCreatedAt: string | null = null;

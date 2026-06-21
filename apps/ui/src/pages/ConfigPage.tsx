@@ -43,6 +43,7 @@ import { TerritoryNotificationsConfig } from "@/components/config/TerritoryNotif
 import { ReactionRolesConfig } from "@/components/config/ReactionRolesConfig";
 import { MercenaryConfig } from "@/components/config/MercenaryConfig";
 import { BazaarMugConfig } from "@/components/config/BazaarMugConfig";
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { performMasterLogout } from "@/lib/logout";
@@ -62,6 +63,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type ModuleId =
   | "admin"
+  | "personal"
   | "verify"
   | "verification_settings"
   | "verification_mappings"
@@ -211,6 +213,7 @@ export default function ConfigPage() {
         isEnabled: true,
         requiresKeys: false,
       },
+
       {
         id: "verify" as const,
         name: "Verification",
@@ -275,7 +278,7 @@ export default function ConfigPage() {
           guildConfig?.enabled_modules?.includes("territories"),
       },
     ],
-    [guildConfig],
+    [guildConfig, user],
   );
 
   const handleGlobalSave = async () => {
@@ -708,6 +711,8 @@ export default function ConfigPage() {
                 onDirtyChange={setIsDirty}
               />
             )}
+
+
 
             {(activeTab === "verify" ||
               activeTab === "verification_settings" ||

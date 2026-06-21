@@ -4,7 +4,7 @@ import { REST, Routes } from "discord.js";
 import * as deployCommandsCommand from "./commands/personal/admin/deploy-commands.js";
 import * as botAdminCommand from "./commands/personal/admin/bot-admin.js";
 import * as forceRunCommand from "./commands/personal/admin/force-run.js";
-import * as addBotCommand from "./commands/personal/admin/add-bot.js";
+import * as inviteCommand from "./commands/personal/admin/invite.js";
 import * as dbBackupCommand from "./commands/personal/admin/db-backup.js";
 import * as configCommand from "./commands/general/admin/config.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
@@ -44,7 +44,7 @@ const commands = [
   forceRunCommand.data.toJSON(),
   botAdminCommand.data.toJSON(),
   deployCommandsCommand.data.toJSON(),
-  addBotCommand.data.toJSON(),
+  inviteCommand.data.toJSON(),
   dbBackupCommand.data.toJSON(),
   configCommand.data.toJSON(),
   verifyCommand.data.toJSON(),

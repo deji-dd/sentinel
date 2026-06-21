@@ -54,8 +54,10 @@ export async function execute(
     if (!token || !clientId || !adminGuildId) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
-        .setTitle("❌ Configuration Error")
-        .setDescription("Missing Discord credentials in environment variables");
+        .setTitle("Configuration Error")
+        .setDescription("Missing Discord credentials in environment variables")
+        .setFooter({ text: "Sentinel" })
+        .setTimestamp();
 
       await interaction.editReply({
         embeds: [errorEmbed],
@@ -65,8 +67,10 @@ export async function execute(
 
     const progressEmbed = new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle("⏳ Deploying Commands")
-      .setDescription("Registering commands to Discord...");
+      .setTitle("Deploying Commands")
+      .setDescription("Registering commands to Discord...")
+      .setFooter({ text: "Sentinel" })
+      .setTimestamp();
 
     await interaction.editReply({
       embeds: [progressEmbed],
@@ -107,7 +111,7 @@ export async function execute(
     const forceRunCommand = await import("./force-run.js");
     const botAdminCommand = await import("./bot-admin.js");
     const deployCommandsCommand = await import("./deploy-commands.js");
-    const addBotCommand = await import("./add-bot.js");
+    const inviteCommand = await import("./invite.js");
     const dbBackupCommand = await import("./db-backup.js");
     const revokeWebAccessCommand = await import("./revoke-web-access.js");
 
@@ -127,7 +131,7 @@ export async function execute(
 
     let successCount = 0;
     let failureCount = 0;
-    const deploymentResults: { guild: string; status: "✅" | "❌" }[] = [];
+    const deploymentResults: { guild: string; status: "Success" | "Failure" }[] = [];
 
     // Clear global commands first
     try {
@@ -144,7 +148,7 @@ export async function execute(
         forceRunCommand.data.toJSON(),
         botAdminCommand.data.toJSON(),
         deployCommandsCommand.data.toJSON(),
-        addBotCommand.data.toJSON(),
+        inviteCommand.data.toJSON(),
         dbBackupCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),
@@ -167,7 +171,7 @@ export async function execute(
       successCount++;
       deploymentResults.push({
         guild: `Admin Guild (${adminGuildName})`,
-        status: "✅",
+        status: "Success",
       });
     } catch (err) {
       console.error(`Failed to deploy to admin guild ${adminGuildId}:`, err);
@@ -175,7 +179,7 @@ export async function execute(
       failureCount++;
       deploymentResults.push({
         guild: `Admin Guild (${adminGuildName})`,
-        status: "❌",
+        status: "Failure",
       });
     }
 
@@ -219,7 +223,7 @@ export async function execute(
           const guildName = await getGuildLabel(guildId);
 
           successCount++;
-          deploymentResults.push({ guild: guildName, status: "✅" });
+          deploymentResults.push({ guild: guildName, status: "Success" });
         } catch (err) {
           console.error(
             `Failed to deploy to guild ${guildConfig.guild_id}:`,
@@ -227,37 +231,37 @@ export async function execute(
           );
           const guildName = await getGuildLabel(guildConfig.guild_id);
           failureCount++;
-          deploymentResults.push({ guild: guildName, status: "❌" });
+          deploymentResults.push({ guild: guildName, status: "Failure" });
         }
       }
     }
 
     const resultEmbed = new EmbedBuilder()
       .setColor(failureCount === 0 ? 0x22c55e : 0xf59e0b)
-      .setTitle("✅ Command Deployment Complete")
+      .setTitle("Command Deployment Complete")
       .addFields(
         {
-          name: "✅ Successful",
+          name: "Successful",
           value: successCount.toString(),
           inline: true,
         },
         {
-          name: "❌ Failed",
+          name: "Failed",
           value: failureCount.toString(),
           inline: true,
         },
         {
-          name: "🌍 Deployments",
+          name: "Deployments",
           value:
             deploymentResults.length > 0
               ? deploymentResults
-                  .map((r) => `${r.status} ${r.guild}`)
+                  .map((r) => `${r.status}: ${r.guild}`)
                   .join("\n")
               : "None",
         },
       )
       .setFooter({
-        text: "Changes may take a few minutes to appear in Discord",
+        text: "Sentinel - Changes may take a few minutes to appear in Discord",
       })
       .setTimestamp();
 
@@ -270,8 +274,10 @@ export async function execute(
 
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
-      .setTitle("❌ Deployment Failed")
-      .setDescription(errorMsg);
+      .setTitle("Deployment Failed")
+      .setDescription(errorMsg)
+      .setFooter({ text: "Sentinel" })
+      .setTimestamp();
 
     await interaction.editReply({
       embeds: [errorEmbed],
