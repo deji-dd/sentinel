@@ -92,7 +92,7 @@ export function getHttpPort(): number {
 export function getUiUrl(): string {
   return isDev
     ? process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000"
-    : process.env.MAP_PAINTER_URL || "https://blasted-labs.tech";
+    : process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
 }
 
 /**
@@ -115,7 +115,7 @@ export function getApiUrl(): string {
  * Get the allowed origins for CORS
  */
 export function getAllowedOrigins(): string[] {
-  const prodOrigin = process.env.UI_ORIGIN || "https://blasted-labs.tech";
+  const prodOrigin = process.env.UI_ORIGIN || "https://hub.blasted-labs.tech";
   if (isDev) {
     return ["http://localhost:3000", prodOrigin];
   }
