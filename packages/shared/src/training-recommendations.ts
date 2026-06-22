@@ -217,6 +217,9 @@ export async function getPersonalTrainingRecommendations(
       console.error("[Training Recommendations Utility] Failed to fetch perks from Torn:", err);
     }
   }
+  if (boosterCooldown > 24 * 60 * 60) {
+    maxBoosterCooldownMins = Math.max(maxBoosterCooldownMins, 48 * 60);
+  }
   const maxBoosterCooldownSeconds = maxBoosterCooldownMins * 60;
 
   // 5. Calculate Recommendations Texts
@@ -264,21 +267,35 @@ export async function getPersonalTrainingRecommendations(
   }
 
   // 7. Calculate Happy Optimizations (Vladar's Formula)
-  function calculateBaseGain(statTotal: number, happy: number): number {
-    const a = 3.480061091e-7;
-    const b = 250;
-    const c = 3.091619094e-6;
-    const d = 6.82775184551527e-5;
-    const e = -0.0301431777;
+  function calculateExpectedGain(statVal: number, happy: number): number {
+    const S_capped = Math.min(50_000_000, statVal);
+    const H = happy;
 
-    const innerTerm = (a * Math.log(happy + b) + c) * statTotal + d * (happy + b) + e;
-    return Math.max(0, innerTerm);
+    let A = 1600;
+    let B = 1700;
+    if (recommendedStatName === "speed") {
+      A = 1600;
+      B = 2000;
+    } else if (recommendedStatName === "dexterity") {
+      A = 1800;
+      B = 1500;
+    } else if (recommendedStatName === "defense") {
+      A = 2100;
+      B = -600;
+    }
+
+    const term1 = S_capped * (1 + 0.07 * Math.log(1 + H / 250));
+    const term2 = 8 * Math.pow(H, 1.05);
+    const term3 = (1 - Math.pow(H / 99999, 2)) * A;
+    const term4 = B;
+
+    return Math.max(0, term1 + term2 + term3 + term4);
   }
 
   const currentStatVal = recommendedStatObj.current;
-  const gainCurrentHappy = calculateBaseGain(currentStatVal, happyCurrent);
-  const gainMaxHappy = calculateBaseGain(currentStatVal, happyMaximum);
-  const gainBoostedHappy = calculateBaseGain(currentStatVal, happyMaximum + 5000);
+  const gainCurrentHappy = calculateExpectedGain(currentStatVal, happyCurrent);
+  const gainMaxHappy = calculateExpectedGain(currentStatVal, happyMaximum);
+  const gainBoostedHappy = calculateExpectedGain(currentStatVal, happyMaximum + 5000);
 
   const pctIncreaseToMax = gainCurrentHappy > 0 ? ((gainMaxHappy - gainCurrentHappy) / gainCurrentHappy) * 100 : 0;
   const pctIncreaseToBoosted = gainMaxHappy > 0 ? ((gainBoostedHappy - gainMaxHappy) / gainMaxHappy) * 100 : 0;
@@ -299,8 +316,8 @@ export async function getPersonalTrainingRecommendations(
     const displayMins = Math.floor(totalSecondsRemaining / 60);
     const displaySecs = totalSecondsRemaining % 60;
     finalLines.push(`**Happy Decay Warning**: Happy is over maximum and will decay in ${displayMins}m ${displaySecs}s. Train immediately!`);
-  } else if (happyCurrent < happyMaximum && boosterCooldown < maxBoosterCooldownSeconds && pctIncreaseToMax >= 1.0) {
-    let msg = `**Increase Happy**: Happy is suboptimal (${happyCurrent.toLocaleString()} / ${happyMaximum.toLocaleString()}). Increase to max first (increases gains by +${pctIncreaseToMax.toFixed(1)}%). Booster cooldown: ${(boosterCooldown / 3600).toFixed(1)}h / ${(maxBoosterCooldownSeconds / 3600).toFixed(0)}h limit.`;
+  } else if (happyCurrent < happyMaximum && boosterCooldown < maxBoosterCooldownSeconds) {
+    let msg = `**Increase Happy**: Increase your happy to ${happyMaximum.toLocaleString()} (current: ${happyCurrent.toLocaleString()} / ${happyMaximum.toLocaleString()}) first (increases gains by +${pctIncreaseToMax.toFixed(1)}%). Booster cooldown: ${(boosterCooldown / 3600).toFixed(1)}h / ${(maxBoosterCooldownSeconds / 3600).toFixed(0)}h limit.`;
     if (pctIncreaseToBoosted >= 3.0) {
       msg += ` Boosting Happy over max (+5,000 happy) will yield +${pctIncreaseToBoosted.toFixed(1)}% extra gains.`;
     }
