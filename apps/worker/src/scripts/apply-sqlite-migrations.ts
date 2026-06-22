@@ -196,14 +196,22 @@ async function main(): Promise<void> {
       }
 
       if (existing.checksum !== hash) {
-        if (isBaseline) {
-          console.log(`[sqlite:migrate] Updating baseline migration checksum from ${existing.checksum} to ${hash} to allow baseline schema enhancements`);
+        const ALLOWED_CHECKSUM_UPDATES = new Set([
+          "20260307000000_sqlite_migration_baseline.sql",
+          "20260308065837_convert_id_columns_to_text.sql"
+        ]);
+
+        if (ALLOWED_CHECKSUM_UPDATES.has(file)) {
+          console.log(`[sqlite:migrate] Updating migration checksum for ${file} from ${existing.checksum} to ${hash}`);
           await kdb
             .updateTable("sentinel_schema_migrations")
             .set({ checksum: hash })
             .where("filename", "=", file)
             .execute();
-          shouldReapplyBaseline = true;
+          
+          if (isBaseline) {
+            shouldReapplyBaseline = true;
+          }
         } else {
           throw new Error(
             `[sqlite:migrate] Migration file changed after apply: ${file}. Create a new migration instead of editing applied ones.`,
