@@ -67,6 +67,19 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
       logger.error("Failed to decrypt personal API key:", err);
     }
 
+    const retryOperation = async <T>(fn: () => Promise<T>, retries = 3, delay = 500): Promise<T> => {
+      try {
+        return await fn();
+      } catch (err) {
+        if (retries <= 0) {
+          throw err;
+        }
+        logger.warn(`Transient Discord API error. Retrying in ${delay}ms... Details: ${err instanceof Error ? err.message : String(err)}`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return retryOperation(fn, retries - 1, delay * 2);
+      }
+    };
+
     // Helper to update/create Discord messages
     const updateOrCreateMessage = async (
       channelId: string,
@@ -76,22 +89,24 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
       components?: any[]
     ): Promise<string | null> => {
       try {
-        const channel = await client.channels.fetch(channelId).catch(() => null);
+        const channel = await retryOperation(() => client.channels.fetch(channelId)).catch(() => null);
         if (!channel || !channel.isTextBased()) {
           logger.error(`Channel ${channelId} not found or not text-based`);
           return messageId;
         }
 
+        const textChannel = channel as any;
+
         let message = null;
         if (messageId) {
-          message = await channel.messages.fetch(messageId).catch(() => null);
+          message = await retryOperation(() => textChannel.messages.fetch(messageId)).catch(() => null);
         }
 
         if (message) {
-          await message.edit({ embeds: [embed], components: components || [] });
+          await retryOperation(() => message!.edit({ embeds: [embed], components: components || [] }));
           return messageId;
         } else {
-          const sentMessage = await channel.send({ embeds: [embed], components: components || [] });
+          const sentMessage: any = await retryOperation(() => textChannel.send({ embeds: [embed], components: components || [] }));
           // Update database with the new message ID
           await db
             .updateTable(TABLE_NAMES.PERSONAL_SETTINGS)
@@ -235,9 +250,15 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
           const spdGain = snap.speed - prevSnap.speed;
           const defGain = snap.defense - prevSnap.defense;
           const dexGain = snap.dexterity - prevSnap.dexterity;
+
+          const snapDate = new Date(snap.created_at);
+          const prevSnapDate = new Date(prevSnap.created_at);
+          const diffTime = Math.abs(snapDate.getTime() - prevSnapDate.getTime());
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          const daysText = diffDays > 1 ? ` over ${diffDays} days` : "";
           
           historyLines.push(
-            `**${day}**: ${snap.total_stats.toLocaleString()} (Gain: +${gain.toLocaleString()})\n` +
+            `**${day}**: ${snap.total_stats.toLocaleString()} (Gain: +${gain.toLocaleString()}${daysText})\n` +
             `└ Str: +${strGain.toLocaleString()} | Spd: +${spdGain.toLocaleString()} | Def: +${defGain.toLocaleString()} | Dex: +${dexGain.toLocaleString()}`
           );
         }
@@ -262,12 +283,25 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
     // --- 6. Process Display 4: Live TCT Stat Gain Counter ---
     if (personalSettings.energy_dashboard_gains_channel_id) {
       try {
-        const days = personalSettings.energy_dashboard_gains_days || 1;
+        const days = personalSettings.energy_dashboard_gains_days !== null && personalSettings.energy_dashboard_gains_days !== undefined
+          ? Number(personalSettings.energy_dashboard_gains_days)
+          : 1; // default to 1 (24 Hours)
+
         const now = new Date();
-        // Today at 00:00 UTC (TCT)
         const startOfTodayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-        const daysToSubtract = days - 1;
-        const startTimestampSeconds = Math.floor(startOfTodayUtc.getTime() / 1000) - (daysToSubtract * 24 * 60 * 60);
+        let startTimestampSeconds = 0;
+
+        if (days === 0) {
+          // Today (starts from 00:00 TCT today)
+          startTimestampSeconds = Math.floor(startOfTodayUtc.getTime() / 1000);
+        } else if (days === 1) {
+          // 24 Hours (rolling 24 hours)
+          startTimestampSeconds = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
+        } else {
+          // 7, 14, 30 Days (from 00:00 TCT days-1 ago)
+          const daysToSubtract = days - 1;
+          startTimestampSeconds = Math.floor(startOfTodayUtc.getTime() / 1000) - (daysToSubtract * 24 * 60 * 60);
+        }
 
         const gainsLogs = await db
           .selectFrom("sentinel_gym_train_logs" as any)
@@ -308,8 +342,12 @@ export async function performEnergyDashboardSync(client: Client): Promise<void> 
         // Create range buttons
         const buttonsRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
+            .setCustomId("energy_gains_range|0")
+            .setLabel("Today")
+            .setStyle(days === 0 ? ButtonStyle.Primary : ButtonStyle.Secondary),
+          new ButtonBuilder()
             .setCustomId("energy_gains_range|1")
-            .setLabel("1 Day")
+            .setLabel("24 Hours")
             .setStyle(days === 1 ? ButtonStyle.Primary : ButtonStyle.Secondary),
           new ButtonBuilder()
             .setCustomId("energy_gains_range|7")

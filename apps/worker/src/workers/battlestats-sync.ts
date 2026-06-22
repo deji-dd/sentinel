@@ -22,11 +22,17 @@ export async function syncBattlestats(): Promise<void> {
       },
     })) as any;
 
-    const strength = Number(response.strength || 0);
-    const speed = Number(response.speed || 0);
-    const defense = Number(response.defense || 0);
-    const dexterity = Number(response.dexterity || 0);
-    const total_stats = Number(response.total || (strength + speed + defense + dexterity));
+    const battlestats = response.battlestats;
+    if (!battlestats) {
+      logger.warn("Received no battlestats from Torn API, skipping snapshot");
+      return;
+    }
+
+    const strength = Number(battlestats.strength?.value || 0);
+    const speed = Number(battlestats.speed?.value || 0);
+    const defense = Number(battlestats.defense?.value || 0);
+    const dexterity = Number(battlestats.dexterity?.value || 0);
+    const total_stats = Number(battlestats.total || (strength + speed + defense + dexterity));
 
     if (total_stats === 0) {
       logger.warn("Received 0 total stats from Torn API, skipping snapshot");

@@ -182,19 +182,37 @@ async function main(): Promise<void> {
       .executeTakeFirst();
 
     if (existing) {
+      const isBaseline = file === "20260307000000_sqlite_migration_baseline.sql";
+      let shouldReapplyBaseline = false;
+
+      if (isBaseline) {
+        const hasGuildConfig = !!db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='sentinel_guild_config'"
+        ).get();
+        if (!hasGuildConfig) {
+          console.log("[sqlite:migrate] Core table 'sentinel_guild_config' is missing. Re-applying baseline schema...");
+          shouldReapplyBaseline = true;
+        }
+      }
+
       if (existing.checksum !== hash) {
-        if (file === "20260307000000_sqlite_migration_baseline.sql") {
+        if (isBaseline) {
           console.log(`[sqlite:migrate] Updating baseline migration checksum from ${existing.checksum} to ${hash} to allow baseline schema enhancements`);
           await kdb
             .updateTable("sentinel_schema_migrations")
             .set({ checksum: hash })
             .where("filename", "=", file)
             .execute();
+          shouldReapplyBaseline = true;
         } else {
           throw new Error(
             `[sqlite:migrate] Migration file changed after apply: ${file}. Create a new migration instead of editing applied ones.`,
           );
         }
+      }
+
+      if (shouldReapplyBaseline) {
+        executeMigrationSql(db, sqlText);
       }
       continue;
     }
