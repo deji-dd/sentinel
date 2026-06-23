@@ -282,8 +282,23 @@ export class BazaarMugWatcher {
                   lastUpdated: existingMeta?.lastUpdated ?? Date.now()
                 });
 
-                // State must be Okay, last action must NOT be Online, and must have open/active bazaar
-                if (item.state === "Okay" && item.lastActionStatus !== "Online" && hasBazaar) {
+                // State must be Okay, status must NOT be Online, must have open/active bazaar, and must meet minimum offline/idle time threshold
+                const minutesOffline = parseRelativeTimeToMinutes(item.lastActionRelative);
+                const minOfflineThreshold = config.min_offline_time_minutes ?? 0;
+
+                let isOfflineLongEnough = true;
+                if (item.lastActionStatus === "Offline" || item.lastActionStatus === "Idle") {
+                  if (minutesOffline < minOfflineThreshold) {
+                    isOfflineLongEnough = false;
+                  }
+                }
+
+                if (
+                  item.state === "Okay" &&
+                  item.lastActionStatus !== "Online" &&
+                  isOfflineLongEnough &&
+                  hasBazaar
+                ) {
                   validIds.push(item.playerId);
                 }
               }
@@ -403,7 +418,11 @@ export class BazaarMugWatcher {
                     logger.debug(`Failed to fetch final profile for player ${playerId} during alert check: ${profileErr}`);
                   }
 
-                  await this.sendAlert(playerId, delta, pastVal, currentVal, targetChannelId, isOnline, config);
+                  if (!isOnline) {
+                    await this.sendAlert(playerId, delta, pastVal, currentVal, targetChannelId, config);
+                  } else {
+                    logger.info(`Player ${playerId} came ONLINE during alert check. Suppressing bazaar drop alert.`);
+                  }
                 }
               } else {
                 valueChanged = true;
@@ -524,15 +543,37 @@ export class BazaarMugWatcher {
 
       let dashboardMsgId = config.dashboard_message_id;
       let messageSent = false;
+      let shouldRepost = false;
 
       if (dashboardMsgId) {
         try {
           const guild = await this.client.guilds.fetch(this.guildId);
           const channel = await guild.channels.fetch(channelId);
           if (channel && channel.isTextBased()) {
-            const existingMsg = await channel.messages.fetch(dashboardMsgId);
-            await existingMsg.edit({ embeds: [embed], components });
-            messageSent = true;
+            // Check if there is a newer message in the channel
+            try {
+              const messages = await channel.messages.fetch({ limit: 1 });
+              const lastMessage = messages.first();
+              if (lastMessage && lastMessage.id !== dashboardMsgId) {
+                shouldRepost = true;
+              }
+            } catch (err) {
+              logger.debug(`Failed to fetch last message to check for reposting: ${err}`);
+            }
+
+            if (!shouldRepost) {
+              const existingMsg = await channel.messages.fetch(dashboardMsgId);
+              await existingMsg.edit({ embeds: [embed], components });
+              messageSent = true;
+            } else {
+              // Delete the old dashboard message so we can post a new one at the bottom
+              try {
+                const existingMsg = await channel.messages.fetch(dashboardMsgId);
+                await existingMsg.delete();
+              } catch (delErr) {
+                logger.debug(`Failed to delete old dashboard message: ${delErr}`);
+              }
+            }
           }
         } catch (err: any) {
           if (err?.code === 10003 || err?.message?.includes("Unknown Channel")) {
@@ -545,34 +586,36 @@ export class BazaarMugWatcher {
             this.stop();
             return;
           }
-          // Retry editing once on network socket error
-          const isNetworkError = err instanceof Error && (err.message.includes("closed") || err.message.includes("socket") || err.message.includes("fetch"));
-          if (isNetworkError) {
-            logger.warn(`Network error editing dashboard message, retrying in 1s...`);
-            await sleep(1000);
-            try {
-              const guild = await this.client.guilds.fetch(this.guildId);
-              const channel = await guild.channels.fetch(channelId);
-              if (channel && channel.isTextBased()) {
-                const existingMsg = await channel.messages.fetch(dashboardMsgId);
-                await existingMsg.edit({ embeds: [embed], components });
-                messageSent = true;
+          // Retry editing once on network socket error (if not reposting)
+          if (!shouldRepost) {
+            const isNetworkError = err instanceof Error && (err.message.includes("closed") || err.message.includes("socket") || err.message.includes("fetch"));
+            if (isNetworkError) {
+              logger.warn(`Network error editing dashboard message, retrying in 1s...`);
+              await sleep(1000);
+              try {
+                const guild = await this.client.guilds.fetch(this.guildId);
+                const channel = await guild.channels.fetch(channelId);
+                if (channel && channel.isTextBased()) {
+                  const existingMsg = await channel.messages.fetch(dashboardMsgId);
+                  await existingMsg.edit({ embeds: [embed], components });
+                  messageSent = true;
+                }
+              } catch (retryErr: any) {
+                if (retryErr?.code === 10003 || retryErr?.message?.includes("Unknown Channel")) {
+                  logger.warn(`Bazaar Mug disabled: channel ${channelId} is unknown/deleted for guild ${this.guildId}`);
+                  await db
+                    .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
+                    .set({ is_enabled: 0 })
+                    .where("guild_id", "=", this.guildId)
+                    .execute();
+                  this.stop();
+                  return;
+                }
+                logger.debug(`Failed to edit dashboard message on retry: ${retryErr}`);
               }
-            } catch (retryErr: any) {
-              if (retryErr?.code === 10003 || retryErr?.message?.includes("Unknown Channel")) {
-                logger.warn(`Bazaar Mug disabled: channel ${channelId} is unknown/deleted for guild ${this.guildId}`);
-                await db
-                  .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-                  .set({ is_enabled: 0 })
-                  .where("guild_id", "=", this.guildId)
-                  .execute();
-                this.stop();
-                return;
-              }
-              logger.debug(`Failed to edit dashboard message on retry: ${retryErr}`);
+            } else {
+              logger.debug(`Failed to edit existing dashboard message ${dashboardMsgId}, sending a new one: ${err}`);
             }
-          } else {
-            logger.debug(`Failed to edit existing dashboard message ${dashboardMsgId}, sending a new one: ${err}`);
           }
         }
       }
@@ -648,12 +691,11 @@ export class BazaarMugWatcher {
     pastVal: number,
     currentVal: number,
     channelId: string,
-    isOnline: boolean,
     config: { ping_role_id: string | null }
   ): Promise<void> {
     if (!isValidSnowflake(channelId)) return;
 
-    logger.info(`Triggering alert: Player ${playerId} bazaar dropped by $${delta.toLocaleString()} ($${pastVal.toLocaleString()} -> $${currentVal.toLocaleString()})${isOnline ? " (Online warning)" : ""}`);
+    logger.info(`Triggering alert: Player ${playerId} bazaar dropped by $${delta.toLocaleString()} ($${pastVal.toLocaleString()} -> $${currentVal.toLocaleString()})`);
 
     const roleId = config.ping_role_id;
 
@@ -662,14 +704,10 @@ export class BazaarMugWatcher {
       content = `<@&${roleId}>`;
     }
 
-    if (isOnline) {
-      content = content ? `${content}\nWARNING: Target has come ONLINE!` : "WARNING: Target has come ONLINE!";
-    }
-
     const embed = new EmbedBuilder()
-      .setColor(isOnline ? 0xf59e0b : 0xef4444)
-      .setTitle(isOnline ? "Bazaar Value Drop Alert - WARNING: Target is Online" : "Bazaar Value Drop Alert")
-      .setDescription(isOnline ? "WARNING: The target player has come ONLINE recently." : "A target player's bazaar value has decreased significantly.")
+      .setColor(0xef4444)
+      .setTitle("Bazaar Value Drop Alert")
+      .setDescription("A target player's bazaar value has decreased significantly.")
       .addFields(
         { name: "Target ID", value: playerId, inline: true },
         { name: "Bazaar Value Drop", value: `$${delta.toLocaleString()}`, inline: true },
@@ -684,10 +722,17 @@ export class BazaarMugWatcher {
       const guild = await this.client.guilds.fetch(this.guildId);
       const channel = await guild.channels.fetch(channelId);
       if (channel && channel.isTextBased()) {
-        await channel.send({
+        const sentMsg = await channel.send({
           content: content || undefined,
           embeds: [embed]
         });
+
+        // Auto-delete alert after 3 minutes to avoid channel flooding
+        setTimeout(() => {
+          sentMsg.delete().catch((err) => {
+            logger.debug(`Failed to auto-delete alert message ${sentMsg.id}: ${err instanceof Error ? err.message : err}`);
+          });
+        }, 180000); // 3 minutes
       }
     } catch (err: any) {
       const isUnknownChannel = err?.code === 10003 || err?.message?.includes("Unknown Channel");

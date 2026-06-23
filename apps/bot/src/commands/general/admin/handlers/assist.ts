@@ -13,9 +13,26 @@ import {
   type ChannelSelectMenuInteraction,
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
+  type ModalSubmitInteraction,
 } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../../../lib/db-client.js";
+
+export type ConfigInteraction =
+  | StringSelectMenuInteraction
+  | ButtonInteraction
+  | RoleSelectMenuInteraction
+  | ChannelSelectMenuInteraction
+  | ModalSubmitInteraction;
+
+function getConfigSessionUserId(
+  footerText?: string,
+  defaultUserId?: string,
+): string {
+  if (!footerText) return defaultUserId || "";
+  const match = footerText.match(/Config Session:\s*(\d+)/);
+  return match ? match[1] : defaultUserId || "";
+}
 
 type AssistConfig = {
   guild_id: string;
@@ -93,11 +110,7 @@ async function upsertAssistConfig(
 }
 
 export async function handleShowAssistSettings(
-  interaction:
-    | ButtonInteraction
-    | StringSelectMenuInteraction
-    | ChannelSelectMenuInteraction
-    | RoleSelectMenuInteraction,
+  interaction: ConfigInteraction,
   isAlreadyDeferred: boolean = false,
 ): Promise<void> {
   try {
@@ -141,100 +154,104 @@ export async function handleShowAssistSettings(
       return;
     }
 
-    const config = await getAssistConfig(guildId);
+    const message = "message" in interaction ? interaction.message : null;
+    const footerText = message?.embeds?.[0]?.footer?.text;
+    const originalUserId = getConfigSessionUserId(
+      footerText,
+      interaction.user.id,
+    );
 
     const embed = new EmbedBuilder()
       .setColor(0x2563eb)
       .setTitle("Assist Settings")
       .setDescription(
-        "Configure where combat assist alerts from the proxied script pipeline are posted.",
+        "Configure combat assist alerts, ping rules, script generation roles, and authorized script users below.",
       )
-      .addFields(
-        {
-          name: "Output Channel",
-          value: config.assist_channel_id
-            ? `<#${config.assist_channel_id}>`
-            : "Not configured",
-          inline: false,
-        },
-        {
-          name: "Ping Role",
-          value: config.ping_role_id ? `<@&${config.ping_role_id}>` : "None",
-          inline: false,
-        },
-        {
-          name: "Script Generation Roles",
-          value:
-            config.script_generation_role_ids.length > 0
-              ? config.script_generation_role_ids
-                  .map((id) => `<@&${id}>`)
-                  .join(", ")
-              : "None (Admins only)",
-          inline: false,
-        },
-        {
-          name: "Module Active",
-          value: config.is_active ? "Yes" : "No",
-          inline: false,
-        },
+      .setFooter({
+        text: `Sentinel • Config Session: ${originalUserId}`,
+      })
+      .setTimestamp();
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId("config_assist_setting_select")
+      .setPlaceholder("Select a setting to edit...")
+      .addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Output Channel")
+          .setValue("set_channel")
+          .setDescription("Channel where assist alerts are posted"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Ping Role")
+          .setValue("set_ping_role")
+          .setDescription("Role to ping for assist alerts"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Script Roles")
+          .setValue("set_script_roles")
+          .setDescription("Roles allowed to generate assist script installation links"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Manage Script Users")
+          .setValue("manage_users")
+          .setDescription("View and manage authorized script users in this guild"),
       );
-
-    const setChannelBtn = new ButtonBuilder()
-      .setCustomId("assist_set_channel")
-      .setLabel("Set Output Channel")
-      .setStyle(ButtonStyle.Primary);
-
-    const setRoleBtn = new ButtonBuilder()
-      .setCustomId("assist_set_ping_role")
-      .setLabel("Set Ping Role")
-      .setStyle(ButtonStyle.Primary);
-
-    const setScriptRolesBtn = new ButtonBuilder()
-      .setCustomId("assist_set_script_roles")
-      .setLabel("Set Script Roles")
-      .setStyle(ButtonStyle.Primary);
-
-    const manageUsersBtn = new ButtonBuilder()
-      .setCustomId("assist_manage_users")
-      .setLabel("Manage Script Users")
-      .setStyle(ButtonStyle.Secondary);
 
     const backBtn = new ButtonBuilder()
       .setCustomId("config_back_to_menu")
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      setChannelBtn,
-      setRoleBtn,
-      setScriptRolesBtn,
-    );
-
-    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      manageUsersBtn,
-      backBtn,
-    );
+    const rowSelect =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
     await interaction.editReply({
       embeds: [embed],
-      components: [row1, row2],
+      components: [rowSelect, rowBtn],
     });
   } catch (error) {
     console.error("Error showing assist settings:", error);
   }
 }
 
-export async function handleAssistSetChannel(
-  interaction: ButtonInteraction,
+export async function handleAssistSettingSelect(
+  interaction: StringSelectMenuInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    const selected = interaction.values[0];
+    if (selected === "set_channel") {
+      await handleAssistSetChannel(interaction);
+    } else if (selected === "set_ping_role") {
+      await handleAssistSetPingRole(interaction);
+    } else if (selected === "set_script_roles") {
+      await handleAssistSetScriptRoles(interaction);
+    } else if (selected === "manage_users") {
+      await handleAssistManageUsers(interaction);
+    }
+  } catch (error) {
+    console.error("Error in handleAssistSettingSelect:", error);
+  }
+}
+
+export async function handleAssistSetChannel(
+  interaction: ConfigInteraction,
+): Promise<void> {
+  try {
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getAssistConfig(guildId);
+    const currentChannel = config.assist_channel_id
+      ? `<#${config.assist_channel_id}>`
+      : "Not configured";
 
     const embed = new EmbedBuilder()
       .setColor(0x2563eb)
       .setTitle("Select Assist Output Channel")
       .setDescription(
-        "Choose the channel where assist event embeds will be posted.",
+        `Choose the channel where assist event embeds will be posted.\n\n**Current Channel:** ${currentChannel}`,
       );
 
     const channelSelect =
@@ -262,26 +279,40 @@ export async function handleAssistSetChannel(
 }
 
 export async function handleAssistSetPingRole(
-  interaction: ButtonInteraction,
+  interaction: ConfigInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getAssistConfig(guildId);
+    const currentRole = config.ping_role_id
+      ? `<@&${config.ping_role_id}>`
+      : "None";
 
     const embed = new EmbedBuilder()
       .setColor(0x2563eb)
       .setTitle("Select Assist Ping Role")
       .setDescription(
-        "Choose an optional role to ping for each assist alert. Leave empty to clear.",
+        `Choose an optional role to ping for each assist alert. Leave empty to clear.\n\n**Current Ping Role:** ${currentRole}`,
       );
 
-    const roleSelect =
-      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
-        new RoleSelectMenuBuilder()
-          .setCustomId("assist_ping_role_select")
-          .setPlaceholder("Select optional ping role")
-          .setMinValues(0)
-          .setMaxValues(1),
-      );
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId("assist_ping_role_select")
+      .setPlaceholder("Select optional ping role")
+      .setMinValues(0)
+      .setMaxValues(1);
+
+    if (config.ping_role_id) {
+      roleSelect.setDefaultRoles([config.ping_role_id]);
+    }
+
+    const rowSelect =
+      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
     const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -292,10 +323,62 @@ export async function handleAssistSetPingRole(
 
     await interaction.editReply({
       embeds: [embed],
-      components: [roleSelect, backRow],
+      components: [rowSelect, backRow],
     });
   } catch (error) {
     console.error("Error in assist set ping role:", error);
+  }
+}
+
+export async function handleAssistSetScriptRoles(
+  interaction: ConfigInteraction,
+): Promise<void> {
+  try {
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getAssistConfig(guildId);
+    const rolesDisplay = config.script_generation_role_ids.length > 0
+      ? config.script_generation_role_ids.map((id) => `<@&${id}>`).join(", ")
+      : "None (Admins only)";
+
+    const embed = new EmbedBuilder()
+      .setColor(0x2563eb)
+      .setTitle("Select Script Generation Roles")
+      .setDescription(
+        `Choose roles that can generate assist script installation URLs. Leave empty for admins only.\n\n**Current Roles:** ${rolesDisplay}`,
+      );
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId("assist_script_roles_select")
+      .setPlaceholder("Select roles (optional)")
+      .setMinValues(0)
+      .setMaxValues(10);
+
+    if (config.script_generation_role_ids.length > 0) {
+      roleSelect.setDefaultRoles(config.script_generation_role_ids);
+    }
+
+    const rowSelect =
+      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+
+    const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("assist_settings_show")
+        .setLabel("Back")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [rowSelect, backRow],
+    });
+  } catch (error) {
+    console.error("Error in assist set script roles:", error);
   }
 }
 
@@ -346,43 +429,6 @@ export async function handleAssistPingRoleSelect(
   }
 }
 
-export async function handleAssistSetScriptRoles(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const embed = new EmbedBuilder()
-      .setColor(0x2563eb)
-      .setTitle("Select Script Generation Roles")
-      .setDescription(
-        "Choose roles that can generate assist script installation URLs. Leave empty for admins only.",
-      );
-
-    const roleSelect =
-      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
-        new RoleSelectMenuBuilder()
-          .setCustomId("assist_script_roles_select")
-          .setPlaceholder("Select roles (optional)")
-          .setMinValues(0)
-          .setMaxValues(10),
-      );
-
-    const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("assist_settings_show")
-        .setLabel("Back")
-        .setStyle(ButtonStyle.Secondary),
-    );
-
-    await interaction.editReply({
-      embeds: [embed],
-      components: [roleSelect, backRow],
-    });
-  } catch (error) {
-    console.error("Error in assist set script roles:", error);
-  }
-}
 
 export async function handleAssistScriptRolesSelect(
   interaction: RoleSelectMenuInteraction,
@@ -659,10 +705,12 @@ async function buildManageUsersView(
 }
 
 export async function handleAssistManageUsers(
-  interaction: ButtonInteraction,
+  interaction: ConfigInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
 
     const guildId = interaction.guildId;
     if (!guildId) {

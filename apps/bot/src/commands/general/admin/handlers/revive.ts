@@ -8,6 +8,8 @@ import {
   MessageFlags,
   ModalBuilder,
   RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
   type ButtonInteraction,
@@ -22,6 +24,22 @@ import { db } from "../../../../lib/db-client.js";
 import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
 import { logGuildError } from "../../../../lib/guild-logger.js";
 import { tornApi } from "../../../../services/torn-client.js";
+
+export type ConfigInteraction =
+  | StringSelectMenuInteraction
+  | ButtonInteraction
+  | RoleSelectMenuInteraction
+  | ChannelSelectMenuInteraction
+  | ModalSubmitInteraction;
+
+function getConfigSessionUserId(
+  footerText?: string,
+  defaultUserId?: string,
+): string {
+  if (!footerText) return defaultUserId || "";
+  const match = footerText.match(/Config Session:\s*(\d+)/);
+  return match ? match[1] : defaultUserId || "";
+}
 
 const REVIVE_REQUEST_TTL_SECONDS = 300;
 
@@ -484,11 +502,7 @@ async function expireRequestsForGuild(
 }
 
 export async function handleShowReviveSettings(
-  interaction:
-    | ButtonInteraction
-    | StringSelectMenuInteraction
-    | ChannelSelectMenuInteraction
-    | RoleSelectMenuInteraction,
+  interaction: ConfigInteraction,
   isAlreadyDeferred: boolean = false,
 ): Promise<void> {
   try {
@@ -527,105 +541,110 @@ export async function handleShowReviveSettings(
       await ensureReviveRequestPanel(interaction.client, guildId);
     }
 
-    const latestConfig = await getReviveConfig(guildId);
+    const message = "message" in interaction ? interaction.message : null;
+    const footerText = message?.embeds?.[0]?.footer?.text;
+    const originalUserId = getConfigSessionUserId(
+      footerText,
+      interaction.user.id,
+    );
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Revive Settings")
-      .addFields(
-        {
-          name: "Request Panel Channel",
-          value: latestConfig.request_channel_id
-            ? `<#${latestConfig.request_channel_id}>`
-            : "Not configured",
-          inline: false,
-        },
-        {
-          name: "Requests Output Channel",
-          value: latestConfig.requests_output_channel_id
-            ? `<#${latestConfig.requests_output_channel_id}>`
-            : "Not configured",
-          inline: false,
-        },
-        {
-          name: "Ping Role",
-          value: latestConfig.ping_role_id
-            ? `<@&${latestConfig.ping_role_id}>`
-            : "Not configured",
-          inline: false,
-        },
-        {
-          name: "Minimum Hospital Time Left",
-          value: secondsToHuman(latestConfig.min_hospital_seconds_left),
-          inline: false,
-        },
-        {
-          name: "Panel Message",
-          value: latestConfig.request_message_id
-            ? `Configured (${latestConfig.request_message_id})`
-            : "Not posted yet",
-          inline: false,
-        },
+      .setDescription(
+        "Configure revive request panels, output logging, and ping rules below.",
+      )
+      .setFooter({
+        text: `Sentinel • Config Session: ${originalUserId}`,
+      })
+      .setTimestamp();
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId("config_revive_setting_select")
+      .setPlaceholder("Select a setting to edit...")
+      .addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Request Panel Channel")
+          .setValue("set_request_channel")
+          .setDescription("Channel where the revive request panel lives"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Requests Output Channel")
+          .setValue("set_output_channel")
+          .setDescription("Channel where active request alerts are posted"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Ping Role")
+          .setValue("set_ping_role")
+          .setDescription("Role to ping when a revive request is created"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Set Min Hospital Time")
+          .setValue("set_min_hosp")
+          .setDescription("Minimum hospital time left to make requests"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("Refresh Request Panel")
+          .setValue("refresh_panel")
+          .setDescription("Force update the persistent revive request panel"),
       );
-
-    const setRequestChannelBtn = new ButtonBuilder()
-      .setCustomId("revive_set_request_channel")
-      .setLabel("Set Request Panel Channel")
-      .setStyle(ButtonStyle.Primary);
-
-    const setOutputChannelBtn = new ButtonBuilder()
-      .setCustomId("revive_set_output_channel")
-      .setLabel("Set Requests Output Channel")
-      .setStyle(ButtonStyle.Primary);
-
-    const setPingRoleBtn = new ButtonBuilder()
-      .setCustomId("revive_set_ping_role")
-      .setLabel("Set Ping Role")
-      .setStyle(ButtonStyle.Primary);
-
-    const setMinHospBtn = new ButtonBuilder()
-      .setCustomId("revive_set_min_hosp")
-      .setLabel("Set Min Hospital Time")
-      .setStyle(ButtonStyle.Primary);
-
-    const refreshPanelBtn = new ButtonBuilder()
-      .setCustomId("revive_refresh_panel")
-      .setLabel("Refresh Request Panel")
-      .setStyle(ButtonStyle.Secondary);
 
     const backBtn = new ButtonBuilder()
       .setCustomId("config_back_to_menu")
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      setRequestChannelBtn,
-      setOutputChannelBtn,
-      setPingRoleBtn,
-    );
-    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      setMinHospBtn,
-      refreshPanelBtn,
-      backBtn,
-    );
+    const rowSelect =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
-    await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+    await interaction.editReply({
+      embeds: [embed],
+      components: [rowSelect, rowBtn],
+    });
   } catch (error) {
     console.error("Error showing revive settings:", error);
   }
 }
 
-export async function handleReviveSetRequestChannel(
-  interaction: ButtonInteraction,
+export async function handleReviveSettingSelect(
+  interaction: StringSelectMenuInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    const selected = interaction.values[0];
+    if (selected === "set_request_channel") {
+      await handleReviveSetRequestChannel(interaction);
+    } else if (selected === "set_output_channel") {
+      await handleReviveSetOutputChannel(interaction);
+    } else if (selected === "set_ping_role") {
+      await handleReviveSetPingRole(interaction);
+    } else if (selected === "set_min_hosp") {
+      await handleShowMinHospSettings(interaction);
+    } else if (selected === "refresh_panel") {
+      await handleReviveRefreshPanel(interaction);
+    }
+  } catch (error) {
+    console.error("Error in handleReviveSettingSelect:", error);
+  }
+}
+
+export async function handleReviveSetRequestChannel(
+  interaction: ConfigInteraction,
+): Promise<void> {
+  try {
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getReviveConfig(guildId);
+    const currentChannel = config.request_channel_id
+      ? `<#${config.request_channel_id}>`
+      : "None configured";
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Select Request Panel Channel")
       .setDescription(
-        "Pick the channel where the persistent revive request panel should live.",
+        `Pick the channel where the persistent revive request panel should live.\n\n**Current Channel:** ${currentChannel}`,
       );
 
     const channelSelect =
@@ -653,16 +672,26 @@ export async function handleReviveSetRequestChannel(
 }
 
 export async function handleReviveSetOutputChannel(
-  interaction: ButtonInteraction,
+  interaction: ConfigInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getReviveConfig(guildId);
+    const currentChannel = config.requests_output_channel_id
+      ? `<#${config.requests_output_channel_id}>`
+      : "None configured";
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Select Requests Output Channel")
       .setDescription(
-        "Pick the channel where active revive request embeds will be posted.",
+        `Pick the channel where active revive request embeds will be posted.\n\n**Current Channel:** ${currentChannel}`,
       );
 
     const channelSelect =
@@ -690,37 +719,51 @@ export async function handleReviveSetOutputChannel(
 }
 
 export async function handleReviveSetPingRole(
-  interaction: ButtonInteraction,
+  interaction: ConfigInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getReviveConfig(guildId);
+    const currentRole = config.ping_role_id
+      ? `<@&${config.ping_role_id}>`
+      : "None configured";
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Select Ping Role")
       .setDescription(
-        "Pick the role to ping whenever a revive request is sent. Leave selection empty to clear.",
+        `Pick the role to ping whenever a revive request is sent. Leave selection empty to clear.\n\n**Current Ping Role:** ${currentRole}`,
       );
 
-    const roleSelect =
-      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
-        new RoleSelectMenuBuilder()
-          .setCustomId("revive_ping_role_select")
-          .setPlaceholder("Select an optional ping role")
-          .setMinValues(0)
-          .setMaxValues(1),
-      );
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId("revive_ping_role_select")
+      .setPlaceholder("Select an optional ping role")
+      .setMinValues(0)
+      .setMaxValues(1);
+
+    if (config.ping_role_id) {
+      roleSelect.setDefaultRoles([config.ping_role_id]);
+    }
+
+    const rowSelect =
+      new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
     const backBtn = new ButtonBuilder()
       .setCustomId("revive_settings_show")
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+    const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
     await interaction.editReply({
       embeds: [embed],
-      components: [roleSelect, row],
+      components: [rowSelect, rowBtn],
     });
   } catch (error) {
     console.error("Error in revive ping role button:", error);
@@ -791,25 +834,86 @@ export async function handleRevivePingRoleSelect(
   }
 }
 
+export async function handleShowMinHospSettings(
+  interaction: ConfigInteraction,
+  isAlreadyDeferred = false,
+): Promise<void> {
+  try {
+    if (!isAlreadyDeferred && "deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
+
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const config = await getReviveConfig(guildId);
+    const message = "message" in interaction ? interaction.message : null;
+    const footerText = message?.embeds?.[0]?.footer?.text;
+    const originalUserId = getConfigSessionUserId(footerText, interaction.user.id);
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8b5cf6)
+      .setTitle("Minimum Hospital Time")
+      .setDescription(
+        "Configure the minimum hospital time left required to request a revive. If a player has less than this time remaining, their request will be blocked.\n\n" +
+          `**Current Minimum Time:** ${secondsToHuman(config.min_hospital_seconds_left)}`
+      )
+      .setFooter({
+        text: `Sentinel • Config Session: ${originalUserId}`,
+      })
+      .setTimestamp();
+
+    const editBtn = new ButtonBuilder()
+      .setCustomId("revive_set_min_hosp")
+      .setLabel("Edit Minimum Time")
+      .setStyle(ButtonStyle.Primary);
+
+    const backBtn = new ButtonBuilder()
+      .setCustomId("revive_settings_show")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(editBtn, backBtn);
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [row],
+    });
+  } catch (error) {
+    console.error("Error in handleShowMinHospSettings:", error);
+  }
+}
+
 export async function handleReviveSetMinHospButton(
   interaction: ButtonInteraction,
 ): Promise<void> {
-  const modal = new ModalBuilder()
-    .setCustomId("revive_min_hosp_modal")
-    .setTitle("Revive Minimum Hospital Time");
+  try {
+    const guildId = interaction.guildId;
+    if (!guildId) return;
 
-  const input = new TextInputBuilder()
-    .setCustomId("min_hospital_minutes")
-    .setLabel("Minimum hospital time left (minutes)")
-    .setPlaceholder("0")
-    .setRequired(true)
-    .setMaxLength(4)
-    .setStyle(TextInputStyle.Short);
+    const config = await getReviveConfig(guildId);
+    const currentMinutes = Math.floor(config.min_hospital_seconds_left / 60);
 
-  const row = new ActionRowBuilder<TextInputBuilder>().addComponents(input);
-  modal.addComponents(row);
+    const modal = new ModalBuilder()
+      .setCustomId("revive_min_hosp_modal")
+      .setTitle("Revive Minimum Hospital Time");
 
-  await interaction.showModal(modal);
+    const input = new TextInputBuilder()
+      .setCustomId("min_hospital_minutes")
+      .setLabel("Minimum hospital time left (minutes)")
+      .setPlaceholder("0")
+      .setRequired(true)
+      .setMaxLength(4)
+      .setStyle(TextInputStyle.Short)
+      .setValue(String(currentMinutes));
+
+    const row = new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  } catch (error) {
+    console.error("Error in handleReviveSetMinHospButton:", error);
+  }
 }
 
 export async function handleReviveSetMinHospModal(
@@ -847,20 +951,19 @@ export async function handleReviveSetMinHospModal(
 
     await ensureReviveRequestPanel(interaction.client, guildId);
 
-    await handleShowReviveSettings(
-      interaction as unknown as ButtonInteraction,
-      true,
-    );
+    await handleShowMinHospSettings(interaction, true);
   } catch (error) {
-    console.error("Error in revive min hosp modal:", error);
+    console.error("Error in handleReviveSetMinHospModal:", error);
   }
 }
 
 export async function handleReviveRefreshPanel(
-  interaction: ButtonInteraction,
+  interaction: ConfigInteraction,
 ): Promise<void> {
   try {
-    await interaction.deferUpdate();
+    if ("deferUpdate" in interaction) {
+      await (interaction as any).deferUpdate();
+    }
 
     const guildId = interaction.guildId;
     if (!guildId) return;

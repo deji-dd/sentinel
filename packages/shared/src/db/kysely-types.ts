@@ -102,6 +102,7 @@ export interface SentinelBazaarMugConfig {
   guild_id: string | null;
   is_enabled: Generated<number>;
   min_bazaar_drop_threshold: Generated<number>;
+  min_offline_time_minutes: Generated<number>;
   notification_channel_id: string | null;
   ping_role_id: string | null;
   target_player_ids_json: Generated<string>;

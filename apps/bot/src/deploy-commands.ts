@@ -1,21 +1,16 @@
 import "dotenv/config";
 import { REST, Routes } from "discord.js";
 
-import * as deployCommandsCommand from "./commands/personal/admin/deploy-commands.js";
-import * as botAdminCommand from "./commands/personal/admin/bot-admin.js";
-import * as forceRunCommand from "./commands/personal/admin/force-run.js";
 import * as inviteCommand from "./commands/personal/admin/invite.js";
-import * as dbBackupCommand from "./commands/personal/admin/db-backup.js";
 import * as configCommand from "./commands/general/admin/config.js";
+import * as adminCommand from "./commands/general/admin/admin.js";
 import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
 import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";
 import * as ttSelectorCommand from "./commands/general/territories/tt-selector.js";
-import * as statsCommand from "./commands/personal/stats.js";
 import * as assistCommand from "./commands/general/assist/assist.js";
-import * as revokeWebAccessCommand from "./commands/personal/admin/revoke-web-access.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -41,11 +36,8 @@ console.log(
 
 // Deploy to admin guild only on startup
 const commands = [
-  forceRunCommand.data.toJSON(),
-  botAdminCommand.data.toJSON(),
-  deployCommandsCommand.data.toJSON(),
+  adminCommand.data.toJSON(),
   inviteCommand.data.toJSON(),
-  dbBackupCommand.data.toJSON(),
   configCommand.data.toJSON(),
   verifyCommand.data.toJSON(),
   verifyallCommand.data.toJSON(),
@@ -53,9 +45,7 @@ const commands = [
   burnMapCommand.data.toJSON(),
   allianceMapCommand.data.toJSON(),
   ttSelectorCommand.data.toJSON(),
-  statsCommand.data.toJSON(),
   assistCommand.data.toJSON(),
-  revokeWebAccessCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);
@@ -66,11 +56,11 @@ async function deployCommands() {
       `[Deploy Commands] Clearing global commands and registering to admin guild ${adminGuildId}...`,
     );
 
-    // Clear any global commands that might exist from previous deployments
+    // Deploy global commands (e.g. /admin command)
     await rest.put(Routes.applicationCommands(clientId), {
-      body: [],
+      body: [adminCommand.data.toJSON()],
     });
-    console.log("[Deploy Commands] Cleared global commands.");
+    console.log("[Deploy Commands] Registered global commands.");
 
     // Deploy commands to admin guild only
     await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {

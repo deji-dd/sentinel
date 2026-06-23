@@ -4,12 +4,8 @@
  */
 
 import { ChatInputCommandInteraction, Client, EmbedBuilder } from "discord.js";
-import * as forceRunCommand from "../commands/personal/admin/force-run.js";
-import * as botAdminCommand from "../commands/personal/admin/bot-admin.js";
-import * as deployCommandsCommand from "../commands/personal/admin/deploy-commands.js";
+import * as adminCommand from "../commands/general/admin/admin.js";
 import * as inviteCommand from "../commands/personal/admin/invite.js";
-import * as dbBackupCommand from "../commands/personal/admin/db-backup.js";
-import * as revokeWebAccessCommand from "../commands/personal/admin/revoke-web-access.js";
 
 /**
  * Create an "Not Authorized" error embed
@@ -60,26 +56,11 @@ export async function handleAdminCommand(
 
   // Execute the appropriate admin command
   switch (commandName) {
-    case "bot-admin":
-      await botAdminCommand.execute(interaction);
-      break;
-    case "force-run":
-      await forceRunCommand.execute(interaction);
-      break;
-    case "deploy-commands":
-      await deployCommandsCommand.execute(interaction, client);
+    case "admin":
+      await adminCommand.execute(interaction);
       break;
     case "invite":
       await inviteCommand.execute(interaction);
-      break;
-    case "db-backup":
-      await dbBackupCommand.execute(interaction, client);
-      break;
-    case "revoke-web-access":
-      await revokeWebAccessCommand.execute(interaction);
-      break;
-    case "test-verification-dms":
-      // Placeholder for test command
       break;
   }
 
@@ -91,12 +72,7 @@ export async function handleAdminCommand(
  */
 export function isAdminCommandName(commandName: string): boolean {
   return [
-    "bot-admin",
-    "force-run",
-    "deploy-commands",
+    "admin",
     "invite",
-    "db-backup",
-    "test-verification-dms",
-    "revoke-web-access",
   ].includes(commandName);
 }
