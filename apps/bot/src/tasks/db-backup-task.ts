@@ -9,6 +9,7 @@ import { rawDb } from "../lib/db-client.js";
 import { logDuration, logError, logInfo } from "../lib/logger.js";
 import fs from "fs";
 import path from "path";
+import zlib from "zlib";
 
 const TASK_NAME = "db_backup";
 let backupInFlight = false;
@@ -71,6 +72,7 @@ export async function performBackup(client: Client): Promise<void> {
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupPath = path.join(tempDir, `sentinel-backup-${timestamp}.db`);
+  const compressedPath = backupPath + ".gz";
 
   try {
     const adminUserId = process.env.SENTINEL_DISCORD_USER_ID;
@@ -93,16 +95,26 @@ export async function performBackup(client: Client): Promise<void> {
      */
     await rawDb.backup(backupPath);
 
+    // Compress the SQLite file using gzip
+    const gzip = zlib.createGzip();
+    const source = fs.createReadStream(backupPath);
+    const destination = fs.createWriteStream(compressedPath);
+    await new Promise<void>((resolve, reject) => {
+      source.pipe(gzip).pipe(destination)
+        .on("finish", () => resolve())
+        .on("error", (err) => reject(err));
+    });
+
     // Create attachment
-    const attachment = new AttachmentBuilder(backupPath, {
-      name: `sentinel-backup-${new Date().toISOString().split("T")[0]}.db`,
+    const attachment = new AttachmentBuilder(compressedPath, {
+      name: `sentinel-backup-${new Date().toISOString().split("T")[0]}.db.gz`,
     });
 
     // Send the backup via DM
     const embed = new EmbedBuilder()
       .setColor(0x10b981)
       .setTitle("Daily Database Backup")
-      .setDescription("Total database state snapshot captured and verified.")
+      .setDescription("Total database state snapshot captured, compressed, and verified.")
       .setFields({
         name: "Time",
         value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
@@ -114,9 +126,12 @@ export async function performBackup(client: Client): Promise<void> {
       files: [attachment],
     });
 
-    // Cleanup temp file
+    // Cleanup temp files
     if (fs.existsSync(backupPath)) {
       fs.unlinkSync(backupPath);
+    }
+    if (fs.existsSync(compressedPath)) {
+      fs.unlinkSync(compressedPath);
     }
 
     const duration = Date.now() - startTime;
@@ -136,6 +151,14 @@ export async function performBackup(client: Client): Promise<void> {
     if (fs.existsSync(backupPath)) {
       try {
         fs.unlinkSync(backupPath);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+    if (fs.existsSync(compressedPath)) {
+      try {
+        fs.unlinkSync(compressedPath);
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         // Ignore cleanup errors

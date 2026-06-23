@@ -44,14 +44,9 @@ export async function deployGuildCommands(guildId: string): Promise<boolean> {
     const burnMapCommand = await import("../commands/general/territories/burn-map.js");
     const allianceMapCommand = await import("../commands/general/territories/alliance-map.js");
     const ttSelectorCommand = await import("../commands/general/territories/tt-selector.js");
-    const statsCommand = await import("../commands/personal/stats.js");
     const assistCommand = await import("../commands/general/assist/assist.js");
-    const forceRunCommand = await import("../commands/personal/admin/force-run.js");
-    const botAdminCommand = await import("../commands/personal/admin/bot-admin.js");
-    const deployCommandsCommand = await import("../commands/personal/admin/deploy-commands.js");
+    const adminCommand = await import("../commands/general/admin/admin.js");
     const inviteCommand = await import("../commands/personal/admin/invite.js");
-    const dbBackupCommand = await import("../commands/personal/admin/db-backup.js");
-    const revokeWebAccessCommand = await import("../commands/personal/admin/revoke-web-access.js");
 
     const commandsByModule: Record<string, any[]> = {
       verify: [verifyCommand.data.toJSON(), verifyallCommand.data.toJSON()],
@@ -68,11 +63,8 @@ export async function deployGuildCommands(guildId: string): Promise<boolean> {
     if (guildId === adminGuildId) {
       // Admin guild always gets all commands
       const adminCommands = [
-        forceRunCommand.data.toJSON(),
-        botAdminCommand.data.toJSON(),
-        deployCommandsCommand.data.toJSON(),
+        adminCommand.data.toJSON(),
         inviteCommand.data.toJSON(),
-        dbBackupCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),
         burnMapCommand.data.toJSON(),
@@ -80,9 +72,7 @@ export async function deployGuildCommands(guildId: string): Promise<boolean> {
         ttSelectorCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
-        statsCommand.data.toJSON(),
         assistCommand.data.toJSON(),
-        revokeWebAccessCommand.data.toJSON(),
       ];
 
       await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
