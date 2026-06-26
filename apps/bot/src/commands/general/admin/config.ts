@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -9,7 +10,6 @@ import {
   StringSelectMenuOptionBuilder,
   ChannelSelectMenuBuilder,
   ChannelType,
-  MessageFlags,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -32,7 +32,6 @@ import * as mercenaryHandlers from "./handlers/mercenary.js";
 import * as bazaarMugHandlers from "./handlers/bazaar-mug.js";
 import * as reactionRolesHandlers from "./handlers/reaction-roles.js";
 import { db } from "../../../lib/db-client.js";
-import { getApiUrl } from "../../../lib/bot-config.js";
 import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
 
 const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
@@ -45,9 +44,7 @@ if (!botOwnerId) {
   throw new Error("Missing SENTINEL_DISCORD_USER_ID environment variable");
 }
 
-function getDashboardTargetPath(isAdminGuild: boolean): "/admin" | "/config" {
-  return isAdminGuild ? "/admin" : "/config";
-}
+
 
 /**
  * Check if user has permission to configure the guild
@@ -630,7 +627,7 @@ export async function handleBackToMenu(
     if (!guildId) return;
 
     const adminGuildId = process.env.ADMIN_GUILD_ID;
-    const isAdminGuild = guildId === adminGuildId;
+    const _isAdminGuild = guildId === adminGuildId;
 
     const guildConfig = await db
       .selectFrom(TABLE_NAMES.GUILD_CONFIG)
@@ -941,9 +938,9 @@ export async function handleEditAdminRolesButton(
       ? JSON.parse(guildConfig.admin_role_ids)
       : [];
 
-    let rolesDisplay = "Anyone can use /config (no restricted roles)";
+    let _rolesDisplay = "Anyone can use /config (no restricted roles)";
     if (adminRoleIds.length > 0) {
-      rolesDisplay = adminRoleIds.map((roleId) => `<@&${roleId}>`).join(", ");
+      _rolesDisplay = adminRoleIds.map((roleId) => `<@&${roleId}>`).join(", ");
     }
 
     const roleSelectMenu = new RoleSelectMenuBuilder()

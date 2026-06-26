@@ -1,3 +1,4 @@
+ 
 /**
  * Admin Commands Handler Module
  * Manages authorization and execution of admin-only commands
@@ -35,7 +36,7 @@ function isAuthorized(
 export async function handleAdminCommand(
   interaction: ChatInputCommandInteraction,
   authorizedDiscordUserId: string,
-  client: Client,
+  _client: Client,
 ): Promise<boolean> {
   const commandName = interaction.commandName;
   const isAdminCommand = isAdminCommandName(commandName);

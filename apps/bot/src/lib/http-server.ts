@@ -31,6 +31,8 @@ import {
   incrementAssistStrikeByUuid,
 } from "../server/routes/assist/assist-service.js";
 
+import { wsManager } from "./ws-server.js";
+
 const app = express();
 app.set("trust proxy", 1);
 
@@ -160,9 +162,12 @@ export function initHttpServer(client: Client, port: number = 3001) {
 
   const logger = new Logger("HTTP");
   // Start server
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     logger.info(`Server listening on port ${port}`);
   });
+
+  // Initialize WebSocket Manager
+  wsManager.init(server);
 
   return app;
 }

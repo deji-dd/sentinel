@@ -451,6 +451,7 @@ export interface SentinelMercenaryVerificationVault {
 export interface SentinelPersonalSettings {
   admin_log_channel_id: string | null;
   discord_id: string;
+  drug_alerts_enabled: Generated<number | null>;
   energy_aggressive_interval_mins: Generated<number | null>;
   energy_alerts_enabled: Generated<number | null>;
   energy_dashboard_gains_channel_id: string | null;
@@ -464,6 +465,7 @@ export interface SentinelPersonalSettings {
   energy_dashboard_target_message_id: string | null;
   energy_soft_threshold: Generated<number | null>;
   error_pings_enabled: Generated<number | null>;
+  last_drug_alert_sent_at: string | null;
   last_energy_alert_sent_at: string | null;
   last_energy_alert_type: string | null;
   selected_build: Generated<string>;

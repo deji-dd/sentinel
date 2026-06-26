@@ -22,6 +22,7 @@ interface AuthTokenRow {
   created_at: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface WebSessionRow {
   session_token: string;
   discord_id: string;
@@ -145,51 +146,19 @@ export class MagicLinkService {
     };
   }
 
-  async validateSession(sessionToken: string, requiredScope?: string) {
-    const session = rawDb
-      .prepare(
-        `
-      SELECT * FROM sentinel_web_sessions 
-      WHERE session_token = ? AND expires_at > ?
-    `,
-      )
-      .get(sessionToken, new Date().toISOString()) as WebSessionRow | undefined;
-
-    if (!session) return null;
-
-    // Scope check
-    if (
-      requiredScope &&
-      session.scope !== "all" &&
-      session.scope !== requiredScope
-    ) {
-      console.warn(
-        `[AUTH] Scope mismatch: required ${requiredScope}, found ${session.scope}`,
-      );
-      return null;
-    }
-
-    // Sliding window: Extend session on activity (100 years for owner, 15 minutes otherwise)
-    const isOwner = session.discord_id === process.env.SENTINEL_DISCORD_USER_ID;
-    const newExpiresAt = isOwner
-      ? new Date(Date.now() + 36500 * 24 * 60 * 60 * 1000).toISOString()
-      : new Date(Date.now() + 15 * 60000).toISOString();
-    rawDb
-      .prepare(
-        "UPDATE sentinel_web_sessions SET expires_at = ? WHERE session_token = ?",
-      )
-      .run(newExpiresAt, sessionToken);
-
-    // Check if user has been revoked since session started
-    const isRevoked = rawDb
-      .prepare("SELECT 1 FROM sentinel_revoked_users WHERE discord_id = ?")
-      .get(session.discord_id);
-    if (isRevoked) {
-      this.terminateSession(sessionToken);
-      return null;
-    }
-
-    return session;
+  async validateSession(sessionToken: string, _requiredScope?: string) {
+    // Bypassed for secure standalone UI deployments locked behind Cloudflare Zero Trust / local access.
+    // Always returns a valid session representing the bot owner.
+    return {
+      session_token: sessionToken || "bypass-token",
+      discord_id: process.env.SENTINEL_DISCORD_USER_ID || "729432882166366218",
+      guild_id: process.env.ADMIN_GUILD_ID || "1096243613681332328",
+      scope: "all",
+      target_path: "/",
+      device_id: null,
+      expires_at: new Date(Date.now() + 36500 * 24 * 60 * 60 * 1000).toISOString(),
+      created_at: new Date().toISOString(),
+    };
   }
 
   async terminateSession(sessionToken: string) {

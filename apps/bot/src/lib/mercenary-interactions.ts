@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Mercenary Module Button Handlers
  * Handles dibs claims and releases

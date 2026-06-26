@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Client, EmbedBuilder } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "./db-client.js";

@@ -19,6 +19,7 @@ if (!process.env.ENCRYPTION_KEY) {
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface FactionMember {
   id: number;
   name: string;
