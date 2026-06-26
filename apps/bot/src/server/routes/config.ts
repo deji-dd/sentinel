@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { EmbedBuilder } from "discord.js";
@@ -103,7 +104,7 @@ async function getFactionWarState(factionId: number): Promise<{
 }
 
 function normalizeMercenaryContractRow(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   row: any,
 ) {
   return {
@@ -751,7 +752,7 @@ configRouter.patch(
 
 
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const updateData: any = {
         updated_at: new Date().toISOString(),
         faction_id: nextFactionId,
@@ -1210,7 +1211,7 @@ configRouter.post("/", async (req: Request, res: Response) => {
       .where("guild_id", "=", guildId)
       .executeTakeFirst();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const updateData: any = {
       updated_at: new Date().toISOString(),
     };
@@ -2166,6 +2167,49 @@ configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
   }
 });
 
+configRouter.get("/personal/builds", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+
+    const builds = await db
+      .selectFrom(TABLE_NAMES.STAT_BUILDS)
+      .selectAll()
+      .execute();
+
+    const configs = await db
+      .selectFrom(TABLE_NAMES.STAT_BUILD_CONFIGURATIONS)
+      .selectAll()
+      .execute();
+
+    const mappedBuilds = builds.map((build) => {
+      const buildConfigs = configs.filter((c) => c.build_id === build.id);
+      return {
+        ...build,
+        configurations: buildConfigs.map((c) => ({
+          main_stat: c.main_stat,
+          notes: c.notes,
+          ratios: {
+            strength: c.strength_percentage || 25,
+            speed: c.speed_percentage || 25,
+            defense: c.defense_percentage || 25,
+            dexterity: c.dexterity_percentage || 25,
+          }
+        }))
+      };
+    });
+
+    res.json(mappedBuilds);
+  } catch (error) {
+    console.error("[HTTP] Error fetching personal builds:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 configRouter.get("/personal", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Missing session token" });
@@ -2201,6 +2245,8 @@ configRouter.get("/personal", async (req: Request, res: Response) => {
         energy_aggressive_interval_mins: 5,
         last_energy_alert_sent_at: null,
         last_energy_alert_type: null,
+        drug_alerts_enabled: 0,
+        last_drug_alert_sent_at: null,
         admin_log_channel_id: null,
         error_pings_enabled: 1,
         selected_build: "balanced",
@@ -2259,6 +2305,7 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
       energy_alerts_enabled,
       energy_soft_threshold,
       energy_aggressive_interval_mins,
+      drug_alerts_enabled,
       admin_log_channel_id,
       error_pings_enabled,
       selected_build,
@@ -2385,6 +2432,7 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
         energy_alerts_enabled: energy_alerts_enabled ? 1 : 0,
         energy_soft_threshold: softThreshold,
         energy_aggressive_interval_mins: aggressiveInterval,
+        drug_alerts_enabled: drug_alerts_enabled ? 1 : 0,
         admin_log_channel_id: admin_log_channel_id || null,
         error_pings_enabled: error_pings_enabled ? 1 : 0,
         selected_build: build,
@@ -2408,6 +2456,7 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
           energy_alerts_enabled: energy_alerts_enabled ? 1 : 0,
           energy_soft_threshold: softThreshold,
           energy_aggressive_interval_mins: aggressiveInterval,
+          drug_alerts_enabled: drug_alerts_enabled ? 1 : 0,
           admin_log_channel_id: admin_log_channel_id || null,
           error_pings_enabled: error_pings_enabled ? 1 : 0,
           selected_build: build,
@@ -2523,8 +2572,8 @@ configRouter.get("/personal/milestones", async (req: Request, res: Response) => 
     // 3. Compute happiness and energy stats from the latest snapshot
     const maxHappy = userSnapshot?.happy_maximum ? Number(userSnapshot.happy_maximum) : 5000;
     const currentHappy = userSnapshot?.happy_current ? Number(userSnapshot.happy_current) : 5000;
-    const currentEnergy = userSnapshot?.energy_current ? Number(userSnapshot.energy_current) : 0;
-    const maxEnergy = userSnapshot?.energy_maximum ? Number(userSnapshot.energy_maximum) : 150;
+    const _currentEnergy = userSnapshot?.energy_current ? Number(userSnapshot.energy_current) : 0;
+    const _maxEnergy = userSnapshot?.energy_maximum ? Number(userSnapshot.energy_maximum) : 150;
     const avgHappy = maxHappy; // Use player maximum happy as training baseline
 
     // Average daily energy
@@ -2681,7 +2730,7 @@ configRouter.get("/personal/milestones", async (req: Request, res: Response) => 
         if (parsed.backfill_complete) {
           isBackfillComplete = true;
         }
-      } catch {}
+      } catch { /* metadata may not be JSON - skip */ }
     }
 
     // 6. Fetch Target Ratios and Compute Training Recommendations via shared utility
@@ -2755,6 +2804,23 @@ configRouter.get("/personal/milestones", async (req: Request, res: Response) => 
       };
     });
 
+    // Fetch 10 most recent logs
+    const recentLogs = await db
+      .selectFrom("sentinel_gym_train_logs" as any)
+      .leftJoin(TABLE_NAMES.TORN_GYMS, "sentinel_gym_train_logs.gym_id", `${TABLE_NAMES.TORN_GYMS}.id`)
+      .select([
+        "sentinel_gym_train_logs.log_id as id",
+        "sentinel_gym_train_logs.timestamp",
+        "sentinel_gym_train_logs.stat",
+        "sentinel_gym_train_logs.gain",
+        "sentinel_gym_train_logs.energy",
+        "sentinel_gym_train_logs.happy",
+        `${TABLE_NAMES.TORN_GYMS}.name as gym_name`,
+      ])
+      .orderBy("sentinel_gym_train_logs.timestamp", "desc")
+      .limit(10)
+      .execute();
+
     res.json({
       currentStats: {
         strength: statsData.strength,
@@ -2770,6 +2836,7 @@ configRouter.get("/personal/milestones", async (req: Request, res: Response) => 
       avgDailyEnergy: Math.round(avgDailyEnergy),
       projections,
       history,
+      recentLogs,
       syncStatus: {
         totalRecords: count,
         lastSyncAt: scheduleRow?.last_run_at || null,

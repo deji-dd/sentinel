@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   TABLE_NAMES,
   buildWorkerName,
@@ -57,11 +58,26 @@ export async function syncGlobalCronSchedules(): Promise<void> {
     initialNextRunAt: new Date().toISOString(),
   });
 
-  await ensureWorkerRegistered({
-    name: "bot:energy_dashboard",
-    cadenceSeconds: 60,
-    initialNextRunAt: new Date().toISOString(),
-  });
+  // Clean up legacy energy_dashboard worker
+  const legacyWorker = await db
+    .selectFrom(TABLE_NAMES.WORKERS)
+    .select(["id"])
+    .where("name", "=", "bot:energy_dashboard")
+    .executeTakeFirst();
+  
+  if (legacyWorker) {
+    await db
+      .deleteFrom(TABLE_NAMES.WORKER_SCHEDULES)
+      .where("worker_id", "=", legacyWorker.id)
+      .execute();
+    
+    await db
+      .deleteFrom(TABLE_NAMES.WORKERS)
+      .where("id", "=", legacyWorker.id)
+      .execute();
+    
+    logger.info("Successfully cleaned up legacy bot:energy_dashboard worker registration");
+  }
 }
 
 export async function syncAutoVerifyCronSchedule(

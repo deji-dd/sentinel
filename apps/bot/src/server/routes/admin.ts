@@ -1,5 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Router, type Request, type Response } from "express";
-import { REST, Routes } from "discord.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "../../lib/db-client.js";
 import { getServerContext } from "../context.js";
@@ -22,7 +22,7 @@ async function ensureBotOwner(req: Request, res: Response, next: Function) {
     if (!session || session.discord_id !== botOwnerId) {
       return res.status(403).json({ error: "Forbidden: Bot owner only" });
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     (req as any).session = session;
     next();
   } catch {
@@ -375,7 +375,7 @@ adminRouter.get("/live-energy", async (req: Request, res: Response) => {
           gymRecommendation: recs.gymRecommendation,
         },
       });
-    } catch (err) {
+    } catch {
       sendEvent({ error: "Error compiling dashboard stats" });
     }
   }, 5000);

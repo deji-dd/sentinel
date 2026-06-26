@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { executeSync } from "../lib/sync.js";
 import { getSystemApiKey } from "../lib/api-keys.js";
 import { tornApi } from "../services/torn-client.js";
@@ -224,7 +225,7 @@ async function takeSnapshot(): Promise<void> {
       })
       .execute();
 
-    // Energy notification check logic
+    // Notification check logic (Energy & Drug)
     try {
       const ownerDiscordId = process.env.SENTINEL_DISCORD_USER_ID;
       if (!ownerDiscordId) {
@@ -237,86 +238,71 @@ async function takeSnapshot(): Promise<void> {
         .where("discord_id", "=", ownerDiscordId || "")
         .executeTakeFirst();
 
-      if (personalSettings && personalSettings.energy_alerts_enabled === 1) {
-        const softThreshold = personalSettings.energy_soft_threshold ?? 130;
-        const aggressiveIntervalMins = personalSettings.energy_aggressive_interval_mins ?? 5;
-        const lastAlertSentAt = personalSettings.last_energy_alert_sent_at;
-        const lastAlertType = personalSettings.last_energy_alert_type;
+      if (personalSettings) {
+        // 1. Energy Alerts
+        if (personalSettings.energy_alerts_enabled === 1) {
+          const softThreshold = personalSettings.energy_soft_threshold ?? 130;
+          const aggressiveIntervalMins = personalSettings.energy_aggressive_interval_mins ?? 5;
+          const lastAlertSentAt = personalSettings.last_energy_alert_sent_at;
+          const lastAlertType = personalSettings.last_energy_alert_type;
 
-        let shouldAlert = false;
-        let alertType: "soft" | "aggressive" | null = null;
+          let shouldAlert = false;
+          let alertType: "soft" | "aggressive" | null = null;
 
-        if (energyCurrent >= energyMaximum) {
-          // Check aggressive alert cooldown
-          const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
-          const isCooldownPassed = !lastAlertSentAt || 
-            (Date.now() - new Date(lastAlertSentAt).getTime() >= aggressiveCooldownMs);
+          if (energyCurrent >= energyMaximum) {
+            // Check aggressive alert cooldown
+            const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
+            const isCooldownPassed = !lastAlertSentAt || 
+              (Date.now() - new Date(lastAlertSentAt).getTime() >= aggressiveCooldownMs);
 
-          if (isCooldownPassed || lastAlertType !== "aggressive") {
-            shouldAlert = true;
-            alertType = "aggressive";
-          }
-        } else if (energyCurrent >= softThreshold) {
-          // Trigger soft alert once
-          if (lastAlertType !== "soft" && lastAlertType !== "aggressive") {
-            shouldAlert = true;
-            alertType = "soft";
-          }
-        } else {
-          // If energy falls below soft threshold, reset the state
-          if (lastAlertType !== null) {
-            await db
-              .updateTable("sentinel_personal_settings" as any)
-              .set({
-                last_energy_alert_type: null,
-                last_energy_alert_sent_at: null,
-                updated_at: new Date().toISOString(),
-              })
-              .where("user_id", "=", personalSettings.user_id)
-              .execute();
-          }
-        }
-
-        if (shouldAlert && alertType) {
-          const nowIso = new Date().toISOString();
-          
-          let recText = "";
-          try {
-            const recs = await getPersonalTrainingRecommendations(db, personalSettings.user_id, apiKey, tornApi);
-            recText = `\n\nOptimal training focus: **${recs.stat}**\n${recs.text}`;
-            if (recs.gymRecommendation) {
-              recText += `\n*${recs.gymRecommendation}*`;
+            if (isCooldownPassed || lastAlertType !== "aggressive") {
+              shouldAlert = true;
+              alertType = "aggressive";
             }
-          } catch (recError) {
-            snapshotLogger.error("Failed to fetch recommendation for alert DM", recError);
+          } else if (energyCurrent >= softThreshold) {
+            // Trigger soft alert once
+            if (lastAlertType !== "soft" && lastAlertType !== "aggressive") {
+              shouldAlert = true;
+              alertType = "soft";
+            }
+          } else {
+            // If energy falls below soft threshold, reset the state
+            if (lastAlertType !== null) {
+              await db
+                .updateTable("sentinel_personal_settings" as any)
+                .set({
+                  last_energy_alert_type: null,
+                  last_energy_alert_sent_at: null,
+                  updated_at: new Date().toISOString(),
+                })
+                .where("user_id", "=", personalSettings.user_id)
+                .execute();
+            }
           }
 
-          // Guidelines check: Always use embeds, no emojis, Sentinel footer and timestamp in footer
-          const embedTitle = alertType === "aggressive" 
-            ? "CRITICAL: Energy Bar Full" 
-            : "Alert: Energy Approaching Full";
+          if (shouldAlert && alertType) {
+            const nowIso = new Date().toISOString();
             
-          const baseDescription = alertType === "aggressive"
-            ? `Your energy bar is completely full (${energyCurrent}/${energyMaximum}). Use it immediately to avoid wasting regeneration.`
-            : `Your energy bar has reached ${energyCurrent}/${energyMaximum} (threshold: ${softThreshold}).`;
+            let recTitle = "";
+            try {
+              const recs = await getPersonalTrainingRecommendations(db, personalSettings.user_id, apiKey, tornApi);
+              recTitle = ` (Train: ${recs.stat})`;
+            } catch (recError) {
+              snapshotLogger.error("Failed to fetch recommendation for alert", recError);
+            }
 
-          const embed = {
-            title: embedTitle,
-            description: baseDescription + recText,
-            color: alertType === "aggressive" ? 0xef4444 : 0xf59e0b, // Red or Amber
-            footer: {
-              text: "Sentinel",
-            },
-            timestamp: nowIso,
-          };
+            const baseDescription = alertType === "aggressive"
+              ? `Your energy bar is completely full (${energyCurrent}/${energyMaximum}). Use it immediately to avoid wasting regeneration.`
+              : `Your energy bar has reached ${energyCurrent}/${energyMaximum} (threshold: ${softThreshold}).`;
 
-          // Send IPC request to the bot to deliver the DM
-          const ipcResponse = await sendIpcRequest("send-dm", {
-            discordId: personalSettings.discord_id,
-            embed,
-          });
+            // Send Web Push pointing to Torn Gym
+            const pushTitle = alertType === "aggressive" ? "Energy Bar Full!" : "Energy Alert";
+            const pushResponse = await sendIpcRequest("send-push", {
+              title: `${pushTitle}${recTitle}`,
+              body: baseDescription,
+              url: "https://www.torn.com/gym.php"
+            });
 
-          if (ipcResponse.success) {
             // Update last alert state in settings
             await db
               .updateTable("sentinel_personal_settings" as any)
@@ -327,14 +313,81 @@ async function takeSnapshot(): Promise<void> {
               })
               .where("user_id", "=", personalSettings.user_id)
               .execute();
-            snapshotLogger.debug(`Sent ${alertType} energy alert DM to owner`);
-          } else {
-            snapshotLogger.error(`Failed to send energy alert DM via IPC: ${ipcResponse.error}`);
+
+            if (pushResponse.success) {
+              snapshotLogger.debug(`Sent ${alertType} energy alert push notification to owner`);
+            } else {
+              snapshotLogger.error(`Failed to send energy alert push notification via IPC: ${pushResponse.error}`);
+            }
+          }
+        }
+
+        // 2. Drug Cooldown Alerts
+        if (personalSettings.drug_alerts_enabled === 1) {
+          const lastDrugAlertSentAt = personalSettings.last_drug_alert_sent_at;
+
+          if (drugCooldown > 0) {
+            // Cooldown started/active -> reset sent state to allow next alert when it ends
+            if (lastDrugAlertSentAt !== null) {
+              await db
+                .updateTable("sentinel_personal_settings" as any)
+                .set({
+                  last_drug_alert_sent_at: null,
+                  updated_at: new Date().toISOString(),
+                })
+                .where("user_id", "=", personalSettings.user_id)
+                .execute();
+            }
+          } else if (drugCooldown === 0) {
+            // Cooldown completed -> check if we should alert aggressively
+            const aggressiveIntervalMins = personalSettings.energy_aggressive_interval_mins || 5;
+            const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
+            const isCooldownPassed = !lastDrugAlertSentAt ||
+              (Date.now() - new Date(lastDrugAlertSentAt).getTime() >= aggressiveCooldownMs);
+
+            if (isCooldownPassed) {
+              const nowIso = new Date().toISOString();
+
+              const embed = {
+                title: "Alert: Drug Cooldown Completed",
+                description: "Your drug cooldown has finished. You are now clean to take another drug.",
+                color: 0x10b981, // Green
+                footer: {
+                  text: "Sentinel",
+                },
+                timestamp: nowIso,
+              };
+
+              // Send Discord DM
+              await sendIpcRequest("send-dm", {
+                discordId: personalSettings.discord_id,
+                embed,
+              });
+
+              // Send Web Push pointing to Torn Gym
+              await sendIpcRequest("send-push", {
+                title: "Drug Cooldown Completed",
+                body: "Your drug cooldown has finished. You can now take another drug.",
+                url: "https://www.torn.com/gym.php"
+              });
+
+              // Update last alert state in settings
+              await db
+                .updateTable("sentinel_personal_settings" as any)
+                .set({
+                  last_drug_alert_sent_at: nowIso,
+                  updated_at: nowIso,
+                })
+                .where("user_id", "=", personalSettings.user_id)
+                .execute();
+
+              snapshotLogger.debug("Sent drug cooldown completed alert DM and push notification");
+            }
           }
         }
       }
     } catch (alertError) {
-      snapshotLogger.error("Failed running energy alert checks", alertError);
+      snapshotLogger.error("Failed running alert checks", alertError);
     }
 
     const duration = Date.now() - startTime;

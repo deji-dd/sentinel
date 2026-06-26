@@ -5,7 +5,6 @@ import { Logger } from "./logger.js";
 import { performBackup } from "../tasks/db-backup-task.js";
 import { performDailySummary } from "../tasks/daily-summary-task.js";
 import { performTokenCleanup } from "../tasks/token-cleanup-task.js";
-import { performEnergyDashboardSync } from "../tasks/energy-dashboard-task.js";
 import { performReviveMaintenance } from "../commands/general/admin/handlers/revive.js";
 import { GuildSyncScheduler } from "./verification-sync.js";
 import { runWarTrackerGuildSync } from "./war-tracker.js";
@@ -149,6 +148,16 @@ async function handleIpcRequest(req: any, client: Client): Promise<any> {
         return { success: true, recipient: user.tag };
       }
 
+      case "send-push": {
+        const { title, body, url, icon } = payload || {};
+        if (!title || !body) {
+          return { success: false, error: "Missing title or body" };
+        }
+        const { sendPushNotification } = await import("./push-notify.js");
+        await sendPushNotification({ title, body, url, icon });
+        return { success: true };
+      }
+
       case "send-admin-log": {
         const { level, message, errorStack } = payload || {};
         if (!level || !message) {
@@ -168,8 +177,6 @@ async function handleIpcRequest(req: any, client: Client): Promise<any> {
 
         if (workerName === "bot:daily_summary") {
           await performDailySummary(client);
-        } else if (workerName === "bot:energy_dashboard") {
-          await performEnergyDashboardSync(client);
         } else if (workerName === "bot:db_backup") {
           await performBackup(client);
         } else if (workerName === "bot:token_cleanup") {

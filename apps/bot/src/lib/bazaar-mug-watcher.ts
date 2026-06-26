@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { TABLE_NAMES } from "@sentinel/shared";
 import { db } from "./db-client.js";
 import { getGuildApiKeys } from "./guild-api-keys.js";

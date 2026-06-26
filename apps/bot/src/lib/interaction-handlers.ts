@@ -164,35 +164,7 @@ const buttonPrefixHandlers: Array<{ prefix: string; handler: ButtonHandler }> =
         }
       }
     },
-    {
-      prefix: "energy_gains_range|",
-      handler: async (interaction) => {
-        const days = parseInt(interaction.customId.split("|")[1], 10);
-        if (isNaN(days)) return;
 
-        const userId = process.env.SENTINEL_USER_ID;
-        if (!userId) {
-          await interaction.reply({ content: "Authorized user ID not configured.", ephemeral: true });
-          return;
-        }
-
-        // Update database
-        const { db } = await import("./db-client.js");
-        const { TABLE_NAMES } = await import("@sentinel/shared");
-        await db
-          .updateTable(TABLE_NAMES.PERSONAL_SETTINGS)
-          .set({ energy_dashboard_gains_days: days })
-          .where("user_id", "=", userId)
-          .execute();
-
-        // Acknowledge interaction
-        await interaction.deferUpdate();
-
-        // Run sync
-        const { performEnergyDashboardSync } = await import("../tasks/energy-dashboard-task.js");
-        await performEnergyDashboardSync(interaction.client);
-      }
-    },
     {
       prefix: "admin_guild_deinit_confirm_only|",
       handler: adminCommand.handleGuildDeinitConfirm,
