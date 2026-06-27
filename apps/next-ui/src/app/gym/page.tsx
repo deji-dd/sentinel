@@ -8,6 +8,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 import { Flame, Sparkles, RefreshCw, ArrowRight, Target } from "lucide-react";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/error-state";
 
 interface MilestoneInfo {
   target: number;
@@ -128,9 +129,12 @@ export default function GymPage() {
   const [data, setData] = useState<MilestonesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = async (tf: typeof timeframe, showRefreshIndicator = false) => {
+    setError(null);
     if (showRefreshIndicator) setRefreshing(true);
+    if (!data) setLoading(true);
     try {
       const res = await fetch(`/api/bot/config/personal/milestones?timeframe=${tf}`);
       if (res.ok) {
@@ -140,10 +144,11 @@ export default function GymPage() {
           toast.success("Gym milestones updated successfully");
         }
       } else {
-        toast.error("Failed to fetch gym milestones data");
+        throw new Error(`Server returned ${res.status} ${res.statusText}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching milestones data:", err);
+      setError(err.message || String(err));
       toast.error("Network error fetching milestones data");
     } finally {
       setLoading(false);
@@ -161,7 +166,7 @@ export default function GymPage() {
     fetchData(timeframe, true);
   };
 
-  if (loading || !data) {
+  if (loading && !data) {
     return (
       <DashboardLayout>
         <div className="flex h-64 items-center justify-center gap-2">
@@ -170,6 +175,33 @@ export default function GymPage() {
         </div>
       </DashboardLayout>
     );
+  }
+
+  if (error && !data) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Gym</h1>
+              <p className="text-zinc-500 dark:text-zinc-400">
+                Track your gym gains, analyze training efficiency, and get optimal gym recommendations.
+              </p>
+            </div>
+          </div>
+          <ErrorState
+            title="Failed to Load Gym Data"
+            description="We were unable to connect to the bot server to retrieve your gym logs and training recommendations."
+            errorDetails={error}
+            onRetry={() => fetchData(timeframe)}
+          />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!data) {
+    return null;
   }
 
   const gymCards = [
