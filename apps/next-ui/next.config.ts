@@ -4,6 +4,7 @@ import path from "path";
 const nextConfig: NextConfig = {
   /* config options here */
   allowedDevOrigins: ["macbook-pro.taile7ef20.ts.net"],
+  outputFileTracingRoot: path.resolve(__dirname, "../../"),
   turbopack: {
     root: path.resolve(__dirname, "../../"),
   },
