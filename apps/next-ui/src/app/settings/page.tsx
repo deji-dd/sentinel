@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Settings, Save, RefreshCw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/error-state";
 
 interface BuildPreset {
   id: string;
@@ -59,63 +60,69 @@ export default function SettingsPage() {
   const [presets, setPresets] = useState<BuildPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch settings and presets
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [settingsRes, buildsRes] = await Promise.all([
-          fetch("/api/bot/config/personal"),
-          fetch("/api/bot/config/personal/builds"),
-        ]);
+  const loadData = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const [settingsRes, buildsRes] = await Promise.all([
+        fetch("/api/bot/config/personal"),
+        fetch("/api/bot/config/personal/builds"),
+      ]);
 
-        let currentBuildId = "";
-        let currentRatios = { strength: 25, speed: 25, defense: 25, dexterity: 25 };
+      if (!settingsRes.ok) {
+        throw new Error(`Failed to fetch personal settings: ${settingsRes.status} ${settingsRes.statusText}`);
+      }
+      if (!buildsRes.ok) {
+        throw new Error(`Failed to fetch build presets: ${buildsRes.status} ${buildsRes.statusText}`);
+      }
 
-        if (settingsRes.ok) {
-          const settingsData = await settingsRes.json();
-          setSettings(settingsData);
-          currentBuildId = settingsData.selected_build;
-          currentRatios = {
-            strength: settingsData.target_strength_ratio,
-            speed: settingsData.target_speed_ratio,
-            defense: settingsData.target_defense_ratio,
-            dexterity: settingsData.target_dexterity_ratio,
-          };
-        }
+      const settingsData = await settingsRes.json();
+      setSettings(settingsData);
+      const currentBuildId = settingsData.selected_build;
+      const currentRatios = {
+        strength: settingsData.target_strength_ratio,
+        speed: settingsData.target_speed_ratio,
+        defense: settingsData.target_defense_ratio,
+        dexterity: settingsData.target_dexterity_ratio,
+      };
 
-        if (buildsRes.ok) {
-          const buildsData = await buildsRes.json();
-          setPresets(buildsData);
+      const buildsData = await buildsRes.json();
+      setPresets(buildsData);
 
-          if (currentBuildId && currentBuildId !== "custom") {
-            const preset = buildsData.find((p: BuildPreset) => p.id === currentBuildId);
-            if (preset) {
-              let matchedStat = preset.configurations[0]?.main_stat || "";
-              for (const config of preset.configurations) {
-                const dStr = Math.abs(config.ratios.strength - currentRatios.strength);
-                const dSpd = Math.abs(config.ratios.speed - currentRatios.speed);
-                const dDef = Math.abs(config.ratios.defense - currentRatios.defense);
-                const dDex = Math.abs(config.ratios.dexterity - currentRatios.dexterity);
-                if (dStr < 0.2 && dSpd < 0.2 && dDef < 0.2 && dDex < 0.2) {
-                  matchedStat = config.main_stat;
-                  break;
-                }
-              }
-              setSelectedMainStat(matchedStat);
+      if (currentBuildId && currentBuildId !== "custom") {
+        const preset = buildsData.find((p: BuildPreset) => p.id === currentBuildId);
+        if (preset) {
+          let matchedStat = preset.configurations[0]?.main_stat || "";
+          for (const config of preset.configurations) {
+            const dStr = Math.abs(config.ratios.strength - currentRatios.strength);
+            const dSpd = Math.abs(config.ratios.speed - currentRatios.speed);
+            const dDef = Math.abs(config.ratios.defense - currentRatios.defense);
+            const dDex = Math.abs(config.ratios.dexterity - currentRatios.dexterity);
+            if (dStr < 0.2 && dSpd < 0.2 && dDef < 0.2 && dDex < 0.2) {
+              matchedStat = config.main_stat;
+              break;
             }
           }
+          setSelectedMainStat(matchedStat);
         }
-      } catch (err) {
-        console.error("Failed to load settings data:", err);
-        toast.error("Failed to load settings from server");
-      } finally {
-        setLoading(false);
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      console.error("Failed to load settings data:", err);
+      setError(err.message || String(err));
+      toast.error("Failed to load settings from server");
+    } finally {
+      setLoading(false);
     }
-
-    loadData();
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData();
+  }, [loadData]);
 
   const totalRatio =
     Number(settings.target_strength_ratio) +
@@ -221,6 +228,30 @@ export default function SettingsPage() {
         <div className="flex h-64 items-center justify-center gap-2">
           <RefreshCw className="h-6 w-6 animate-spin text-amber-500" />
           <span className="text-zinc-500 dark:text-zinc-400">Loading settings...</span>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Settings className="h-6 w-6 text-zinc-900 dark:text-white" />
+              <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Settings</h1>
+            </div>
+            <p className="text-zinc-500 dark:text-zinc-400">
+              Configure your personal stat targets, training builds, and alert notifications.
+            </p>
+          </div>
+          <ErrorState
+            title="Failed to Load Settings"
+            description="We were unable to connect to the bot server to retrieve your settings. Please verify the bot is online."
+            errorDetails={error}
+            onRetry={loadData}
+          />
         </div>
       </DashboardLayout>
     );
