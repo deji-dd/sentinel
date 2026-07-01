@@ -3,12 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import webpush from "web-push";
 import https from "https";
 import { readSubscriptions, writeSubscriptions } from "@/lib/push-store";
-
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-);
+import { getServerEnv } from "@/lib/server-config";
 
 const ipv4Agent = new https.Agent({ family: 4 });
 
@@ -16,6 +11,14 @@ const ipv4Agent = new https.Agent({ family: 4 });
  *  Accepts same-origin requests AND any Tailscale / trusted dev origins.
  */
 export async function POST(req: NextRequest) {
+  const env = getServerEnv();
+
+  // Set VAPID details dynamically per request using correct environment variables
+  webpush.setVapidDetails(
+    env.VAPID_SUBJECT!,
+    env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    env.VAPID_PRIVATE_KEY!
+  );
   // Allow: localhost, 127.x, and any host that matches the request's own host
   // (covers Tailscale HTTPS dev URLs like macbook-pro.taile7ef20.ts.net)
   const host = req.headers.get("host") ?? "";

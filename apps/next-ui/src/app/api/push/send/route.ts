@@ -3,12 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import webpush from "web-push";
 import https from "https";
 import { readSubscriptions, writeSubscriptions } from "@/lib/push-store";
-
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!,
-);
+import { getServerEnv } from "@/lib/server-config";
 
 const ipv4Agent = new https.Agent({ family: 4 });
 
@@ -17,8 +12,17 @@ const ipv4Agent = new https.Agent({ family: 4 });
  *  Header: x-push-secret: <PUSH_INTERNAL_SECRET>
  */
 export async function POST(req: NextRequest) {
+  const env = getServerEnv();
+
+  // Set VAPID details dynamically per request using correct environment variables
+  webpush.setVapidDetails(
+    env.VAPID_SUBJECT!,
+    env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    env.VAPID_PRIVATE_KEY!,
+  );
+
   const secret = req.headers.get("x-push-secret");
-  const expected = process.env.PUSH_INTERNAL_SECRET;
+  const expected = env.PUSH_INTERNAL_SECRET;
   if (!expected || secret !== expected) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

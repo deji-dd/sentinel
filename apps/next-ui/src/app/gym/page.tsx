@@ -146,9 +146,9 @@ export default function GymPage() {
       } else {
         throw new Error(`Server returned ${res.status} ${res.statusText}`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error fetching milestones data:", err);
-      setError(err.message || String(err));
+      setError(err instanceof Error ? err.message : String(err));
       toast.error("Network error fetching milestones data");
     } finally {
       setLoading(false);
