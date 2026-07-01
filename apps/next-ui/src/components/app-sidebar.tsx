@@ -57,7 +57,7 @@ export function AppSidebar() {
         <div className="w-full h-[env(safe-area-inset-top)] shrink-0" />
 
         <div className="flex h-16 items-center justify-center px-4 w-full">
-          <Link href="/" className="flex items-center gap-3 overflow-hidden select-none w-full">
+          <Link href="/" prefetch={false} className="flex items-center gap-3 overflow-hidden select-none w-full">
             <Avatar className="size-10 rounded-full after:rounded-full shrink-0">
               <AvatarImage src="/logo.png" className="object-cover rounded-full" alt="Sentinel Logo" />
               <AvatarFallback className="rounded-full">S</AvatarFallback>
@@ -85,7 +85,7 @@ export function AppSidebar() {
                           ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15"
                           : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/60"
                       }
-                      render={<Link href={item.href} />}
+                      render={<Link href={item.href} prefetch={false} />}
                     >
                       <Icon className="h-5 w-5" />
                       <span>{item.name}</span>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerEnv } from "@/lib/server-config";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +11,14 @@ async function handleProxy(req: NextRequest) {
     const botPath = url.pathname.replace(/^\/api\/bot/, "/api");
     const searchParams = url.search;
 
-    const botOrigin =
-      process.env.BOT_ORIGIN ||
-      process.env.NEXT_PUBLIC_BOT_ORIGIN ||
-      "http://127.0.0.1:3001";
+    const env = getServerEnv();
+    const botOrigin = env.BOT_ORIGIN || env.NEXT_PUBLIC_BOT_ORIGIN;
+
+    if (!botOrigin) {
+      throw new Error(
+        "BOT_ORIGIN or NEXT_PUBLIC_BOT_ORIGIN is not defined. Please configure it in your environment/bindings."
+      );
+    }
 
     const targetUrl = `${botOrigin.replace(/\/$/, "")}${botPath}${searchParams}`;
 
@@ -28,6 +33,10 @@ async function handleProxy(req: NextRequest) {
     const headers = new Headers();
     headers.set("Content-Type", req.headers.get("content-type") || "application/json");
     headers.set("Authorization", "Bearer dev-token");
+
+    if (env.SENTINEL_INTERNAL_SECRET) {
+      headers.set("x-sentinel-secret", env.SENTINEL_INTERNAL_SECRET);
+    }
 
     const response = await fetch(targetUrl, {
       method: req.method,
