@@ -87,19 +87,21 @@ export function getHttpPort(): number {
 }
 
 /**
- * Get the UI base URL (Dashboard/Map Painter)
+ * Get the UI base URL (Dashboard)
  */
 export function getUiUrl(): string {
   return isDev
-    ? process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000"
-    : process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
+    ? process.env.UI_ORIGIN_LOCAL || "http://localhost:3000"
+    : process.env.UI_ORIGIN || "https://sentinel.ayodejib.dev";
 }
 
 /**
- * Get the Map Painter base URL (Aliased to getUiUrl for backward compatibility)
+ * Get the Map Painter base URL
  */
 export function getPainterUrl(): string {
-  return getUiUrl();
+  return isDev
+    ? process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000"
+    : process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
 }
 
 /**
@@ -115,9 +117,10 @@ export function getApiUrl(): string {
  * Get the allowed origins for CORS
  */
 export function getAllowedOrigins(): string[] {
-  const prodOrigin = process.env.UI_ORIGIN || "https://hub.blasted-labs.tech";
+  const prodUiOrigin = process.env.UI_ORIGIN || "https://sentinel.ayodejib.dev";
+  const prodPainterOrigin = process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
   if (isDev) {
-    return ["http://localhost:3000", prodOrigin];
+    return ["http://localhost:3000", prodUiOrigin, prodPainterOrigin];
   }
-  return [prodOrigin];
+  return [prodUiOrigin, prodPainterOrigin];
 }
