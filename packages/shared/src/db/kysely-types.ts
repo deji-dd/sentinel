@@ -450,6 +450,8 @@ export interface SentinelMercenaryVerificationVault {
 
 export interface SentinelPersonalSettings {
   admin_log_channel_id: string | null;
+  crime_alerts_enabled: Generated<number | null>;
+  crime_soft_threshold: Generated<number | null>;
   discord_id: string;
   drug_alerts_enabled: Generated<number | null>;
   energy_aggressive_interval_mins: Generated<number | null>;
@@ -465,6 +467,8 @@ export interface SentinelPersonalSettings {
   energy_dashboard_target_message_id: string | null;
   energy_soft_threshold: Generated<number | null>;
   error_pings_enabled: Generated<number | null>;
+  last_crime_alert_sent_at: string | null;
+  last_crime_alert_type: string | null;
   last_drug_alert_sent_at: string | null;
   last_energy_alert_sent_at: string | null;
   last_energy_alert_type: string | null;
@@ -656,6 +660,20 @@ export interface SentinelTornCategories {
   name: string;
 }
 
+export interface SentinelTornCrimes {
+  category_id: number | null;
+  category_name: string | null;
+  created_at: Generated<string>;
+  enhancer_id: number | null;
+  enhancer_name: string | null;
+  id: Generated<number | null>;
+  name: string;
+  notes: string | null;
+  unique_outcomes_count: number | null;
+  unique_outcomes_ids: string | null;
+  updated_at: Generated<string>;
+}
+
 export interface SentinelTornDestinations {
   country_code: string | null;
   id: number;
@@ -826,6 +844,27 @@ export interface SentinelUserCooldowns {
   medical: Generated<number>;
   updated_at: Generated<string>;
   user_id: string;
+}
+
+export interface SentinelUserCrimes {
+  attempts_critical_fail: Generated<number>;
+  attempts_fail: Generated<number>;
+  attempts_subcrimes: string | null;
+  attempts_success: Generated<number>;
+  attempts_total: Generated<number>;
+  created_at: Generated<string>;
+  crime_id: number;
+  miscellaneous: string | null;
+  nerve_spent: Generated<number>;
+  progression_bonus: Generated<number>;
+  rewards_ammo_special: Generated<number>;
+  rewards_ammo_standard: Generated<number>;
+  rewards_items: string | null;
+  rewards_money: Generated<number>;
+  skill: Generated<number>;
+  uniques: string | null;
+  updated_at: Generated<string>;
+  user_id: number;
 }
 
 export interface SentinelUserData {
@@ -1007,6 +1046,7 @@ export interface DB {
   sentinel_territory_blueprint: SentinelTerritoryBlueprint;
   sentinel_territory_state: SentinelTerritoryState;
   sentinel_torn_categories: SentinelTornCategories;
+  sentinel_torn_crimes: SentinelTornCrimes;
   sentinel_torn_destinations: SentinelTornDestinations;
   sentinel_torn_factions: SentinelTornFactions;
   sentinel_torn_gyms: SentinelTornGyms;
@@ -1021,6 +1061,7 @@ export interface DB {
   sentinel_user_bars: SentinelUserBars;
   sentinel_user_build_preferences: SentinelUserBuildPreferences;
   sentinel_user_cooldowns: SentinelUserCooldowns;
+  sentinel_user_crimes: SentinelUserCrimes;
   sentinel_user_data: SentinelUserData;
   sentinel_user_snapshots: SentinelUserSnapshots;
   sentinel_users: SentinelUsers;

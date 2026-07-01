@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
-import { Flame, Sparkles, RefreshCw, ArrowRight, Target } from "lucide-react";
+import { Flame, Sparkles, RefreshCw, ArrowRight, Target, Dumbbell } from "lucide-react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
 
@@ -206,28 +206,38 @@ export default function GymPage() {
 
   const gymCards = [
     {
-      title: "Training Target",
+      title: "Training Focus",
       value: `${data.recommendation.stat}`,
       icon: Target,
       iconColor: "text-indigo-500",
+      bgClass: "bg-indigo-500/10",
+      textColor: "text-indigo-600 dark:text-indigo-400",
+    },
+    {
+      title: "Total Attributes",
+      value: formatShortNumber(data.currentStats.total),
+      icon: Dumbbell,
+      iconColor: "text-amber-500",
+      bgClass: "bg-amber-500/10",
+      textColor: "text-amber-600 dark:text-amber-400",
     },
     {
       title: "Avg. Daily Energy",
       value: `${formatNumber(data.avgDailyEnergy)} E`,
-      description: "Based on recent activity",
       icon: Flame,
       iconColor: "text-rose-500",
+      bgClass: "bg-rose-500/10",
+      textColor: "text-rose-600 dark:text-rose-400",
     },
-
   ];
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Gym</h1>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">Gym Analytics</h1>
             <p className="text-zinc-500 dark:text-zinc-400">
               Track your gym gains, analyze training efficiency, and get optimal gym recommendations.
             </p>
@@ -235,16 +245,16 @@ export default function GymPage() {
           <button
             onClick={handleSyncClick}
             disabled={refreshing}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 text-sm font-semibold text-zinc-950 hover:bg-amber-600 transition-colors shadow-md disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-2 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-zinc-700 dark:text-zinc-300 transition shrink-0 cursor-pointer"
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            <span>Sync</span>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            Sync API
           </button>
         </div>
 
         {/* Switch Recommendation Banner */}
         {data.recommendation.gymRecommendation && (
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-gradient-to-r from-amber-500/10 via-rose-500/5 to-transparent relative overflow-hidden">
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-gradient-to-r from-amber-500/10 via-rose-500/5 to-transparent relative overflow-hidden shadow-sm">
             <div className="absolute inset-0 bg-grid-white/[0.02] dark:bg-grid-zinc-950/[0.05]" />
             <CardContent className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-6">
               <div className="space-y-1 z-10">
@@ -276,27 +286,28 @@ export default function GymPage() {
           {gymCards.map((card, idx) => {
             const Icon = card.icon;
             return (
-              <Card key={idx} className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-zinc-500">{card.title}</CardTitle>
-                  <Icon className={`h-4 w-4 ${card.iconColor}`} />
+              <Card key={idx} className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+                <div className={`absolute top-0 right-0 h-16 w-16 ${card.bgClass} rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110`}>
+                  <Icon className={`h-5 w-5 ${card.iconColor}`} />
+                </div>
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">{card.title}</CardDescription>
+                  <CardTitle className={`text-2xl font-bold font-heading ${card.textColor}`}>
+                    {card.value}
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{card.value}</div>
-                  <p className="text-xs text-zinc-500 mt-1">{card.description}</p>
-                </CardContent>
               </Card>
             );
           })}
         </div>
 
         {/* Progression Chart & Logs Table */}
-        <div className="grid gap-4 lg:grid-cols-7">
+        <div className="grid gap-4 lg:grid-cols-7 items-start">
           {/* Recharts Chart */}
-          <Card className="col-span-4 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between">
+          <Card className="col-span-4 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
               <div>
-                <CardTitle>Training Gains Progression</CardTitle>
+                <CardTitle className="text-lg font-bold font-heading">Training Gains Progression</CardTitle>
                 <CardDescription>Daily stat increases mapped across attributes.</CardDescription>
               </div>
               <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-800 p-0.5 text-xs bg-zinc-100 dark:bg-zinc-900 select-none">
@@ -359,9 +370,9 @@ export default function GymPage() {
           </Card>
 
           {/* Logs Table */}
-          <Card className="col-span-4 lg:col-span-3 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
+          <Card className="col-span-4 lg:col-span-3 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
             <CardHeader>
-              <CardTitle>Recent Training Logs</CardTitle>
+              <CardTitle className="text-lg font-bold font-heading">Recent Training Logs</CardTitle>
               <CardDescription>Direct synchronization records from Torn API.</CardDescription>
             </CardHeader>
             <CardContent>

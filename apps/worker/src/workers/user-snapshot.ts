@@ -229,7 +229,9 @@ async function takeSnapshot(): Promise<void> {
     try {
       const ownerDiscordId = process.env.SENTINEL_DISCORD_USER_ID;
       if (!ownerDiscordId) {
-        snapshotLogger.error("SENTINEL_DISCORD_USER_ID environment variable is not configured in worker environment");
+        snapshotLogger.error(
+          "SENTINEL_DISCORD_USER_ID environment variable is not configured in worker environment",
+        );
       }
 
       const personalSettings = await db
@@ -242,7 +244,8 @@ async function takeSnapshot(): Promise<void> {
         // 1. Energy Alerts
         if (personalSettings.energy_alerts_enabled === 1) {
           const softThreshold = personalSettings.energy_soft_threshold ?? 130;
-          const aggressiveIntervalMins = personalSettings.energy_aggressive_interval_mins ?? 5;
+          const aggressiveIntervalMins =
+            personalSettings.energy_aggressive_interval_mins ?? 5;
           const lastAlertSentAt = personalSettings.last_energy_alert_sent_at;
           const lastAlertType = personalSettings.last_energy_alert_type;
 
@@ -250,26 +253,27 @@ async function takeSnapshot(): Promise<void> {
           let alertType: "soft" | "aggressive" | null = null;
 
           if (energyCurrent >= energyMaximum) {
-            // Check aggressive alert cooldown
-            const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
-            const isCooldownPassed = !lastAlertSentAt || 
-              (Date.now() - new Date(lastAlertSentAt).getTime() >= aggressiveCooldownMs);
-
-            if (isCooldownPassed || lastAlertType !== "aggressive") {
-              shouldAlert = true;
-              alertType = "aggressive";
-            }
+            alertType = "aggressive";
           } else if (energyCurrent >= softThreshold) {
-            // Trigger soft alert once
-            if (lastAlertType !== "soft" && lastAlertType !== "aggressive") {
+            alertType = "soft";
+          }
+
+          if (alertType !== null) {
+            const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
+            const isTypeChanged = lastAlertType !== alertType;
+            const isCooldownPassed =
+              !lastAlertSentAt ||
+              Date.now() - new Date(lastAlertSentAt).getTime() >=
+                aggressiveCooldownMs;
+
+            if (isTypeChanged || isCooldownPassed) {
               shouldAlert = true;
-              alertType = "soft";
             }
           } else {
             // If energy falls below soft threshold, reset the state
             if (lastAlertType !== null) {
               await db
-                .updateTable("sentinel_personal_settings" as any)
+                .updateTable("sentinel_personal_settings")
                 .set({
                   last_energy_alert_type: null,
                   last_energy_alert_sent_at: null,
@@ -282,30 +286,40 @@ async function takeSnapshot(): Promise<void> {
 
           if (shouldAlert && alertType) {
             const nowIso = new Date().toISOString();
-            
+
             let recTitle = "";
             try {
-              const recs = await getPersonalTrainingRecommendations(db, personalSettings.user_id, apiKey, tornApi);
+              const recs = await getPersonalTrainingRecommendations(
+                db,
+                personalSettings.user_id,
+                apiKey,
+                tornApi,
+              );
               recTitle = ` (Train: ${recs.stat})`;
             } catch (recError) {
-              snapshotLogger.error("Failed to fetch recommendation for alert", recError);
+              snapshotLogger.error(
+                "Failed to fetch recommendation for alert",
+                recError,
+              );
             }
 
-            const baseDescription = alertType === "aggressive"
-              ? `Your energy bar is completely full (${energyCurrent}/${energyMaximum}). Use it immediately to avoid wasting regeneration.`
-              : `Your energy bar has reached ${energyCurrent}/${energyMaximum} (threshold: ${softThreshold}).`;
+            const baseDescription =
+              alertType === "aggressive"
+                ? `Energy is full! Use it immediately to avoid wasting regeneration.`
+                : `Energy has reached ${softThreshold} energy.`;
 
             // Send Web Push pointing to Torn Gym
-            const pushTitle = alertType === "aggressive" ? "Energy Bar Full!" : "Energy Alert";
+            const pushTitle =
+              alertType === "aggressive" ? "Energy Full!" : "Energy Alert";
             const pushResponse = await sendIpcRequest("send-push", {
               title: `${pushTitle}${recTitle}`,
               body: baseDescription,
-              url: "https://www.torn.com/gym.php"
+              url: "https://www.torn.com/gym.php",
             });
 
             // Update last alert state in settings
             await db
-              .updateTable("sentinel_personal_settings" as any)
+              .updateTable("sentinel_personal_settings")
               .set({
                 last_energy_alert_type: alertType,
                 last_energy_alert_sent_at: nowIso,
@@ -315,9 +329,13 @@ async function takeSnapshot(): Promise<void> {
               .execute();
 
             if (pushResponse.success) {
-              snapshotLogger.debug(`Sent ${alertType} energy alert push notification to owner`);
+              snapshotLogger.debug(
+                `Sent ${alertType} energy alert push notification to owner`,
+              );
             } else {
-              snapshotLogger.error(`Failed to send energy alert push notification via IPC: ${pushResponse.error}`);
+              snapshotLogger.error(
+                `Failed to send energy alert push notification via IPC: ${pushResponse.error}`,
+              );
             }
           }
         }
@@ -330,7 +348,7 @@ async function takeSnapshot(): Promise<void> {
             // Cooldown started/active -> reset sent state to allow next alert when it ends
             if (lastDrugAlertSentAt !== null) {
               await db
-                .updateTable("sentinel_personal_settings" as any)
+                .updateTable("sentinel_personal_settings")
                 .set({
                   last_drug_alert_sent_at: null,
                   updated_at: new Date().toISOString(),
@@ -340,17 +358,21 @@ async function takeSnapshot(): Promise<void> {
             }
           } else if (drugCooldown === 0) {
             // Cooldown completed -> check if we should alert aggressively
-            const aggressiveIntervalMins = personalSettings.energy_aggressive_interval_mins || 5;
+            const aggressiveIntervalMins =
+              personalSettings.energy_aggressive_interval_mins || 5;
             const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
-            const isCooldownPassed = !lastDrugAlertSentAt ||
-              (Date.now() - new Date(lastDrugAlertSentAt).getTime() >= aggressiveCooldownMs);
+            const isCooldownPassed =
+              !lastDrugAlertSentAt ||
+              Date.now() - new Date(lastDrugAlertSentAt).getTime() >=
+                aggressiveCooldownMs;
 
             if (isCooldownPassed) {
               const nowIso = new Date().toISOString();
 
               const embed = {
                 title: "Alert: Drug Cooldown Completed",
-                description: "Your drug cooldown has finished. You are now clean to take another drug.",
+                description:
+                  "Your drug cooldown has finished. You are now clean to take another drug.",
                 color: 0x10b981, // Green
                 footer: {
                   text: "Sentinel",
@@ -368,12 +390,12 @@ async function takeSnapshot(): Promise<void> {
               await sendIpcRequest("send-push", {
                 title: "Drug Cooldown Completed",
                 body: "Your drug cooldown has finished. You can now take another drug.",
-                url: "https://www.torn.com/gym.php"
+                url: "https://www.torn.com/gym.php",
               });
 
               // Update last alert state in settings
               await db
-                .updateTable("sentinel_personal_settings" as any)
+                .updateTable("sentinel_personal_settings")
                 .set({
                   last_drug_alert_sent_at: nowIso,
                   updated_at: nowIso,
@@ -381,7 +403,91 @@ async function takeSnapshot(): Promise<void> {
                 .where("user_id", "=", personalSettings.user_id)
                 .execute();
 
-              snapshotLogger.debug("Sent drug cooldown completed alert DM and push notification");
+              snapshotLogger.debug(
+                "Sent drug cooldown completed alert DM and push notification",
+              );
+            }
+          }
+        }
+
+        // 3. Crime Alerts (Nerve)
+        if (personalSettings.crime_alerts_enabled === 1) {
+          const softThreshold = personalSettings.crime_soft_threshold ?? 15;
+          const aggressiveIntervalMins =
+            personalSettings.energy_aggressive_interval_mins ?? 5;
+          const lastAlertSentAt = personalSettings.last_crime_alert_sent_at;
+          const lastAlertType = personalSettings.last_crime_alert_type;
+
+          let shouldAlert = false;
+          let alertType: "soft" | "aggressive" | null = null;
+
+          if (nerveCurrent >= nerveMaximum) {
+            alertType = "aggressive";
+          } else if (nerveCurrent >= softThreshold) {
+            alertType = "soft";
+          }
+
+          if (alertType !== null) {
+            const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
+            const isTypeChanged = lastAlertType !== alertType;
+            const isCooldownPassed =
+              !lastAlertSentAt ||
+              Date.now() - new Date(lastAlertSentAt).getTime() >=
+                aggressiveCooldownMs;
+
+            if (isTypeChanged || isCooldownPassed) {
+              shouldAlert = true;
+            }
+          } else {
+            // Reset state if it falls below threshold
+            if (lastAlertType !== null) {
+              await db
+                .updateTable("sentinel_personal_settings")
+                .set({
+                  last_crime_alert_type: null,
+                  last_crime_alert_sent_at: null,
+                  updated_at: new Date().toISOString(),
+                })
+                .where("user_id", "=", personalSettings.user_id)
+                .execute();
+            }
+          }
+
+          if (shouldAlert && alertType) {
+            const nowIso = new Date().toISOString();
+
+            const baseDescription =
+              alertType === "aggressive"
+                ? `Nerve is full. Commit a crime immediately.`
+                : `Nerve is at ${nerveCurrent}/${nerveMaximum}.`;
+
+            const pushTitle =
+              alertType === "aggressive" ? "Nerve Full!" : "Nerve Alert";
+            const pushResponse = await sendIpcRequest("send-push", {
+              title: pushTitle,
+              body: baseDescription,
+              url: "https://www.torn.com/crimes.php",
+            });
+
+            // Update state in settings
+            await db
+              .updateTable("sentinel_personal_settings")
+              .set({
+                last_crime_alert_type: alertType,
+                last_crime_alert_sent_at: nowIso,
+                updated_at: nowIso,
+              })
+              .where("user_id", "=", personalSettings.user_id)
+              .execute();
+
+            if (pushResponse.success) {
+              snapshotLogger.debug(
+                `Sent ${alertType} crime alert push notification to owner`,
+              );
+            } else {
+              snapshotLogger.error(
+                `Failed to send crime alert push notification: ${pushResponse.error}`,
+              );
             }
           }
         }

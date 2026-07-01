@@ -2247,6 +2247,10 @@ configRouter.get("/personal", async (req: Request, res: Response) => {
         last_energy_alert_type: null,
         drug_alerts_enabled: 0,
         last_drug_alert_sent_at: null,
+        crime_alerts_enabled: 0,
+        crime_soft_threshold: 15,
+        last_crime_alert_sent_at: null,
+        last_crime_alert_type: null,
         admin_log_channel_id: null,
         error_pings_enabled: 1,
         selected_build: "balanced",
@@ -2306,6 +2310,8 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
       energy_soft_threshold,
       energy_aggressive_interval_mins,
       drug_alerts_enabled,
+      crime_alerts_enabled,
+      crime_soft_threshold,
       admin_log_channel_id,
       error_pings_enabled,
       selected_build,
@@ -2329,6 +2335,13 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
       return res
         .status(400)
         .json({ error: "Energy soft threshold must be a number between 0 and 150" });
+    }
+
+    const crimeSoftThresholdVal = Number(crime_soft_threshold);
+    if (isNaN(crimeSoftThresholdVal) || crimeSoftThresholdVal < 0 || crimeSoftThresholdVal > 100) {
+      return res
+        .status(400)
+        .json({ error: "Crime soft threshold must be a number between 0 and 100" });
     }
 
     const aggressiveInterval = Number(energy_aggressive_interval_mins);
@@ -2433,6 +2446,8 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
         energy_soft_threshold: softThreshold,
         energy_aggressive_interval_mins: aggressiveInterval,
         drug_alerts_enabled: drug_alerts_enabled ? 1 : 0,
+        crime_alerts_enabled: crime_alerts_enabled ? 1 : 0,
+        crime_soft_threshold: crimeSoftThresholdVal,
         admin_log_channel_id: admin_log_channel_id || null,
         error_pings_enabled: error_pings_enabled ? 1 : 0,
         selected_build: build,
@@ -2457,6 +2472,8 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
           energy_soft_threshold: softThreshold,
           energy_aggressive_interval_mins: aggressiveInterval,
           drug_alerts_enabled: drug_alerts_enabled ? 1 : 0,
+          crime_alerts_enabled: crime_alerts_enabled ? 1 : 0,
+          crime_soft_threshold: crimeSoftThresholdVal,
           admin_log_channel_id: admin_log_channel_id || null,
           error_pings_enabled: error_pings_enabled ? 1 : 0,
           selected_build: build,
@@ -2860,6 +2877,214 @@ configRouter.get("/personal/milestones", async (req: Request, res: Response) => 
 
   } catch (error) {
     console.error("[HTTP] Error fetching milestones projection:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+
+    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+    if (session.discord_id !== botOwnerId) {
+      return res.status(403).json({ error: "Forbidden: Owner access only" });
+    }
+
+    const userId = process.env.SENTINEL_USER_ID;
+    if (!userId) {
+      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+    }
+
+    // 1. Fetch static crimes
+    const staticCrimes = await db
+      .selectFrom("sentinel_torn_crimes")
+      .selectAll()
+      .execute();
+
+    // 2. Fetch user crimes
+    const userCrimes = await db
+      .selectFrom("sentinel_user_crimes")
+      .selectAll()
+      .where("user_id", "=", Number(userId))
+      .execute();
+
+    // 3. Fetch item price lookup maps
+    const items = await db
+      .selectFrom("sentinel_torn_items")
+      .select(["item_id", "name", "value"])
+      .execute();
+
+    const itemPriceMap = new Map<number, number>();
+    const itemNameMap = new Map<number, string>();
+    for (const item of items) {
+      itemPriceMap.set(item.item_id, item.value ?? 0);
+      itemNameMap.set(item.item_id, item.name);
+    }
+
+    // 4. Fetch sync status of torn_crimes_worker
+    const scheduleRow = await db
+      .selectFrom("sentinel_worker_schedules")
+      .innerJoin("sentinel_workers", "sentinel_worker_schedules.worker_id", "sentinel_workers.id")
+      .select([
+        "sentinel_worker_schedules.last_run_at as last_run_at",
+        "sentinel_worker_schedules.next_run_at as next_run_at",
+        "sentinel_worker_schedules.metadata as metadata"
+      ])
+      .where("sentinel_workers.name", "=", "torn_crimes_worker")
+      .executeTakeFirst();
+
+    // Map user crimes for easy lookup
+    const userCrimesMap = new Map<number, any>();
+    for (const uc of userCrimes) {
+      userCrimesMap.set(uc.crime_id, uc);
+    }
+
+    // 5. Build enriched response payload
+    const crimesData = staticCrimes.map((sc: any) => {
+      const uc = userCrimesMap.get(sc.id);
+
+      const attemptsTotal = uc ? uc.attempts_total : 0;
+      const attemptsSuccess = uc ? uc.attempts_success : 0;
+      const attemptsFail = uc ? uc.attempts_fail : 0;
+      const attemptsCriticalFail = uc ? uc.attempts_critical_fail : 0;
+      const nerveSpent = uc ? uc.nerve_spent : 0;
+      const rewardsMoney = uc ? uc.rewards_money : 0;
+
+      // Parse JSON arrays
+      let rawItems: any[] = [];
+      try {
+        rawItems = uc?.rewards_items ? JSON.parse(uc.rewards_items) : [];
+      } catch { /* ignore malformed JSON */ }
+
+      let rawUniques: any[] = [];
+      try {
+        rawUniques = uc?.uniques ? JSON.parse(uc.uniques) : [];
+      } catch { /* ignore malformed JSON */ }
+
+      let rawSubcrimes: any[] = [];
+      try {
+        rawSubcrimes = uc?.attempts_subcrimes ? JSON.parse(uc.attempts_subcrimes) : [];
+      } catch { /* ignore malformed JSON */ }
+
+      let notes: string[] = [];
+      try {
+        notes = sc.notes ? JSON.parse(sc.notes) : [];
+      } catch { /* ignore malformed JSON */ }
+
+      let uniqueOutcomesIds: number[] = [];
+      try {
+        uniqueOutcomesIds = sc.unique_outcomes_ids ? JSON.parse(sc.unique_outcomes_ids) : [];
+      } catch { /* ignore malformed JSON */ }
+
+      // Map item details and calculate total item profit
+      let itemsProfit = 0;
+      const enrichedItems = rawItems.map((item: any) => {
+        const itemId = Number(item.id);
+        const amount = Number(item.amount || 0);
+        const name = itemNameMap.get(itemId) || `Item #${itemId}`;
+        const marketPrice = itemPriceMap.get(itemId) || 0;
+        const totalValue = amount * marketPrice;
+        itemsProfit += totalValue;
+
+        return {
+          id: itemId,
+          name,
+          amount,
+          market_price: marketPrice,
+          total_value: totalValue,
+        };
+      });
+
+      const totalProfit = rewardsMoney + itemsProfit;
+      const profitPerNerve = nerveSpent > 0 ? Number((totalProfit / nerveSpent).toFixed(2)) : 0;
+      const profitPerAttempt = attemptsTotal > 0 ? Number((totalProfit / attemptsTotal).toFixed(2)) : 0;
+      const successRate = attemptsTotal > 0 ? Number((attemptsSuccess / attemptsTotal).toFixed(4)) : 0;
+
+      return {
+        id: sc.id,
+        name: sc.name,
+        category_id: sc.category_id,
+        category_name: sc.category_name,
+        enhancer_id: sc.enhancer_id,
+        enhancer_name: sc.enhancer_name,
+        unique_outcomes_count: sc.unique_outcomes_count,
+        unique_outcomes_ids: uniqueOutcomesIds,
+        notes,
+        nerve_spent: nerveSpent,
+        skill: uc ? uc.skill : 0,
+        progression_bonus: uc ? uc.progression_bonus : 0,
+        attempts: {
+          total: attemptsTotal,
+          success: attemptsSuccess,
+          fail: attemptsFail,
+          critical_fail: attemptsCriticalFail,
+          subcrimes: rawSubcrimes,
+        },
+        rewards: {
+          money: rewardsMoney,
+          ammo_standard: uc ? uc.rewards_ammo_standard : 0,
+          ammo_special: uc ? uc.rewards_ammo_special : 0,
+          items: enrichedItems,
+        },
+        uniques: rawUniques,
+        profitability: {
+          cash_profit: rewardsMoney,
+          items_profit: itemsProfit,
+          total_profit: totalProfit,
+          profit_per_nerve: profitPerNerve,
+          profit_per_attempt: profitPerAttempt,
+          success_rate: successRate,
+        },
+      };
+    });
+
+    // 6. Generate Recommendations
+    let recommendedNerveCrime: any = null;
+    let maxProfitPerNerve = -1;
+
+    let recommendedTotalCrime: any = null;
+    let maxTotalProfit = -1;
+
+    for (const item of crimesData) {
+      if (item.profitability.profit_per_nerve > maxProfitPerNerve && item.nerve_spent > 0) {
+        maxProfitPerNerve = item.profitability.profit_per_nerve;
+        recommendedNerveCrime = item;
+      }
+      if (item.profitability.total_profit > maxTotalProfit && item.attempts.total > 0) {
+        maxTotalProfit = item.profitability.total_profit;
+        recommendedTotalCrime = item;
+      }
+    }
+
+    const formatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+    const decFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+
+    const recommendations = {
+      focus_crime_id: recommendedNerveCrime ? recommendedNerveCrime.id : (crimesData[0]?.id || null),
+      reason_by_nerve: recommendedNerveCrime
+        ? `${recommendedNerveCrime.name} is your most efficient crime, yielding ${decFormatter.format(maxProfitPerNerve)} per nerve spent.`
+        : "Start committing crimes to receive recommendations.",
+      reason_by_total: recommendedTotalCrime
+        ? `${recommendedTotalCrime.name} has earned you the most overall, with a total profit of ${formatter.format(maxTotalProfit)}.`
+        : "Start committing crimes to track profit.",
+    };
+
+    res.json({
+      crimes: crimesData,
+      syncStatus: {
+        lastSyncAt: scheduleRow?.last_run_at || null,
+        nextRunAt: scheduleRow?.next_run_at || null,
+      },
+      recommendations,
+    });
+
+  } catch (error) {
+    console.error("[HTTP] Error fetching crimes data:", error);
     res.status(500).json({ error: "Server error" });
   }
 });
