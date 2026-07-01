@@ -477,6 +477,14 @@ export interface SentinelPersonalSettings {
   user_id: string | null;
 }
 
+export interface SentinelPushSubscriptions {
+  auth: string;
+  created_at: Generated<string>;
+  endpoint: string | null;
+  expiration_time: number | null;
+  p256dh: string;
+}
+
 export interface SentinelRacketTenure {
   created_at: Generated<string>;
   ended_at: number | null;
@@ -983,6 +991,7 @@ export interface DB {
   sentinel_mercenary_targets: SentinelMercenaryTargets;
   sentinel_mercenary_verification_vault: SentinelMercenaryVerificationVault;
   sentinel_personal_settings: SentinelPersonalSettings;
+  sentinel_push_subscriptions: SentinelPushSubscriptions;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;
   sentinel_reaction_role_config: SentinelReactionRoleConfig;

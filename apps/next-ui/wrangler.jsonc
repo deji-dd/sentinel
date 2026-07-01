@@ -43,7 +43,6 @@
         }
     },
     "vars": {
-        "BOT_ORIGIN": "https://api.sentinel.ayodejib.dev",
         "NEXT_PUBLIC_VAPID_PUBLIC_KEY": "BPJ4K6Iu7Snrg_y4xjXKh68QWdk0bKxMOgl7uUGcQzFiiEMuNAwMLU1ZUWhOnhulapBR1xO4_8L8iHV3IcpCFw8"
     }
 }
