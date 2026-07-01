@@ -30,7 +30,7 @@ export default function Home() {
       <div className="space-y-6">
         {/* Header Title Section */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Overview</h1>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">Overview</h1>
           <p className="text-zinc-500 dark:text-zinc-400">
             Real-time status of Torn integrations and Sentinel synchronization schedules.
           </p>
@@ -38,56 +38,64 @@ export default function Home() {
 
         {/* Stats Grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-zinc-500">Tracked Targets</CardTitle>
-              <ShieldAlert className="h-4 w-4 text-rose-500" />
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 h-16 w-16 bg-rose-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
+              <ShieldAlert className="h-5 w-5 text-rose-500" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Tracked Targets</CardDescription>
+              <CardTitle className="text-3xl font-bold font-heading text-rose-600 dark:text-rose-400">14</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">14</div>
-              <p className="text-xs text-rose-500">3 online targets active</p>
+              <p className="text-xs text-zinc-500 mt-1">3 online targets active</p>
             </CardContent>
           </Card>
 
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-zinc-500">Active Factions</CardTitle>
-              <Users className="h-4 w-4 text-amber-500" />
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 h-16 w-16 bg-amber-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
+              <Users className="h-5 w-5 text-amber-500" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Active Factions</CardDescription>
+              <CardTitle className="text-3xl font-bold font-heading text-amber-600 dark:text-amber-400">2</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">2</div>
-              <p className="text-xs text-zinc-500">Main and sister alliances</p>
+              <p className="text-xs text-zinc-500 mt-1">Main and sister alliances</p>
             </CardContent>
           </Card>
 
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-zinc-500">Revives Assisted</CardTitle>
-              <HeartPulse className="h-4 w-4 text-emerald-500" />
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 h-16 w-16 bg-emerald-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
+              <HeartPulse className="h-5 w-5 text-emerald-500" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Revives Assisted</CardDescription>
+              <CardTitle className="text-3xl font-bold font-heading text-emerald-600 dark:text-emerald-400">1,842</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">1,842</div>
-              <p className="text-xs text-emerald-500">+12% increase this week</p>
+              <p className="text-xs text-zinc-500 mt-1">+12% increase this week</p>
             </CardContent>
           </Card>
 
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-zinc-500">Sync Health</CardTitle>
-              <Zap className="h-4 w-4 text-amber-400" />
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 h-16 w-16 bg-blue-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
+              <Zap className="h-5 w-5 text-blue-500" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Sync Health</CardDescription>
+              <CardTitle className="text-3xl font-bold font-heading text-blue-600 dark:text-blue-400">99.8%</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">99.8%</div>
-              <p className="text-xs text-zinc-500">Last run 42s ago</p>
+              <p className="text-xs text-zinc-500 mt-1">Last run 42s ago</p>
             </CardContent>
           </Card>
         </div>
 
         {/* Charts & Log Activity Feed */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-          <Card className="col-span-4 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
+          <Card className="col-span-4 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
             <CardHeader>
-              <CardTitle>Sync Activity</CardTitle>
+              <CardTitle className="text-lg font-bold font-heading">Sync Activity</CardTitle>
               <CardDescription>Torn City API queries processed per day by worker sync processes.</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
@@ -121,9 +129,9 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="col-span-3 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
+          <Card className="col-span-3 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
             <CardHeader>
-              <CardTitle>System Log Summary</CardTitle>
+              <CardTitle className="text-lg font-bold font-heading">System Log Summary</CardTitle>
               <CardDescription>Recent logs reported by bot HTTP and sync workers.</CardDescription>
             </CardHeader>
             <CardContent>

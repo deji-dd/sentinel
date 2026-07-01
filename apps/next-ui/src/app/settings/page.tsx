@@ -34,6 +34,8 @@ interface PersonalSettings {
   energy_soft_threshold: number;
   energy_aggressive_interval_mins: number;
   drug_alerts_enabled: number;
+  crime_alerts_enabled: number;
+  crime_soft_threshold: number;
   selected_build: string;
   target_strength_ratio: number;
   target_defense_ratio: number;
@@ -49,6 +51,8 @@ export default function SettingsPage() {
     energy_soft_threshold: 130,
     energy_aggressive_interval_mins: 5,
     drug_alerts_enabled: 0,
+    crime_alerts_enabled: 0,
+    crime_soft_threshold: 15,
     selected_build: "balanced",
     target_strength_ratio: 25,
     target_defense_ratio: 25,
@@ -264,7 +268,7 @@ export default function SettingsPage() {
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Settings className="h-6 w-6 text-zinc-900 dark:text-white" />
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Settings</h1>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">Settings</h1>
           </div>
           <p className="text-zinc-500 dark:text-zinc-400">
             Configure your personal stat targets, training builds, and alert notifications.
@@ -275,9 +279,9 @@ export default function SettingsPage() {
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* Gym & Stats Section */}
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
             <CardHeader>
-              <CardTitle>Gym & Stats</CardTitle>
+              <CardTitle className="text-lg font-bold font-heading">Gym & Stats</CardTitle>
               <CardDescription>
                 Define your training targets and ratio percentages for optimization.
               </CardDescription>
@@ -435,9 +439,9 @@ export default function SettingsPage() {
           </Card>
 
           {/* Alerts & Notifications Section */}
-          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur">
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
             <CardHeader>
-              <CardTitle>Alerts & Notifications</CardTitle>
+              <CardTitle className="text-lg font-bold font-heading">Alerts & Notifications</CardTitle>
               <CardDescription>
                 Configure energy alerts, cooldown timers, and frequency settings.
               </CardDescription>
@@ -517,8 +521,61 @@ export default function SettingsPage() {
                 />
               </div>
 
+              {/* Crime Alerts Toggle */}
+              <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-900 pb-4">
+                <div className="space-y-0.5">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                    Crime & Nerve Alerts
+                  </label>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Send push notification when Nerve passes threshold.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.crime_alerts_enabled === 1}
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      crime_alerts_enabled: checked ? 1 : 0,
+                    }))
+                  }
+                />
+              </div>
+
+              {/* Crime Soft Threshold Slider */}
+              {settings.crime_alerts_enabled === 1 && (
+                <div className="space-y-4 border-b border-zinc-100 dark:border-zinc-900 pb-5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Nerve Alert Soft Threshold
+                    </span>
+                    <span className="text-xs font-bold text-amber-500">
+                      {settings.crime_soft_threshold} Nerve
+                    </span>
+                  </div>
+                  <div className="px-1 py-2">
+                    <Slider
+                      min={0}
+                      max={100}
+                      step={2}
+                      value={[settings.crime_soft_threshold]}
+                      onValueChange={(value) => {
+                        const val = Array.isArray(value) ? value[0] : (value as number);
+                        setSettings((prev) => ({
+                          ...prev,
+                          crime_soft_threshold: val || 15,
+                        }));
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-normal">
+                    You&apos;ll receive a push notification when your nerve crosses this threshold (up to full nerve).
+                  </p>
+                </div>
+              )}
+
               {/* Aggressive Alert Repeat Interval */}
-              {(settings.energy_alerts_enabled === 1 || settings.drug_alerts_enabled === 1) && (
+              {(settings.energy_alerts_enabled === 1 || settings.drug_alerts_enabled === 1 || settings.crime_alerts_enabled === 1) && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -526,7 +583,7 @@ export default function SettingsPage() {
                         Aggressive Alert Repeat Interval
                       </span>
                       <p className="text-[10px] text-zinc-500">
-                        How frequently alerts repeat while energy is full or drug cooldown remains at 0:00.
+                        How frequently alerts repeat while energy/nerve is full or drug cooldown remains at 0:00.
                       </p>
                     </div>
                     <span className="text-xs font-bold text-amber-500 shrink-0">
@@ -557,7 +614,7 @@ export default function SettingsPage() {
           <Button
             onClick={handleSave}
             disabled={saving || !isRatioValid}
-            className="rounded-xl bg-amber-500 text-zinc-950 font-bold hover:bg-amber-600 shadow-md transition-all gap-2 px-6"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-zinc-950 transition cursor-pointer shadow-sm"
           >
             {saving ? (
               <RefreshCw className="h-4 w-4 animate-spin" />

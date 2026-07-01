@@ -69,6 +69,8 @@ export const TABLE_NAMES = {
   BAZAAR_MUG_TARGETS: "sentinel_bazaar_mug_targets",
   PERSONAL_SETTINGS: "sentinel_personal_settings",
   PUSH_SUBSCRIPTIONS: "sentinel_push_subscriptions",
+  TORN_CRIMES: "sentinel_torn_crimes",
+  USER_CRIMES: "sentinel_user_crimes",
 } as const;
 
 /** Alert module types */

@@ -56,7 +56,12 @@ pushRouter.get("/subscriptions", async (req: Request, res: Response) => {
 // POST /api/push/subscriptions (Write/overwrite all subscriptions)
 pushRouter.post("/subscriptions", async (req: Request, res: Response) => {
   try {
-    const subs = req.body as any[];
+    interface PushSubscriptionInput {
+      endpoint: string;
+      expirationTime?: number | null;
+      keys?: { p256dh?: string; auth?: string };
+    }
+    const subs = req.body as PushSubscriptionInput[];
     if (!Array.isArray(subs)) {
       return res.status(400).json({ error: "Expected an array of subscriptions" });
     }
