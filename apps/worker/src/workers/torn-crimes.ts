@@ -92,6 +92,42 @@ export async function syncCrimesData(): Promise<void> {
       )
       .execute();
 
+    // Sync subcrimes details
+    try {
+      crimesLogger.info(`Fetching subcrimes definitions for crime ID ${crimeId}...`);
+      const subcrimesResponse = (await tornApi.get("/torn/{crimeId}/subcrimes", {
+        apiKey,
+        pathParams: { crimeId } as any,
+      })) as any;
+
+      const subcrimesList = subcrimesResponse.subcrimes || [];
+      if (Array.isArray(subcrimesList)) {
+        for (const sub of subcrimesList) {
+          const subId = Number(sub.id);
+          if (!subId || isNaN(subId)) continue;
+          await db
+            .insertInto(TABLE_NAMES.TORN_SUBCRIMES as any)
+            .values({
+              subcrime_id: subId,
+              crime_id: crimeId,
+              name: sub.name || "Unknown",
+              nerve_cost: Number(sub.nerve_cost || 0),
+              updated_at: new Date().toISOString(),
+            })
+            .onConflict((oc: any) =>
+              oc.column("subcrime_id").doUpdateSet({
+                name: sub.name || "Unknown",
+                nerve_cost: Number(sub.nerve_cost || 0),
+                updated_at: new Date().toISOString(),
+              })
+            )
+            .execute();
+        }
+      }
+    } catch (err) {
+      crimesLogger.error(`Failed to sync subcrimes definitions for crime ID ${crimeId}`, err);
+    }
+
     // 3. Fetch historical user crime data for this specific crime
     try {
       crimesLogger.info(`Fetching user stats for crime ID ${crimeId} (${crime.name})...`);

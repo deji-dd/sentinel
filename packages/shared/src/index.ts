@@ -31,4 +31,11 @@ export type {
   SentinelMercenaryVerificationVault,
   SentinelBazaarMugConfig,
   SentinelBazaarMugTargets,
+  SentinelTornStocks,
+  SentinelTornSubcrimes,
+  SentinelMarketPrices,
+  SentinelUserAssets,
 } from "./db/kysely-types.js";
+
+export * from "./stocks.js";
+

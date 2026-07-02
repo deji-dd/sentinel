@@ -15,6 +15,7 @@ import {
   BellOff,
   Fingerprint,
   Settings,
+  Landmark,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,6 +36,7 @@ const navItems = [
   { name: "Overview", href: "/", icon: Home },
   { name: "Gym", href: "/gym", icon: Dumbbell },
   { name: "Crimes", href: "/crimes", icon: Fingerprint },
+  { name: "Financial", href: "/financial", icon: Landmark },
   { name: "Beta", href: "/beta", icon: FlaskConical },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

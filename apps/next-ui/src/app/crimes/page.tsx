@@ -22,6 +22,8 @@ interface ItemReward {
 
 interface Subcrime {
   id: number;
+  name?: string;
+  nerve_cost?: number;
   total: number;
   success: number;
   fail: number;
@@ -597,7 +599,7 @@ export default function CrimesPage() {
                               <Table>
                                 <TableHeader className="bg-zinc-50 dark:bg-zinc-900/50">
                                   <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-900">
-                                    <TableHead className="py-1 text-[10px] h-7">ID</TableHead>
+                                    <TableHead className="py-1 text-[10px] h-7">Subcrime</TableHead>
                                     <TableHead className="py-1 text-right text-[10px] h-7">Attempts</TableHead>
                                     <TableHead className="py-1 text-right text-[10px] h-7">Success %</TableHead>
                                   </TableRow>
@@ -609,7 +611,14 @@ export default function CrimesPage() {
                                       const subRate = sub.total > 0 ? (sub.success / sub.total) * 100 : 0;
                                       return (
                                         <TableRow key={sub.id} className="hover:bg-transparent border-zinc-100 dark:border-zinc-900/40">
-                                          <TableCell className="py-1.5 text-xs font-mono">#{sub.id}</TableCell>
+                                          <TableCell className="py-1.5 text-xs font-medium">
+                                            {sub.name || `Subcrime #${sub.id}`}
+                                            {sub.nerve_cost ? (
+                                              <span className="text-[10px] text-zinc-400 font-mono ml-1.5">
+                                                ({sub.nerve_cost} N)
+                                              </span>
+                                            ) : null}
+                                          </TableCell>
                                           <TableCell className="py-1.5 text-right font-mono text-xs text-zinc-500">{sub.total.toLocaleString()}</TableCell>
                                           <TableCell className="py-1.5 text-right font-mono text-xs font-semibold">
                                             {subRate.toFixed(1)}%

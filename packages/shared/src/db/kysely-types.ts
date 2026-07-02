@@ -267,6 +267,12 @@ export interface SentinelMapTerritories {
   territory_id: string;
 }
 
+export interface SentinelMarketPrices {
+  key: string | null;
+  updated_at: Generated<string>;
+  value: number;
+}
+
 export interface SentinelMercenaryConfig {
   audit_channel_id: string | null;
   contract_announcement_channel_id: string | null;
@@ -726,6 +732,33 @@ export interface SentinelTornItems {
   value: number | null;
 }
 
+export interface SentinelTornStocks {
+  acronym: string;
+  bonus_description: string;
+  bonus_frequency: number;
+  bonus_passive: number;
+  bonus_requirement: number;
+  created_at: Generated<string>;
+  full_image: string | null;
+  investors: number;
+  logo_image: string | null;
+  market_cap: number;
+  name: string;
+  price: number;
+  shares: number;
+  stock_id: Generated<number | null>;
+  updated_at: Generated<string>;
+}
+
+export interface SentinelTornSubcrimes {
+  created_at: Generated<string>;
+  crime_id: number;
+  name: string;
+  nerve_cost: number;
+  subcrime_id: Generated<number | null>;
+  updated_at: Generated<string>;
+}
+
 export interface SentinelTrainingRecommendations {
   best_method_id: number | null;
   best_method_type: string | null;
@@ -811,6 +844,14 @@ export interface SentinelUserAlerts {
   module: string;
   updated_at: Generated<string>;
   user_id: string;
+}
+
+export interface SentinelUserAssets {
+  asset_key: string;
+  asset_type: string;
+  created_at: Generated<string>;
+  quantity: Generated<number>;
+  updated_at: Generated<string>;
 }
 
 export interface SentinelUserBars {
@@ -1019,6 +1060,7 @@ export interface DB {
   sentinel_map_sessions: SentinelMapSessions;
   sentinel_map_territories: SentinelMapTerritories;
   sentinel_maps: SentinelMaps;
+  sentinel_market_prices: SentinelMarketPrices;
   sentinel_mercenary_config: SentinelMercenaryConfig;
   sentinel_mercenary_contracts: SentinelMercenaryContracts;
   sentinel_mercenary_dibs: SentinelMercenaryDibs;
@@ -1051,6 +1093,8 @@ export interface DB {
   sentinel_torn_factions: SentinelTornFactions;
   sentinel_torn_gyms: SentinelTornGyms;
   sentinel_torn_items: SentinelTornItems;
+  sentinel_torn_stocks: SentinelTornStocks;
+  sentinel_torn_subcrimes: SentinelTornSubcrimes;
   sentinel_training_recommendations: SentinelTrainingRecommendations;
   sentinel_travel_data: SentinelTravelData;
   sentinel_travel_recommendations: SentinelTravelRecommendations;
@@ -1058,6 +1102,7 @@ export interface DB {
   sentinel_travel_stock_cache: SentinelTravelStockCache;
   sentinel_tt_config: SentinelTtConfig;
   sentinel_user_alerts: SentinelUserAlerts;
+  sentinel_user_assets: SentinelUserAssets;
   sentinel_user_bars: SentinelUserBars;
   sentinel_user_build_preferences: SentinelUserBuildPreferences;
   sentinel_user_cooldowns: SentinelUserCooldowns;
