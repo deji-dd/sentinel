@@ -25,27 +25,53 @@ export async function sendPushNotification(payload: PushPayload): Promise<void> 
     : (process.env.UI_ORIGIN ?? "");
   const secret = process.env.PUSH_INTERNAL_SECRET ?? "";
 
+  // Cloudflare Access headers for bypass
+  const cfClientId = process.env.CF_ACCESS_CLIENT_ID ?? "";
+  const cfClientSecret = process.env.CF_ACCESS_CLIENT_SECRET ?? "";
+
   if (!uiOrigin || !secret) {
     console.warn("[push] UI_ORIGIN or PUSH_INTERNAL_SECRET not set — skipping push notification");
     return;
   }
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-push-secret": secret,
+    };
+
+    if (cfClientId && cfClientSecret) {
+      headers["CF-Access-Client-Id"] = cfClientId;
+      headers["CF-Access-Client-Secret"] = cfClientSecret;
+    }
+
     const res = await fetch(`${uiOrigin}/api/push/send`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-push-secret": secret,
-      },
+      headers,
       body: JSON.stringify(payload),
     });
 
+    const responseText = await res.text();
+
     if (!res.ok) {
-      console.error("[push] Send failed:", res.status, await res.text());
+      console.error(
+        "[push] Send failed status:",
+        res.status,
+        "Response preview:",
+        responseText.slice(0, 300)
+      );
     } else {
-      const data = await res.json() as { sent: number };
-      if (data.sent > 0) {
-        console.log(`[push] Delivered to ${data.sent} subscriber(s)`);
+      try {
+        const data = JSON.parse(responseText) as { sent: number };
+        if (data.sent > 0) {
+          console.log(`[push] Delivered to ${data.sent} subscriber(s)`);
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (_jsonErr) {
+        console.error(
+          `[push] JSON parsing failed. Status: ${res.status}. Response preview:`,
+          responseText.slice(0, 500)
+        );
       }
     }
   } catch (err) {

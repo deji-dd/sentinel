@@ -2926,6 +2926,18 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
       itemNameMap.set(item.item_id, item.name);
     }
 
+    // Fetch subcrimes mappings
+    const subcrimesRows = await db
+      .selectFrom("sentinel_torn_subcrimes" as any)
+      .select(["subcrime_id", "name", "nerve_cost"])
+      .execute();
+    const subcrimeNameMap = new Map<number, string>();
+    const subcrimeNerveMap = new Map<number, number>();
+    for (const sub of subcrimesRows) {
+      subcrimeNameMap.set(Number(sub.subcrime_id), sub.name);
+      subcrimeNerveMap.set(Number(sub.subcrime_id), Number(sub.nerve_cost));
+    }
+
     // 4. Fetch sync status of torn_crimes_worker
     const scheduleRow = await db
       .selectFrom("sentinel_worker_schedules")
@@ -2970,6 +2982,17 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
       try {
         rawSubcrimes = uc?.attempts_subcrimes ? JSON.parse(uc.attempts_subcrimes) : [];
       } catch { /* ignore malformed JSON */ }
+
+      const enrichedSubcrimes = rawSubcrimes.map((sub: any) => {
+        const subId = Number(sub.id);
+        const name = subcrimeNameMap.get(subId) || `Subcrime #${subId}`;
+        const nerveCost = subcrimeNerveMap.get(subId) || 0;
+        return {
+          ...sub,
+          name,
+          nerve_cost: nerveCost,
+        };
+      });
 
       let notes: string[] = [];
       try {
@@ -3023,7 +3046,7 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
           success: attemptsSuccess,
           fail: attemptsFail,
           critical_fail: attemptsCriticalFail,
-          subcrimes: rawSubcrimes,
+          subcrimes: enrichedSubcrimes,
         },
         rewards: {
           money: rewardsMoney,

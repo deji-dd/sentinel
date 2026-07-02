@@ -71,6 +71,10 @@ export const TABLE_NAMES = {
   PUSH_SUBSCRIPTIONS: "sentinel_push_subscriptions",
   TORN_CRIMES: "sentinel_torn_crimes",
   USER_CRIMES: "sentinel_user_crimes",
+  TORN_STOCKS: "sentinel_torn_stocks",
+  TORN_SUBCRIMES: "sentinel_torn_subcrimes",
+  MARKET_PRICES: "sentinel_market_prices",
+  USER_ASSETS: "sentinel_user_assets",
 } as const;
 
 /** Alert module types */

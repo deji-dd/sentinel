@@ -16,6 +16,7 @@ import {
   registerMapRoutes,
   registerAssistRoutes,
   pushRouter,
+  financialsRouter,
 } from "../server/routes/index.js";
 import {
   buildAssistButton,
@@ -161,6 +162,7 @@ export function initHttpServer(client: Client, port: number = 3001) {
   app.use("/api/config", configRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api/push", pushRouter);
+  app.use("/api/financials", financialsRouter);
 
   const logger = new Logger("HTTP");
   // Start server
