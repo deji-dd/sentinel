@@ -6,7 +6,7 @@
  * System keys are separate from guild keys because:
  * - Workers are not accessible by regular users
  * - System keys can be configured for infrastructure syncing
- * - Uses DB-backed keys only (no env fallback)
+ * - Personal keys can come from env or the database
  */
 
 import { encryptApiKey, decryptApiKey, hashApiKey } from "@sentinel/shared";
@@ -43,13 +43,22 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 /**
  * Get system API key for worker operations
- * Reads from database (personal or system key types)
+ * Reads from env for personal keys, otherwise from the database
  *
- * @param keyType - 'personal' (env var) or 'system' (stored in DB)
+ * @param keyType - 'personal' (env var fallback) or 'system' (stored in DB)
  */
 export async function getSystemApiKey(
   keyType: "personal" | "system" = "personal",
 ): Promise<string> {
+  if (keyType === "personal") {
+    const personalApiKey =
+      process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+
+    if (personalApiKey) {
+      return personalApiKey;
+    }
+  }
+
   const db = getKysely();
   const row = await db
     .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
