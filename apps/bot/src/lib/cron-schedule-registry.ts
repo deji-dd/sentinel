@@ -37,7 +37,7 @@ export async function syncGlobalCronSchedules(): Promise<void> {
   await ensureWorkerRegistered({
     name: "bot:daily_summary",
     cadenceSeconds: DAILY_SUMMARY_CADENCE_SECONDS,
-    initialNextRunAt: getNextUtcRun(5, 5),
+    initialNextRunAt: getNextUtcRun(0, 5),
   });
 
   await ensureWorkerRegistered({

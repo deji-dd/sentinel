@@ -38,4 +38,5 @@ export type {
 } from "./db/kysely-types.js";
 
 export * from "./stocks.js";
+export * from "./finance-parser.js";
 

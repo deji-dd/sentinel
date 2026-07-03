@@ -118,6 +118,18 @@ export interface SentinelBazaarMugTargets {
   updated_at: Generated<string>;
 }
 
+export interface SentinelDailyFinanceSnapshots {
+  asset_valuation: number;
+  created_at: Generated<string>;
+  date: string | null;
+  estimated_networth: number;
+  inflow: number;
+  liquid_capital: number;
+  net_profit: number;
+  outflow: number;
+  updated_at: Generated<string>;
+}
+
 export interface SentinelDashboardSessions {
   access_token: string;
   created_at: Generated<string | null>;
@@ -160,6 +172,15 @@ export interface SentinelFinanceSettings {
   split_gear: Generated<number>;
   split_training: Generated<number>;
   updated_at: Generated<string>;
+}
+
+export interface SentinelFinancialLogs {
+  category: string;
+  created_at: Generated<string>;
+  data: string;
+  log_id: string | null;
+  timestamp: number;
+  title: string;
 }
 
 export interface SentinelGuildApiKeys {
@@ -485,6 +506,12 @@ export interface SentinelPersonalSettings {
   target_strength_ratio: Generated<number>;
   updated_at: Generated<string>;
   user_id: string | null;
+}
+
+export interface SentinelPortfolioSnapshot {
+  created_at: Generated<string>;
+  data: string;
+  id: Generated<number | null>;
 }
 
 export interface SentinelPushSubscriptions {
@@ -1046,10 +1073,12 @@ export interface DB {
   sentinel_battlestats_snapshots: SentinelBattlestatsSnapshots;
   sentinel_bazaar_mug_config: SentinelBazaarMugConfig;
   sentinel_bazaar_mug_targets: SentinelBazaarMugTargets;
+  sentinel_daily_finance_snapshots: SentinelDailyFinanceSnapshots;
   sentinel_dashboard_sessions: SentinelDashboardSessions;
   sentinel_destination_travel_times: SentinelDestinationTravelTimes;
   sentinel_faction_roles: SentinelFactionRoles;
   sentinel_finance_settings: SentinelFinanceSettings;
+  sentinel_financial_logs: SentinelFinancialLogs;
   sentinel_guild_api_keys: SentinelGuildApiKeys;
   sentinel_guild_audit: SentinelGuildAudit;
   sentinel_guild_config: SentinelGuildConfig;
@@ -1072,6 +1101,7 @@ export interface DB {
   sentinel_mercenary_targets: SentinelMercenaryTargets;
   sentinel_mercenary_verification_vault: SentinelMercenaryVerificationVault;
   sentinel_personal_settings: SentinelPersonalSettings;
+  sentinel_portfolio_snapshot: SentinelPortfolioSnapshot;
   sentinel_push_subscriptions: SentinelPushSubscriptions;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;

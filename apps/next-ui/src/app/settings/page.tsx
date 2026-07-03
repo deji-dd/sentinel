@@ -41,6 +41,7 @@ interface PersonalSettings {
   target_defense_ratio: number;
   target_speed_ratio: number;
   target_dexterity_ratio: number;
+  max_nerve?: number;
 }
 
 export default function SettingsPage() {
@@ -556,7 +557,7 @@ export default function SettingsPage() {
                   <div className="px-1 py-2">
                     <Slider
                       min={0}
-                      max={100}
+                      max={settings.max_nerve || 100}
                       step={2}
                       value={[settings.crime_soft_threshold]}
                       onValueChange={(value) => {

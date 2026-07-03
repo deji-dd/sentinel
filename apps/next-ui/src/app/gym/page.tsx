@@ -204,6 +204,9 @@ export default function GymPage() {
     return null;
   }
 
+  const recommendedStatKey = data.recommendation.statKey || "";
+  const steadfastPct = data.recommendation.factionPerks?.[recommendedStatKey] || 0;
+
   const gymCards = [
     {
       title: "Training Focus",
@@ -212,6 +215,9 @@ export default function GymPage() {
       iconColor: "text-indigo-500",
       bgClass: "bg-indigo-500/10",
       textColor: "text-indigo-600 dark:text-indigo-400",
+      description: steadfastPct > 0
+        ? `+${steadfastPct}% gains`
+        : "No active Faction Steadfast perk for this stat",
     },
     {
       title: "Total Attributes",
@@ -238,9 +244,7 @@ export default function GymPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">Gym Analytics</h1>
-            <p className="text-zinc-500 dark:text-zinc-400">
-              Track your gym gains, analyze training efficiency, and get optimal gym recommendations.
-            </p>
+
           </div>
           <button
             onClick={handleSyncClick}
@@ -296,6 +300,13 @@ export default function GymPage() {
                     {card.value}
                   </CardTitle>
                 </CardHeader>
+                {card.description && (
+                  <CardContent className="pb-4 pt-0">
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-normal">
+                      {card.description}
+                    </p>
+                  </CardContent>
+                )}
               </Card>
             );
           })}

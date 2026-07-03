@@ -16,6 +16,7 @@
     "add-key": "tsx --env-file=.env src/scripts/add-system-api-key.ts",
     "dedupe-keys": "tsx --env-file=.env src/scripts/dedupe-system-api-keys.ts",
     "trigger": "tsx --env-file=.env trigger.ts",
+    "test-finance": "tsx --env-file=.env src/scripts/test-finance-parsers.ts",
     "lint": "eslint src/"
   },
   "dependencies": {

@@ -184,6 +184,12 @@ export async function getPersonalTrainingRecommendations(
         for (const val of Object.values(rawFactionPerks)) {
           if (typeof val === "string") {
             perkStrings.push(val);
+          } else if (Array.isArray(val)) {
+            for (const v of val) {
+              if (typeof v === "string") {
+                perkStrings.push(v);
+              }
+            }
           }
         }
       }

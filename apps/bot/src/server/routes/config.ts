@@ -2273,7 +2273,38 @@ configRouter.get("/personal", async (req: Request, res: Response) => {
         .executeTakeFirst();
     }
 
-    res.json(settings);
+    // Fetch user's actual max nerve dynamically from Torn API
+    let maxNerve = 100;
+    let apiKey = process.env.TORN_API_KEY;
+    if (!apiKey) {
+      const keyRow = await db
+        .selectFrom("sentinel_system_api_keys" as any)
+        .select(["api_key_encrypted"])
+        .where("type", "=", "personal")
+        .executeTakeFirst();
+      if (keyRow) {
+        const { decryptApiKey } = await import("@sentinel/shared");
+        apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
+      }
+    }
+
+    if (apiKey) {
+      try {
+        const { TornApiClient } = await import("@sentinel/shared");
+        const client = new TornApiClient();
+        const barsRes = (await client.get("/user/bars" as any, { apiKey })) as any;
+        if (barsRes?.bars?.nerve?.maximum) {
+          maxNerve = Number(barsRes.bars.nerve.maximum);
+        }
+      } catch (e) {
+        console.error("[HTTP] Failed to fetch user bars for max nerve settings:", e);
+      }
+    }
+
+    res.json({
+      ...(settings || {}),
+      max_nerve: maxNerve,
+    });
   } catch (error) {
     console.error("[HTTP] Error fetching personal config:", error);
     res.status(500).json({ error: "Server error" });

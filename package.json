@@ -14,6 +14,7 @@
     "worker:lint": "pnpm --filter worker lint",
     "worker:test:speed": "pnpm --filter worker task src/scripts/run-speed-tests.ts",
     "test": "pnpm worker:test:speed",
+    "test-finance": "pnpm --filter worker test-finance",
     "ui:dev": "pnpm --filter @sentinel/next-ui dev",
     "ui:build": "pnpm --filter @sentinel/next-ui build",
     "ui:lint": "pnpm --filter @sentinel/next-ui lint",

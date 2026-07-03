@@ -9,3 +9,4 @@ export { startBattlestatsSyncWorker } from "../battlestats-sync.js";
 export { startBattlestatsPruningWorker } from "../battlestats-pruning.js";
 export { startBotCronDispatcherWorker } from "../bot-cron-dispatcher.js";
 export { startTornCrimesWorker } from "../torn-crimes.js";
+export { startTornFinanceLogsWorker } from "../torn-finance-logs.js";
