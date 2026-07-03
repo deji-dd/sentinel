@@ -96,25 +96,10 @@ async function buildStatsSummaryEmbed(
   // Training & Gym Focus Field
   try {
     const userId = process.env.SENTINEL_USER_ID || "1";
-    let apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
-    try {
-      const keyRow = await db
-        .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
-        .select("api_key_encrypted")
-        .where("key_type", "=", "personal")
-        .where("is_primary", "=", 1)
-        .where("deleted_at", "is", null)
-        .executeTakeFirst();
-      
-      if (keyRow?.api_key_encrypted && process.env.ENCRYPTION_KEY) {
-        const { decryptApiKey } = await import("@sentinel/shared");
-        apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
-      }
-    } catch (err) {
-      console.error("[daily_summary_embed] Failed to fetch/decrypt personal API key:", err);
-    }
+    const apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
 
-    const { getPersonalTrainingRecommendations } = await import("@sentinel/shared/training-recommendations.js");
+    const { getPersonalTrainingRecommendations } =
+      await import("@sentinel/shared/training-recommendations.js");
     const recs = await getPersonalTrainingRecommendations(db, userId, apiKey);
 
     const recLines = [
@@ -131,7 +116,10 @@ async function buildStatsSummaryEmbed(
       inline: false,
     });
   } catch (err) {
-    console.error("Failed to append recommendations to daily summary embed:", err);
+    console.error(
+      "Failed to append recommendations to daily summary embed:",
+      err,
+    );
   }
 
   // Attention Needed Field (if applicable)

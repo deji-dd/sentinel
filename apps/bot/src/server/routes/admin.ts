@@ -22,7 +22,7 @@ async function ensureBotOwner(req: Request, res: Response, next: Function) {
     if (!session || session.discord_id !== botOwnerId) {
       return res.status(403).json({ error: "Forbidden: Bot owner only" });
     }
-     
+
     (req as any).session = session;
     next();
   } catch {
@@ -43,7 +43,7 @@ adminRouter.post("/backups", async (req: Request, res: Response) => {
     await sendAdminSystemLog(
       discordClient,
       "info",
-      `Owner <@${(req as any).session.discord_id}> triggered a manual database backup.`
+      `Owner <@${(req as any).session.discord_id}> triggered a manual database backup.`,
     ).catch(() => {});
 
     res.json({ ok: true, message: "Backup triggered and sent to DMs" });
@@ -55,7 +55,8 @@ adminRouter.post("/backups", async (req: Request, res: Response) => {
 // 2. Deploy Commands
 adminRouter.post("/deploy", async (req: Request, res: Response) => {
   try {
-    const { deployAllGuildCommands } = await import("../../lib/deploy-commands-helper.js");
+    const { deployAllGuildCommands } =
+      await import("../../lib/deploy-commands-helper.js");
     const result = await deployAllGuildCommands();
 
     // Log the deploy action
@@ -63,10 +64,13 @@ adminRouter.post("/deploy", async (req: Request, res: Response) => {
     await sendAdminSystemLog(
       getServerContext(req).discordClient,
       "info",
-      `Owner <@${(req as any).session.discord_id}> triggered a command deployment across all guilds (Success: ${result.success}, Failed: ${result.failure}).`
+      `Owner <@${(req as any).session.discord_id}> triggered a command deployment across all guilds (Success: ${result.success}, Failed: ${result.failure}).`,
     ).catch(() => {});
 
-    res.json({ ok: true, message: `Commands deployed to ${result.success} guilds. (Failed: ${result.failure})` });
+    res.json({
+      ok: true,
+      message: `Commands deployed to ${result.success} guilds. (Failed: ${result.failure})`,
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -152,7 +156,8 @@ adminRouter.post("/guilds", async (req: Request, res: Response) => {
     }
 
     // Deploy commands for the new guild immediately
-    const { deployGuildCommands } = await import("../../lib/deploy-commands-helper.js");
+    const { deployGuildCommands } =
+      await import("../../lib/deploy-commands-helper.js");
     await deployGuildCommands(guildId);
 
     // Log the new guild config initialization
@@ -160,7 +165,7 @@ adminRouter.post("/guilds", async (req: Request, res: Response) => {
     await sendAdminSystemLog(
       getServerContext(req).discordClient,
       "info",
-      `Owner <@${(req as any).session.discord_id}> initialized guild config for server ID: ${guildId}`
+      `Owner <@${(req as any).session.discord_id}> initialized guild config for server ID: ${guildId}`,
     ).catch(() => {});
 
     res.json({ ok: true });
@@ -187,7 +192,8 @@ adminRouter.patch(
       await syncAllGuildCronSchedules(guildId, discordClient);
 
       // Redeploy commands for the guild since its modules changed
-      const { deployGuildCommands } = await import("../../lib/deploy-commands-helper.js");
+      const { deployGuildCommands } =
+        await import("../../lib/deploy-commands-helper.js");
       await deployGuildCommands(guildId);
 
       // Log module update action
@@ -195,7 +201,7 @@ adminRouter.patch(
       await sendAdminSystemLog(
         discordClient,
         "info",
-        `Owner <@${(req as any).session.discord_id}> updated modules for guild ID: ${guildId} to: [${modulesToSave.join(", ")}]`
+        `Owner <@${(req as any).session.discord_id}> updated modules for guild ID: ${guildId} to: [${modulesToSave.join(", ")}]`,
       ).catch(() => {});
 
       res.json({ ok: true, modules: modulesToSave });
@@ -221,7 +227,7 @@ adminRouter.delete("/guilds/:id", async (req: Request, res: Response) => {
     await sendAdminSystemLog(
       discordClient,
       "info",
-      `Owner <@${(req as any).session.discord_id}> deleted config for guild ID: ${guildId}`
+      `Owner <@${(req as any).session.discord_id}> deleted config for guild ID: ${guildId}`,
     ).catch(() => {});
 
     res.json({ ok: true });
@@ -240,7 +246,9 @@ adminRouter.get("/channels", async (req: Request, res: Response) => {
   }
 
   try {
-    const guild = discordClient.guilds.cache.get(adminGuildId) || await discordClient.guilds.fetch(adminGuildId);
+    const guild =
+      discordClient.guilds.cache.get(adminGuildId) ||
+      (await discordClient.guilds.fetch(adminGuildId));
     if (!guild) {
       return res.status(404).json({ error: "Admin Guild not found" });
     }
@@ -257,10 +265,12 @@ adminRouter.get("/channels", async (req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
-});// 5. Force Sync Gym Logs
+}); // 5. Force Sync Gym Logs
 adminRouter.post("/sync-gym", async (req: Request, res: Response) => {
   try {
-    console.log("[AdminRouter] Manual historical gym logs sync triggered by owner via API");
+    console.log(
+      "[AdminRouter] Manual historical gym logs sync triggered by owner via API",
+    );
 
     const worker = await db
       .selectFrom(TABLE_NAMES.WORKERS)
@@ -270,7 +280,9 @@ adminRouter.post("/sync-gym", async (req: Request, res: Response) => {
       .executeTakeFirst();
 
     if (!worker) {
-      console.warn("[AdminRouter] Gym worker not registered yet in sentinel_workers table.");
+      console.warn(
+        "[AdminRouter] Gym worker not registered yet in sentinel_workers table.",
+      );
       return res.status(404).json({ error: "Gym worker not registered yet" });
     }
 
@@ -280,21 +292,29 @@ adminRouter.post("/sync-gym", async (req: Request, res: Response) => {
       .where("worker_id", "=", worker.id)
       .execute();
 
-    console.log(`[AdminRouter] Set force_run = 1 in database for worker_id: ${worker.id}`);
+    console.log(
+      `[AdminRouter] Set force_run = 1 in database for worker_id: ${worker.id}`,
+    );
 
     // Log force-sync action
     const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
     await sendAdminSystemLog(
       getServerContext(req).discordClient,
       "info",
-      `Owner <@${(req as any).session.discord_id}> triggered manual historical gym sync queue.`
+      `Owner <@${(req as any).session.discord_id}> triggered manual historical gym sync queue.`,
     ).catch((err) => {
-      console.error("[AdminRouter] Failed to send admin system log to Discord:", err);
+      console.error(
+        "[AdminRouter] Failed to send admin system log to Discord:",
+        err,
+      );
     });
 
     res.json({ ok: true, message: "Sync worker triggered successfully" });
   } catch (error) {
-    console.error("[AdminRouter] Error triggering manual historical gym logs sync:", error);
+    console.error(
+      "[AdminRouter] Error triggering manual historical gym logs sync:",
+      error,
+    );
     res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -326,7 +346,12 @@ adminRouter.get("/live-energy", async (req: Request, res: Response) => {
       // Fetch latest snapshot
       const userSnapshot = await db
         .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
-        .select(["energy_current", "energy_maximum", "happy_current", "happy_maximum"])
+        .select([
+          "energy_current",
+          "energy_maximum",
+          "happy_current",
+          "happy_maximum",
+        ])
         .orderBy("created_at", "desc")
         .limit(1)
         .executeTakeFirst();
@@ -337,32 +362,24 @@ adminRouter.get("/live-energy", async (req: Request, res: Response) => {
       }
 
       // Fetch training recommendations
-      let apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
-      try {
-        const keyRow = await db
-          .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
-          .select("api_key_encrypted")
-          .where("key_type", "=", "personal")
-          .where("is_primary", "=", 1)
-          .where("deleted_at", "is", null)
-          .executeTakeFirst();
-        
-        if (keyRow?.api_key_encrypted && process.env.ENCRYPTION_KEY) {
-          const { decryptApiKey } = await import("@sentinel/shared");
-          apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
-        }
-      } catch (err) {
-        console.error("[live-energy] Failed to fetch/decrypt personal API key:", err);
-      }
+      const apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
 
-      const recs = await getPersonalTrainingRecommendations(db, String(userId), apiKey);
+      const recs = await getPersonalTrainingRecommendations(
+        db,
+        String(userId),
+        apiKey,
+      );
 
       sendEvent({
         timestamp: new Date().toISOString(),
         energy: {
           current: userSnapshot.energy_current,
           maximum: userSnapshot.energy_maximum,
-          percent: Math.round((Number(userSnapshot.energy_current) / Number(userSnapshot.energy_maximum)) * 100),
+          percent: Math.round(
+            (Number(userSnapshot.energy_current) /
+              Number(userSnapshot.energy_maximum)) *
+              100,
+          ),
         },
         happy: {
           current: userSnapshot.happy_current,

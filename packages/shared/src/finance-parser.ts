@@ -44,7 +44,7 @@ export function parseFinanceLedger(
   dbLogs: RawFinanceLog[],
   itemMap: Map<number, { name: string; value: number }>,
   itemNameMap: Map<string, { item_id: number; name: string; value: number }>,
-  pointPrice: number
+  pointPrice: number,
 ): ParseFinanceLedgerResult {
   const transactions: ParsedTransaction[] = [];
   const income = {
@@ -85,8 +85,19 @@ export function parseFinanceLedger(
     let description = row.title || "";
 
     // A. Stocks
-    if (category === "stocks" || title.includes("stock") || title.includes("dividend")) {
-      amount = Number(logData.money_gained || logData.cash || logData.money || logData.payout || logData.dividend || 0);
+    if (
+      category === "stocks" ||
+      title.includes("stock") ||
+      title.includes("dividend")
+    ) {
+      amount = Number(
+        logData.money_gained ||
+          logData.cash ||
+          logData.money ||
+          logData.payout ||
+          logData.dividend ||
+          0,
+      );
       if (amount > 0) {
         isIncome = true;
         transactionCategory = "stocks";
@@ -95,7 +106,14 @@ export function parseFinanceLedger(
     }
     // B. Bazaar
     else if (category === "bazaars" || title.includes("bazaar")) {
-      amount = Number(logData.money_gained || logData.money_received || logData.total_price || logData.price || logData.money || 0);
+      amount = Number(
+        logData.money_gained ||
+          logData.money_received ||
+          logData.total_price ||
+          logData.price ||
+          logData.money ||
+          0,
+      );
       if (amount > 0) {
         isIncome = true;
         transactionCategory = "bazaar";
@@ -103,38 +121,88 @@ export function parseFinanceLedger(
       }
     }
     // C. Item Market
-    else if (category === "item market" || category === "itemmarket" || title.includes("item market")) {
-      amount = Number(logData.cost_total || logData.money_gained || logData.money_received || logData.total_price || logData.price || logData.money || 0);
+    else if (
+      category === "item market" ||
+      category === "itemmarket" ||
+      title.includes("item market")
+    ) {
+      amount = Number(
+        logData.cost_total ||
+          logData.money_gained ||
+          logData.money_received ||
+          logData.total_price ||
+          logData.price ||
+          logData.money ||
+          0,
+      );
       if (amount > 0) {
-        if (title.includes("sell") || title.includes("sold") || title.includes("bought by") || title.includes("receive")) {
+        if (
+          title.includes("sell") ||
+          title.includes("sold") ||
+          title.includes("bought by") ||
+          title.includes("receive")
+        ) {
           isIncome = true;
           transactionCategory = "item_market";
           description = `Item market sale: ${logData.item_name || logData.type || "item"}`;
         } else {
-          isExpense = true;
-          transactionCategory = "consumables";
-          description = `Bought from Item Market: ${logData.item_name || logData.type || "item"}`;
+          // Do not count buy as immediate outflow, only when item use is triggered.
+          isExpense = false;
         }
       }
     }
     // D. Company
     else if (category === "company" || title.includes("company")) {
-      amount = Number(logData.wages || logData.salary || logData.profit || logData.payout || logData.dividend || logData.cash || logData.money || 0);
+      amount = Number(
+        logData.money_gained ||
+          logData.profit ||
+          logData.income ||
+          logData.funds ||
+          logData.amount ||
+          logData.wages ||
+          logData.salary ||
+          logData.payout ||
+          logData.dividend ||
+          logData.cash ||
+          logData.money ||
+          0,
+      );
       if (amount > 0) {
-        if (title.includes("profit") || title.includes("payout") || title.includes("dividend")) {
+        if (
+          title.includes("profit") ||
+          title.includes("income") ||
+          title.includes("payout") ||
+          title.includes("dividend") ||
+          title.includes("funds added") ||
+          title.includes("received")
+        ) {
           isIncome = true;
           transactionCategory = "company";
-          description = `Company profit payout`;
-        } else if (title.includes("salary") || title.includes("wage") || title.includes("pay")) {
+          description = `Company income: ${row.title}`;
+        } else if (
+          title.includes("salary") ||
+          title.includes("wage") ||
+          title.includes("pay")
+        ) {
           isIncome = true;
           transactionCategory = "company";
-          description = `Company pay / salary`;
+          description = `Company wages/salary`;
+        } else if (
+          title.includes("advertise") ||
+          title.includes("ad budget") ||
+          title.includes("bill")
+        ) {
+          isExpense = true;
+          transactionCategory = "upkeep";
+          description = `Company advertising bill`;
         }
       }
     }
     // E. Crimes
     else if (category === "crimes" || title.includes("crime")) {
-      amount = Number(logData.money_gained || logData.money || logData.cash || 0);
+      amount = Number(
+        logData.money_gained || logData.money || logData.cash || 0,
+      );
       if (amount > 0) {
         isIncome = true;
         transactionCategory = "crimes";
@@ -143,15 +211,36 @@ export function parseFinanceLedger(
     }
     // F. Mugs
     else if (title.includes("mug") || title.includes("attack")) {
-      if (title.includes("mugged by") || title.includes("inbound") || title.includes("lose money")) {
-        amount = Number(logData.money_lost || logData.money || logData.cash || logData.mugged_amount || 0);
+      if (
+        title.includes("mugged by") ||
+        title.includes("inbound") ||
+        title.includes("lose money")
+      ) {
+        amount = Number(
+          logData.money_lost ||
+            logData.money ||
+            logData.cash ||
+            logData.mugged_amount ||
+            0,
+        );
         if (amount > 0) {
           isExpense = true;
           transactionCategory = "inbound_mugs";
           description = `Mugged by ${logData.attacker_name || logData.attacker || "someone"}`;
         }
-      } else if (title.includes("mug success") || title.includes("mugged") || title.includes("outbound")) {
-        amount = Number(logData.money_gained || logData.money || logData.cash || logData.mugged_amount || logData.money_mugged || 0);
+      } else if (
+        title.includes("mug success") ||
+        title.includes("mugged") ||
+        title.includes("outbound")
+      ) {
+        amount = Number(
+          logData.money_gained ||
+            logData.money ||
+            logData.cash ||
+            logData.mugged_amount ||
+            logData.money_mugged ||
+            0,
+        );
         if (amount > 0) {
           isIncome = true;
           transactionCategory = "outbound_mugs";
@@ -161,9 +250,19 @@ export function parseFinanceLedger(
     }
     // G. Faction
     else if (category === "faction" || title.includes("faction")) {
-      amount = Number(logData.money_given || logData.money || logData.amount || logData.cash || 0);
+      amount = Number(
+        logData.money_given ||
+          logData.money ||
+          logData.amount ||
+          logData.cash ||
+          0,
+      );
       if (amount > 0) {
-        if (title.includes("receive") || title.includes("withdraw") || title.includes("payout")) {
+        if (
+          title.includes("receive") ||
+          title.includes("withdraw") ||
+          title.includes("payout")
+        ) {
           isIncome = true;
           transactionCategory = "faction_withdrawals";
           description = `Faction funds received/withdrawn`;
@@ -175,8 +274,14 @@ export function parseFinanceLedger(
       }
     }
     // H. Upkeep
-    else if (category === "upkeep" || title.includes("upkeep") || title.includes("property pay")) {
-      amount = Number(logData.upkeep || logData.amount || logData.cost || logData.money || 0);
+    else if (
+      category === "upkeep" ||
+      title.includes("upkeep") ||
+      title.includes("property pay")
+    ) {
+      amount = Number(
+        logData.upkeep || logData.amount || logData.cost || logData.money || 0,
+      );
       if (amount > 0) {
         isExpense = true;
         transactionCategory = "upkeep";
@@ -184,8 +289,20 @@ export function parseFinanceLedger(
       }
     }
     // I. Loan Interest
-    else if (category === "loan" || title.includes("loan") || title.includes("interest")) {
-      amount = Number(logData.returned || logData.fee_paid || logData.interest || logData.amount || logData.cost || logData.money || 0);
+    else if (
+      category === "loan" ||
+      title.includes("loan") ||
+      title.includes("interest")
+    ) {
+      amount = Number(
+        logData.returned ||
+          logData.fee_paid ||
+          logData.interest ||
+          logData.amount ||
+          logData.cost ||
+          logData.money ||
+          0,
+      );
       if (amount > 0) {
         isExpense = true;
         if (title.includes("fee") || title.includes("interest")) {
@@ -199,11 +316,11 @@ export function parseFinanceLedger(
     }
     // J. Consumables
     else if (
-      category === "drugs" || 
-      category === "item use drug" || 
+      category === "drugs" ||
+      category === "item use drug" ||
       category.includes("item use") ||
-      title.includes("item use") || 
-      title.includes("consume") || 
+      title.includes("item use") ||
+      title.includes("consume") ||
       title.includes("refill")
     ) {
       if (title.includes("point") || logData.points_used) {
@@ -213,7 +330,9 @@ export function parseFinanceLedger(
         transactionCategory = "consumables";
         description = `Used points refill: ${pts} points`;
       } else {
-        const itemId = Number(logData.item || logData.item_id || logData.id || 0);
+        const itemId = Number(
+          logData.item || logData.item_id || logData.id || 0,
+        );
         const quantity = Number(logData.quantity || logData.qty || 1);
         let itemVal = 0;
         let itemName = "Consumable";
@@ -259,7 +378,10 @@ export function parseFinanceLedger(
       }
     }
     // K. Rehab
-    else if (category === "travel" && title === "rehab" || title.toLowerCase() === "rehab") {
+    else if (
+      (category === "travel" && title === "rehab") ||
+      title.toLowerCase() === "rehab"
+    ) {
       amount = Number(logData.cost || 0);
       if (amount > 0) {
         isExpense = true;
@@ -268,29 +390,60 @@ export function parseFinanceLedger(
       }
     }
     // L. Bounties
-    else if (category === "bounties" || category === "bounty" || title.toLowerCase().includes("bounty")) {
+    else if (
+      category === "bounties" ||
+      category === "bounty" ||
+      title.toLowerCase().includes("bounty")
+    ) {
       const titleLow = title.toLowerCase();
-      // "lister" = user placed the bounty, someone else claimed it → EXPENSE (payout from user's vault)
-      // "place"/"paid"/"put" in title, or bounty_amount/cost field → EXPENSE
-      const isPlacement = titleLow.includes("lister") || titleLow.includes("place") || titleLow.includes("paid") ||
-                          titleLow.includes("put") || logData.bounty_amount !== undefined || logData.cost !== undefined;
-      // "claim"/"collect" WITHOUT lister → user collected bounty money → INCOME
-      const isClaim = !isPlacement && (titleLow.includes("claim") || titleLow.includes("collect") || logData.bounty_reward !== undefined);
+      
+      const isPlacement = titleLow.includes("place") || titleLow.includes("placed");
+      const isListerClaim = titleLow.includes("lister") || titleLow.includes("claim");
 
       if (isPlacement) {
-        amount = Number(logData.bounty_amount || logData.bounty_reward || logData.cost || logData.amount || logData.money || 0);
+        // Ignore placement (pending, no transaction log pushed)
+      } else if (isListerClaim) {
+        amount = Number(
+          logData.bounty_reward ||
+            logData.money_lost ||
+            logData.cost ||
+            logData.money ||
+            logData.reward ||
+            0,
+        );
         if (amount > 0) {
-          isExpense = true;
-          transactionCategory = "other";
-          description = `Bounty paid out on: ${logData.target_name || logData.target || "target"}`;
+          if (titleLow.includes("lister")) {
+            isExpense = true;
+            transactionCategory = "other";
+            description = `Paid bounty claim: ${logData.target_name || logData.target || "target"}`;
+          } else {
+            isIncome = true;
+            transactionCategory = "other";
+            description = `Collected bounty on: ${logData.target_name || logData.target || "target"}`;
+          }
         }
-      } else if (isClaim) {
-        amount = Number(logData.bounty_reward || logData.money_gained || logData.reward || logData.money || 0);
-        if (amount > 0) {
-          isIncome = true;
-          transactionCategory = "other";
-          description = `Collected bounty on: ${logData.target_name || logData.target || "target"}`;
-        }
+      }
+    }
+
+    // M. Mission rewards - include mission reward logs as income when present
+    else if (
+      category === "missions" ||
+      title.toLowerCase().includes("mission") ||
+      title.toLowerCase().includes("mission reward") ||
+      logData.mission_reward !== undefined
+    ) {
+      amount = Number(
+        logData.money_gained ||
+          logData.mission_reward ||
+          logData.reward ||
+          logData.cash ||
+          logData.money ||
+          0,
+      );
+      if (amount > 0) {
+        isIncome = true;
+        transactionCategory = "other";
+        description = `Mission reward: ${logData.mission_name || logData.mission || row.title}`;
       }
     }
 

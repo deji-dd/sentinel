@@ -103,10 +103,7 @@ async function getFactionWarState(factionId: number): Promise<{
   return { hasActiveWar, hasUpcomingWar, upcomingWarStartTime };
 }
 
-function normalizeMercenaryContractRow(
-   
-  row: any,
-) {
+function normalizeMercenaryContractRow(row: any) {
   return {
     ...row,
     target_roles: parseJsonArray(row.target_roles_json),
@@ -165,7 +162,10 @@ configRouter.get("/mercenary", async (req: Request, res: Response) => {
 
     const normalizedContracts = contracts.map((c) => {
       const norm = normalizeMercenaryContractRow(c);
-      const summary = summaryMap.get(norm.id) || { hit_count: 0, total_payout: 0 };
+      const summary = summaryMap.get(norm.id) || {
+        hit_count: 0,
+        total_payout: 0,
+      };
       return {
         ...norm,
         hit_count: summary.hit_count,
@@ -633,25 +633,42 @@ configRouter.post(
             if (rolesList.length > 0) {
               let isAllSelected = false;
               try {
-                const membersResponse = await tornApi.get("/faction/{id}/members", {
-                  apiKey,
-                  pathParams: { id: String(factionIdNumber) },
-                });
+                const membersResponse = await tornApi.get(
+                  "/faction/{id}/members",
+                  {
+                    apiKey,
+                    pathParams: { id: String(factionIdNumber) },
+                  },
+                );
                 const availableRoles = new Set<string>();
                 const members = membersResponse.members;
                 if (members && typeof members === "object") {
-                  const memberList = Array.isArray(members) ? members : Object.values(members);
+                  const memberList = Array.isArray(members)
+                    ? members
+                    : Object.values(members);
                   for (const member of memberList) {
-                    if (member && typeof member === "object" && "position" in member && typeof member.position === "string") {
+                    if (
+                      member &&
+                      typeof member === "object" &&
+                      "position" in member &&
+                      typeof member.position === "string"
+                    ) {
                       availableRoles.add(member.position);
                     }
                   }
                 }
-                if (availableRoles.size > 0 && rolesList.length >= availableRoles.size && rolesList.every((r: string) => availableRoles.has(r))) {
+                if (
+                  availableRoles.size > 0 &&
+                  rolesList.length >= availableRoles.size &&
+                  rolesList.every((r: string) => availableRoles.has(r))
+                ) {
                   isAllSelected = true;
                 }
               } catch (err) {
-                console.error("Failed to fetch faction members for roles check:", err);
+                console.error(
+                  "Failed to fetch faction members for roles check:",
+                  err,
+                );
               }
 
               embed.addFields({
@@ -750,9 +767,6 @@ configRouter.patch(
         });
       }
 
-
-
-       
       const updateData: any = {
         updated_at: new Date().toISOString(),
         faction_id: nextFactionId,
@@ -809,7 +823,8 @@ configRouter.patch(
       }
 
       const oldStatus = existing.status;
-      const newStatus = req.body.status !== undefined ? req.body.status : oldStatus;
+      const newStatus =
+        req.body.status !== undefined ? req.body.status : oldStatus;
 
       await db
         .updateTable(TABLE_NAMES.MERCENARY_CONTRACTS)
@@ -830,7 +845,11 @@ configRouter.patch(
         ["completed", "cancelled", "closed"].includes(newStatus) &&
         !["completed", "cancelled", "closed"].includes(oldStatus)
       ) {
-        void postContractReport(discordClient, contractId, guildId as string).catch((err) => {
+        void postContractReport(
+          discordClient,
+          contractId,
+          guildId as string,
+        ).catch((err) => {
           console.error("Failed to post contract completion report:", err);
         });
       } else {
@@ -856,7 +875,9 @@ configRouter.patch(
             const changeEmbed = new EmbedBuilder()
               .setColor(0xf59e0b) // Amber color for update
               .setTitle(`Mercenary Contract Updated: ${updatedContract.title}`)
-              .setDescription(`The contract details have been updated by an administrator.`)
+              .setDescription(
+                `The contract details have been updated by an administrator.`,
+              )
               .addFields(
                 {
                   name: "Target Faction",
@@ -878,13 +899,24 @@ configRouter.patch(
                 },
                 {
                   name: "Contract Type",
-                  value: updatedContract.contract_type === "hosp" ? "Hospitalize" : updatedContract.contract_type === "mug" ? "Mug" : updatedContract.contract_type === "leave" ? "Leave on Street" : "Mixed",
+                  value:
+                    updatedContract.contract_type === "hosp"
+                      ? "Hospitalize"
+                      : updatedContract.contract_type === "mug"
+                        ? "Mug"
+                        : updatedContract.contract_type === "leave"
+                          ? "Leave on Street"
+                          : "Mixed",
                   inline: true,
                 },
               );
 
             if (updatedContract.description) {
-              changeEmbed.addFields({ name: "Notes", value: updatedContract.description, inline: false });
+              changeEmbed.addFields({
+                name: "Notes",
+                value: updatedContract.description,
+                inline: false,
+              });
             }
 
             await annChannel.send({ embeds: [changeEmbed] }).catch(() => {});
@@ -1211,7 +1243,6 @@ configRouter.post("/", async (req: Request, res: Response) => {
       .where("guild_id", "=", guildId)
       .executeTakeFirst();
 
-     
     const updateData: any = {
       updated_at: new Date().toISOString(),
     };
@@ -2049,7 +2080,8 @@ configRouter.get("/bazaar-mug", async (req: Request, res: Response) => {
       settings: {
         guild_id: guildId,
         is_enabled: settings?.is_enabled ?? 0,
-        min_bazaar_drop_threshold: settings?.min_bazaar_drop_threshold ?? 10000000,
+        min_bazaar_drop_threshold:
+          settings?.min_bazaar_drop_threshold ?? 10000000,
         ping_role_id: settings?.ping_role_id ?? null,
         notification_channel_id: settings?.notification_channel_id ?? null,
         target_player_ids: parseJsonArray(settings?.target_player_ids_json),
@@ -2097,13 +2129,26 @@ configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
         changes.push(is_enabled ? "Enabled module" : "Disabled module");
       }
     }
-    if (min_bazaar_drop_threshold !== undefined && min_bazaar_drop_threshold !== (currentConfig?.min_bazaar_drop_threshold ?? 10000000)) {
-      changes.push(`Minimum Bazaar Drop Threshold to $${Number(min_bazaar_drop_threshold).toLocaleString()}`);
+    if (
+      min_bazaar_drop_threshold !== undefined &&
+      min_bazaar_drop_threshold !==
+        (currentConfig?.min_bazaar_drop_threshold ?? 10000000)
+    ) {
+      changes.push(
+        `Minimum Bazaar Drop Threshold to $${Number(min_bazaar_drop_threshold).toLocaleString()}`,
+      );
     }
-    if (ping_role_id !== undefined && ping_role_id !== (currentConfig?.ping_role_id ?? null)) {
+    if (
+      ping_role_id !== undefined &&
+      ping_role_id !== (currentConfig?.ping_role_id ?? null)
+    ) {
       changes.push("Mention Role");
     }
-    if (notification_channel_id !== undefined && notification_channel_id !== (currentConfig?.notification_channel_id ?? null)) {
+    if (
+      notification_channel_id !== undefined &&
+      notification_channel_id !==
+        (currentConfig?.notification_channel_id ?? null)
+    ) {
       changes.push("Notification Channel");
     }
     if (target_player_ids !== undefined) {
@@ -2125,7 +2170,8 @@ configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
         .values({
           guild_id: guildId,
           is_enabled: is_enabled ? 1 : 0,
-          min_bazaar_drop_threshold: Number(min_bazaar_drop_threshold) || 10000000,
+          min_bazaar_drop_threshold:
+            Number(min_bazaar_drop_threshold) || 10000000,
           ping_role_id: ping_role_id || null,
           notification_channel_id: notification_channel_id || null,
           target_player_ids_json: JSON.stringify(target_player_ids || []),
@@ -2135,7 +2181,8 @@ configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
         .onConflict((oc) =>
           oc.column("guild_id").doUpdateSet({
             is_enabled: is_enabled ? 1 : 0,
-            min_bazaar_drop_threshold: Number(min_bazaar_drop_threshold) || 10000000,
+            min_bazaar_drop_threshold:
+              Number(min_bazaar_drop_threshold) || 10000000,
             ping_role_id: ping_role_id || null,
             notification_channel_id: notification_channel_id || null,
             target_player_ids_json: JSON.stringify(target_player_ids || []),
@@ -2174,7 +2221,8 @@ configRouter.get("/personal/builds", async (req: Request, res: Response) => {
   const { magicLinkService } = getServerContext(req);
   try {
     const session = await magicLinkService.validateSession(token, "config");
-    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+    if (!session)
+      return res.status(401).json({ error: "Invalid or expired session" });
 
     const builds = await db
       .selectFrom(TABLE_NAMES.STAT_BUILDS)
@@ -2198,8 +2246,8 @@ configRouter.get("/personal/builds", async (req: Request, res: Response) => {
             speed: c.speed_percentage || 25,
             defense: c.defense_percentage || 25,
             dexterity: c.dexterity_percentage || 25,
-          }
-        }))
+          },
+        })),
       };
     });
 
@@ -2217,7 +2265,8 @@ configRouter.get("/personal", async (req: Request, res: Response) => {
   const { magicLinkService } = getServerContext(req);
   try {
     const session = await magicLinkService.validateSession(token, "config");
-    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+    if (!session)
+      return res.status(401).json({ error: "Invalid or expired session" });
 
     const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
     if (session.discord_id !== botOwnerId) {
@@ -2226,7 +2275,9 @@ configRouter.get("/personal", async (req: Request, res: Response) => {
 
     const userId = process.env.SENTINEL_USER_ID;
     if (!userId) {
-      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+      return res
+        .status(500)
+        .json({ error: "SENTINEL_USER_ID is not configured on server" });
     }
 
     let settings = await db
@@ -2275,29 +2326,21 @@ configRouter.get("/personal", async (req: Request, res: Response) => {
 
     // Fetch user's actual max nerve dynamically from Torn API
     let maxNerve = 100;
-    let apiKey = process.env.TORN_API_KEY;
-    if (!apiKey) {
-      const keyRow = await db
-        .selectFrom("sentinel_system_api_keys" as any)
-        .select(["api_key_encrypted"])
-        .where("type", "=", "personal")
-        .executeTakeFirst();
-      if (keyRow) {
-        const { decryptApiKey } = await import("@sentinel/shared");
-        apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
-      }
-    }
+    const apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
 
     if (apiKey) {
       try {
-        const { TornApiClient } = await import("@sentinel/shared");
-        const client = new TornApiClient();
-        const barsRes = (await client.get("/user/bars" as any, { apiKey })) as any;
+        const barsRes = (await tornApi.get("/user/bars" as any, {
+          apiKey,
+        })) as any;
         if (barsRes?.bars?.nerve?.maximum) {
           maxNerve = Number(barsRes.bars.nerve.maximum);
         }
       } catch (e) {
-        console.error("[HTTP] Failed to fetch user bars for max nerve settings:", e);
+        console.error(
+          "[HTTP] Failed to fetch user bars for max nerve settings:",
+          e,
+        );
       }
     }
 
@@ -2318,7 +2361,8 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
   const { magicLinkService, discordClient } = getServerContext(req);
   try {
     const session = await magicLinkService.validateSession(token, "config");
-    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+    if (!session)
+      return res.status(401).json({ error: "Invalid or expired session" });
 
     const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
     if (session.discord_id !== botOwnerId) {
@@ -2327,7 +2371,9 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
 
     const userId = process.env.SENTINEL_USER_ID;
     if (!userId) {
-      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+      return res
+        .status(500)
+        .json({ error: "SENTINEL_USER_ID is not configured on server" });
     }
 
     const currentSettings = await db
@@ -2365,14 +2411,22 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
     if (isNaN(softThreshold) || softThreshold < 0 || softThreshold > 150) {
       return res
         .status(400)
-        .json({ error: "Energy soft threshold must be a number between 0 and 150" });
+        .json({
+          error: "Energy soft threshold must be a number between 0 and 150",
+        });
     }
 
     const crimeSoftThresholdVal = Number(crime_soft_threshold);
-    if (isNaN(crimeSoftThresholdVal) || crimeSoftThresholdVal < 0 || crimeSoftThresholdVal > 100) {
+    if (
+      isNaN(crimeSoftThresholdVal) ||
+      crimeSoftThresholdVal < 0 ||
+      crimeSoftThresholdVal > 100
+    ) {
       return res
         .status(400)
-        .json({ error: "Crime soft threshold must be a number between 0 and 100" });
+        .json({
+          error: "Crime soft threshold must be a number between 0 and 100",
+        });
     }
 
     const aggressiveInterval = Number(energy_aggressive_interval_mins);
@@ -2383,35 +2437,55 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
     ) {
       return res
         .status(400)
-        .json({ error: "Energy aggressive interval must be a number between 1 and 1440 minutes" });
+        .json({
+          error:
+            "Energy aggressive interval must be a number between 1 and 1440 minutes",
+        });
     }
 
-    const build = typeof selected_build === "string" ? selected_build.toLowerCase() : "balanced";
+    const build =
+      typeof selected_build === "string"
+        ? selected_build.toLowerCase()
+        : "balanced";
     const strengthRatio = Number(target_strength_ratio) || 0;
     const defenseRatio = Number(target_defense_ratio) || 0;
     const speedRatio = Number(target_speed_ratio) || 0;
     const dexterityRatio = Number(target_dexterity_ratio) || 0;
 
-    const totalRatio = strengthRatio + defenseRatio + speedRatio + dexterityRatio;
+    const totalRatio =
+      strengthRatio + defenseRatio + speedRatio + dexterityRatio;
     if (Math.abs(totalRatio - 100) > 0.5) {
       return res
         .status(400)
-        .json({ error: `Target stat build ratios must add up to exactly 100% (currently ${totalRatio}%)` });
+        .json({
+          error: `Target stat build ratios must add up to exactly 100% (currently ${totalRatio}%)`,
+        });
     }
 
     const gainsDays = Number(energy_dashboard_gains_days);
-    if (energy_dashboard_gains_days !== undefined && (isNaN(gainsDays) || gainsDays < 1 || gainsDays > 30)) {
+    if (
+      energy_dashboard_gains_days !== undefined &&
+      (isNaN(gainsDays) || gainsDays < 1 || gainsDays > 30)
+    ) {
       return res
         .status(400)
         .json({ error: "Gains days must be a number between 1 and 30" });
     }
 
-    const cleanupOldMessage = async (oldChannelId: string | null, oldMessageId: string | null, newChannelId: string | null) => {
+    const cleanupOldMessage = async (
+      oldChannelId: string | null,
+      oldMessageId: string | null,
+      newChannelId: string | null,
+    ) => {
       if (oldChannelId && oldMessageId && oldChannelId !== newChannelId) {
         try {
-          const oldChannel = await discordClient.channels.fetch(oldChannelId).catch(() => null);
+          const oldChannel = await discordClient.channels
+            .fetch(oldChannelId)
+            .catch(() => null);
           if (oldChannel && oldChannel.isTextBased()) {
-            const oldMsg = await oldChannel.messages.fetch(oldMessageId).catch(() => null);
+            const oldMsg = await oldChannel.messages
+              .fetch(oldMessageId)
+              .catch(() => null);
             if (oldMsg) {
               await oldMsg.delete().catch(() => null);
             }
@@ -2424,44 +2498,59 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
 
     const dashboardRecChannel = energy_dashboard_rec_channel_id || null;
     let dashboardRecMessage = energy_dashboard_rec_message_id || null;
-    if (currentSettings && currentSettings.energy_dashboard_rec_channel_id !== dashboardRecChannel) {
+    if (
+      currentSettings &&
+      currentSettings.energy_dashboard_rec_channel_id !== dashboardRecChannel
+    ) {
       await cleanupOldMessage(
         currentSettings.energy_dashboard_rec_channel_id,
         currentSettings.energy_dashboard_rec_message_id,
-        dashboardRecChannel
+        dashboardRecChannel,
       );
       dashboardRecMessage = null;
     }
 
     const dashboardTargetChannel = energy_dashboard_target_channel_id || null;
     let dashboardTargetMessage = energy_dashboard_target_message_id || null;
-    if (currentSettings && currentSettings.energy_dashboard_target_channel_id !== dashboardTargetChannel) {
+    if (
+      currentSettings &&
+      currentSettings.energy_dashboard_target_channel_id !==
+        dashboardTargetChannel
+    ) {
       await cleanupOldMessage(
         currentSettings.energy_dashboard_target_channel_id,
         currentSettings.energy_dashboard_target_message_id,
-        dashboardTargetChannel
+        dashboardTargetChannel,
       );
       dashboardTargetMessage = null;
     }
 
     const dashboardGraphChannel = energy_dashboard_graph_channel_id || null;
     let dashboardGraphMessage = energy_dashboard_graph_message_id || null;
-    if (currentSettings && currentSettings.energy_dashboard_graph_channel_id !== dashboardGraphChannel) {
+    if (
+      currentSettings &&
+      currentSettings.energy_dashboard_graph_channel_id !==
+        dashboardGraphChannel
+    ) {
       await cleanupOldMessage(
         currentSettings.energy_dashboard_graph_channel_id,
         currentSettings.energy_dashboard_graph_message_id,
-        dashboardGraphChannel
+        dashboardGraphChannel,
       );
       dashboardGraphMessage = null;
     }
 
     const dashboardGainsChannel = energy_dashboard_gains_channel_id || null;
     let dashboardGainsMessage = energy_dashboard_gains_message_id || null;
-    if (currentSettings && currentSettings.energy_dashboard_gains_channel_id !== dashboardGainsChannel) {
+    if (
+      currentSettings &&
+      currentSettings.energy_dashboard_gains_channel_id !==
+        dashboardGainsChannel
+    ) {
       await cleanupOldMessage(
         currentSettings.energy_dashboard_gains_channel_id,
         currentSettings.energy_dashboard_gains_message_id,
-        dashboardGainsChannel
+        dashboardGainsChannel,
       );
       dashboardGainsMessage = null;
     }
@@ -2531,7 +2620,7 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
     await sendAdminSystemLog(
       discordClient,
       "info",
-      `Owner <@${session.discord_id}> updated Personal Settings (alerts_enabled: ${energy_alerts_enabled ? "yes" : "no"}, soft_threshold: ${softThreshold}, logging_channel: ${admin_log_channel_id || "none"})`
+      `Owner <@${session.discord_id}> updated Personal Settings (alerts_enabled: ${energy_alerts_enabled ? "yes" : "no"}, soft_threshold: ${softThreshold}, logging_channel: ${admin_log_channel_id || "none"})`,
     ).catch(() => {});
 
     res.json({ ok: true });
@@ -2541,376 +2630,415 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
   }
 });
 
-configRouter.get("/personal/milestones", async (req: Request, res: Response) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Missing session token" });
+configRouter.get(
+  "/personal/milestones",
+  async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Missing session token" });
 
-  const { magicLinkService } = getServerContext(req);
-  try {
-    const session = await magicLinkService.validateSession(token, "config");
-    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+    const { magicLinkService } = getServerContext(req);
+    try {
+      const session = await magicLinkService.validateSession(token, "config");
+      if (!session)
+        return res.status(401).json({ error: "Invalid or expired session" });
 
-    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
-    if (session.discord_id !== botOwnerId) {
-      return res.status(403).json({ error: "Forbidden: Owner access only" });
-    }
-
-    const userId = process.env.SENTINEL_USER_ID;
-    if (!userId) {
-      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
-    }
-
-    // 1. Fetch current battle stats from snapshots
-    const stats = await db
-      .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
-      .selectAll()
-      .orderBy("created_at", "desc")
-      .limit(1)
-      .executeTakeFirst();
-
-    const statsData = stats
-      ? {
-          strength: stats.strength,
-          speed: stats.speed,
-          defense: stats.defense,
-          dexterity: stats.dexterity,
-          total_stats: stats.total_stats,
-        }
-      : {
-          strength: 50000,
-          speed: 50000,
-          defense: 50000,
-          dexterity: 50000,
-          total_stats: 200000,
-        };
-
-    // 2. Fetch latest user snapshot (active gym, current/max happy, current/max energy)
-    const userSnapshot = await db
-      .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
-      .select(["active_gym", "happy_current", "happy_maximum", "energy_current", "energy_maximum"])
-      .orderBy("created_at", "desc")
-      .limit(1)
-      .executeTakeFirst();
-    
-    let activeGym = {
-      name: "Premier Fitness",
-      strength: 20,
-      speed: 20,
-      defense: 20,
-      dexterity: 20,
-    };
-
-    if (userSnapshot?.active_gym) {
-      const gym = await db
-        .selectFrom(TABLE_NAMES.TORN_GYMS)
-        .selectAll()
-        .where("id", "=", userSnapshot.active_gym)
-        .executeTakeFirst();
-      if (gym) {
-        activeGym = {
-          name: gym.name,
-          strength: gym.strength,
-          speed: gym.speed,
-          defense: gym.defense,
-          dexterity: gym.dexterity,
-        };
+      const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+      if (session.discord_id !== botOwnerId) {
+        return res.status(403).json({ error: "Forbidden: Owner access only" });
       }
-    }
 
-    // 3. Compute happiness and energy stats from the latest snapshot
-    const maxHappy = userSnapshot?.happy_maximum ? Number(userSnapshot.happy_maximum) : 5000;
-    const currentHappy = userSnapshot?.happy_current ? Number(userSnapshot.happy_current) : 5000;
-    const _currentEnergy = userSnapshot?.energy_current ? Number(userSnapshot.energy_current) : 0;
-    const _maxEnergy = userSnapshot?.energy_maximum ? Number(userSnapshot.energy_maximum) : 150;
-    const avgHappy = maxHappy; // Use player maximum happy as training baseline
+      const userId = process.env.SENTINEL_USER_ID;
+      if (!userId) {
+        return res
+          .status(500)
+          .json({ error: "SENTINEL_USER_ID is not configured on server" });
+      }
 
-    // Average daily energy
-    const fourteenDaysAgo = Math.floor(Date.now() / 1000) - 14 * 24 * 60 * 60;
-    const recentEnergy = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .select(db.fn.sum("energy").as("total_energy"))
-      .where("timestamp", ">=", fourteenDaysAgo)
-      .executeTakeFirst();
-    
-    const totalEnergy = parseFloat(recentEnergy?.total_energy as string) || 0;
-    let avgDailyEnergy = totalEnergy / 14;
-    
-    if (avgDailyEnergy < 50) {
-      // Calculate avg over actual log range if data spans less than 14 days
-      const firstLog = await db
+      // 1. Fetch current battle stats from snapshots
+      const stats = await db
+        .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
+        .selectAll()
+        .orderBy("created_at", "desc")
+        .limit(1)
+        .executeTakeFirst();
+
+      const statsData = stats
+        ? {
+            strength: stats.strength,
+            speed: stats.speed,
+            defense: stats.defense,
+            dexterity: stats.dexterity,
+            total_stats: stats.total_stats,
+          }
+        : {
+            strength: 50000,
+            speed: 50000,
+            defense: 50000,
+            dexterity: 50000,
+            total_stats: 200000,
+          };
+
+      // 2. Fetch latest user snapshot (active gym, current/max happy, current/max energy)
+      const userSnapshot = await db
+        .selectFrom(TABLE_NAMES.USER_SNAPSHOTS)
+        .select([
+          "active_gym",
+          "happy_current",
+          "happy_maximum",
+          "energy_current",
+          "energy_maximum",
+        ])
+        .orderBy("created_at", "desc")
+        .limit(1)
+        .executeTakeFirst();
+
+      let activeGym = {
+        name: "Premier Fitness",
+        strength: 20,
+        speed: 20,
+        defense: 20,
+        dexterity: 20,
+      };
+
+      if (userSnapshot?.active_gym) {
+        const gym = await db
+          .selectFrom(TABLE_NAMES.TORN_GYMS)
+          .selectAll()
+          .where("id", "=", userSnapshot.active_gym)
+          .executeTakeFirst();
+        if (gym) {
+          activeGym = {
+            name: gym.name,
+            strength: gym.strength,
+            speed: gym.speed,
+            defense: gym.defense,
+            dexterity: gym.dexterity,
+          };
+        }
+      }
+
+      // 3. Compute happiness and energy stats from the latest snapshot
+      const maxHappy = userSnapshot?.happy_maximum
+        ? Number(userSnapshot.happy_maximum)
+        : 5000;
+      const currentHappy = userSnapshot?.happy_current
+        ? Number(userSnapshot.happy_current)
+        : 5000;
+      const _currentEnergy = userSnapshot?.energy_current
+        ? Number(userSnapshot.energy_current)
+        : 0;
+      const _maxEnergy = userSnapshot?.energy_maximum
+        ? Number(userSnapshot.energy_maximum)
+        : 150;
+      const avgHappy = maxHappy; // Use player maximum happy as training baseline
+
+      // Average daily energy
+      const fourteenDaysAgo = Math.floor(Date.now() / 1000) - 14 * 24 * 60 * 60;
+      const recentEnergy = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select(db.fn.sum("energy").as("total_energy"))
+        .where("timestamp", ">=", fourteenDaysAgo)
+        .executeTakeFirst();
+
+      const totalEnergy = parseFloat(recentEnergy?.total_energy as string) || 0;
+      let avgDailyEnergy = totalEnergy / 14;
+
+      if (avgDailyEnergy < 50) {
+        // Calculate avg over actual log range if data spans less than 14 days
+        const firstLog = await db
+          .selectFrom("sentinel_gym_train_logs" as any)
+          .select("timestamp")
+          .orderBy("timestamp", "asc")
+          .limit(1)
+          .executeTakeFirst();
+
+        if (firstLog) {
+          const daysSpan = Math.max(
+            1,
+            Math.ceil(
+              (Date.now() / 1000 - Number(firstLog.timestamp)) / (24 * 60 * 60),
+            ),
+          );
+          const allTimeEnergy = await db
+            .selectFrom("sentinel_gym_train_logs" as any)
+            .select(db.fn.sum("energy").as("total_energy"))
+            .executeTakeFirst();
+          const totalAllTimeEnergy =
+            parseFloat(allTimeEnergy?.total_energy as string) || 0;
+          avgDailyEnergy = totalAllTimeEnergy / daysSpan;
+        }
+      }
+
+      if (avgDailyEnergy < 50) {
+        avgDailyEnergy = 250; // default to standard active player training
+      }
+
+      // Stat distribution
+      const distributionLogs = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select(["stat", db.fn.count("log_id").as("count")])
+        .groupBy("stat")
+        .execute();
+
+      const distCounts: Record<string, number> = {
+        strength: 0,
+        speed: 0,
+        defense: 0,
+        dexterity: 0,
+      };
+      let totalCount = 0;
+      for (const item of distributionLogs) {
+        const s = String(item.stat).toLowerCase();
+        const count = Number(item.count);
+        if (s in distCounts) {
+          distCounts[s] = count;
+          totalCount += count;
+        }
+      }
+
+      const distributionPercentages = {
+        strength: totalCount > 0 ? distCounts.strength / totalCount : 0.25,
+        speed: totalCount > 0 ? distCounts.speed / totalCount : 0.25,
+        defense: totalCount > 0 ? distCounts.defense / totalCount : 0.25,
+        dexterity: totalCount > 0 ? distCounts.dexterity / totalCount : 0.25,
+      };
+
+      // 4. Fetch daily history for charts based on timeframe (7d, 30d, 90d, or all)
+      const timeframe =
+        typeof req.query.timeframe === "string"
+          ? req.query.timeframe.toLowerCase()
+          : "30d";
+      let daysLimit = 30;
+      if (timeframe === "7d") daysLimit = 7;
+      else if (timeframe === "90d") daysLimit = 90;
+      else if (timeframe === "all") daysLimit = 3650; // 10 years
+
+      let daysAgoTimestamp =
+        Math.floor(Date.now() / 1000) - daysLimit * 24 * 60 * 60;
+      if (timeframe === "all") {
+        daysAgoTimestamp = 0; // fetch all records
+      }
+
+      const dailyHistoryLogs = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select([
+          sql`date(timestamp, 'unixepoch', 'localtime')`.as("day"),
+          "stat",
+          db.fn.sum("gain").as("total_gain"),
+          db.fn.sum("energy").as("total_energy"),
+        ])
+        .where("timestamp", ">=", daysAgoTimestamp)
+        .groupBy(["day", "stat"])
+        .orderBy("day", "asc")
+        .execute();
+
+      const historyMap: Record<string, any> = {};
+      for (const log of dailyHistoryLogs) {
+        const day = String(log.day);
+        if (!historyMap[day]) {
+          historyMap[day] = {
+            day,
+            strength: 0,
+            speed: 0,
+            defense: 0,
+            dexterity: 0,
+            energy: 0,
+          };
+        }
+        const stat = String(log.stat).toLowerCase();
+        const gain = parseFloat(String(log.total_gain || 0));
+        const energy = parseInt(String(log.total_energy || 0), 10);
+        if (stat === "strength") historyMap[day].strength += gain;
+        else if (stat === "speed") historyMap[day].speed += gain;
+        else if (stat === "defense") historyMap[day].defense += gain;
+        else if (stat === "dexterity") historyMap[day].dexterity += gain;
+
+        historyMap[day].energy += energy;
+      }
+      const history = Object.values(historyMap).sort((a: any, b: any) =>
+        a.day.localeCompare(b.day),
+      );
+
+      // 5. Fetch sync status & metadata
+      const totalLogsCount = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select(db.fn.count("log_id").as("count"))
+        .executeTakeFirst();
+      const count = Number(totalLogsCount?.count || 0);
+
+      const oldestLog = await db
         .selectFrom("sentinel_gym_train_logs" as any)
         .select("timestamp")
         .orderBy("timestamp", "asc")
         .limit(1)
         .executeTakeFirst();
-      
-      if (firstLog) {
-        const daysSpan = Math.max(1, Math.ceil((Date.now() / 1000 - Number(firstLog.timestamp)) / (24 * 60 * 60)));
-        const allTimeEnergy = await db
-          .selectFrom("sentinel_gym_train_logs" as any)
-          .select(db.fn.sum("energy").as("total_energy"))
-          .executeTakeFirst();
-        const totalAllTimeEnergy = parseFloat(allTimeEnergy?.total_energy as string) || 0;
-        avgDailyEnergy = totalAllTimeEnergy / daysSpan;
-      }
-    }
-    
-    if (avgDailyEnergy < 50) {
-      avgDailyEnergy = 250; // default to standard active player training
-    }
 
-    // Stat distribution
-    const distributionLogs = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .select(["stat", db.fn.count("log_id").as("count")])
-      .groupBy("stat")
-      .execute();
-    
-    const distCounts: Record<string, number> = {
-      strength: 0,
-      speed: 0,
-      defense: 0,
-      dexterity: 0,
-    };
-    let totalCount = 0;
-    for (const item of distributionLogs) {
-      const s = String(item.stat).toLowerCase();
-      const count = Number(item.count);
-      if (s in distCounts) {
-        distCounts[s] = count;
-        totalCount += count;
-      }
-    }
-
-    const distributionPercentages = {
-      strength: totalCount > 0 ? distCounts.strength / totalCount : 0.25,
-      speed: totalCount > 0 ? distCounts.speed / totalCount : 0.25,
-      defense: totalCount > 0 ? distCounts.defense / totalCount : 0.25,
-      dexterity: totalCount > 0 ? distCounts.dexterity / totalCount : 0.25,
-    };
-
-    // 4. Fetch daily history for charts based on timeframe (7d, 30d, 90d, or all)
-    const timeframe = typeof req.query.timeframe === "string" ? req.query.timeframe.toLowerCase() : "30d";
-    let daysLimit = 30;
-    if (timeframe === "7d") daysLimit = 7;
-    else if (timeframe === "90d") daysLimit = 90;
-    else if (timeframe === "all") daysLimit = 3650; // 10 years
-
-    let daysAgoTimestamp = Math.floor(Date.now() / 1000) - daysLimit * 24 * 60 * 60;
-    if (timeframe === "all") {
-      daysAgoTimestamp = 0; // fetch all records
-    }
-
-    const dailyHistoryLogs = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .select([
-        sql`date(timestamp, 'unixepoch', 'localtime')`.as("day"),
-        "stat",
-        db.fn.sum("gain").as("total_gain"),
-        db.fn.sum("energy").as("total_energy"),
-      ])
-      .where("timestamp", ">=", daysAgoTimestamp)
-      .groupBy(["day", "stat"])
-      .orderBy("day", "asc")
-      .execute();
-
-    const historyMap: Record<string, any> = {};
-    for (const log of dailyHistoryLogs) {
-      const day = String(log.day);
-      if (!historyMap[day]) {
-        historyMap[day] = {
-          day,
-          strength: 0,
-          speed: 0,
-          defense: 0,
-          dexterity: 0,
-          energy: 0,
-        };
-      }
-      const stat = String(log.stat).toLowerCase();
-      const gain = parseFloat(String(log.total_gain || 0));
-      const energy = parseInt(String(log.total_energy || 0), 10);
-      if (stat === "strength") historyMap[day].strength += gain;
-      else if (stat === "speed") historyMap[day].speed += gain;
-      else if (stat === "defense") historyMap[day].defense += gain;
-      else if (stat === "dexterity") historyMap[day].dexterity += gain;
-      
-      historyMap[day].energy += energy;
-    }
-    const history = Object.values(historyMap).sort((a: any, b: any) => a.day.localeCompare(b.day));
-
-    // 5. Fetch sync status & metadata
-    const totalLogsCount = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .select(db.fn.count("log_id").as("count"))
-      .executeTakeFirst();
-    const count = Number(totalLogsCount?.count || 0);
-
-    const oldestLog = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .select("timestamp")
-      .orderBy("timestamp", "asc")
-      .limit(1)
-      .executeTakeFirst();
-
-    const latestLogRecord = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .select("timestamp")
-      .orderBy("timestamp", "desc")
-      .limit(1)
-      .executeTakeFirst();
-
-    const scheduleRow = await db
-      .selectFrom("sentinel_worker_schedules")
-      .innerJoin("sentinel_workers", "sentinel_worker_schedules.worker_id", "sentinel_workers.id")
-      .select([
-        "sentinel_worker_schedules.last_run_at as last_run_at",
-        "sentinel_worker_schedules.next_run_at as next_run_at",
-        "sentinel_worker_schedules.metadata as metadata"
-      ])
-      .where("sentinel_workers.name", "=", "torn_gyms_worker")
-      .executeTakeFirst();
-
-    let isBackfillComplete = false;
-    if (scheduleRow?.metadata) {
-      try {
-        const parsed = JSON.parse(scheduleRow.metadata);
-        if (parsed.backfill_complete) {
-          isBackfillComplete = true;
-        }
-      } catch { /* metadata may not be JSON - skip */ }
-    }
-
-    // 6. Fetch Target Ratios and Compute Training Recommendations via shared utility
-    let apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
-    try {
-      const keyRow = await db
-        .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)
-        .select("api_key_encrypted")
-        .where("key_type", "=", "personal")
-        .where("is_primary", "=", 1)
-        .where("deleted_at", "is", null)
+      const latestLogRecord = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select("timestamp")
+        .orderBy("timestamp", "desc")
+        .limit(1)
         .executeTakeFirst();
-      
-      if (keyRow?.api_key_encrypted && process.env.ENCRYPTION_KEY) {
-        const { decryptApiKey } = await import("@sentinel/shared");
-        apiKey = decryptApiKey(keyRow.api_key_encrypted, process.env.ENCRYPTION_KEY);
-      }
-    } catch (err) {
-      console.error("[HTTP] Failed to fetch/decrypt personal API key:", err);
-    }
 
-    const { getPersonalTrainingRecommendations } = await import("@sentinel/shared/training-recommendations.js");
-    const recs = await getPersonalTrainingRecommendations(db, String(userId), apiKey);
+      const scheduleRow = await db
+        .selectFrom("sentinel_worker_schedules")
+        .innerJoin(
+          "sentinel_workers",
+          "sentinel_worker_schedules.worker_id",
+          "sentinel_workers.id",
+        )
+        .select([
+          "sentinel_worker_schedules.last_run_at as last_run_at",
+          "sentinel_worker_schedules.next_run_at as next_run_at",
+          "sentinel_worker_schedules.metadata as metadata",
+        ])
+        .where("sentinel_workers.name", "=", "torn_gyms_worker")
+        .executeTakeFirst();
 
-    // 7. Run projection for milestones (foregoing past milestones, returning only the single next target)
-    const targetMilestones = [10000000, 50000000, 100000000, 250000000, 500000000, 1000000000, 2000000000];
-    const statsKeys = ["strength", "speed", "defense", "dexterity"] as const;
-
-    const projections = statsKeys.map((key) => {
-      const currentVal = statsData[key];
-      const baseGymMult = (activeGym[key] || 20);
-      const perkPct = recs.factionPerks[key] || 0;
-      const gymMult = (baseGymMult / 10) * (1 + perkPct / 100);
-      const allocation = distributionPercentages[key];
-      const dailyEnergyForStat = avgDailyEnergy * allocation;
-
-      // Find the first target greater than currentVal, or default to a rounded double logic if all exceeded
-      const nextMilestoneTarget = targetMilestones.find((t) => t > currentVal) || 
-        (Math.ceil(currentVal / 1000000000) * 1000000000 + 1000000000);
-      const filteredMilestoneTargets = [nextMilestoneTarget];
-
-      const milestones = filteredMilestoneTargets.map((target) => {
-        let days = null;
-        if (target <= currentVal) {
-          days = 0;
-        } else if (dailyEnergyForStat > 0) {
-          const happyVal = avgHappy;
-          const A = 1.15 * gymMult * 10 * (3.48e-7 * Math.log(happyVal) + 3.09e-6);
-          const B = 1.15 * gymMult * 10 * (6.83e-5 * happyVal - 0.03);
-          
-          if (A > 0) {
-            const n = (1 / A) * Math.log((target + B / A) / (currentVal + B / A));
-            const energyReq = n * 10;
-            days = Math.max(0, energyReq / dailyEnergyForStat);
+      let isBackfillComplete = false;
+      if (scheduleRow?.metadata) {
+        try {
+          const parsed = JSON.parse(scheduleRow.metadata);
+          if (parsed.backfill_complete) {
+            isBackfillComplete = true;
           }
+        } catch {
+          /* metadata may not be JSON - skip */
         }
+      }
+
+      // 6. Fetch Target Ratios and Compute Training Recommendations via shared utility
+      const apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+
+      const { getPersonalTrainingRecommendations } =
+        await import("@sentinel/shared/training-recommendations.js");
+      const recs = await getPersonalTrainingRecommendations(
+        db,
+        String(userId),
+        apiKey,
+      );
+
+      // 7. Run projection for milestones (foregoing past milestones, returning only the single next target)
+      const targetMilestones = [
+        10000000, 50000000, 100000000, 250000000, 500000000, 1000000000,
+        2000000000,
+      ];
+      const statsKeys = ["strength", "speed", "defense", "dexterity"] as const;
+
+      const projections = statsKeys.map((key) => {
+        const currentVal = statsData[key];
+        const baseGymMult = activeGym[key] || 20;
+        const perkPct = recs.factionPerks[key] || 0;
+        const gymMult = (baseGymMult / 10) * (1 + perkPct / 100);
+        const allocation = distributionPercentages[key];
+        const dailyEnergyForStat = avgDailyEnergy * allocation;
+
+        // Find the first target greater than currentVal, or default to a rounded double logic if all exceeded
+        const nextMilestoneTarget =
+          targetMilestones.find((t) => t > currentVal) ||
+          Math.ceil(currentVal / 1000000000) * 1000000000 + 1000000000;
+        const filteredMilestoneTargets = [nextMilestoneTarget];
+
+        const milestones = filteredMilestoneTargets.map((target) => {
+          let days = null;
+          if (target <= currentVal) {
+            days = 0;
+          } else if (dailyEnergyForStat > 0) {
+            const happyVal = avgHappy;
+            const A =
+              1.15 * gymMult * 10 * (3.48e-7 * Math.log(happyVal) + 3.09e-6);
+            const B = 1.15 * gymMult * 10 * (6.83e-5 * happyVal - 0.03);
+
+            if (A > 0) {
+              const n =
+                (1 / A) * Math.log((target + B / A) / (currentVal + B / A));
+              const energyReq = n * 10;
+              days = Math.max(0, energyReq / dailyEnergyForStat);
+            }
+          }
+
+          return {
+            target,
+            days: days !== null ? Math.round(days * 10) / 10 : null,
+            energy:
+              days !== null ? Math.round(days * dailyEnergyForStat) : null,
+          };
+        });
 
         return {
-          target,
-          days: days !== null ? Math.round(days * 10) / 10 : null,
-          energy: days !== null ? Math.round(days * dailyEnergyForStat) : null,
+          stat: key,
+          currentValue: currentVal,
+          allocation: Math.round(allocation * 100),
+          dailyEnergy: Math.round(dailyEnergyForStat),
+          milestones,
         };
       });
 
-      return {
-        stat: key,
-        currentValue: currentVal,
-        allocation: Math.round(allocation * 100),
-        dailyEnergy: Math.round(dailyEnergyForStat),
-        milestones,
-      };
-    });
+      // Fetch 10 most recent logs
+      const recentLogs = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .leftJoin(
+          TABLE_NAMES.TORN_GYMS,
+          "sentinel_gym_train_logs.gym_id",
+          `${TABLE_NAMES.TORN_GYMS}.id`,
+        )
+        .select([
+          "sentinel_gym_train_logs.log_id as id",
+          "sentinel_gym_train_logs.timestamp",
+          "sentinel_gym_train_logs.stat",
+          "sentinel_gym_train_logs.gain",
+          "sentinel_gym_train_logs.energy",
+          "sentinel_gym_train_logs.happy",
+          `${TABLE_NAMES.TORN_GYMS}.name as gym_name`,
+        ])
+        .orderBy("sentinel_gym_train_logs.timestamp", "desc")
+        .limit(10)
+        .execute();
 
-    // Fetch 10 most recent logs
-    const recentLogs = await db
-      .selectFrom("sentinel_gym_train_logs" as any)
-      .leftJoin(TABLE_NAMES.TORN_GYMS, "sentinel_gym_train_logs.gym_id", `${TABLE_NAMES.TORN_GYMS}.id`)
-      .select([
-        "sentinel_gym_train_logs.log_id as id",
-        "sentinel_gym_train_logs.timestamp",
-        "sentinel_gym_train_logs.stat",
-        "sentinel_gym_train_logs.gain",
-        "sentinel_gym_train_logs.energy",
-        "sentinel_gym_train_logs.happy",
-        `${TABLE_NAMES.TORN_GYMS}.name as gym_name`,
-      ])
-      .orderBy("sentinel_gym_train_logs.timestamp", "desc")
-      .limit(10)
-      .execute();
-
-    res.json({
-      currentStats: {
-        strength: statsData.strength,
-        speed: statsData.speed,
-        defense: statsData.defense,
-        dexterity: statsData.dexterity,
-        total: statsData.total_stats,
-      },
-      activeGym: activeGym.name,
-      avgHappy,
-      maxHappy,
-      currentHappy,
-      avgDailyEnergy: Math.round(avgDailyEnergy),
-      projections,
-      history,
-      recentLogs,
-      syncStatus: {
-        totalRecords: count,
-        lastSyncAt: scheduleRow?.last_run_at || null,
-        nextRunAt: scheduleRow?.next_run_at || null,
-        isBackfillComplete,
-        oldestLogTimestamp: oldestLog ? Number(oldestLog.timestamp) : null,
-        latestLogTimestamp: latestLogRecord ? Number(latestLogRecord.timestamp) : null,
-      },
-      recommendation: {
-        stat: recs.stat,
-        statKey: recs.statKey,
-        diff: recs.diff,
-        text: recs.text,
-        gymRecommendation: recs.gymRecommendation,
-        currentEnergy: recs.currentEnergy,
-        maxEnergy: recs.maxEnergy,
-        factionPerks: recs.factionPerks,
-        buildInfo: recs.buildInfo,
-      }
-    });
-
-  } catch (error) {
-    console.error("[HTTP] Error fetching milestones projection:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-});
+      res.json({
+        currentStats: {
+          strength: statsData.strength,
+          speed: statsData.speed,
+          defense: statsData.defense,
+          dexterity: statsData.dexterity,
+          total: statsData.total_stats,
+        },
+        activeGym: activeGym.name,
+        avgHappy,
+        maxHappy,
+        currentHappy,
+        avgDailyEnergy: Math.round(avgDailyEnergy),
+        projections,
+        history,
+        recentLogs,
+        syncStatus: {
+          totalRecords: count,
+          lastSyncAt: scheduleRow?.last_run_at || null,
+          nextRunAt: scheduleRow?.next_run_at || null,
+          isBackfillComplete,
+          oldestLogTimestamp: oldestLog ? Number(oldestLog.timestamp) : null,
+          latestLogTimestamp: latestLogRecord
+            ? Number(latestLogRecord.timestamp)
+            : null,
+        },
+        recommendation: {
+          stat: recs.stat,
+          statKey: recs.statKey,
+          diff: recs.diff,
+          text: recs.text,
+          gymRecommendation: recs.gymRecommendation,
+          currentEnergy: recs.currentEnergy,
+          maxEnergy: recs.maxEnergy,
+          factionPerks: recs.factionPerks,
+          buildInfo: recs.buildInfo,
+        },
+      });
+    } catch (error) {
+      console.error("[HTTP] Error fetching milestones projection:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
 
 configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -2919,7 +3047,8 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
   const { magicLinkService } = getServerContext(req);
   try {
     const session = await magicLinkService.validateSession(token, "config");
-    if (!session) return res.status(401).json({ error: "Invalid or expired session" });
+    if (!session)
+      return res.status(401).json({ error: "Invalid or expired session" });
 
     const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
     if (session.discord_id !== botOwnerId) {
@@ -2928,7 +3057,9 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
 
     const userId = process.env.SENTINEL_USER_ID;
     if (!userId) {
-      return res.status(500).json({ error: "SENTINEL_USER_ID is not configured on server" });
+      return res
+        .status(500)
+        .json({ error: "SENTINEL_USER_ID is not configured on server" });
     }
 
     // 1. Fetch static crimes
@@ -2972,11 +3103,15 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
     // 4. Fetch sync status of torn_crimes_worker
     const scheduleRow = await db
       .selectFrom("sentinel_worker_schedules")
-      .innerJoin("sentinel_workers", "sentinel_worker_schedules.worker_id", "sentinel_workers.id")
+      .innerJoin(
+        "sentinel_workers",
+        "sentinel_worker_schedules.worker_id",
+        "sentinel_workers.id",
+      )
       .select([
         "sentinel_worker_schedules.last_run_at as last_run_at",
         "sentinel_worker_schedules.next_run_at as next_run_at",
-        "sentinel_worker_schedules.metadata as metadata"
+        "sentinel_worker_schedules.metadata as metadata",
       ])
       .where("sentinel_workers.name", "=", "torn_crimes_worker")
       .executeTakeFirst();
@@ -3002,17 +3137,25 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
       let rawItems: any[] = [];
       try {
         rawItems = uc?.rewards_items ? JSON.parse(uc.rewards_items) : [];
-      } catch { /* ignore malformed JSON */ }
+      } catch {
+        /* ignore malformed JSON */
+      }
 
       let rawUniques: any[] = [];
       try {
         rawUniques = uc?.uniques ? JSON.parse(uc.uniques) : [];
-      } catch { /* ignore malformed JSON */ }
+      } catch {
+        /* ignore malformed JSON */
+      }
 
       let rawSubcrimes: any[] = [];
       try {
-        rawSubcrimes = uc?.attempts_subcrimes ? JSON.parse(uc.attempts_subcrimes) : [];
-      } catch { /* ignore malformed JSON */ }
+        rawSubcrimes = uc?.attempts_subcrimes
+          ? JSON.parse(uc.attempts_subcrimes)
+          : [];
+      } catch {
+        /* ignore malformed JSON */
+      }
 
       const enrichedSubcrimes = rawSubcrimes.map((sub: any) => {
         const subId = Number(sub.id);
@@ -3028,12 +3171,18 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
       let notes: string[] = [];
       try {
         notes = sc.notes ? JSON.parse(sc.notes) : [];
-      } catch { /* ignore malformed JSON */ }
+      } catch {
+        /* ignore malformed JSON */
+      }
 
       let uniqueOutcomesIds: number[] = [];
       try {
-        uniqueOutcomesIds = sc.unique_outcomes_ids ? JSON.parse(sc.unique_outcomes_ids) : [];
-      } catch { /* ignore malformed JSON */ }
+        uniqueOutcomesIds = sc.unique_outcomes_ids
+          ? JSON.parse(sc.unique_outcomes_ids)
+          : [];
+      } catch {
+        /* ignore malformed JSON */
+      }
 
       // Map item details and calculate total item profit
       let itemsProfit = 0;
@@ -3055,9 +3204,16 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
       });
 
       const totalProfit = rewardsMoney + itemsProfit;
-      const profitPerNerve = nerveSpent > 0 ? Number((totalProfit / nerveSpent).toFixed(2)) : 0;
-      const profitPerAttempt = attemptsTotal > 0 ? Number((totalProfit / attemptsTotal).toFixed(2)) : 0;
-      const successRate = attemptsTotal > 0 ? Number((attemptsSuccess / attemptsTotal).toFixed(4)) : 0;
+      const profitPerNerve =
+        nerveSpent > 0 ? Number((totalProfit / nerveSpent).toFixed(2)) : 0;
+      const profitPerAttempt =
+        attemptsTotal > 0
+          ? Number((totalProfit / attemptsTotal).toFixed(2))
+          : 0;
+      const successRate =
+        attemptsTotal > 0
+          ? Number((attemptsSuccess / attemptsTotal).toFixed(4))
+          : 0;
 
       return {
         id: sc.id,
@@ -3105,21 +3261,37 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
     let maxTotalProfit = -1;
 
     for (const item of crimesData) {
-      if (item.profitability.profit_per_nerve > maxProfitPerNerve && item.nerve_spent > 0) {
+      if (
+        item.profitability.profit_per_nerve > maxProfitPerNerve &&
+        item.nerve_spent > 0
+      ) {
         maxProfitPerNerve = item.profitability.profit_per_nerve;
         recommendedNerveCrime = item;
       }
-      if (item.profitability.total_profit > maxTotalProfit && item.attempts.total > 0) {
+      if (
+        item.profitability.total_profit > maxTotalProfit &&
+        item.attempts.total > 0
+      ) {
         maxTotalProfit = item.profitability.total_profit;
         recommendedTotalCrime = item;
       }
     }
 
-    const formatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-    const decFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+    const formatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    });
+    const decFormatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    });
 
     const recommendations = {
-      focus_crime_id: recommendedNerveCrime ? recommendedNerveCrime.id : (crimesData[0]?.id || null),
+      focus_crime_id: recommendedNerveCrime
+        ? recommendedNerveCrime.id
+        : crimesData[0]?.id || null,
       reason_by_nerve: recommendedNerveCrime
         ? `${recommendedNerveCrime.name} is your most efficient crime, yielding ${decFormatter.format(maxProfitPerNerve)} per nerve spent.`
         : "Start committing crimes to receive recommendations.",
@@ -3136,11 +3308,8 @@ configRouter.get("/personal/crimes", async (req: Request, res: Response) => {
       },
       recommendations,
     });
-
   } catch (error) {
     console.error("[HTTP] Error fetching crimes data:", error);
     res.status(500).json({ error: "Server error" });
   }
 });
-
-

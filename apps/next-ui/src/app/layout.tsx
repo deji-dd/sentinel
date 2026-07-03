@@ -49,6 +49,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+import { SyncProvider } from "@/hooks/use-sync";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -68,8 +70,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <TooltipProvider>
-            {children}
-            <Toaster />
+            <SyncProvider>
+              {children}
+              <Toaster />
+            </SyncProvider>
           </TooltipProvider>
         </ThemeProvider>
       </body>

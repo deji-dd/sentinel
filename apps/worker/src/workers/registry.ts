@@ -9,6 +9,7 @@ import {
   startBotCronDispatcherWorker,
   startTornCrimesWorker,
   startTornFinanceLogsWorker,
+  startTornPortfolioWorker,
 } from "./private/index.js";
 import {
   startTornItemsWorker,
@@ -37,6 +38,7 @@ const PRIVATE_WORKERS: Starter[] = [
   startBotCronDispatcherWorker,
   startTornCrimesWorker,
   startTornFinanceLogsWorker,
+  startTornPortfolioWorker,
 ];
 
 const PUBLIC_WORKERS: Starter[] = [

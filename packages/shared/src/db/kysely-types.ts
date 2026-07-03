@@ -120,6 +120,10 @@ export interface SentinelBazaarMugTargets {
 
 export interface SentinelDailyFinanceSnapshots {
   asset_valuation: number;
+  company_ad_budget: Generated<number>;
+  company_income: Generated<number>;
+  company_profit_locked: Generated<number>;
+  company_wages: Generated<number>;
   created_at: Generated<string>;
   date: string | null;
   estimated_networth: number;
@@ -514,6 +518,11 @@ export interface SentinelPortfolioSnapshot {
   id: Generated<number | null>;
 }
 
+export interface SentinelProcessedBenefitLogs {
+  log_id: string | null;
+  processed_at: Generated<string>;
+}
+
 export interface SentinelPushSubscriptions {
   auth: string;
   created_at: Generated<string>;
@@ -644,6 +653,15 @@ export interface SentinelStatBuilds {
   name: string;
   notes: string | null;
   slug: string;
+}
+
+export interface SentinelStockBenefitPayouts {
+  benefit_type: string;
+  item_details: Generated<string>;
+  quantity: Generated<number>;
+  stock_id: number;
+  updated_at: Generated<string>;
+  value_accumulated: Generated<number>;
 }
 
 export interface SentinelSystemApiKeys {
@@ -1102,6 +1120,7 @@ export interface DB {
   sentinel_mercenary_verification_vault: SentinelMercenaryVerificationVault;
   sentinel_personal_settings: SentinelPersonalSettings;
   sentinel_portfolio_snapshot: SentinelPortfolioSnapshot;
+  sentinel_processed_benefit_logs: SentinelProcessedBenefitLogs;
   sentinel_push_subscriptions: SentinelPushSubscriptions;
   sentinel_racket_tenure: SentinelRacketTenure;
   sentinel_rate_limit_requests_per_user: SentinelRateLimitRequestsPerUser;
@@ -1114,6 +1133,7 @@ export interface DB {
   sentinel_schema_migrations: SentinelSchemaMigrations;
   sentinel_stat_build_configurations: SentinelStatBuildConfigurations;
   sentinel_stat_builds: SentinelStatBuilds;
+  sentinel_stock_benefit_payouts: SentinelStockBenefitPayouts;
   sentinel_system_api_keys: SentinelSystemApiKeys;
   sentinel_territory_blueprint: SentinelTerritoryBlueprint;
   sentinel_territory_state: SentinelTerritoryState;

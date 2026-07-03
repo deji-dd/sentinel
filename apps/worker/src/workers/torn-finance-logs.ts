@@ -7,9 +7,11 @@ import { startDbScheduledRunner } from "../lib/scheduler.js";
 import { getKysely } from "@sentinel/shared/db/sqlite.js";
 import { TABLE_NAMES } from "@sentinel/shared";
 
+const LOGS_WORKER_NAME = "torn_finance_logs_worker";
+const PORTFOLIO_WORKER_NAME = "torn_portfolio_worker";
 
-const WORKER_NAME = "torn_finance_logs_worker";
-const logger = new Logger(WORKER_NAME);
+const logsLogger = new Logger(LOGS_WORKER_NAME);
+const portfolioLogger = new Logger(PORTFOLIO_WORKER_NAME);
 
 const FINANCE_LOG_CATEGORIES = new Set([
   "bazaars",
@@ -48,6 +50,467 @@ const FINANCE_LOG_CATEGORIES = new Set([
   "bounty"
 ]);
 
+// Hardcoded fallback mapping of stock acronym to ID
+const STOCK_ACRONYM_TO_ID: Record<string, number> = {
+  TCG: 1, TCI: 2, LSC: 3, TGP: 4, TGB: 5, TYC: 6, WSU: 7, TSU: 8,
+  TCB: 9, WLT: 10, GRN: 11, SYS: 12, FHG: 13, IIL: 14, MCS: 15,
+  PTS: 16, CAC: 17, CNC: 18, EVL: 19, PRN: 20, SHS: 21, SYM: 22,
+  TDM: 23, TPF: 24, TJI: 25, MSG: 26, HRG: 27, ASS: 28, ELT: 29,
+  IIL2: 30
+};
+
+interface ParsedPayout {
+  ticker: string;
+  payoutType: "cash" | "points" | "stats" | "items";
+  quantity: number;
+  value: number;
+  itemDetails: Record<string, { quantity: number; unit_price: number; total_value: number }>;
+}
+
+/**
+ * Parses a stock payout log and extracts benefit details.
+ */
+function parseStockPayoutLog(
+  log: any,
+  itemPriceMap: Map<number, number>,
+  pointPrice: number,
+  itemMap: Map<number, { name: string; value: number }>
+): ParsedPayout | null {
+  const category = String(log.category || "").toLowerCase();
+  const title = String(log.title || "").toLowerCase();
+  let logData: any = {};
+  try {
+    logData = typeof log.data === "string" ? JSON.parse(log.data) : log.data || {};
+  } catch {
+    logData = {};
+  }
+
+  const logIdNum = Number(log.details?.id || log.log || 0);
+
+  // Identify stock ID
+  let stockId = Number(logData.stock || 0);
+  if (!stockId) {
+    // Try ticker fallback if stock ID is missing
+    let ticker = (logData.stock_acronym || logData.stock || logData.ticker || "").toUpperCase();
+    if (!ticker) {
+      const match = title.match(/\b([A-Z]{3,4})\b/);
+      if (match) ticker = match[1].toUpperCase();
+    }
+    if (ticker) {
+      stockId = STOCK_ACRONYM_TO_ID[ticker] || 0;
+    }
+  }
+
+  if (!stockId) return null;
+
+  let payoutType: "cash" | "points" | "stats" | "items" | null = null;
+  let quantity = 0;
+  let value = 0;
+  const itemDetails: Record<string, { quantity: number; unit_price: number; total_value: number }> = {};
+
+  // 1. Items Payout (5530, 5533, 5536, 5537) or logData.item is set
+  if (logIdNum === 5530 || logIdNum === 5533 || logIdNum === 5536 || logIdNum === 5537 || logData.item) {
+    payoutType = "items";
+    if (logData.item && typeof logData.item === "object") {
+      for (const [key, qty] of Object.entries(logData.item)) {
+        const itemId = Number(key);
+        const q = Number(qty || 1);
+        quantity += q;
+        const unitPrice = itemPriceMap.get(itemId) || 0;
+        value += unitPrice * q;
+        
+        const itemInfo = itemMap.get(itemId);
+        const name = itemInfo?.name || `Item #${itemId}`;
+        itemDetails[name] = {
+          quantity: q,
+          unit_price: unitPrice,
+          total_value: unitPrice * q
+        };
+      }
+    } else {
+      const itemId = Number(logData.item || logData.item_id || 0);
+      if (itemId) {
+        const q = Number(logData.quantity || logData.qty || 1);
+        quantity = q;
+        const unitPrice = itemPriceMap.get(itemId) || 0;
+        value = unitPrice * q;
+        const itemInfo = itemMap.get(itemId);
+        const name = itemInfo?.name || `Item #${itemId}`;
+        itemDetails[name] = {
+          quantity: q,
+          unit_price: unitPrice,
+          total_value: value
+        };
+      }
+    }
+  }
+  // 2. Points Payout (5531) or logData.points / points_increased is set
+  else if (logIdNum === 5531 || logData.points || logData.points_increased || logData.points_gained) {
+    payoutType = "points";
+    quantity = Number(logData.points || logData.points_increased || logData.points_gained || 0);
+    value = quantity * pointPrice;
+    itemDetails["Points"] = {
+      quantity,
+      unit_price: pointPrice,
+      total_value: value
+    };
+  }
+  // 3. Cash Payout (5532) or logData.money / money_gained / dividend / cash is set
+  else if (logIdNum === 5532 || logData.money || logData.money_gained || logData.dividend || logData.cash) {
+    payoutType = "cash";
+    quantity = Number(logData.money || logData.money_gained || logData.dividend || logData.cash || 0);
+    value = quantity;
+    itemDetails["Cash"] = {
+      quantity,
+      unit_price: 1,
+      total_value: value
+    };
+  }
+  // 4. Stats Payout (5534, 5535) or stats fields are set
+  else if (logIdNum === 5534 || logIdNum === 5535 || logData.energy_increased || logData.nerve_increased || logData.happy_increased || logData.energy || logData.nerve || logData.happy) {
+    payoutType = "stats";
+    const energy = Number(logData.energy_increased || logData.energy || 0);
+    const nerve = Number(logData.nerve_increased || logData.nerve || 0);
+    const happy = Number(logData.happy_increased || logData.happy || 0);
+
+    if (energy > 0) {
+      quantity = energy;
+      value = energy * 3000;
+      itemDetails["Energy"] = {
+        quantity,
+        unit_price: 3000,
+        total_value: value
+      };
+    } else if (nerve > 0) {
+      quantity = nerve;
+      value = nerve * 2500;
+      itemDetails["Nerve"] = {
+        quantity,
+        unit_price: 2500,
+        total_value: value
+      };
+    } else if (happy > 0) {
+      quantity = happy;
+      value = happy * 500;
+      itemDetails["Happiness"] = {
+        quantity,
+        unit_price: 500,
+        total_value: value
+      };
+    }
+  }
+
+  if (!payoutType || quantity <= 0) return null;
+
+  return {
+    ticker: String(stockId), // Storing stock_id as the ticker temporarily to pass it up
+    payoutType,
+    quantity,
+    value,
+    itemDetails
+  };
+}
+
+/**
+ * Processes stock benefit payouts from logs.
+ */
+export async function processStockBenefitPayouts(db: any): Promise<number> {
+  // Fetch all stock logs that haven't been processed
+  const unprocessedLogs = await db
+    .selectFrom("sentinel_financial_logs as l")
+    .leftJoin("sentinel_processed_benefit_logs as p", "l.log_id", "p.log_id")
+    .selectAll("l")
+    .where("p.log_id", "is", null)
+    .where((eb: any) =>
+      eb.or([
+        eb("l.category", "like", "%stock%"),
+        eb("l.title", "like", "%dividend%"),
+        eb("l.title", "like", "%benefit%"),
+        eb("l.category", "=", "134")
+      ])
+    )
+    .orderBy("l.timestamp", "asc")
+    .execute() as any[];
+
+  if (unprocessedLogs.length === 0) {
+    return 0;
+  }
+
+  logsLogger.info(`[Payout Processor] Processing ${unprocessedLogs.length} unprocessed stock logs.`);
+
+  // Load point price
+  const marketPrices = await db
+    .selectFrom(TABLE_NAMES.MARKET_PRICES)
+    .select(["key", "value"])
+    .execute()
+    .catch(() => []);
+  const priceMap = new Map<string, number>();
+  for (const row of marketPrices || []) {
+    priceMap.set(row.key ?? "", Number(row.value));
+  }
+  const pointPrice = priceMap.get("points") ?? 31000;
+
+  // Load item prices & names
+  const items = await db
+    .selectFrom("sentinel_torn_items")
+    .select(["item_id", "name", "value"])
+    .execute()
+    .catch(() => []);
+  const itemPriceMap = new Map<number, number>();
+  const itemMap = new Map<number, { name: string; value: number }>();
+  for (const item of items) {
+    itemPriceMap.set(Number(item.item_id), Number(item.value || 0));
+    itemMap.set(Number(item.item_id), { name: item.name, value: Number(item.value || 0) });
+  }
+
+  let processedCount = 0;
+
+  for (const log of unprocessedLogs) {
+    const parsed = parseStockPayoutLog(log, itemPriceMap, pointPrice, itemMap);
+    if (!parsed) {
+      // Mark as processed anyway to avoid scanning again
+      await db
+        .insertInto("sentinel_processed_benefit_logs")
+        .values({ log_id: log.log_id })
+        .onConflict((oc: any) => oc.column("log_id").doNothing())
+        .execute();
+      continue;
+    }
+
+    const { ticker: stockIdStr, payoutType, quantity, value, itemDetails } = parsed;
+    const stockId = Number(stockIdStr);
+
+    if (stockId > 0) {
+      const existing = await db
+        .selectFrom("sentinel_stock_benefit_payouts")
+        .selectAll()
+        .where("stock_id", "=", stockId)
+        .where("benefit_type", "=", payoutType)
+        .executeTakeFirst();
+
+      if (existing) {
+        let mergedItemDetails: Record<string, any> = {};
+        try {
+          const prevDetails = JSON.parse(existing.item_details || "{}");
+          mergedItemDetails = { ...prevDetails };
+          for (const [itemName, itemInfo] of Object.entries(itemDetails) as any[]) {
+            if (mergedItemDetails[itemName]) {
+              const currentQty = mergedItemDetails[itemName].quantity + itemInfo.quantity;
+              mergedItemDetails[itemName] = {
+                quantity: currentQty,
+                unit_price: itemInfo.unit_price,
+                total_value: currentQty * itemInfo.unit_price
+              };
+            } else {
+              mergedItemDetails[itemName] = itemInfo;
+            }
+          }
+        } catch {
+          mergedItemDetails = itemDetails;
+        }
+
+        await db
+          .updateTable("sentinel_stock_benefit_payouts")
+          .set({
+            quantity: Number(existing.quantity) + quantity,
+            value_accumulated: Number(existing.value_accumulated) + value,
+            item_details: JSON.stringify(mergedItemDetails),
+            updated_at: new Date().toISOString(),
+          })
+          .where("stock_id", "=", stockId)
+          .where("benefit_type", "=", payoutType)
+          .execute();
+      } else {
+        await db
+          .insertInto("sentinel_stock_benefit_payouts")
+          .values({
+            stock_id: stockId,
+            benefit_type: payoutType,
+            quantity,
+            value_accumulated: value,
+            item_details: JSON.stringify(itemDetails),
+            updated_at: new Date().toISOString(),
+          })
+          .execute();
+      }
+      processedCount++;
+    }
+
+    // Mark log as processed
+    await db
+      .insertInto("sentinel_processed_benefit_logs")
+      .values({ log_id: log.log_id })
+      .onConflict((oc: any) => oc.column("log_id").doNothing())
+      .execute();
+  }
+
+  return processedCount;
+}
+
+/**
+ * Dynamically backfills stock payout logs for the past 30 days.
+ */
+export async function backfillStockLogs(db: any, apiKey: string): Promise<void> {
+  const backfillCompleted = await db
+    .selectFrom("sentinel_processed_benefit_logs")
+    .select("log_id")
+    .where("log_id", "=", "backfill_completed")
+    .executeTakeFirst();
+
+  const now = Math.floor(Date.now() / 1000);
+  let startTimestamp = now - 30 * 24 * 60 * 60; // default 30 days
+
+  // Fetch user stocks to find when the oldest stock was bought
+  try {
+    const userStocks = await tornApi.get("/user/stocks" as any, { apiKey }) as any;
+    if (userStocks?.stocks) {
+      let minTxTime = now;
+      for (const holding of userStocks.stocks) {
+        const txs = holding.transactions || [];
+        for (const tx of txs) {
+          const t = Number(tx.time || tx.timestamp || 0);
+          if (t > 0 && t < minTxTime) {
+            minTxTime = t;
+          }
+        }
+      }
+      if (minTxTime < now && minTxTime > 0) {
+        startTimestamp = minTxTime;
+        logsLogger.info(`[Backfill] Found oldest stock purchase transaction at ${new Date(startTimestamp * 1000).toISOString()}`);
+      }
+    }
+  } catch (err) {
+    logsLogger.error("[Backfill] Failed to fetch user stocks for oldest purchase date:", err);
+  }
+
+  if (!backfillCompleted) {
+    logsLogger.info(`[Backfill] Starting historical stock logs backfill since ${new Date(startTimestamp * 1000).toLocaleDateString()}...`);
+
+    let currentTo = now;
+    let hasMore = true;
+    let pages = 0;
+    const MAX_PAGES = 100; // fetch up to 100 pages (10,000 logs)
+
+    while (hasMore && pages < MAX_PAGES) {
+      try {
+        logsLogger.info(`[Backfill] Fetching historical stock logs (page ${pages + 1})...`);
+        const response = await tornApi.get("/user/log" as any, {
+          apiKey,
+          queryParams: {
+            from: String(startTimestamp),
+            to: String(currentTo),
+            limit: "100",
+            cat: "95" // Stocks category
+          }
+        }) as any;
+
+        const logs = response?.log;
+        if (!logs || !Array.isArray(logs) || logs.length === 0) {
+          break;
+        }
+
+        await saveLogBatch(db, logs);
+
+        if (logs.length < 100) {
+          hasMore = false;
+        } else {
+          const oldestInBatch = logs[logs.length - 1];
+          currentTo = Number(oldestInBatch.timestamp) - 1;
+          if (currentTo < startTimestamp) {
+            hasMore = false;
+          }
+        }
+
+        pages++;
+        if (hasMore && pages < MAX_PAGES) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      } catch (apiError) {
+        logsLogger.error("[Backfill] Failed fetching historical logs page:", apiError);
+        hasMore = false;
+      }
+    }
+
+    // Mark backfill as completed
+    await db
+      .insertInto("sentinel_processed_benefit_logs")
+      .values({
+        log_id: "backfill_completed",
+        processed_at: new Date().toISOString()
+      })
+      .onConflict((oc: any) => oc.column("log_id").doNothing())
+      .execute();
+
+    logsLogger.success("[Backfill] Historical stock logs backfill completed.");
+  }
+
+  // Specials Backfill (log IDs 5530-5537)
+  const backfillSpecialsCompleted = await db
+    .selectFrom("sentinel_processed_benefit_logs")
+    .select("log_id")
+    .where("log_id", "=", "backfill_specials_completed")
+    .executeTakeFirst();
+
+  if (!backfillSpecialsCompleted) {
+    logsLogger.info(`[Backfill] Starting historical stock specials backfill since ${new Date(startTimestamp * 1000).toLocaleDateString()}...`);
+    let currentSpecialsTo = now;
+    let specialsHasMore = true;
+    let specialsPages = 0;
+    const MAX_SPECIALS_PAGES = 100;
+
+    while (specialsHasMore && specialsPages < MAX_SPECIALS_PAGES) {
+      try {
+        logsLogger.info(`[Backfill] Fetching historical stock specials (page ${specialsPages + 1})...`);
+        const response = await tornApi.get("/user/log" as any, {
+          apiKey,
+          queryParams: {
+            from: String(startTimestamp),
+            to: String(currentSpecialsTo),
+            limit: "100",
+            log: "5530,5531,5532,5533,5534,5535,5536,5537"
+          }
+        }) as any;
+
+        const logs = response?.log;
+        if (!logs || !Array.isArray(logs) || logs.length === 0) {
+          break;
+        }
+
+        await saveLogBatch(db, logs);
+
+        if (logs.length < 100) {
+          specialsHasMore = false;
+        } else {
+          const oldestInBatch = logs[logs.length - 1];
+          currentSpecialsTo = Number(oldestInBatch.timestamp) - 1;
+          if (currentSpecialsTo < startTimestamp) {
+            specialsHasMore = false;
+          }
+        }
+
+        specialsPages++;
+        if (specialsHasMore && specialsPages < MAX_SPECIALS_PAGES) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      } catch (apiError) {
+        logsLogger.error("[Backfill] Failed fetching historical stock specials page:", apiError);
+        specialsHasMore = false;
+      }
+    }
+
+    await db
+      .insertInto("sentinel_processed_benefit_logs")
+      .values({
+        log_id: "backfill_specials_completed",
+        processed_at: new Date().toISOString()
+      })
+      .onConflict((oc: any) => oc.column("log_id").doNothing())
+      .execute();
+
+    logsLogger.success("[Backfill] Historical stock specials backfill completed.");
+  }
+}
+
 async function saveLogBatch(db: any, logs: any[]): Promise<number> {
   let inserted = 0;
   const seenIds = new Map<string, number>();
@@ -80,8 +543,9 @@ async function saveLogBatch(db: any, logs: any[]): Promise<number> {
     const logIdNum = Number(log.details?.id || log.log || 0);
     const isRehab = logIdNum === 6005 || titleLower === "rehab";
     const isBounty = logIdNum === 6700 || logIdNum === 6710 || catLower === "bounties" || catLower === "bounty";
+    const isStockSpecialLog = (logIdNum >= 5530 && logIdNum <= 5537) || catLower === "134" || catLower.includes("stock");
     
-    if (!FINANCE_LOG_CATEGORIES.has(catLower) && !catLower.includes("item use") && !isRehab && !isBounty) {
+    if (!FINANCE_LOG_CATEGORIES.has(catLower) && !catLower.includes("item use") && !isRehab && !isBounty && !isStockSpecialLog) {
       continue;
     }
 
@@ -113,31 +577,11 @@ async function saveLogBatch(db: any, logs: any[]): Promise<number> {
 
 export async function syncUserInventory(db: any, client: any, apiKey: string): Promise<void> {
   const categories = [
-    "Melee",
-    "Defensive",
-    "Temporary",
-    "Medical",
-    "Booster",
-    "Drug",
-    "Energy Drink",
-    "Alcohol",
-    "Candy",
-    "Special",
-    "Supply Pack",
-    "Primary",
-    "Secondary",
-    "Enhancer",
-    "Artifact",
-    "Collectible",
-    "Clothing",
-    "Material",
-    "Car",
-    "Flower",
-    "Jewelry",
-    "Plushie",
-    "Book",
-    "Tool",
-    "Other"
+    "Melee", "Defensive", "Temporary", "Medical", "Booster", "Drug",
+    "Energy Drink", "Alcohol", "Candy", "Special", "Supply Pack",
+    "Primary", "Secondary", "Enhancer", "Artifact", "Collectible",
+    "Clothing", "Material", "Car", "Flower", "Jewelry", "Plushie",
+    "Book", "Tool", "Other"
   ];
   try {
     const apiResults = await Promise.all(
@@ -146,7 +590,7 @@ export async function syncUserInventory(db: any, client: any, apiKey: string): P
           apiKey,
           queryParams: { cat },
         }).catch((e: any) => {
-          logger.error(`[Inventory Sync] Failed to fetch category ${cat}:`, e);
+          portfolioLogger.error(`[Inventory Sync] Failed to fetch category ${cat}:`, e);
           return null;
         })
       )
@@ -202,37 +646,309 @@ export async function syncUserInventory(db: any, client: any, apiKey: string): P
       }
     }
   } catch (err) {
-    logger.error("[Inventory Sync] Error syncing inventory:", err);
+    portfolioLogger.error("[Inventory Sync] Error syncing inventory:", err);
   }
 }
 
-async function updateDailySnapshot(db: any, apiKey: string): Promise<void> {
+/**
+ * Updates daily finance snapshots inflow/outflow/net profit from logs.
+ */
+async function updateDailySnapshot(db: any): Promise<void> {
   try {
-    const [moneyResponse, userResponse, companyResponse, userStocksResponse, tornStocksResponse] = (await Promise.all([
+    const nowTime = new Date();
+    const dateStr = nowTime.toISOString().split("T")[0]; // YYYY-MM-DD in UTC (TCT)
+    const startOfTodayTCT = Math.floor(Date.UTC(nowTime.getUTCFullYear(), nowTime.getUTCMonth(), nowTime.getUTCDate()) / 1000);
+
+    // 1. Read today's logs from DB
+    const dbLogs = await db
+      .selectFrom("sentinel_financial_logs" as any)
+      .selectAll()
+      .where("timestamp", ">=", startOfTodayTCT)
+      .execute()
+      .catch(() => []);
+
+    // 2. Fetch point price and items for parsing
+    const marketPrices = await db.selectFrom(TABLE_NAMES.MARKET_PRICES).select(["key", "value"]).execute().catch(() => []);
+    const priceMap = new Map<string, number>();
+    for (const row of marketPrices || []) {
+      priceMap.set(row.key ?? "", Number(row.value));
+    }
+    const pointPrice = priceMap.get("points") ?? 31000;
+
+    const items = await db.selectFrom("sentinel_torn_items").select(["item_id", "name", "value"]).execute().catch(() => []);
+    const itemMap = new Map<number, { name: string; value: number }>();
+    const itemNameMap = new Map<string, { item_id: number; name: string; value: number }>();
+    for (const item of items) {
+      const info = { name: item.name, value: Number(item.value || 0) };
+      itemMap.set(Number(item.item_id), info);
+      itemNameMap.set(item.name.toLowerCase(), { item_id: Number(item.item_id), ...info });
+    }
+
+    const { parseFinanceLedger } = await import("@sentinel/shared");
+    const { income, expenses } = parseFinanceLedger(
+      dbLogs as any[],
+      itemMap,
+      itemNameMap,
+      pointPrice
+    );
+
+    // 3. Load latest daily snapshot row to check company locking status
+    const existingSnap = await db
+      .selectFrom("sentinel_daily_finance_snapshots")
+      .selectAll()
+      .where("date", "=", dateStr)
+      .executeTakeFirst();
+
+    let compIncome = 0;
+    let compWages = 0;
+    let compAds = 0;
+    let compLocked = 0;
+
+    if (existingSnap) {
+      compIncome = Number(existingSnap.company_income || 0);
+      compWages = Number(existingSnap.company_wages || 0);
+      compAds = Number(existingSnap.company_ad_budget || 0);
+      compLocked = Number(existingSnap.company_profit_locked || 0);
+    }
+
+    // 4. Inflow and Outflow totals combined with company profit if locked
+    const inflowTotal = income.total + compIncome;
+    const outflowTotal = expenses.total + compWages + compAds;
+    const netProfit = inflowTotal - outflowTotal;
+
+    // 5. Load latest valuations from portfolio cache as fallback if not populated
+    let cachedNetworth = existingSnap?.estimated_networth || 0;
+    let cachedLiquid = existingSnap?.liquid_capital || 0;
+    let cachedAssets = existingSnap?.asset_valuation || 0;
+
+    if (!cachedNetworth || !cachedLiquid || !cachedAssets) {
+      const latestPortfolio = await db
+        .selectFrom("sentinel_portfolio_snapshot")
+        .selectAll()
+        .orderBy("id", "desc")
+        .limit(1)
+        .executeTakeFirst();
+      if (latestPortfolio) {
+        const portData = JSON.parse(latestPortfolio.data);
+        cachedNetworth = cachedNetworth || portData?.total_value || 0;
+        cachedLiquid = cachedLiquid || portData?.liquid?.total_value || 0;
+        cachedAssets = cachedAssets || (portData?.total_value - portData?.liquid?.total_value || 0);
+      }
+    }
+
+    // 6. Upsert the daily snapshot
+    await db
+      .insertInto("sentinel_daily_finance_snapshots" as any)
+      .values({
+        date: dateStr,
+        estimated_networth: cachedNetworth,
+        liquid_capital: cachedLiquid,
+        asset_valuation: cachedAssets,
+        net_profit: netProfit,
+        inflow: inflowTotal,
+        outflow: outflowTotal,
+        company_income: compIncome,
+        company_wages: compWages,
+        company_ad_budget: compAds,
+        company_profit_locked: compLocked,
+        updated_at: new Date().toISOString(),
+      })
+      .onConflict((oc: any) =>
+        oc.column("date").doUpdateSet({
+          net_profit: netProfit,
+          inflow: inflowTotal,
+          outflow: outflowTotal,
+          updated_at: new Date().toISOString(),
+        })
+      )
+      .execute();
+
+    logsLogger.success(`[Snapshot] Daily snapshot P&L updated for ${dateStr}. Inflow: ${inflowTotal.toLocaleString()}, Outflow: ${outflowTotal.toLocaleString()}`);
+
+  } catch (error) {
+    logsLogger.error("[Snapshot] Error updating daily finance snapshot:", error);
+  }
+}
+
+/**
+ * Main handler for logs sync worker.
+ */
+export async function syncFinanceLogs(): Promise<void> {
+  const apiKey = await getSystemApiKey("personal");
+  if (!apiKey) {
+    logsLogger.error("No personal API key found, skipping finance logs sync.");
+    return;
+  }
+  const db = getKysely();
+
+  // 1. Dynamically backfill stock logs if not done
+  await backfillStockLogs(db, apiKey);
+
+  // 2. Fetch the latest timestamp in logs
+  const latestLog = await db
+    .selectFrom("sentinel_financial_logs" as any)
+    .select("timestamp")
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  const now = new Date();
+  const startOfTodayTCT = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000);
+
+  let fromTimestamp = startOfTodayTCT;
+  if (latestLog) {
+    fromTimestamp = Math.max(startOfTodayTCT, Number(latestLog.timestamp));
+  }
+  const toTimestamp = Math.floor(Date.now() / 1000);
+
+  logsLogger.info(`Starting finance logs forward sync from timestamp ${fromTimestamp} to ${toTimestamp}...`);
+
+  let countNewLogs = 0;
+  let forwardHasMore = true;
+  let currentForwardTo = toTimestamp;
+  let forwardPages = 0;
+  const MAX_FORWARD_PAGES = 10;
+
+  while (forwardHasMore && forwardPages < MAX_FORWARD_PAGES) {
+    try {
+      const response = (await tornApi.get("/user/log" as any, {
+        apiKey,
+        queryParams: {
+          from: String(fromTimestamp),
+          to: String(currentForwardTo),
+          limit: "100",
+        },
+      })) as any;
+
+      const logs = response.log;
+      if (!logs || !Array.isArray(logs) || logs.length === 0) {
+        forwardHasMore = false;
+        break;
+      }
+
+      const inserted = await saveLogBatch(db, logs);
+      countNewLogs += inserted;
+
+      if (logs.length < 100) {
+        forwardHasMore = false;
+      } else {
+        const oldestInBatch = logs[logs.length - 1];
+        currentForwardTo = Number(oldestInBatch.timestamp) - 1;
+        if (currentForwardTo < fromTimestamp) {
+          forwardHasMore = false;
+        }
+      }
+
+      forwardPages++;
+      if (forwardHasMore && forwardPages < MAX_FORWARD_PAGES) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    } catch (apiError) {
+      logsLogger.error("Failed syncing logs page from Torn API", apiError);
+      forwardHasMore = false;
+    }
+  }
+
+  if (countNewLogs > 0) {
+    logsLogger.success(`Successfully synced ${countNewLogs} new financial log entries.`);
+  }
+
+  // 3. Process payouts
+  await processStockBenefitPayouts(db);
+
+  // 4. Update snapshot P&L
+  await updateDailySnapshot(db);
+}
+
+/**
+ * Main handler for portfolio sync worker.
+ */
+export async function syncPortfolioSnapshot(): Promise<void> {
+  const apiKey = await getSystemApiKey("personal");
+  if (!apiKey) {
+    portfolioLogger.error("No personal API key found, skipping portfolio sync.");
+    return;
+  }
+  const db = getKysely();
+
+  try {
+    portfolioLogger.info("Starting portfolio sync: fetching API endpoints...");
+
+    // 1. Sync inventory items first into database cache
+    await syncUserInventory(db, tornApi, apiKey);
+
+    // 2. Fetch required endpoints
+    const [moneyResponse, userResponse, companyResponse, userStocksResponse, tornStocksResponse, propertiesResponse] = (await Promise.all([
       tornApi.get("/user/money" as any, { apiKey }).catch((e) => {
-        logger.error("[Snapshot] Failed to fetch money:", e);
+        portfolioLogger.error("[Portfolio] Failed to fetch money:", e);
         return null;
       }),
       tornApi.get("/user" as any, {
         apiKey,
-        queryParams: { selections: ["networth", "bazaar", "display", "itemmarket"] }
+        queryParams: { selections: ["networth", "bazaar", "display", "itemmarket", "profile"] }
       }).catch((e) => {
-        logger.error("[Snapshot] Failed to fetch user networth/items:", e);
+        portfolioLogger.error("[Portfolio] Failed to fetch user profile/items:", e);
         return null;
       }),
       tornApi.get("/company/profile" as any, { apiKey }).catch((e) => {
-        logger.error("[Snapshot] Failed to fetch company profile:", e);
+        portfolioLogger.error("[Portfolio] Failed to fetch company profile:", e);
         return null;
       }),
       tornApi.get("/user/stocks" as any, { apiKey }).catch((e) => {
-        logger.error("[Snapshot] Failed to fetch user stocks:", e);
+        portfolioLogger.error("[Portfolio] Failed to fetch user stocks:", e);
         return null;
       }),
       tornApi.get("/torn/stocks" as any, { apiKey }).catch((e) => {
-        logger.error("[Snapshot] Failed to fetch torn stocks:", e);
+        portfolioLogger.error("[Portfolio] Failed to fetch torn stocks:", e);
+        return null;
+      }),
+      tornApi.get("/user/properties" as any, {
+        apiKey,
+        queryParams: { filters: "ownedByUser" }
+      }).catch((e) => {
+        portfolioLogger.error("[Portfolio] Failed to fetch properties:", e);
         return null;
       })
     ])) as any[];
+
+    // 3. Populate sentinel_torn_stocks table with latest prices
+    if (tornStocksResponse?.stocks) {
+      for (const stock of tornStocksResponse.stocks) {
+        await db
+          .insertInto("sentinel_torn_stocks" as any)
+          .values({
+            stock_id: Number(stock.id),
+            name: String(stock.name || ""),
+            acronym: String(stock.acronym || ""),
+            logo_image: stock.logo_image || null,
+            price: Number(stock.market?.price || 0),
+            market_cap: Number(stock.market?.market_cap || 0),
+            shares: Number(stock.market?.shares || 0),
+            investors: Number(stock.market?.investors || 0),
+            bonus_passive: stock.bonus?.passive ? 1 : 0,
+            bonus_frequency: Number(stock.bonus?.frequency || 0),
+            bonus_requirement: Number(stock.bonus?.requirement || 0),
+            bonus_description: String(stock.bonus?.description || ""),
+            updated_at: new Date().toISOString(),
+          })
+          .onConflict((oc: any) =>
+            oc.column("stock_id").doUpdateSet({
+              name: String(stock.name || ""),
+              acronym: String(stock.acronym || ""),
+              price: Number(stock.market?.price || 0),
+              market_cap: Number(stock.market?.market_cap || 0),
+              shares: Number(stock.market?.shares || 0),
+              investors: Number(stock.market?.investors || 0),
+              bonus_passive: stock.bonus?.passive ? 1 : 0,
+              bonus_frequency: Number(stock.bonus?.frequency || 0),
+              bonus_requirement: Number(stock.bonus?.requirement || 0),
+              bonus_description: String(stock.bonus?.description || ""),
+              updated_at: new Date().toISOString(),
+            })
+          )
+          .execute();
+      }
+    }
 
     const networthTotal = userResponse?.networth?.total || moneyResponse?.money?.daily_networth || 0;
     const wallet = moneyResponse?.money?.wallet || 0;
@@ -243,58 +959,66 @@ async function updateDailySnapshot(db: any, apiKey: string): Promise<void> {
     const marketPrices = await db.selectFrom(TABLE_NAMES.MARKET_PRICES).select(["key", "value"]).execute().catch(() => []);
     const priceMap = new Map<string, number>();
     for (const row of marketPrices || []) {
-      priceMap.set(row.key, Number(row.value));
+      priceMap.set(row.key ?? "", Number(row.value));
     }
     const pointPrice = priceMap.get("points") ?? 31000;
     const pointsValue = pointsQuantity * pointPrice;
 
-    // Company profile & employees
+    // Company calculations
     let companyFunds = 0;
     let companyAdBudget = 0;
     let companyWages = 0;
+    let companyDailyIncome = 0;
+    let companyDailyProfit = 0;
+    let companyName = "No Company";
 
-    const companyId = companyResponse ? Number(companyResponse.profile?.company_id || 0) : 0;
+    const companyId = companyResponse ? Number(companyResponse.profile?.id || companyResponse.profile?.company_id || 0) : 0;
+    const isDirector = companyResponse?.profile?.director?.id === userResponse?.profile?.id || companyResponse?.profile?.director?.id === 1934909;
+
     if (companyId > 0 && companyResponse) {
+      companyName = companyResponse.profile.name || "Company";
       companyFunds = companyResponse.profile.funds || 0;
-      companyAdBudget = Number((companyResponse.profile as any).advertisement_budget || 0);
+      companyAdBudget = Number(companyResponse.profile.advertisement_budget || 0);
+      companyDailyIncome = Number(companyResponse.profile.income?.daily || 0);
 
-      // Securely fetch company employees ONLY if companyId > 0
-      const companyEmployeesResponse = (await tornApi.get("/company/employees" as any, { apiKey }).catch((e) => {
-        logger.error("[Snapshot] Failed to fetch company employees:", e);
-        return null;
-      })) as any;
+      if (isDirector) {
+        const companyEmployeesResponse = (await tornApi.get("/company/employees" as any, { apiKey }).catch((e) => {
+          portfolioLogger.error("[Portfolio] Failed to fetch company employees:", e);
+          return null;
+        })) as any;
 
-      const empList = Array.isArray(companyEmployeesResponse)
-        ? companyEmployeesResponse
-        : (companyEmployeesResponse?.employees || []);
+        const empList = Array.isArray(companyEmployeesResponse)
+          ? companyEmployeesResponse
+          : (companyEmployeesResponse?.employees || []);
 
-      for (const emp of empList) {
-        companyWages += Number((emp as any).wage || 0);
+        for (const emp of empList) {
+          companyWages += Number((emp as any).wage || 0);
+        }
       }
+      companyDailyProfit = companyDailyIncome - companyWages - companyAdBudget;
     }
 
     const companyWithdrawable = Math.max(0, companyFunds - (companyWages * 7) - (companyAdBudget * 7));
     const liquidCapital = wallet + vault + pointsValue + companyWithdrawable;
 
-    // Asset Valuation
     // 1. Properties
-    const propertiesResponse = (await tornApi.get("/user/properties" as any, {
-      apiKey,
-      queryParams: { filters: "ownedByUser" }
-    }).catch((e) => {
-      logger.error("[Snapshot] Failed to fetch properties:", e);
-      return null;
-    })) as any;
-
     let propertiesTotalValue = 0;
+    const propertiesList: any[] = [];
     if (propertiesResponse?.properties) {
       for (const prop of propertiesResponse.properties) {
         const val = prop.market_price || prop.value || (Number(prop.property) === 13 ? 475000000 : 0);
         propertiesTotalValue += val;
+        propertiesList.push({
+          id: String(prop.id),
+          name: String(prop.name || "Property"),
+          value: val,
+          happy: Number(prop.happy || 0),
+          status: String(prop.status || "Owned")
+        });
       }
     }
 
-    // 2. Inventory (database cached)
+    // 2. Inventory (including Display Case, Bazaar, Item Market)
     const dbInventory = await db
       .selectFrom("sentinel_user_assets" as any)
       .selectAll()
@@ -302,174 +1026,110 @@ async function updateDailySnapshot(db: any, apiKey: string): Promise<void> {
       .execute()
       .catch(() => []);
 
-    // Load items map
-    const items = await db.selectFrom("sentinel_torn_items").select(["item_id", "name", "value"]).execute().catch(() => []);
-    const itemMap = new Map<number, { name: string; value: number }>();
-    const itemNameMap = new Map<string, { item_id: number; name: string; value: number }>();
-    for (const item of items) {
-      const info = { name: item.name, value: Number(item.value || 0) };
-      itemMap.set(Number(item.item_id), info);
-      itemNameMap.set(item.name.toLowerCase(), { item_id: Number(item.item_id), ...info });
+    const tornItems = await db.selectFrom("sentinel_torn_items").select(["item_id", "name", "value", "image", "type"]).execute().catch(() => []);
+    const itemMap = new Map<number, { name: string; value: number; image: string; type: string }>();
+    for (const item of tornItems) {
+      itemMap.set(Number(item.item_id), {
+        name: item.name,
+        value: Number(item.value || 0),
+        image: item.image || "",
+        type: item.type || ""
+      });
     }
 
     let inventoryTotalValue = 0;
+    const inventoryList: any[] = [];
+
+    // Local regular inventory
     for (const row of dbInventory) {
       const itemId = Number(row.asset_key);
       const qty = Number(row.quantity || 0);
       if (!itemId || qty <= 0) continue;
-      const itemVal = itemMap.get(itemId)?.value || 0;
-      inventoryTotalValue += itemVal * qty;
+      const itemInfo = itemMap.get(itemId);
+      const itemVal = itemInfo?.value || 0;
+      const totalVal = itemVal * qty;
+      inventoryTotalValue += totalVal;
+      inventoryList.push({
+        item_id: itemId,
+        name: itemInfo?.name || "Unknown Item",
+        quantity: qty,
+        value: itemVal,
+        total_value: totalVal,
+        image: itemInfo?.image || "",
+        type: itemInfo?.type || "Other",
+        location: "Inventory"
+      });
     }
 
-    // Include bazaar, display, itemmarket items
+    // Bazaar items
     const bazaarItems = userResponse?.bazaar || [];
     for (const item of bazaarItems) {
       const itemId = Number(item.ID || item.id);
       const qty = Number(item.quantity || 1);
-      const itemVal = item.market_price || itemMap.get(itemId)?.value || 0;
-      inventoryTotalValue += itemVal * qty;
+      const itemInfo = itemMap.get(itemId);
+      const itemVal = item.market_price || itemInfo?.value || 0;
+      const totalVal = itemVal * qty;
+      inventoryTotalValue += totalVal;
+      inventoryList.push({
+        item_id: itemId,
+        name: item.name || itemInfo?.name || "Bazaar Item",
+        quantity: qty,
+        value: itemVal,
+        total_value: totalVal,
+        image: itemInfo?.image || "",
+        type: itemInfo?.type || "Other",
+        location: "Bazaar"
+      });
     }
 
+    // Display Case items
     const displayItems = userResponse?.display || [];
     for (const item of displayItems) {
       const itemId = Number(item.ID || item.id);
       const qty = Number(item.quantity || 1);
-      const itemVal = item.market_price || itemMap.get(itemId)?.value || 0;
-      inventoryTotalValue += itemVal * qty;
+      const itemInfo = itemMap.get(itemId);
+      const itemVal = item.market_price || itemInfo?.value || 0;
+      const totalVal = itemVal * qty;
+      inventoryTotalValue += totalVal;
+      inventoryList.push({
+        item_id: itemId,
+        name: item.name || itemInfo?.name || "Display Case Item",
+        quantity: qty,
+        value: itemVal,
+        total_value: totalVal,
+        image: itemInfo?.image || "",
+        type: itemInfo?.type || "Other",
+        location: "Display Case"
+      });
     }
 
+    // Item Market items
     const itemMarketItems = userResponse?.itemmarket || [];
     for (const item of itemMarketItems) {
       const itemId = Number(item.ID || item.id);
       const qty = Number(item.quantity || 1);
-      const itemVal = item.market_price || itemMap.get(itemId)?.value || 0;
-      inventoryTotalValue += itemVal * qty;
+      const itemInfo = itemMap.get(itemId);
+      const itemVal = item.market_price || itemInfo?.value || 0;
+      const totalVal = itemVal * qty;
+      inventoryTotalValue += totalVal;
+      inventoryList.push({
+        item_id: itemId,
+        name: item.name || itemInfo?.name || "Market Item",
+        quantity: qty,
+        value: itemVal,
+        total_value: totalVal,
+        image: itemInfo?.image || "",
+        type: itemInfo?.type || "Other",
+        location: "Item Market"
+      });
     }
 
-    // 3. Stocks Value
+    // 3. Stocks Value & Holdings & Benefits
     let stocksTotalValue = 0;
-    if (userStocksResponse?.stocks && tornStocksResponse?.stocks) {
-      const priceMap = new Map<number, number>();
-      for (const stock of tornStocksResponse.stocks) {
-        priceMap.set(Number(stock.id), Number(stock.market?.price || 0));
-      }
-      for (const holding of userStocksResponse.stocks) {
-        const stockId = Number(holding.id);
-        const shares = Number(holding.shares || 0);
-        const price = priceMap.get(stockId) || 0;
-        stocksTotalValue += shares * price;
-      }
-    }
+    const holdings: any[] = [];
+    const benefits: any[] = [];
 
-    const companyTotalVal = userResponse?.networth?.company ?? companyFunds;
-    const assetValuation = propertiesTotalValue + inventoryTotalValue + companyTotalVal + stocksTotalValue;
-
-    // Today's log calculations (P&L)
-    const nowTime = new Date();
-    const startOfTodayTCT = Math.floor(Date.UTC(nowTime.getUTCFullYear(), nowTime.getUTCMonth(), nowTime.getUTCDate()) / 1000);
-
-    const dbLogs = await db
-      .selectFrom("sentinel_financial_logs" as any)
-      .selectAll()
-      .where("timestamp", ">=", startOfTodayTCT)
-      .execute()
-      .catch(() => []);
-
-    const { parseFinanceLedger } = await import("@sentinel/shared");
-    const { income, expenses } = parseFinanceLedger(
-      dbLogs as any[],
-      itemMap,
-      itemNameMap,
-      pointPrice
-    );
-
-    const netProfit = income.total - expenses.total;
-
-    // Formatted date
-    const dateStr = nowTime.toISOString().split("T")[0]; // YYYY-MM-DD in UTC (since TCT is UTC)
-
-    // Upsert into DB
-    await db
-      .insertInto("sentinel_daily_finance_snapshots" as any)
-      .values({
-        date: dateStr,
-        estimated_networth: networthTotal,
-        liquid_capital: liquidCapital,
-        asset_valuation: assetValuation,
-        net_profit: netProfit,
-        inflow: income.total,
-        outflow: expenses.total,
-        updated_at: new Date().toISOString(),
-      })
-      .onConflict((oc: any) =>
-        oc.column("date").doUpdateSet({
-          estimated_networth: networthTotal,
-          liquid_capital: liquidCapital,
-          asset_valuation: assetValuation,
-          net_profit: netProfit,
-          inflow: income.total,
-          outflow: expenses.total,
-          updated_at: new Date().toISOString(),
-        })
-      )
-      .execute();
-
-    logger.success(`[Snapshot] Successfully updated daily finance snapshot for ${dateStr}. Networth: ${networthTotal.toLocaleString()}, Net Profit: ${netProfit.toLocaleString()}`);
-
-  } catch (error) {
-    logger.error("[Snapshot] Error taking daily finance snapshot:", error);
-  }
-}
-
-async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
-  try {
-    const [moneyResponse, userStocksResponse, tornStocksResponse, marketPrices, dbItems] = (await Promise.all([
-      tornApi.get("/user/money" as any, { apiKey }).catch((e) => {
-        logger.error("[Portfolio] Failed to fetch money for snapshot:", e);
-        return null;
-      }),
-      tornApi.get("/user/stocks" as any, { apiKey }).catch((e) => {
-        logger.error("[Portfolio] Failed to fetch user stocks for snapshot:", e);
-        return null;
-      }),
-      tornApi.get("/torn/stocks" as any, { apiKey }).catch((e) => {
-        logger.error("[Portfolio] Failed to fetch torn stocks for snapshot:", e);
-        return null;
-      }),
-      db.selectFrom(TABLE_NAMES.MARKET_PRICES).select(["key", "value"]).execute().catch(() => []),
-      db.selectFrom("sentinel_torn_items" as any).select(["name", "value"]).execute().catch(() => [])
-    ])) as any[];
-
-    // Build market price maps
-    const priceMap = new Map<string, number>();
-    for (const row of marketPrices || []) {
-      priceMap.set(row.key.toLowerCase(), Number(row.value));
-    }
-    for (const item of dbItems || []) {
-      priceMap.set(item.name.toLowerCase(), Number(item.value || 0));
-    }
-    const pointPrice = priceMap.get("points") ?? 31000;
-
-    // Process City Bank Investment
-    const cityBankRaw = moneyResponse?.money?.city_bank || {};
-    const bankAmount = Number(cityBankRaw.amount || 0);
-    const bankProfit = Number(cityBankRaw.profit || 0);
-    const bankPrincipal = bankAmount - bankProfit;
-    const bankInvestedAt = Number(cityBankRaw.invested_at || 0);
-    const bankUntil = Number(cityBankRaw.until || 0);
-    
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const bankTimeleft = bankUntil > 0 ? Math.max(0, bankUntil - nowSeconds) : 0;
-    const initialDurationSeconds = (bankUntil > 0 && bankInvestedAt > 0) ? (bankUntil - bankInvestedAt) : 0;
-    const bankElapsed = (bankUntil > 0 && bankInvestedAt > 0) ? Math.max(0, nowSeconds - bankInvestedAt) : 0;
-    const bankProgressPct = (bankAmount > 0 && initialDurationSeconds > 0)
-      ? Math.min(100, (bankElapsed / initialDurationSeconds) * 100)
-      : 0;
-    const caymanBank = Number(moneyResponse?.money?.cayman_bank || 0);
-
-    // Process Stock Benefit Blocks and Holdings
     const heldStocksMap = new Map<number, number>();
-    const holdings = [];
     if (userStocksResponse?.stocks) {
       for (const stock of userStocksResponse.stocks) {
         heldStocksMap.set(Number(stock.id), Number(stock.shares || 0));
@@ -487,8 +1147,7 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
       }
     }
 
-    let stocksTotalValue = 0;
-    // Calculate total stock value and build holdings list with average buy price / P&L
+    // Calculate total stock value and holdings list
     if (userStocksResponse?.stocks) {
       for (const holding of userStocksResponse.stocks) {
         const stockId = Number(holding.id);
@@ -528,12 +1187,9 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
       holdings.sort((a, b) => b.total_value - a.total_value);
     }
 
-    const benefits = [];
-
-    // Process each stock returned by Torn API
+    // Stock Benefits
     if (tornStocksResponse?.stocks) {
       for (const stock of tornStocksResponse.stocks) {
-        // Skip if there's no bonus or the bonus is not a benefit block (requirement is 0/undefined)
         if (!stock.bonus || !stock.bonus.requirement || stock.bonus.requirement <= 0) {
           continue;
         }
@@ -542,14 +1198,13 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
         const acronym = stock.acronym;
         const name = stock.name;
         const currentPrice = stock.market?.price || 0;
-        const requirement = Number(stock.bonus.requirement); // base requirement
+        const requirement = Number(stock.bonus.requirement);
         const frequencyDays = Number(stock.bonus.frequency || 0);
         const isPassive = !!stock.bonus.passive;
         const benefitDesc = stock.bonus.description || "";
 
         const heldShares = heldStocksMap.get(stockId) || 0;
 
-        // Calculate increments
         let active_increments = 0;
         if (heldShares >= requirement) {
           if (isPassive) {
@@ -600,10 +1255,15 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
           if (descLower.includes("six-pack")) {
             payoutValue = priceMap.get("six-pack of energy drink") || 12000000;
           } else {
-            payoutValue = 20 * pointPrice; // 100 energy valued at 20 points
+            const fhcPrice = priceMap.get("feathery hotel coupon") || 13500000;
+            payoutValue = 100 * (fhcPrice / 150);
           }
         } else if (descLower.includes("nerve")) {
-          payoutValue = 10 * pointPrice; // 50 nerve valued at 10 points
+          const beerPrice = priceMap.get("bottle of beer") || 3000;
+          payoutValue = 10 * beerPrice;
+        } else if (descLower.includes("happy") || descLower.includes("happiness")) {
+          const edvdPrice = priceMap.get("erotic dvd") || 2800000;
+          payoutValue = 1000 * (edvdPrice / 2500);
         } else if (descLower.includes("lawyer's business card")) {
           payoutValue = priceMap.get("lawyer's business card") || 500000;
         } else if (descLower.includes("medical supplies")) {
@@ -644,7 +1304,13 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
           nextIncrementApr = (nextIncrementCost > 0) ? (baseAnnualPayout / (nextIncrementCost * currentPrice)) * 100 : 0;
         }
 
+        // Format payout description frequency
+        let formattedFreq = isPassive ? "Passive" : `every ${frequencyDays}d`;
+        if (frequencyDays === 7) formattedFreq = "Weekly";
+        else if (frequencyDays === 30 || frequencyDays === 31) formattedFreq = "Monthly";
+
         benefits.push({
+          stock_id: stockId,
           acronym,
           name,
           active_increments,
@@ -655,7 +1321,7 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
           shares_needed: sharesNeeded,
           cost_to_complete: costToComplete,
           next_required_total_shares,
-          payout_desc: benefitDesc + (isPassive ? " (Passive)" : ` every ${frequencyDays}d`),
+          payout_desc: benefitDesc + (isPassive ? " (Passive)" : ` (${formattedFreq})`),
           frequency_days: frequencyDays,
           payout_value: payoutValue,
           annual_payout_value: currentAnnualPayout || baseAnnualPayout,
@@ -664,28 +1330,65 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
           is_active: active_increments >= 1,
         });
       }
+      benefits.sort((a, b) => b.apr - a.apr);
     }
 
-    // Sort by APR/ROI descending
-    benefits.sort((a, b) => b.apr - a.apr);
+    const companyTotalVal = userResponse?.networth?.company ?? companyFunds;
+    const totalAssetsValue = networthTotal;
+    const assetValuation = Math.max(0, networthTotal - liquidCapital);
 
     const snapshotPayload = {
       city_bank: {
-        amount: bankAmount,
-        profit: bankProfit,
-        principal: bankPrincipal,
-        timeleft: bankTimeleft,
-        progress_pct: bankProgressPct,
-        cayman_bank: caymanBank,
+        amount: Number(moneyResponse?.money?.city_bank?.amount || 0),
+        profit: Number(moneyResponse?.money?.city_bank?.profit || 0),
+        principal: Number(moneyResponse?.money?.city_bank?.amount || 0) - Number(moneyResponse?.money?.city_bank?.profit || 0),
+        timeleft: Number(moneyResponse?.money?.city_bank?.until || 0) > 0 ? Math.max(0, Number(moneyResponse?.money?.city_bank?.until || 0) - Math.floor(Date.now() / 1000)) : 0,
+        progress_pct: 0,
+        cayman_bank: Number(moneyResponse?.money?.cayman_bank || 0)
       },
       stocks: {
         total_value: stocksTotalValue,
         holdings,
         benefits,
       },
+      properties: {
+        properties: propertiesList,
+        total_value: propertiesTotalValue
+      },
+      company: {
+        name: companyName,
+        funds: companyFunds,
+        total_value: companyTotalVal,
+        daily_income: companyDailyIncome,
+        daily_ad_budget: companyAdBudget,
+        daily_wages: companyWages,
+        daily_profit: companyDailyProfit
+      },
+      inventory: {
+        items: inventoryList,
+        total_value: inventoryTotalValue
+      },
+      liquid: {
+        wallet,
+        vault,
+        points: pointsQuantity,
+        points_value: pointsValue,
+        company_withdrawable: companyWithdrawable,
+        total_value: liquidCapital
+      },
+      total_value: totalAssetsValue
     };
 
-    // Store in DB
+    // Calculate Bank lock maturity progress
+    if (snapshotPayload.city_bank.amount > 0 && moneyResponse?.money?.city_bank?.invested_at && moneyResponse?.money?.city_bank?.until) {
+      const start = Number(moneyResponse.money.city_bank.invested_at);
+      const end = Number(moneyResponse.money.city_bank.until);
+      const totalTime = end - start;
+      const elapsed = Math.floor(Date.now() / 1000) - start;
+      snapshotPayload.city_bank.progress_pct = totalTime > 0 ? Math.min(100, Math.max(0, (elapsed / totalTime) * 100)) : 0;
+    }
+
+    // 4. Save to sentinel_portfolio_snapshot
     await db
       .insertInto("sentinel_portfolio_snapshot" as any)
       .values({
@@ -694,7 +1397,7 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
       })
       .execute();
 
-    // Clean up old snapshots (keep last 5 for safety)
+    // Cleanup old snapshots
     const allSnaps = await db
       .selectFrom("sentinel_portfolio_snapshot" as any)
       .select("id")
@@ -709,118 +1412,126 @@ async function updatePortfolioSnapshot(db: any, apiKey: string): Promise<void> {
         .execute();
     }
 
-    logger.success(`[Portfolio] Successfully cached new portfolio snapshot.`);
-  } catch (err) {
-    logger.error("[Portfolio] Error updating portfolio snapshot:", err);
-  }
-}
+    // 5. Update valuations in sentinel_daily_finance_snapshots for today
+    const dateStr = new Date().toISOString().split("T")[0];
+    const existingSnap = await db
+      .selectFrom("sentinel_daily_finance_snapshots")
+      .selectAll()
+      .where("date", "=", dateStr)
+      .executeTakeFirst();
 
-export async function syncFinanceLogs(): Promise<void> {
-  const apiKey = await getSystemApiKey("personal");
-  if (!apiKey) {
-    logger.error("No personal API key found, skipping finance logs sync.");
-    return;
-  }
-  const db = getKysely();
+    let compIncome = 0;
+    let compWages = 0;
+    let compAds = 0;
+    let compLocked = 0;
 
-  // 1. Sync User Inventory items
-  logger.info("Syncing user inventory items...");
-  await syncUserInventory(db, tornApi, apiKey);
-
-  // 2. Find the latest timestamp in sentinel_financial_logs
-  const latestLog = await db
-    .selectFrom("sentinel_financial_logs" as any)
-    .select("timestamp")
-    .orderBy("timestamp", "desc")
-    .limit(1)
-    .executeTakeFirst();
-
-  const now = new Date();
-  const startOfTodayTCT = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000);
-
-  let fromTimestamp = startOfTodayTCT;
-  if (latestLog) {
-    fromTimestamp = Math.max(startOfTodayTCT, Number(latestLog.timestamp));
-  }
-  const toTimestamp = Math.floor(Date.now() / 1000);
-
-  logger.info(`Starting finance logs forward sync. Checking from timestamp ${fromTimestamp} to ${toTimestamp}...`);
-
-  let countNewLogs = 0;
-
-  // 3. Forward sync batch loop (fetching newer logs since last sync using descending pagination)
-  let forwardHasMore = true;
-  let currentForwardTo = Math.floor(Date.now() / 1000);
-  let forwardPages = 0;
-  const MAX_FORWARD_PAGES = 10; // Safe maximum pages to query per run (1000 logs)
-
-  while (forwardHasMore && forwardPages < MAX_FORWARD_PAGES) {
-    try {
-      logger.info(`Fetching logs page ${forwardPages + 1} (from ${fromTimestamp} to ${currentForwardTo})...`);
-      const response = (await tornApi.get("/user/log" as any, {
-        apiKey,
-        queryParams: {
-          from: String(fromTimestamp),
-          to: String(currentForwardTo),
-          limit: "100",
-        },
-      })) as any;
-
-      const logs = response.log;
-      if (!logs || !Array.isArray(logs) || logs.length === 0) {
-        logger.info("No more log entries found in this range.");
-        forwardHasMore = false;
-        break;
-      }
-
-      logger.info(`Fetched batch of ${logs.length} log entries.`);
-      const inserted = await saveLogBatch(db, logs);
-      countNewLogs += inserted;
-
-      if (logs.length < 100) {
-        logger.info("Reached end of log entries for this range.");
-        forwardHasMore = false;
-      } else {
-        const oldestInBatch = logs[logs.length - 1];
-        const oldestTimestamp = Number(oldestInBatch.timestamp);
-        currentForwardTo = oldestTimestamp - 1;
-        if (currentForwardTo < fromTimestamp) {
-          forwardHasMore = false;
-        }
-      }
-
-      forwardPages++;
-      if (forwardHasMore && forwardPages < MAX_FORWARD_PAGES) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
-    } catch (apiError) {
-      logger.error("Failed syncing logs page from Torn API", apiError);
-      forwardHasMore = false;
+    if (existingSnap) {
+      compIncome = Number(existingSnap.company_income || 0);
+      compWages = Number(existingSnap.company_wages || 0);
+      compAds = Number(existingSnap.company_ad_budget || 0);
+      compLocked = Number(existingSnap.company_profit_locked || 0);
     }
-  }
 
-  if (countNewLogs > 0) {
-    logger.success(`Successfully synced ${countNewLogs} new financial log entries.`);
-  } else {
-    logger.info("Financial logs are up to date.");
-  }
+    // Handle company profit locking logic after 18:03 TCT
+    const nowTime = new Date();
+    const tctHour = nowTime.getUTCHours();
+    const tctMinute = nowTime.getUTCMinutes();
+    const isAfterCompanyNewDay = tctHour > 18 || (tctHour === 18 && tctMinute >= 3);
 
-  // Trigger daily finance snapshot update
-  await updateDailySnapshot(db, apiKey);
-  // Trigger portfolio snapshot update
-  await updatePortfolioSnapshot(db, apiKey);
+    if (!compLocked && isAfterCompanyNewDay && isDirector && companyId > 0) {
+      compIncome = companyDailyIncome;
+      compWages = companyWages;
+      compAds = companyAdBudget;
+      compLocked = 1;
+      portfolioLogger.info(`[Portfolio] Locking company profit for today at ${tctHour}:${tctMinute} TCT: Income: ${compIncome}, Wages: ${compWages}, Ads: ${compAds}`);
+    }
+
+    // Re-query database logs for today to sum correct inflow/outflow
+    const startOfTodayTCT = Math.floor(Date.UTC(nowTime.getUTCFullYear(), nowTime.getUTCMonth(), nowTime.getUTCDate()) / 1000);
+    const dbLogs = await db
+      .selectFrom("sentinel_financial_logs" as any)
+      .selectAll()
+      .where("timestamp", ">=", startOfTodayTCT)
+      .execute()
+      .catch(() => []);
+
+    const { parseFinanceLedger } = await import("@sentinel/shared");
+    const { income, expenses } = parseFinanceLedger(
+      dbLogs as any[],
+      itemMap,
+      new Map(),
+      pointPrice
+    );
+
+    const inflowTotal = income.total + compIncome;
+    const outflowTotal = expenses.total + compWages + compAds;
+    const netProfit = inflowTotal - outflowTotal;
+
+    await db
+      .insertInto("sentinel_daily_finance_snapshots" as any)
+      .values({
+        date: dateStr,
+        estimated_networth: networthTotal,
+        liquid_capital: liquidCapital,
+        asset_valuation: assetValuation,
+        net_profit: netProfit,
+        inflow: inflowTotal,
+        outflow: outflowTotal,
+        company_income: compIncome,
+        company_wages: compWages,
+        company_ad_budget: compAds,
+        company_profit_locked: compLocked,
+        updated_at: new Date().toISOString(),
+      })
+      .onConflict((oc: any) =>
+        oc.column("date").doUpdateSet({
+          estimated_networth: networthTotal,
+          liquid_capital: liquidCapital,
+          asset_valuation: assetValuation,
+          net_profit: netProfit,
+          inflow: inflowTotal,
+          outflow: outflowTotal,
+          company_income: compIncome,
+          company_wages: compWages,
+          company_ad_budget: compAds,
+          company_profit_locked: compLocked,
+          updated_at: new Date().toISOString(),
+        })
+      )
+      .execute();
+
+    portfolioLogger.success(`[Portfolio] Cache updated successfully. Networth: ${networthTotal.toLocaleString()}`);
+
+  } catch (err) {
+    portfolioLogger.error("[Portfolio] Error updating portfolio cache:", err);
+  }
 }
 
 export function startTornFinanceLogsWorker(): void {
   startDbScheduledRunner({
-    worker: WORKER_NAME,
-    defaultCadenceSeconds: 900, // Every 15 minutes
+    worker: LOGS_WORKER_NAME,
+    defaultCadenceSeconds: 900,
     pollIntervalMs: 5000,
     handler: async () => {
       return await executeSync({
-        name: WORKER_NAME,
-        timeout: 120000, // 2 minutes
+        name: LOGS_WORKER_NAME,
+        timeout: 120000,
         handler: syncFinanceLogs,
+      });
+    },
+  });
+}
+
+export function startTornPortfolioWorker(): void {
+  startDbScheduledRunner({
+    worker: PORTFOLIO_WORKER_NAME,
+    defaultCadenceSeconds: 3600,
+    pollIntervalMs: 5000,
+    handler: async () => {
+      return await executeSync({
+        name: PORTFOLIO_WORKER_NAME,
+        timeout: 180000,
+        handler: syncPortfolioSnapshot,
       });
     },
   });

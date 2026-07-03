@@ -6,14 +6,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
   Percent,
-  Calculator,
-  Lock,
-  Unlock,
   Coins,
-  RefreshCw,
-
-  BadgeAlert,
   ArrowUpRight,
+  Gift,
+  AlertCircle,
+  Award,
+  CircleDollarSign,
+  ChevronRight,
+  Plus
 } from "lucide-react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import {
@@ -26,9 +26,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ErrorState } from "@/components/error-state";
-
+import { useSync } from "@/hooks/use-sync";
 
 interface StockBenefit {
+  stock_id: number;
   acronym: string;
   name: string;
   required_shares: number;
@@ -37,8 +38,8 @@ interface StockBenefit {
   progress_pct: number;
   shares_needed: number;
   cost_to_complete: number;
-  next_required_total_shares?: number;
-  active_increments?: number;
+  next_required_total_shares: number;
+  active_increments: number;
   next_increment_apr?: number;
   payout_desc: string;
   frequency_days: number;
@@ -46,6 +47,15 @@ interface StockBenefit {
   annual_payout_value: number;
   apr: number;
   is_active: boolean;
+}
+
+interface StockBenefitPayout {
+  stock_id: number;
+  benefit_type: string;
+  quantity: number;
+  value_accumulated: number;
+  item_details: string; // JSON string
+  updated_at: string;
 }
 
 interface PortfolioData {
@@ -72,6 +82,9 @@ interface PortfolioData {
       profit_loss_pct?: number;
     }>;
   };
+  syncStatus?: {
+    lastSyncAt: string | null;
+  };
 }
 
 function formatCurrency(num: number) {
@@ -90,34 +103,40 @@ function formatCurrency(num: number) {
   return num < 0 ? `-${formatted}` : formatted;
 }
 
-function formatTimeleft(seconds: number) {
-  if (seconds <= 0) return "Matured";
-  const days = Math.floor(seconds / (24 * 3600));
-  const hours = Math.floor((seconds % (24 * 3600)) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  const parts = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
-
-  return parts.join(" ") + " remaining";
+function formatRelativeTime(isoString: string | null) {
+  if (!isoString) return "Never";
+  const diff = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export default function PortfolioPage() {
   const [data, setData] = useState<PortfolioData | null>(null);
+  const [payouts, setPayouts] = useState<StockBenefitPayout[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sorting
+  // Sorting and Filtering
   const [sortBy, setSortBy] = useState<"apr" | "cost" | "progress">("apr");
+  const [filterTab, setFilterTab] = useState<"all" | "active" | "locked">("all");
+  const [timeframe, setTimeframe] = useState<"daily" | "monthly" | "yearly">("daily");
+
+  const { setSyncOptions, setLastSyncedText } = useSync();
 
   const fetchData = async (showToast = false) => {
     setError(null);
     if (showToast) setRefreshing(true);
     try {
-      const res = await fetch("/api/bot/finance/portfolio");
+      const [res, payoutsRes] = await Promise.all([
+        fetch("/api/bot/finance/portfolio"),
+        fetch("/api/bot/finance/benefit-payouts")
+      ]);
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
@@ -126,6 +145,12 @@ export default function PortfolioPage() {
 
       const json = await res.json();
       setData(json);
+
+      if (payoutsRes.ok) {
+        const payoutsJson = await payoutsRes.json();
+        setPayouts(payoutsJson);
+      }
+
       if (showToast) {
         toast.success("Investment portfolio data loaded");
       }
@@ -138,20 +163,66 @@ export default function PortfolioPage() {
     }
   };
 
+  const runSyncAction = async (target: "logs" | "portfolio") => {
+    const label = target === "logs" ? "financial logs" : "portfolio assets";
+    const toastId = toast.loading(`Syncing ${label} from Torn API...`);
+    try {
+      const res = await fetch(`/api/bot/finance/sync-ledger?target=${target}`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        toast.success(json.message || "Sync complete", { id: toastId });
+        await fetchData(false);
+      } else {
+        throw new Error(`Sync failed with status: ${res.status}`);
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error((err as Error).message || `Failed to sync ${label}`, {
+        id: toastId,
+      });
+    }
+  };
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSyncOptions([
+      {
+        label: "Portfolio & Assets Sync",
+        action: () => runSyncAction("portfolio"),
+      },
+      {
+        label: "Financial Logs Sync",
+        action: () => runSyncAction("logs"),
+      },
+    ]);
+
+    return () => {
+      setSyncOptions(null);
+      setLastSyncedText("");
+    };
+  }, [setSyncOptions, setLastSyncedText]);
+
+  useEffect(() => {
+    if (data?.syncStatus?.lastSyncAt) {
+      setLastSyncedText(`Last synced: ${formatRelativeTime(data.syncStatus.lastSyncAt)}`);
+    } else {
+      setLastSyncedText("");
+    }
+  }, [data, setLastSyncedText]);
+
+  useEffect(() => {
     fetchData();
   }, []);
 
-
-  if (loading) {
+  if (loading && !data) {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] items-center justify-center">
-          <div className="flex flex-col items-center gap-2">
-            <RefreshCw className="h-8 w-8 text-amber-500 animate-spin" />
+          <div className="flex flex-col items-center gap-4">
+            <div className="size-10 border-4 border-zinc-300 border-t-amber-500 rounded-full animate-spin" />
             <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-              Analysing bank lock & stock benefits APR...
+              Analyzing bank lock & stock benefits APR...
             </p>
           </div>
         </div>
@@ -159,7 +230,7 @@ export default function PortfolioPage() {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <DashboardLayout>
         <div className="max-w-4xl mx-auto py-8">
@@ -173,12 +244,24 @@ export default function PortfolioPage() {
     );
   }
 
-  const { city_bank: cityBank, stocks } = data!;
+  const { stocks } = data!;
 
-  // Sorting benefits list
-  const sortedBenefits = [...stocks.benefits].sort((a, b) => {
+  // 1. Calculations for top summaries
+  const activeBenefits = stocks.benefits.filter(b => b.active_increments && b.active_increments >= 1);
+  const totalAnnualYield = activeBenefits.reduce((sum, b) => sum + (b.annual_payout_value || 0), 0);
+  const activeStockValuation = activeBenefits.reduce((sum, b) => sum + (b.held_shares * b.current_price), 0);
+  const averageApr = activeStockValuation > 0 ? (totalAnnualYield / activeStockValuation) * 100 : 0;
+
+  // Filter benefits list
+  const filteredBenefits = stocks.benefits.filter(b => {
+    if (filterTab === "active") return (b.active_increments || 0) >= 1;
+    if (filterTab === "locked") return (b.active_increments || 0) === 0;
+    return true;
+  });
+
+  // Sort benefits list
+  const sortedBenefits = [...filteredBenefits].sort((a, b) => {
     if (sortBy === "cost") {
-      // Completed stocks (costToComplete = 0) sorted at the bottom
       if (a.cost_to_complete === 0 && b.cost_to_complete > 0) return 1;
       if (b.cost_to_complete === 0 && a.cost_to_complete > 0) return -1;
       return a.cost_to_complete - b.cost_to_complete;
@@ -189,24 +272,58 @@ export default function PortfolioPage() {
     return b.apr - a.apr; // Default sorting by APR
   });
 
+  // Helper to map payouts to benefits
+  const getPayoutsSummary = (stockId: number) => {
+    const stockPayouts = payouts.filter(p => Number(p.stock_id) === Number(stockId));
+    const totalVal = stockPayouts.reduce((sum, p) => sum + Number(p.value_accumulated), 0);
+    const detailParts: string[] = [];
+    stockPayouts.forEach(p => {
+      try {
+        const details = JSON.parse(p.item_details || "{}");
+        Object.entries(details).forEach(([name, info]: any) => {
+          detailParts.push(`${info.quantity}x ${name}`);
+        });
+      } catch {}
+    });
+    return {
+      totalVal,
+      detailStr: detailParts.length > 0 ? detailParts.join(", ") : null
+    };
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-8 max-w-7xl mx-auto pb-12">
         {/* Header Block */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col gap-2">
             <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50 font-heading">
               Investments Portfolio
             </h1>
+            <p className="text-zinc-500 dark:text-zinc-400 text-sm max-w-2xl">
+              Track your stock benefit blocks, calculate real APR on held assets, plan purchases, and monitor historical dividends.
+            </p>
           </div>
-          <div className="flex items-center gap-2 self-start md:self-center">
+          
+          {/* Timeframe Toggles */}
+          <div className="flex bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 self-start md:self-auto shadow-sm shrink-0">
             <button
-              onClick={() => fetchData(true)}
-              disabled={refreshing}
-              className="flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+              onClick={() => setTimeframe("daily")}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${timeframe === "daily" ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-              Refresh
+              Daily
+            </button>
+            <button
+              onClick={() => setTimeframe("monthly")}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${timeframe === "monthly" ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setTimeframe("yearly")}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${timeframe === "yearly" ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
+            >
+              Yearly
             </button>
           </div>
         </div>
@@ -218,343 +335,254 @@ export default function PortfolioPage() {
               <Coins className="h-5 w-5 text-amber-500" />
             </div>
             <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Total Investments Value</CardDescription>
+              <CardDescription className="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">
+                Stock Portfolio Value
+              </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-zinc-900 dark:text-zinc-50">
-                {formatCurrency(cityBank.amount + cityBank.cayman_bank + stocks.total_value)}
+                {formatCurrency(stocks.total_value)}
               </CardTitle>
             </CardHeader>
           </Card>
 
           <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
             <div className="absolute top-0 right-0 h-16 w-16 bg-emerald-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
-              <TrendingUp className="h-5 w-5 text-emerald-500" />
+              <Gift className="h-5 w-5 text-emerald-500" />
             </div>
             <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Stock Portfolio Value</CardDescription>
+              <CardDescription className="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">
+                {timeframe === "daily" ? "Est. Daily Dividends" : timeframe === "monthly" ? "Est. Monthly Dividends" : "Est. Annual Dividends"}
+              </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(stocks.total_value)}
+                {formatCurrency(
+                  timeframe === "daily" 
+                    ? totalAnnualYield / 365 
+                    : timeframe === "monthly" 
+                    ? totalAnnualYield / 12 
+                    : totalAnnualYield
+                )}
               </CardTitle>
             </CardHeader>
           </Card>
 
-
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 h-16 w-16 bg-indigo-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
+              <Percent className="h-5 w-5 text-indigo-500" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardDescription className="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">
+                {timeframe === "daily" ? "Daily Yield" : timeframe === "monthly" ? "Monthly Yield" : "Weighted Dividend APR"}
+              </CardDescription>
+              <CardTitle className="text-2xl font-bold font-heading text-indigo-600 dark:text-indigo-400">
+                {(
+                  timeframe === "daily" 
+                    ? averageApr / 365 
+                    : timeframe === "monthly" 
+                    ? averageApr / 12 
+                    : averageApr
+                ).toFixed(timeframe === "yearly" ? 2 : 4)}%
+              </CardTitle>
+            </CardHeader>
+          </Card>
         </div>
 
+        {/* Filters & Control Row */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-zinc-200 dark:border-zinc-900 pt-6">
+          <Tabs value={filterTab} onValueChange={(val: any) => setFilterTab(val)} className="w-full sm:w-auto">
+            <TabsList className="bg-zinc-100 dark:bg-zinc-900">
+              <TabsTrigger value="all" className="text-xs font-semibold">All Blocks</TabsTrigger>
+              <TabsTrigger value="active" className="text-xs font-semibold">Active ({activeBenefits.length})</TabsTrigger>
+              <TabsTrigger value="locked" className="text-xs font-semibold">Locked ({stocks.benefits.length - activeBenefits.length})</TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-        {/* Bank Cash-Lock Section */}
-        <Card className="border-zinc-200/80 dark:border-zinc-800/80">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg font-bold text-zinc-950 dark:text-zinc-50">
-                  City Bank Investment
-                </CardTitle>
-
-              </div>
-              {cityBank.amount > 0 ? (
-                cityBank.timeleft > 0 ? (
-                  <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-none font-bold flex items-center gap-1">
-                    <Lock className="h-3 w-3" />
-                    Locked
-                  </Badge>
-                ) : (
-                  <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-bold flex items-center gap-1">
-                    <Unlock className="h-3 w-3" />
-                    Matured
-                  </Badge>
-                )
-              ) : (
-                <Badge className="bg-zinc-100 text-zinc-500 dark:bg-zinc-850 dark:text-zinc-400 border-none font-bold">
-                  Inactive
-                </Badge>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {cityBank.amount === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <BadgeAlert className="h-10 w-10 text-zinc-400 mb-2" />
-                <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">No Active Investment</p>
-                <p className="text-xs text-zinc-500 max-w-sm mt-0.5">
-                  Go to city bank to place a term deposit of up to $2B to optimize your daily passive interest income.
-                </p>
-              </div>
-            ) : (
-              <div className="grid gap-6 md:grid-cols-3 md:items-center">
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase font-bold tracking-wider">Invested Principal</p>
-                    <p className="text-3xl font-extrabold text-zinc-950 dark:text-zinc-50 tracking-tight">
-                      {formatCurrency(cityBank.principal || (cityBank.amount - (cityBank.profit || 0)))}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800/60">
-                    <div>
-                      <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">Interest Profit</p>
-                      <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                        +{formatCurrency(cityBank.profit || 0)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">Matured Total</p>
-                      <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                        {formatCurrency(cityBank.amount)}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-zinc-400">
-                    Lock Duration: {cityBank.progress_pct > 0 && cityBank.progress_pct < 100
-                      ? Math.round((cityBank.timeleft / (1 - cityBank.progress_pct / 100)) / (24 * 3600))
-                      : "—"} Days
-                  </p>
-                </div>
-
-                {/* Progress Visualizer */}
-                <div className="space-y-2 col-span-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-600 dark:text-zinc-400 font-medium">
-                      Maturity Progress ({cityBank.progress_pct.toFixed(1)}%)
-                    </span>
-                    <span className={`font-semibold ${cityBank.timeleft > 0 ? "text-amber-500" : "text-emerald-500"}`}>
-                      {formatTimeleft(cityBank.timeleft)}
-                    </span>
-                  </div>
-                  <div className="h-3 w-full bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden border border-zinc-200/50 dark:border-zinc-800/50 flex">
-                    <motion.div
-                      className={`h-full ${cityBank.timeleft > 0 ? "bg-amber-500" : "bg-emerald-500"}`}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${cityBank.progress_pct}%` }}
-                      transition={{ duration: 0.8 }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[9px] text-zinc-400">
-                    <span>Lock Start</span>
-                    <span>Payout Maturity</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Your Stock Holdings Section */}
-        {stocks.holdings && stocks.holdings.length > 0 && (
-          <Card className="border-zinc-200/80 dark:border-zinc-800/80">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-lg font-bold text-zinc-950 dark:text-zinc-50">
-                  Stock Market Holdings
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 font-bold">
-                      <th className="px-4 py-3">Ticker</th>
-                      <th className="px-4 py-3">Company Name</th>
-                      <th className="px-4 py-3 text-right">Shares Owned</th>
-                      <th className="px-4 py-3 text-right">Avg. Buy Price</th>
-                      <th className="px-4 py-3 text-right">Current Price</th>
-                      <th className="px-4 py-3 text-right">Position Value</th>
-                      <th className="px-4 py-3 text-right">Profit / Loss (P/L)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stocks.holdings.map((holding) => (
-                      <tr
-                        key={holding.id}
-                        className="border-b border-zinc-100 dark:border-zinc-800/60 hover:bg-zinc-50/40 dark:hover:bg-zinc-900/30 transition-colors"
-                      >
-                        <td className="px-4 py-3 font-bold text-zinc-900 dark:text-zinc-100">
-                          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-none font-extrabold text-[10px]">
-                            {holding.acronym}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-medium">
-                          {holding.name}
-                        </td>
-                        <td className="px-4 py-3 text-right font-semibold text-zinc-900 dark:text-zinc-200">
-                          {holding.shares.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-zinc-500">
-                          {formatCurrency(holding.avg_buy_price || holding.price)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-zinc-500">
-                          {formatCurrency(holding.price)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold text-zinc-950 dark:text-zinc-50 font-mono">
-                          {formatCurrency(holding.total_value)}
-                        </td>
-                        <td className={`px-4 py-3 text-right font-bold font-mono ${(holding.profit_loss || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                          }`}>
-                          {(holding.profit_loss || 0) >= 0 ? "+" : ""}
-                          {formatCurrency(holding.profit_loss || 0)}
-                          <span className="text-[10px] ml-1 font-normal opacity-85">
-                            ({(holding.profit_loss || 0) >= 0 ? "+" : ""}
-                            {(holding.profit_loss_pct || 0).toFixed(1)}%)
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Stock Benefits Tracker Card */}
-        <div className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-zinc-950 dark:text-zinc-50 flex items-center gap-2">
-                <Percent className="h-5 w-5 text-amber-500" />
-                Dividend Block Benefits
-              </h2>
-
-            </div>
-
-            {/* Sorting Tabs */}
-            <Tabs defaultValue="apr" value={sortBy} onValueChange={(val) => setSortBy(val as "apr" | "cost" | "progress")} className="w-auto">
-              <TabsList className="bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-0.5">
-                <TabsTrigger value="apr" className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold rounded-md data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-950 cursor-pointer">
-                  <Calculator className="h-3 w-3" />
-                  ROI APR Sort
-                </TabsTrigger>
-                <TabsTrigger value="cost" className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold rounded-md data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-950 cursor-pointer">
-                  <BadgeAlert className="h-3 w-3" />
-                  Cost to complete
-                </TabsTrigger>
-                <TabsTrigger value="progress" className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold rounded-md data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-950 cursor-pointer">
-                  <TrendingUp className="h-3 w-3" />
-                  Progress
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold">Sort by:</span>
+            <select
+              value={sortBy}
+              onChange={(e: any) => setSortBy(e.target.value)}
+              className="text-xs font-semibold bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 focus:outline-none cursor-pointer"
+            >
+              <option value="apr">Dividend Yield (APR)</option>
+              <option value="progress">Acquisition Progress</option>
+              <option value="cost">Remaining Cost</option>
+            </select>
           </div>
+        </div>
 
-          {/* Benefits Grid */}
-          <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            <AnimatePresence mode="popLayout">
-              {sortedBenefits.map((stock) => (
+        {/* Benefits Display Grid */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <AnimatePresence mode="popLayout">
+            {sortedBenefits.map((benefit) => {
+              const hist = getPayoutsSummary(benefit.stock_id);
+              const isActive = (benefit.active_increments || 0) >= 1;
+              const hasProgress = benefit.progress_pct > 0 && !isActive;
+
+              let cardStatus: "active" | "progressing" | "locked" = "locked";
+              if (isActive) cardStatus = "active";
+              else if (hasProgress) cardStatus = "progressing";
+
+              return (
                 <motion.div
+                  key={benefit.acronym}
                   layout
-                  key={stock.acronym}
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <Card className={`border-zinc-200/80 dark:border-zinc-800/80 relative overflow-hidden flex flex-col h-full ${stock.is_active ? "bg-emerald-500/[0.02] dark:bg-emerald-500/[0.01]" : ""}`}>
-                    {/* Top Accent Strip */}
-                    <div className={`absolute top-0 left-0 right-0 h-1 ${stock.is_active ? "bg-emerald-500" : stock.progress_pct > 0 ? "bg-amber-500" : "bg-zinc-200 dark:bg-zinc-800"}`} />
+                  <Card className="border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-950/60 shadow-sm flex flex-col h-full hover:shadow-md transition-shadow relative overflow-hidden">
+                    {/* Status accent bar */}
+                    <div className={`absolute top-0 left-0 right-0 h-1 ${
+                      cardStatus === "active" ? "bg-emerald-500" :
+                      cardStatus === "progressing" ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-800"
+                    }`} />
 
                     <CardHeader className="pb-3 pt-5">
                       <div className="flex items-start justify-between">
                         <div>
-                          <div className="flex items-center gap-1.5 mb-1.5">
-                            <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15 border-none font-extrabold text-[10px]">
-                              {stock.acronym}
-                            </Badge>
-                            {stock.active_increments && stock.active_increments > 0 ? (
-                              stock.payout_desc.includes("(Passive)") ? (
-                                <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-bold text-[8px] uppercase tracking-wider py-0 px-1">
-                                  Active
-                                </Badge>
-                              ) : (
-                                <Badge className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-none font-bold text-[8px] uppercase tracking-wider py-0 px-1">
-                                  {stock.active_increments} Increment{stock.active_increments > 1 ? "s" : ""} Active
-                                </Badge>
-                              )
-                            ) : stock.is_active ? (
-                              <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-bold text-[8px] uppercase tracking-wider py-0 px-1">
-                                Active
-                              </Badge>
-                            ) : stock.held_shares > 0 ? (
-                              <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-none font-bold text-[8px] uppercase tracking-wider py-0 px-1">
-                                Progressing
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-zinc-100 text-zinc-500 dark:bg-zinc-850 dark:text-zinc-400 border-none font-bold text-[8px] uppercase tracking-wider py-0 px-1">
-                                Locked
-                              </Badge>
-                            )}
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg font-bold text-zinc-900 dark:text-zinc-50 font-heading">
+                              {benefit.acronym}
+                            </span>
+                            <span className="text-[10px] text-zinc-400 font-mono uppercase">
+                              {formatCurrency(benefit.current_price)}/sh
+                            </span>
                           </div>
-                          <CardTitle className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">
-                            {stock.name}
-                          </CardTitle>
+                          <CardDescription className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-1">
+                            {benefit.name}
+                          </CardDescription>
                         </div>
-                        {stock.apr > 0 && (
-                          <div className="text-right">
-                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Est. APR</p>
-                            <p className="text-md font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center justify-end">
-                              {stock.apr.toFixed(1)}%
-                              <ArrowUpRight className="h-3.5 w-3.5 inline ml-0.5" />
-                            </p>
-                          </div>
+
+                        {cardStatus === "active" && (
+                          <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-bold text-[10px]">
+                            Active {benefit.active_increments && benefit.active_increments > 1 ? `x${benefit.active_increments}` : ""}
+                          </Badge>
+                        )}
+                        {cardStatus === "progressing" && (
+                          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-none font-bold text-[10px]">
+                            Progressing
+                          </Badge>
+                        )}
+                        {cardStatus === "locked" && (
+                          <Badge className="bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-500 border-none font-bold text-[10px]">
+                            Locked
+                          </Badge>
                         )}
                       </div>
                     </CardHeader>
 
-                    <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
-                      {/* Payout Description */}
-                      <div className="space-y-1 bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/40">
-                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Benefit Block Payout</p>
-                        <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                          {stock.payout_desc}
-                        </p>
-                        {stock.apr > 0 && (
-                          <p className="text-[10px] text-zinc-500 mt-1">
-                            Est. Value: {formatCurrency(stock.payout_value)} every {stock.frequency_days}d
-                            {stock.active_increments && stock.active_increments > 1 ? ` (Yielding ${stock.active_increments}x payout)` : ""}
-                            <span className="block mt-0.5 font-medium">Annual yield: {formatCurrency(stock.annual_payout_value)}</span>
+                    <CardContent className="flex-1 flex flex-col justify-between space-y-4">
+                      {/* Return Rates details */}
+                      <div className="bg-zinc-50 dark:bg-zinc-900/60 rounded-xl p-3 flex items-center justify-between border border-zinc-100 dark:border-zinc-900">
+                        <div>
+                          <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
+                            {timeframe === "daily" ? "Daily Yield" : timeframe === "monthly" ? "Monthly Yield" : "Yield / APR"}
                           </p>
+                          <p className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                            {(
+                              timeframe === "daily" 
+                                ? benefit.apr / 365 
+                                : timeframe === "monthly" 
+                                ? benefit.apr / 12 
+                                : benefit.apr
+                            ).toFixed(timeframe === "yearly" ? 2 : 4)}%{" "}
+                            <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-normal">
+                              {timeframe === "daily" ? "Daily" : timeframe === "monthly" ? "Monthly" : "APR"}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
+                            {timeframe === "daily" ? "Est. Daily Value" : timeframe === "monthly" ? "Est. Monthly Value" : "Est. Annual Value"}
+                          </p>
+                          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                            {formatCurrency(
+                              timeframe === "daily" 
+                                ? benefit.annual_payout_value / 365 
+                                : timeframe === "monthly" 
+                                ? benefit.annual_payout_value / 12 
+                                : benefit.annual_payout_value
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Benefit payout description */}
+                      <div className="space-y-1">
+                        <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">Benefit Block Payout</p>
+                        <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-relaxed flex items-start gap-1.5">
+                          <Gift className="size-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          {benefit.payout_desc}
+                        </p>
+                      </div>
+
+                      {/* Progress bar towards next increment */}
+                      <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">
+                        <div className="flex justify-between text-[10px] font-medium">
+                          <span className="text-zinc-500">Shares held</span>
+                          <span className="text-zinc-900 dark:text-zinc-100 font-semibold">
+                            {benefit.held_shares.toLocaleString()} / {benefit.next_required_total_shares.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="w-full bg-zinc-100 dark:bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-1.5 rounded-full transition-all duration-300 ${
+                              cardStatus === "active" ? "bg-emerald-500" :
+                              cardStatus === "progressing" ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-700"
+                            }`}
+                            style={{ width: `${benefit.progress_pct}%` }}
+                          />
+                        </div>
+
+                        {benefit.shares_needed > 0 && (
+                          <div className="flex justify-between items-center text-[10px] text-zinc-400">
+                            <span>Next tier needs:</span>
+                            <span className="font-mono text-zinc-600 dark:text-zinc-300">
+                              {benefit.shares_needed.toLocaleString()} sh ({formatCurrency(benefit.cost_to_complete)})
+                            </span>
+                          </div>
                         )}
                       </div>
 
-                      {/* Progress Metrics */}
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-[10px]">
-                          <span className="text-zinc-500 dark:text-zinc-400">
-                            Shares: <strong>{stock.held_shares.toLocaleString()}</strong> / {stock.is_active && stock.next_required_total_shares ? stock.next_required_total_shares.toLocaleString() : stock.required_shares.toLocaleString()}
+                      {/* Historical aggregation section */}
+                      <div className="bg-zinc-50/50 dark:bg-zinc-900/30 rounded-xl p-3 border border-dashed border-zinc-200 dark:border-zinc-800 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                            <CircleDollarSign className="size-3 text-zinc-400" />
+                            Historical Earnings
                           </span>
-                          <span className="font-bold text-zinc-900 dark:text-zinc-50">
-                            {stock.progress_pct.toFixed(1)}%
-                          </span>
+                          {hist.totalVal > 0 && (
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                              {formatCurrency(hist.totalVal)}
+                            </span>
+                          )}
                         </div>
-                        <div className="h-1.5 w-full bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden flex border border-zinc-200/50 dark:border-zinc-800/30">
-                          <div
-                            className={`h-full ${stock.is_active ? "bg-emerald-500" : stock.held_shares > 0 ? "bg-amber-500" : "bg-zinc-200 dark:bg-zinc-800"}`}
-                            style={{ width: `${stock.progress_pct}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Cost to Complete metric */}
-                      {stock.shares_needed > 0 && (
-                        <div className="border-t border-zinc-150 dark:border-zinc-850 pt-3 mt-1 flex justify-between items-center text-[10px]">
-                          <div>
-                            <p className="text-zinc-400 uppercase font-bold tracking-wider">
-                              {stock.is_active ? "Next block cost" : "Cost to complete"}
-                            </p>
-                            <p className="font-bold text-zinc-800 dark:text-zinc-200 text-xs mt-0.5">
-                              {formatCurrency(stock.cost_to_complete)}
-                            </p>
-                          </div>
-                          <p className="text-zinc-400 font-medium">
-                            {stock.shares_needed.toLocaleString()} shares needed
+                        {hist.totalVal > 0 ? (
+                          <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug line-clamp-1 italic">
+                            Gotten: {hist.detailStr}
                           </p>
-                        </div>
-                      )}
+                        ) : (
+                          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">
+                            No dividend payouts tracked yet.
+                          </p>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
+              );
+            })}
+          </AnimatePresence>
         </div>
+
+        {/* Empty state warning if no benefits match */}
+        {sortedBenefits.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-950/20">
+            <AlertCircle className="h-10 w-10 text-zinc-400 mb-2 animate-bounce" />
+            <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">No stock benefits match filters</p>
+            <p className="text-xs text-zinc-500 mt-1">Try switching to all or active benefit blocks view.</p>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

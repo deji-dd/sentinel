@@ -1,10 +1,10 @@
-import { TornApiClient, type TornApiComponents } from "@sentinel/shared";
+import { type TornApiComponents } from "@sentinel/shared";
 import { tornApi } from "../services/torn-client.js";
 
 /**
  * Torn API client for the bot
  */
-export const botTornApi = new TornApiClient();
+export const botTornApi = tornApi;
 
 type UserProfileResponse = TornApiComponents["schemas"]["UserProfileResponse"] &
   TornApiComponents["schemas"]["UserFactionResponse"];

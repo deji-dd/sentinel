@@ -43,22 +43,29 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 /**
  * Get system API key for worker operations
- * Reads from env for personal keys, otherwise from the database
+ * For personal keys: reads from env only (TORN_API_KEY or SENTINEL_API_KEY)
+ * For system keys: reads from encrypted database storage
  *
- * @param keyType - 'personal' (env var fallback) or 'system' (stored in DB)
+ * @param keyType - 'personal' (env var only) or 'system' (from encrypted DB storage)
  */
 export async function getSystemApiKey(
   keyType: "personal" | "system" = "personal",
 ): Promise<string> {
   if (keyType === "personal") {
+    // Personal keys come from environment only, never from database
     const personalApiKey =
       process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
 
-    if (personalApiKey) {
-      return personalApiKey;
+    if (!personalApiKey) {
+      throw new Error(
+        "No personal API key found in environment (TORN_API_KEY or SENTINEL_API_KEY)",
+      );
     }
+
+    return personalApiKey;
   }
 
+  // System keys come from encrypted database storage
   const db = getKysely();
   const row = await db
     .selectFrom(TABLE_NAMES.SYSTEM_API_KEYS)

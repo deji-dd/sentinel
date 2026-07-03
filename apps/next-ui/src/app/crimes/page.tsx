@@ -11,6 +11,7 @@ import { Target, Coins, Zap, Banknote, RefreshCw, BarChart3, ListCollapse, Info 
 import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSync } from "@/hooks/use-sync";
 
 interface ItemReward {
   id: number;
@@ -103,6 +104,61 @@ export default function CrimesPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "charts">("overview");
   const [itemsPage, setItemsPage] = useState(0);
   const [subcrimesPage, setSubcrimesPage] = useState(0);
+
+  const { setSyncOptions, setLastSyncedText } = useSync();
+
+  const runSyncAction = async () => {
+    const toastId = toast.loading("Syncing crimes records from Torn API...");
+    try {
+      const res = await fetch("/api/bot/finance/sync-ledger?target=crimes", {
+        method: "POST",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        toast.success(json.message || "Sync complete", { id: toastId });
+        await fetchData(false);
+      } else {
+        throw new Error(`Sync failed with status: ${res.status}`);
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error((err as Error).message || "Failed to sync crimes records", {
+        id: toastId,
+      });
+    }
+  };
+
+  useEffect(() => {
+    setSyncOptions([
+      {
+        label: "Crimes Stats Sync",
+        action: runSyncAction,
+      },
+    ]);
+
+    return () => {
+      setSyncOptions(null);
+      setLastSyncedText("");
+    };
+  }, [setSyncOptions, setLastSyncedText]);
+
+  useEffect(() => {
+    if (data?.syncStatus?.lastSyncAt) {
+      const diff = Date.now() - new Date(data.syncStatus.lastSyncAt).getTime();
+      const mins = Math.floor(diff / 60000);
+      let text = "";
+      if (mins < 1) text = "Just now";
+      else if (mins < 60) text = `${mins}m ago`;
+      else {
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) text = `${hours}h ago`;
+        else text = `${Math.floor(hours / 24)}d ago`;
+      }
+      setLastSyncedText(`Last synced: ${text}`);
+    } else {
+      setLastSyncedText("");
+    }
+  }, [data, setLastSyncedText]);
 
   const fetchData = async (showToast = false) => {
     setError(null);
@@ -254,15 +310,6 @@ export default function CrimesPage() {
                 Charts
               </button>
             </div>
-
-            <button
-              onClick={() => fetchData(true)}
-              disabled={refreshing}
-              className="flex items-center gap-2 px-3.5 py-2 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-zinc-700 dark:text-zinc-300 transition"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-              Sync API
-            </button>
           </div>
         </div>
 

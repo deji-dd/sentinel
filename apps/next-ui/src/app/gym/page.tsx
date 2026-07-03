@@ -9,6 +9,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } fro
 import { Flame, Sparkles, RefreshCw, ArrowRight, Target, Dumbbell } from "lucide-react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
+import { useSync } from "@/hooks/use-sync";
 
 interface MilestoneInfo {
   target: number;
@@ -131,6 +132,51 @@ export default function GymPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { setSyncOptions, setLastSyncedText } = useSync();
+
+  const runSyncAction = async () => {
+    const toastId = toast.loading("Syncing gym training logs from Torn API...");
+    try {
+      const res = await fetch("/api/bot/finance/sync-ledger?target=gym", {
+        method: "POST",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        toast.success(json.message || "Sync complete", { id: toastId });
+        await fetchData(timeframe, false);
+      } else {
+        throw new Error(`Sync failed with status: ${res.status}`);
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error((err as Error).message || "Failed to sync gym training logs", {
+        id: toastId,
+      });
+    }
+  };
+
+  useEffect(() => {
+    setSyncOptions([
+      {
+        label: "Gym Training Sync",
+        action: runSyncAction,
+      },
+    ]);
+
+    return () => {
+      setSyncOptions(null);
+      setLastSyncedText("");
+    };
+  }, [setSyncOptions, setLastSyncedText, timeframe]);
+
+  useEffect(() => {
+    if (data?.syncStatus?.lastSyncAt) {
+      setLastSyncedText(`Last synced: ${formatRelativeTime(new Date(data.syncStatus.lastSyncAt).getTime() / 1000)}`);
+    } else {
+      setLastSyncedText("");
+    }
+  }, [data, setLastSyncedText]);
+
   const fetchData = async (tf: typeof timeframe, showRefreshIndicator = false) => {
     setError(null);
     if (showRefreshIndicator) setRefreshing(true);
@@ -244,16 +290,7 @@ export default function GymPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">Gym Analytics</h1>
-
           </div>
-          <button
-            onClick={handleSyncClick}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-3.5 py-2 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-zinc-700 dark:text-zinc-300 transition shrink-0 cursor-pointer"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            Sync API
-          </button>
         </div>
 
         {/* Switch Recommendation Banner */}
