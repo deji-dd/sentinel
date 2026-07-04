@@ -34,11 +34,26 @@ function getNextUtcRun(hour: number, minute: number): string {
 }
 
 export async function syncGlobalCronSchedules(): Promise<void> {
-  await ensureWorkerRegistered({
-    name: "bot:daily_summary",
-    cadenceSeconds: DAILY_SUMMARY_CADENCE_SECONDS,
-    initialNextRunAt: getNextUtcRun(0, 5),
-  });
+  // Clean up legacy bot:daily_summary worker
+  const summaryWorker = await db
+    .selectFrom(TABLE_NAMES.WORKERS)
+    .select(["id"])
+    .where("name", "=", "bot:daily_summary")
+    .executeTakeFirst();
+  
+  if (summaryWorker) {
+    await db
+      .deleteFrom(TABLE_NAMES.WORKER_SCHEDULES)
+      .where("worker_id", "=", summaryWorker.id)
+      .execute();
+    
+    await db
+      .deleteFrom(TABLE_NAMES.WORKERS)
+      .where("id", "=", summaryWorker.id)
+      .execute();
+    
+    logger.info("Successfully cleaned up daily_summary worker registration");
+  }
 
   await ensureWorkerRegistered({
     name: "bot:db_backup",

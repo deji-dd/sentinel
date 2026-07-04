@@ -25,6 +25,7 @@ export interface ParseFinanceLedgerResult {
     crimes: number;
     outbound_mugs: number;
     faction_withdrawals: number;
+    trades: number;
     other: number;
     total: number;
   };
@@ -34,6 +35,7 @@ export interface ParseFinanceLedgerResult {
     loan_interest: number;
     inbound_mugs: number;
     rehab: number;
+    trades: number;
     other: number;
     total: number;
   };
@@ -55,6 +57,7 @@ export function parseFinanceLedger(
     crimes: 0,
     outbound_mugs: 0,
     faction_withdrawals: 0,
+    trades: 0,
     other: 0,
     total: 0,
   };
@@ -64,6 +67,7 @@ export function parseFinanceLedger(
     loan_interest: 0,
     inbound_mugs: 0,
     rehab: 0,
+    trades: 0,
     other: 0,
     total: 0,
   };
@@ -359,24 +363,11 @@ export function parseFinanceLedger(
         }
 
         const isFaction = logData.faction && Number(logData.faction) > 0;
-        if (itemVal > 0) {
+        if (itemVal > 0 && !isFaction) {
           amount = itemVal * quantity;
-          if (isFaction) {
-            description = `Used faction consumable: ${itemName} x${quantity} (Armoury)`;
-            transactions.push({
-              id: logId,
-              timestamp,
-              type: "expense",
-              category: "faction_consumable",
-              title: row.title,
-              amount,
-              description,
-            });
-          } else {
-            isExpense = true;
-            transactionCategory = "consumables";
-            description = `Used consumable: ${itemName} x${quantity}`;
-          }
+          isExpense = true;
+          transactionCategory = "consumables";
+          description = `Used consumable: ${itemName} x${quantity}`;
         }
       }
     }
@@ -447,6 +438,75 @@ export function parseFinanceLedger(
         isIncome = true;
         transactionCategory = "other";
         description = `Mission reward: ${logData.mission_name || logData.mission || row.title}`;
+      }
+    }
+
+    // N. Trades
+    else if (category === "trades" || title.includes("trade")) {
+      if (title === "trade money outgoing") {
+        amount = Number(logData.money || 0);
+        if (amount > 0) {
+          isExpense = true;
+          transactionCategory = "trades";
+          description = `Trade money outgoing (Trade #${logData.parsed_trade_id || logData.trade_id || ""})`;
+        }
+      } else if (title === "trade money incoming") {
+        amount = Number(logData.money || 0);
+        if (amount > 0) {
+          isIncome = true;
+          transactionCategory = "trades";
+          description = `Trade money incoming (Trade #${logData.parsed_trade_id || logData.trade_id || ""})`;
+        }
+      } else if (title === "trade items incoming") {
+        const itemsList = logData.items || [];
+        let totalVal = 0;
+        let itemNames: string[] = [];
+        for (const item of itemsList) {
+          const itemId = Number(item.id || 0);
+          const qty = Number(item.qty || 0);
+          if (itemId && qty > 0) {
+            let val = 0;
+            if (itemMap.has(itemId)) {
+              const itemInfo = itemMap.get(itemId)!;
+              val = itemInfo.value;
+              itemNames.push(`${itemInfo.name} x${qty}`);
+            } else {
+              itemNames.push(`Item #${itemId} x${qty}`);
+            }
+            totalVal += val * qty;
+          }
+        }
+        if (totalVal > 0) {
+          amount = totalVal;
+          isIncome = true;
+          transactionCategory = "trades";
+          description = `Trade items incoming: ${itemNames.slice(0, 3).join(", ")}${itemNames.length > 3 ? "..." : ""} (Trade #${logData.parsed_trade_id || logData.trade_id || ""})`;
+        }
+      } else if (title === "trade items outgoing") {
+        const itemsList = logData.items || [];
+        let totalVal = 0;
+        let itemNames: string[] = [];
+        for (const item of itemsList) {
+          const itemId = Number(item.id || 0);
+          const qty = Number(item.qty || 0);
+          if (itemId && qty > 0) {
+            let val = 0;
+            if (itemMap.has(itemId)) {
+              const itemInfo = itemMap.get(itemId)!;
+              val = itemInfo.value;
+              itemNames.push(`${itemInfo.name} x${qty}`);
+            } else {
+              itemNames.push(`Item #${itemId} x${qty}`);
+            }
+            totalVal += val * qty;
+          }
+        }
+        if (totalVal > 0) {
+          amount = totalVal;
+          isExpense = true;
+          transactionCategory = "trades";
+          description = `Trade items outgoing: ${itemNames.slice(0, 3).join(", ")}${itemNames.length > 3 ? "..." : ""} (Trade #${logData.parsed_trade_id || logData.trade_id || ""})`;
+        }
       }
     }
 

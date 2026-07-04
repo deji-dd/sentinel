@@ -2692,6 +2692,14 @@ configRouter.get(
         .limit(1)
         .executeTakeFirst();
 
+      const allGyms = await db
+        .selectFrom(TABLE_NAMES.TORN_GYMS)
+        .selectAll()
+        .execute();
+
+      const activeGymIdNum = userSnapshot?.active_gym ? Number(userSnapshot.active_gym) : 1;
+      const currentActiveGym = allGyms.find((g) => g.id === activeGymIdNum);
+
       let activeGym = {
         name: "Premier Fitness",
         strength: 20,
@@ -2700,28 +2708,21 @@ configRouter.get(
         dexterity: 20,
       };
 
-      if (userSnapshot?.active_gym) {
-        const gym = await db
-          .selectFrom(TABLE_NAMES.TORN_GYMS)
-          .selectAll()
-          .where("id", "=", userSnapshot.active_gym)
-          .executeTakeFirst();
-        if (gym) {
-          activeGym = {
-            name: gym.name,
-            strength: gym.strength,
-            speed: gym.speed,
-            defense: gym.defense,
-            dexterity: gym.dexterity,
-          };
-        }
+      if (currentActiveGym) {
+        activeGym = {
+          name: currentActiveGym.name,
+          strength: currentActiveGym.strength,
+          speed: currentActiveGym.speed,
+          defense: currentActiveGym.defense,
+          dexterity: currentActiveGym.dexterity,
+        };
       }
 
       // 3. Compute happiness and energy stats from the latest snapshot
       const maxHappy = userSnapshot?.happy_maximum
         ? Number(userSnapshot.happy_maximum)
         : 5000;
-      const currentHappy = userSnapshot?.happy_current
+      const currentHappy = userSnapshot?.happy_current !== undefined && userSnapshot?.happy_current !== null
         ? Number(userSnapshot.happy_current)
         : 5000;
       const _currentEnergy = userSnapshot?.energy_current
@@ -2730,7 +2731,7 @@ configRouter.get(
       const _maxEnergy = userSnapshot?.energy_maximum
         ? Number(userSnapshot.energy_maximum)
         : 150;
-      const avgHappy = maxHappy; // Use player maximum happy as training baseline
+      const avgHappy = currentHappy; // Use player current happy as training baseline
 
       // 4. Fetch daily history for charts based on timeframe (7d, 30d, 90d, or all)
       const timeframe =
@@ -2904,13 +2905,23 @@ configRouter.get(
       // 6. Fetch Target Ratios and Compute Training Recommendations via shared utility
       const apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
 
-      const { getPersonalTrainingRecommendations } =
+      const { getPersonalTrainingRecommendations, getUnlockedGymIds } =
         await import("@sentinel/shared/training-recommendations.js");
       const recs = await getPersonalTrainingRecommendations(
         db,
         String(userId),
         apiKey,
       );
+
+      const unlockedIds = getUnlockedGymIds(activeGymIdNum, statsData, allGyms);
+      const unlockedGyms = allGyms.filter((g) => unlockedIds.includes(g.id));
+
+      const maxMults = {
+        strength: Math.max(...unlockedGyms.map((g) => Number(g.strength || 0)), 20),
+        speed: Math.max(...unlockedGyms.map((g) => Number(g.speed || 0)), 20),
+        defense: Math.max(...unlockedGyms.map((g) => Number(g.defense || 0)), 20),
+        dexterity: Math.max(...unlockedGyms.map((g) => Number(g.dexterity || 0)), 20),
+      };
 
       // 7. Run projection for milestones (foregoing past milestones, returning only the single next target)
       const targetMilestones = [
@@ -2921,9 +2932,6 @@ configRouter.get(
 
       const projections = statsKeys.map((key) => {
         const currentVal = statsData[key];
-        const baseGymMult = activeGym[key] || 20;
-        const perkPct = recs.factionPerks[key] || 0;
-        const gymMult = (baseGymMult / 10) * (1 + perkPct / 100);
         const allocation = distributionPercentages[key];
         const dailyEnergyForStat = avgDailyEnergy * allocation;
 
@@ -2938,16 +2946,39 @@ configRouter.get(
           if (target <= currentVal) {
             days = 0;
           } else if (dailyEnergyForStat > 0) {
-            const happyVal = avgHappy;
-            const A =
-              1.15 * gymMult * 10 * (3.48e-7 * Math.log(happyVal) + 3.09e-6);
-            const B = 1.15 * gymMult * 10 * (6.83e-5 * happyVal - 0.03);
+            const happyVal = Math.max(1, avgHappy || 5000);
+            
+            const G = maxMults[key] / 10;
+            const perkMult = recs.perkMultipliers?.[key] ?? 1.0;
+            
+            const lnPart = Math.round(Math.log(1 + happyVal / 250) * 10000) / 10000;
+            const happyFactor = Math.round((1 + 0.07 * lnPart) * 10000) / 10000;
+            const happyPower = 8 * Math.pow(happyVal, 1.05);
 
-            if (A > 0) {
-              const n =
-                (1 / A) * Math.log((target + B / A) / (currentVal + B / A));
-              const energyReq = n * 10;
-              days = Math.max(0, energyReq / dailyEnergyForStat);
+            let A_stat = 0;
+            let B_stat = 0;
+            if (key === "strength") {
+              A_stat = 1600;
+              B_stat = 1700;
+            } else if (key === "speed") {
+              A_stat = 1600;
+              B_stat = 2000;
+            } else if (key === "defense") {
+              A_stat = 2100;
+              B_stat = -600;
+            } else if (key === "dexterity") {
+              A_stat = 1800;
+              B_stat = 1500;
+            }
+
+            const statPart = (1 - Math.pow(happyVal / 99999, 2)) * A_stat + B_stat;
+
+            const A_daily = happyFactor * (1 / 200000) * G * perkMult * dailyEnergyForStat;
+            const B_daily = (happyPower + statPart) * (1 / 200000) * G * perkMult * dailyEnergyForStat;
+
+            if (A_daily > 0) {
+              const daysVal = (1 / A_daily) * Math.log((target + B_daily / A_daily) / (currentVal + B_daily / A_daily));
+              days = Math.max(0, daysVal);
             }
           }
 
@@ -2971,17 +3002,7 @@ configRouter.get(
       // 8. Expected Gym Gains Per Energy
       const expectedGainPerEnergy: Record<string, number> = {};
       for (const key of statsKeys) {
-        const currentVal = statsData[key];
-        const baseGymMult = activeGym[key] || 20;
-        const perkPct = recs.factionPerks[key] || 0;
-        const gymMult = (baseGymMult / 10) * (1 + perkPct / 100);
-        
-        const happyVal = Math.max(1, avgHappy || 5000);
-        const A = 1.15 * gymMult * 10 * (3.48e-7 * Math.log(happyVal) + 3.09e-6);
-        const B = 1.15 * gymMult * 10 * (6.83e-5 * happyVal - 0.03);
-        
-        const gainPer10E = A * currentVal + B;
-        expectedGainPerEnergy[key] = Math.max(0.01, gainPer10E / 10);
+        expectedGainPerEnergy[key] = Math.max(0.01, recs.expectedGainPerEnergy?.[key] ?? 0.01);
       }
 
       // 9. Fetch booster prices from Torn Items DB

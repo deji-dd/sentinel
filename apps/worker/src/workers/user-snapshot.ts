@@ -39,7 +39,7 @@ type NetworthSelectionResponse = {
   networth?: { bookie?: number; timestamp?: number };
 };
 type GymSelectionResponse = {
-  gym?: { id?: number };
+  active_gym?: number;
 };
 
 type UserSnapshotSelectionsResponse = NetworthSelectionResponse &
@@ -143,8 +143,7 @@ async function takeSnapshot(): Promise<void> {
       : null;
 
     // Extract gym from v2 gym selection
-    const gymData = userData.gym || {};
-    const activeGym = gymData.id || null;
+    const activeGym = userData.active_gym || null;
 
     // Extract bars data from user response
     const bars = userData.bars;
@@ -340,75 +339,7 @@ async function takeSnapshot(): Promise<void> {
           }
         }
 
-        // 2. Drug Cooldown Alerts
-        if (personalSettings.drug_alerts_enabled === 1) {
-          const lastDrugAlertSentAt = personalSettings.last_drug_alert_sent_at;
 
-          if (drugCooldown > 0) {
-            // Cooldown started/active -> reset sent state to allow next alert when it ends
-            if (lastDrugAlertSentAt !== null) {
-              await db
-                .updateTable("sentinel_personal_settings")
-                .set({
-                  last_drug_alert_sent_at: null,
-                  updated_at: new Date().toISOString(),
-                })
-                .where("user_id", "=", personalSettings.user_id)
-                .execute();
-            }
-          } else if (drugCooldown === 0) {
-            // Cooldown completed -> check if we should alert aggressively
-            const aggressiveIntervalMins =
-              personalSettings.energy_aggressive_interval_mins || 5;
-            const aggressiveCooldownMs = aggressiveIntervalMins * 60 * 1000;
-            const isCooldownPassed =
-              !lastDrugAlertSentAt ||
-              Date.now() - new Date(lastDrugAlertSentAt).getTime() >=
-                aggressiveCooldownMs;
-
-            if (isCooldownPassed) {
-              const nowIso = new Date().toISOString();
-
-              const embed = {
-                title: "Alert: Drug Cooldown Completed",
-                description:
-                  "Your drug cooldown has finished. You are now clean to take another drug.",
-                color: 0x10b981, // Green
-                footer: {
-                  text: "Sentinel",
-                },
-                timestamp: nowIso,
-              };
-
-              // Send Discord DM
-              await sendIpcRequest("send-dm", {
-                discordId: personalSettings.discord_id,
-                embed,
-              });
-
-              // Send Web Push pointing to Torn Gym
-              await sendIpcRequest("send-push", {
-                title: "Drug Cooldown Completed",
-                body: "Your drug cooldown has finished. You can now take another drug.",
-                url: "https://www.torn.com/gym.php",
-              });
-
-              // Update last alert state in settings
-              await db
-                .updateTable("sentinel_personal_settings")
-                .set({
-                  last_drug_alert_sent_at: nowIso,
-                  updated_at: nowIso,
-                })
-                .where("user_id", "=", personalSettings.user_id)
-                .execute();
-
-              snapshotLogger.debug(
-                "Sent drug cooldown completed alert DM and push notification",
-              );
-            }
-          }
-        }
 
         // 3. Crime Alerts (Nerve)
         if (personalSettings.crime_alerts_enabled === 1) {

@@ -176,7 +176,7 @@ async function handleIpcRequest(req: any, client: Client): Promise<any> {
         const guildId = metadata?.guildId;
 
         if (workerName === "bot:daily_summary") {
-          await performDailySummary(client);
+          // Disabled
         } else if (workerName === "bot:db_backup") {
           await performBackup(client);
         } else if (workerName === "bot:token_cleanup") {

@@ -17,6 +17,21 @@ async function saveLogBatch(db: any, logs: any[]): Promise<number> {
     const timestamp = Number(log.timestamp);
     const details = log.details || {};
     
+    const logIdNum = details.id ? Number(details.id) : 0;
+    if (logIdNum === 5320) {
+      const data = log.data || {};
+      const gymId = data.gym ? parseInt(String(data.gym), 10) : null;
+      if (gymId) {
+        await db
+          .updateTable(TABLE_NAMES.TORN_GYMS)
+          .set({ unlocked: 1 })
+          .where("id", "=", gymId)
+          .execute();
+        inserted++;
+      }
+      continue;
+    }
+
     const title = String(details.title || "");
     const isTrainLog = title.toLowerCase().startsWith("gym train");
     if (!isTrainLog) continue;

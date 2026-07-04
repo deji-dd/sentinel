@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { useSync } from "@/hooks/use-sync";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid } from "recharts";
 import {
   ChartContainer,
@@ -192,6 +193,7 @@ function formatTctDateTime(timestamp: number) {
 }
 
 export default function FinanceLedgerPage() {
+  const isMobile = useIsMobile();
   const [data, setData] = useState<LedgerData | null>(null);
   const [snapshots, setSnapshots] = useState<DailySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -331,6 +333,28 @@ export default function FinanceLedgerPage() {
       toast.error((err as Error).message || "Failed to trigger debug recalculation", { id: toastId });
     }
   };
+  const runFixHistoryAction = async () => {
+    const token = localStorage.getItem("sentinel_session_token") || "";
+    const toastId = toast.loading("Recalculating and fixing database history...");
+    try {
+      const res = await fetch("/api/bot/finance/fix-history", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        toast.success(json.message || "Fix complete", { id: toastId });
+        await fetchData(false);
+      } else {
+        throw new Error(`Fix failed with status: ${res.status}`);
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error((err as Error).message || "Failed to fix database history", { id: toastId });
+    }
+  };
 
   useEffect(() => {
     setSyncOptions([
@@ -341,6 +365,10 @@ export default function FinanceLedgerPage() {
       {
         label: "Portfolio & Assets Sync",
         action: () => runSyncAction("portfolio"),
+      },
+      {
+        label: "Fix P&L Database History",
+        action: runFixHistoryAction,
       },
     ]);
 
@@ -838,7 +866,8 @@ export default function FinanceLedgerPage() {
                                   tickFormatter={(val: number) =>
                                     formatCurrency(val)
                                   }
-                                  width={72}
+                                  width={isMobile ? 0 : 72}
+                                  tick={isMobile ? false : undefined}
                                 />
                                 <YAxis
                                   yAxisId="right"
@@ -850,7 +879,8 @@ export default function FinanceLedgerPage() {
                                   tickFormatter={(val: number) =>
                                     formatCurrency(val)
                                   }
-                                  width={72}
+                                  width={isMobile ? 0 : 72}
+                                  tick={isMobile ? false : undefined}
                                 />
                                 <ChartTooltip
                                   content={

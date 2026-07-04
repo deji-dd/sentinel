@@ -544,8 +544,9 @@ async function saveLogBatch(db: any, logs: any[]): Promise<number> {
     const isRehab = logIdNum === 6005 || titleLower === "rehab";
     const isBounty = logIdNum === 6700 || logIdNum === 6710 || catLower === "bounties" || catLower === "bounty";
     const isStockSpecialLog = (logIdNum >= 5530 && logIdNum <= 5537) || catLower === "134" || catLower.includes("stock");
+    const isTrade = catLower === "trades" || (logIdNum >= 4400 && logIdNum <= 4499);
     
-    if (!FINANCE_LOG_CATEGORIES.has(catLower) && !catLower.includes("item use") && !isRehab && !isBounty && !isStockSpecialLog) {
+    if (!FINANCE_LOG_CATEGORIES.has(catLower) && !catLower.includes("item use") && !isRehab && !isBounty && !isStockSpecialLog && !isTrade) {
       continue;
     }
 

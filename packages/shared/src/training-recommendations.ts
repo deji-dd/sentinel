@@ -3,6 +3,129 @@ import type { DB } from "./db/kysely-types.js";
 import { TABLE_NAMES } from "./constants.js";
 import { TornApiClient } from "./torn.js";
 
+export function getUnlockedGymIds(
+  activeGymId: number,
+  stats: { strength: number; speed: number; defense: number; dexterity: number },
+  dbGyms: { id: number | null; name: string; unlocked: number | null }[]
+): number[] {
+  const unlocked: number[] = [];
+  const sequentialLimit = activeGymId >= 25 && activeGymId <= 30 ? 24 : activeGymId;
+  for (let i = 1; i <= Math.min(sequentialLimit, 24); i++) {
+    unlocked.push(i);
+  }
+  if (activeGymId > 24) {
+    unlocked.push(activeGymId);
+  }
+
+  const { strength: str, speed: spd, defense: def, dexterity: dex } = stats;
+  const purchasedGymIds = new Set(
+    dbGyms.filter((g) => g.unlocked === 1 && g.id !== null).map((g) => g.id as number)
+  );
+
+  const getSecondHighest = (others: number[]) => Math.max(...others);
+
+  if (purchasedGymIds.has(25) && (def + dex) >= 1.25 * (str + spd)) {
+    if (!unlocked.includes(25)) unlocked.push(25);
+  }
+  if (purchasedGymIds.has(26) && (str + spd) >= 1.25 * (def + dex)) {
+    if (!unlocked.includes(26)) unlocked.push(26);
+  }
+  if (purchasedGymIds.has(27) && str >= 1.25 * getSecondHighest([spd, def, dex])) {
+    if (!unlocked.includes(27)) unlocked.push(27);
+  }
+  if (purchasedGymIds.has(28) && def >= 1.25 * getSecondHighest([str, spd, dex])) {
+    if (!unlocked.includes(28)) unlocked.push(28);
+  }
+  if (purchasedGymIds.has(29) && spd >= 1.25 * getSecondHighest([str, def, dex])) {
+    if (!unlocked.includes(29)) unlocked.push(29);
+  }
+  if (purchasedGymIds.has(30) && dex >= 1.25 * getSecondHighest([str, spd, def])) {
+    if (!unlocked.includes(30)) unlocked.push(30);
+  }
+  if (purchasedGymIds.has(33)) {
+    if (!unlocked.includes(33)) unlocked.push(33);
+  }
+  return unlocked;
+}
+
+export function getStatPerkMultiplier(
+  perksResponse: any,
+  statName: "strength" | "speed" | "defense" | "dexterity"
+): number {
+  let multiplier = 1.0;
+  if (!perksResponse) return multiplier;
+
+  const perkCategories = [
+    perksResponse.faction_perks,
+    perksResponse.property_perks,
+    perksResponse.education_perks,
+    perksResponse.job_perks,
+    perksResponse.merit_perks,
+    perksResponse.enhancer_perks,
+    perksResponse.book_perks,
+  ];
+
+  const gymPerkRegex = /([+-]?\d+(?:\.\d+)?)\s*%\s*(strength|defense|speed|dexterity)?\s*gym\s*gains/i;
+
+  for (const list of perkCategories) {
+    if (!list || !Array.isArray(list)) continue;
+    for (const perk of list) {
+      if (typeof perk !== "string") continue;
+      const match = perk.match(gymPerkRegex);
+      if (match) {
+        const pct = parseFloat(match[1]);
+        const targetStat = match[2]?.toLowerCase();
+        if (!targetStat || targetStat === statName) {
+          multiplier *= (1 + pct / 100);
+        }
+      }
+    }
+  }
+
+  return multiplier;
+}
+
+export function calculateExactGymGain(
+  statName: "strength" | "speed" | "defense" | "dexterity",
+  statValue: number,
+  happy: number,
+  gymDots: number,
+  energyUsed: number,
+  perkMultiplier: number
+): number {
+  const S = Math.min(50000000, statValue);
+  const H = happy;
+
+  const lnPart = Math.round(Math.log(1 + H / 250) * 10000) / 10000;
+  const happyFactor = Math.round((1 + 0.07 * lnPart) * 10000) / 10000;
+
+  const happyPower = 8 * Math.pow(H, 1.05);
+
+  let A_stat = 0;
+  let B_stat = 0;
+  if (statName === "strength") {
+    A_stat = 1600;
+    B_stat = 1700;
+  } else if (statName === "speed") {
+    A_stat = 1600;
+    B_stat = 2000;
+  } else if (statName === "defense") {
+    A_stat = 2100;
+    B_stat = -600;
+  } else if (statName === "dexterity") {
+    A_stat = 1800;
+    B_stat = 1500;
+  }
+
+  const statPart = (1 - Math.pow(H / 99999, 2)) * A_stat + B_stat;
+
+  const baseGain = S * happyFactor + happyPower + statPart;
+
+  const dS = baseGain * (1 / 200000) * gymDots * energyUsed * perkMultiplier;
+
+  return Math.max(0, dS);
+}
+
 export interface FactionPerks {
   strength: number;
   defense: number;
@@ -31,6 +154,18 @@ export interface TrainingRecommendationResult {
       speed: number;
       dexterity: number;
     };
+  };
+  expectedGainPerEnergy?: {
+    strength: number;
+    speed: number;
+    defense: number;
+    dexterity: number;
+  };
+  perkMultipliers?: {
+    strength: number;
+    speed: number;
+    defense: number;
+    dexterity: number;
   };
 }
 
@@ -76,9 +211,17 @@ export async function getPersonalTrainingRecommendations(
   const activeGymId = userSnapshot?.active_gym;
   const currentEnergy = userSnapshot?.energy_current ? Number(userSnapshot.energy_current) : 0;
   const maxEnergy = userSnapshot?.energy_maximum ? Number(userSnapshot.energy_maximum) : 150;
-  const happyCurrent = userSnapshot?.happy_current ? Number(userSnapshot.happy_current) : 0;
-  const happyMaximum = userSnapshot?.happy_maximum ? Number(userSnapshot.happy_maximum) : 0;
+  const happyCurrent = userSnapshot?.happy_current !== undefined && userSnapshot?.happy_current !== null ? Number(userSnapshot.happy_current) : 5000;
+  const happyMaximum = userSnapshot?.happy_maximum !== undefined && userSnapshot?.happy_maximum !== null ? Number(userSnapshot.happy_maximum) : 5000;
   const boosterCooldown = userSnapshot?.booster_cooldown ? Number(userSnapshot.booster_cooldown) : 0;
+
+  const allGyms = await db
+    .selectFrom(TABLE_NAMES.TORN_GYMS)
+    .selectAll()
+    .execute();
+
+  const activeGymIdNum = activeGymId ? Number(activeGymId) : 1;
+  const currentActiveGym = allGyms.find((g) => g.id === activeGymIdNum);
 
   let activeGym = {
     name: "Premier Fitness",
@@ -88,21 +231,14 @@ export async function getPersonalTrainingRecommendations(
     dexterity: 20,
   };
 
-  if (activeGymId) {
-    const gym = await db
-      .selectFrom(TABLE_NAMES.TORN_GYMS)
-      .selectAll()
-      .where("id", "=", activeGymId)
-      .executeTakeFirst();
-    if (gym) {
-      activeGym = {
-        name: gym.name,
-        strength: gym.strength,
-        speed: gym.speed,
-        defense: gym.defense,
-        dexterity: gym.dexterity,
-      };
-    }
+  if (currentActiveGym) {
+    activeGym = {
+      name: currentActiveGym.name,
+      strength: currentActiveGym.strength,
+      speed: currentActiveGym.speed,
+      defense: currentActiveGym.defense,
+      dexterity: currentActiveGym.dexterity,
+    };
   }
 
   // 3. Fetch Target Ratios
@@ -151,6 +287,8 @@ export async function getPersonalTrainingRecommendations(
   // 4. Fetch Faction Perks (Steadfast) from Torn API
   const factionPerks: FactionPerks = { strength: 0, defense: 0, speed: 0, dexterity: 0 };
   let maxBoosterCooldownMins = 24 * 60; // default 24h
+  let perkMultipliers = { strength: 1.0, speed: 1.0, defense: 1.0, dexterity: 1.0 };
+
   if (apiKey) {
     try {
       const client = tornApi || new TornApiClient();
@@ -215,6 +353,13 @@ export async function getPersonalTrainingRecommendations(
           }
         }
       }
+
+      perkMultipliers = {
+        strength: getStatPerkMultiplier(perksResponse, "strength"),
+        speed: getStatPerkMultiplier(perksResponse, "speed"),
+        defense: getStatPerkMultiplier(perksResponse, "defense"),
+        dexterity: getStatPerkMultiplier(perksResponse, "dexterity"),
+      };
     } catch (err) {
       console.error("[Training Recommendations Utility] Failed to fetch perks from Torn:", err);
     }
@@ -225,11 +370,19 @@ export async function getPersonalTrainingRecommendations(
   }
   const maxBoosterCooldownSeconds = maxBoosterCooldownMins * 60;
 
-  // Calculate training multiplier for each stat (gym multiplier * faction perks)
-  const strGymMult = (activeGym.strength / 10) * (1 + factionPerks.strength / 100);
-  const defGymMult = (activeGym.defense / 10) * (1 + factionPerks.defense / 100);
-  const spdGymMult = (activeGym.speed / 10) * (1 + factionPerks.speed / 100);
-  const dexGymMult = (activeGym.dexterity / 10) * (1 + factionPerks.dexterity / 100);
+  const unlockedIds = getUnlockedGymIds(activeGymIdNum, statsData, allGyms);
+  const unlockedGyms = allGyms.filter((g) => g.id !== null && unlockedIds.includes(g.id));
+
+  const maxStrengthMult = Math.max(...unlockedGyms.map((g) => Number(g.strength || 0)), 20);
+  const maxDefenseMult = Math.max(...unlockedGyms.map((g) => Number(g.defense || 0)), 20);
+  const maxSpeedMult = Math.max(...unlockedGyms.map((g) => Number(g.speed || 0)), 20);
+  const maxDexterityMult = Math.max(...unlockedGyms.map((g) => Number(g.dexterity || 0)), 20);
+
+  // Calculate training multiplier for each stat (gym multiplier * full multiplicative perks)
+  const strGymMult = (maxStrengthMult / 10) * perkMultipliers.strength;
+  const defGymMult = (maxDefenseMult / 10) * perkMultipliers.defense;
+  const spdGymMult = (maxSpeedMult / 10) * perkMultipliers.speed;
+  const dexGymMult = (maxDexterityMult / 10) * perkMultipliers.dexterity;
 
   const statsBehind = [
     { name: "strength", label: "Strength", diff: diffStr, current: currentStr, target: targetStr, gymMult: strGymMult },
@@ -262,13 +415,6 @@ export async function getPersonalTrainingRecommendations(
   }
 
   // 6. Query Gyms and determine switch recommendations
-  const unlockedGyms = await db
-    .selectFrom(TABLE_NAMES.TORN_GYMS)
-    .selectAll()
-    .where("unlocked", "=", 1)
-    .execute();
-
-  const currentActiveGym = unlockedGyms.find((g) => g.id === activeGymId);
 
   let bestGymForStat = unlockedGyms[0];
   for (const gym of unlockedGyms) {
@@ -355,6 +501,12 @@ export async function getPersonalTrainingRecommendations(
   finalLines.push(recommendationText);
   const finalText = finalLines.join("\n\n");
 
+  const happyVal = Math.max(1, happyCurrent);
+  const expectedGainStr = calculateExactGymGain("strength", currentStr, happyVal, maxStrengthMult / 10, 1, perkMultipliers.strength);
+  const expectedGainDef = calculateExactGymGain("defense", currentDef, happyVal, maxDefenseMult / 10, 1, perkMultipliers.defense);
+  const expectedGainSpd = calculateExactGymGain("speed", currentSpd, happyVal, maxSpeedMult / 10, 1, perkMultipliers.speed);
+  const expectedGainDex = calculateExactGymGain("dexterity", currentDex, happyVal, maxDexterityMult / 10, 1, perkMultipliers.dexterity);
+
   return {
     stat: recommendedStatObj.label,
     statKey: recommendedStatObj.name,
@@ -377,5 +529,12 @@ export async function getPersonalTrainingRecommendations(
         dexterity: dexterityPct,
       },
     },
+    expectedGainPerEnergy: {
+      strength: expectedGainStr,
+      speed: expectedGainSpd,
+      defense: expectedGainDef,
+      dexterity: expectedGainDex,
+    },
+    perkMultipliers,
   };
 }

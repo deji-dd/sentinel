@@ -573,4 +573,123 @@ financeRouter.post("/debug-recalculate-today", async (req: Request, res: Respons
   }
 });
 
+financeRouter.post("/fix-history", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session)
+      return res.status(401).json({ error: "Invalid or expired session" });
+
+    const botOwnerId = process.env.SENTINEL_DISCORD_USER_ID;
+    if (session.discord_id !== botOwnerId) {
+      return res.status(403).json({ error: "Forbidden: Owner access only" });
+    }
+
+    // 1. Fetch item prices and points valuation from DB
+    const items = await db
+      .selectFrom(TABLE_NAMES.TORN_ITEMS)
+      .select(["item_id", "name", "value", "image", "type"])
+      .execute();
+
+    const itemMap = new Map<number, any>();
+    const itemNameMap = new Map<string, any>();
+    for (const item of items) {
+      const itemId = Number(item.item_id);
+      if (itemId) {
+        itemMap.set(itemId, {
+          name: item.name || "",
+          value: item.value ?? 0,
+          image: item.image || "",
+          type: item.type || "",
+        });
+      }
+      if (item.name) {
+        itemNameMap.set(item.name.toLowerCase(), {
+          item_id: itemId,
+          name: item.name,
+          value: item.value ?? 0,
+          image: item.image || "",
+          type: item.type || "",
+        });
+      }
+    }
+
+    const marketPrices = await db
+      .selectFrom(TABLE_NAMES.MARKET_PRICES)
+      .select(["key", "value"])
+      .execute();
+
+    const priceMap = new Map<string, number>();
+    for (const row of marketPrices) {
+      priceMap.set(row.key, Number(row.value));
+    }
+    const pointPrice = priceMap.get("points") ?? 31000;
+
+    // 2. Fetch all daily finance snapshots
+    const snapshots = await db
+      .selectFrom("sentinel_daily_finance_snapshots")
+      .selectAll()
+      .orderBy("date", "asc")
+      .execute();
+
+    let fixedCount = 0;
+
+    for (const snap of snapshots) {
+      const dateStr = snap.date;
+      const [year, month, day] = dateStr.split("-").map(Number);
+      const startOfDateTCT = Math.floor(Date.UTC(year, month - 1, day) / 1000);
+      const endOfDateTCT = startOfDateTCT + 24 * 60 * 60 - 1;
+
+      // Read logs for this day from DB
+      const dbLogs = await db
+        .selectFrom("sentinel_financial_logs" as any)
+        .selectAll()
+        .where("timestamp", ">=", startOfDateTCT)
+        .where("timestamp", "<=", endOfDateTCT)
+        .execute()
+        .catch(() => []);
+
+      const { income, expenses } = parseFinanceLedger(
+        dbLogs as any[],
+        itemMap,
+        itemNameMap,
+        pointPrice,
+      );
+
+      const compIncome = Number(snap.company_income || 0);
+      const compWages = Number(snap.company_wages || 0);
+      const compAds = Number(snap.company_ad_budget || 0);
+
+      const inflowTotal = income.total + compIncome;
+      const outflowTotal = expenses.total + compWages + compAds;
+      const netProfit = inflowTotal - outflowTotal;
+
+      // Update the snapshot
+      await db
+        .updateTable("sentinel_daily_finance_snapshots")
+        .set({
+          inflow: inflowTotal,
+          outflow: outflowTotal,
+          net_profit: netProfit,
+          updated_at: new Date().toISOString(),
+        })
+        .where("date", "=", dateStr)
+        .execute();
+
+      fixedCount++;
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully recalculated and fixed P&L for ${fixedCount} daily snapshots in database.`,
+    });
+  } catch (error) {
+    console.error("[HTTP] Error fixing finance snapshots:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 
