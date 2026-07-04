@@ -221,13 +221,15 @@ export function parseFinanceLedger(
       if (
         title.includes("mugged by") ||
         title.includes("inbound") ||
-        title.includes("lose money")
+        title.includes("lose money") ||
+        title.includes("attack mugged")
       ) {
         amount = Number(
           logData.money_lost ||
             logData.money ||
             logData.cash ||
             logData.mugged_amount ||
+            logData.money_mugged ||
             0,
         );
         if (amount > 0) {
@@ -238,7 +240,8 @@ export function parseFinanceLedger(
       } else if (
         title.includes("mug success") ||
         title.includes("mugged") ||
-        title.includes("outbound")
+        title.includes("outbound") ||
+        title.includes("attack mug")
       ) {
         amount = Number(
           logData.money_gained ||
@@ -257,37 +260,53 @@ export function parseFinanceLedger(
     }
     // G. Faction
     else if (category === "faction" || title.includes("faction")) {
-      amount = Number(
-        logData.money_given ||
-          logData.money ||
-          logData.amount ||
-          logData.cash ||
-          0,
-      );
-      if (amount > 0) {
-        if (
-          title.includes("receive") ||
-          title.includes("withdraw") ||
-          title.includes("payout")
-        ) {
-          isIncome = true;
-          transactionCategory = "faction_withdrawals";
-          description = `Faction funds received/withdrawn`;
-        } else if (title.includes("send") || title.includes("deposit")) {
-          isExpense = true;
-          transactionCategory = "other";
-          description = `Faction funds sent/deposited`;
+      if (
+        title.includes("give money send") ||
+        title.includes("give money to") ||
+        title.includes("deposit item")
+      ) {
+        // Ignore faction give money send and item deposits to faction entirely
+      } else {
+        amount = Number(
+          logData.money_deposited ||
+            logData.money_given ||
+            logData.money ||
+            logData.amount ||
+            logData.cash ||
+            0,
+        );
+        if (amount > 0) {
+          if (
+            title.includes("receive") ||
+            title.includes("withdraw") ||
+            title.includes("payout")
+          ) {
+            isIncome = true;
+            transactionCategory = "faction_withdrawals";
+            description = `Faction funds received/withdrawn`;
+          } else if (title.includes("deposit")) {
+            isExpense = true;
+            transactionCategory = "other";
+            description = `Faction funds deposited`;
+          }
         }
       }
     }
     // H. Upkeep
     else if (
       category === "upkeep" ||
+      category === "property" ||
       title.includes("upkeep") ||
       title.includes("property pay")
     ) {
       amount = Number(
-        logData.upkeep || logData.amount || logData.cost || logData.money || 0,
+        logData.upkeep_paid ||
+          logData.upkeep_due ||
+          logData.upkeep ||
+          logData.amount ||
+          logData.cost ||
+          logData.money ||
+          0,
       );
       if (amount > 0) {
         isExpense = true;
@@ -363,12 +382,55 @@ export function parseFinanceLedger(
         }
 
         const isFaction = logData.faction && Number(logData.faction) > 0;
+        
+        // 1. Calculate Outflow (Expense of the consumable item itself being consumed)
         if (itemVal > 0 && !isFaction) {
-          amount = itemVal * quantity;
-          isExpense = true;
-          transactionCategory = "consumables";
-          description = `Used consumable: ${itemName} x${quantity}`;
+          const expAmt = itemVal * quantity;
+          expenses.consumables += expAmt;
+          expenses.total += expAmt;
+          transactions.push({
+            id: logId,
+            timestamp,
+            type: "expense",
+            category: "consumables",
+            title: row.title,
+            amount: expAmt,
+            description: `Used consumable: ${itemName} x${quantity}`,
+          });
         }
+
+        // 2. Calculate Inflow (Income of money gained from opening the consumable)
+        if (logData.money && Number(logData.money) > 0) {
+          const incAmt = Number(logData.money);
+          
+          if (incAmt > 0) {
+            income.other += incAmt;
+            income.total += incAmt;
+            const incDesc = `Opened ${itemName}: Gained $${incAmt.toLocaleString()}`;
+            transactions.push({
+              id: `${logId}_inflow`,
+              timestamp,
+              type: "income",
+              category: "other",
+              title: row.title,
+              amount: incAmt,
+              description: incDesc,
+            });
+          }
+        }
+      }
+    }
+    // J2. Shop Sell
+    else if (category === "shops" || title.includes("shop sell") || title.includes("item shop sell")) {
+      amount = Number(logData.total_value || logData.total_price || logData.money || 0);
+      if (amount > 0) {
+        isIncome = true;
+        transactionCategory = "other";
+        const itemId = Number(logData.item || 0);
+        const qty = Number(logData.quantity || 1);
+        const itemName = itemId && itemMap.has(itemId) ? itemMap.get(itemId)!.name : "items";
+        const areaStr = logData.area ? ` ${logData.area}` : "";
+        description = `Sold items to shop${areaStr}: ${itemName} x${qty}`;
       }
     }
     // K. Rehab

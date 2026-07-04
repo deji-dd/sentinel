@@ -2416,16 +2416,35 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
         });
     }
 
+    // Fetch user's actual max nerve dynamically from Torn API to validate
+    let maxNerve = 100;
+    const apiKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+    if (apiKey) {
+      try {
+        const barsRes = (await tornApi.get("/user/bars" as any, {
+          apiKey,
+        })) as any;
+        if (barsRes?.bars?.nerve?.maximum) {
+          maxNerve = Number(barsRes.bars.nerve.maximum);
+        }
+      } catch (e) {
+        console.error(
+          "[HTTP] Failed to fetch user bars for max nerve verification:",
+          e,
+        );
+      }
+    }
+
     const crimeSoftThresholdVal = Number(crime_soft_threshold);
     if (
       isNaN(crimeSoftThresholdVal) ||
       crimeSoftThresholdVal < 0 ||
-      crimeSoftThresholdVal > 100
+      crimeSoftThresholdVal > maxNerve
     ) {
       return res
         .status(400)
         .json({
-          error: "Crime soft threshold must be a number between 0 and 100",
+          error: `Crime soft threshold must be a number between 0 and ${maxNerve}`,
         });
     }
 

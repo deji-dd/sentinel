@@ -47,7 +47,10 @@ const FINANCE_LOG_CATEGORIES = new Set([
   "points incoming",
   "points building",
   "bounties",
-  "bounty"
+  "bounty",
+  "missions",
+  "shops",
+  "property"
 ]);
 
 // Hardcoded fallback mapping of stock acronym to ID
@@ -559,6 +562,19 @@ async function saveLogBatch(db: any, logs: any[]): Promise<number> {
       }
     }
 
+    // For crime item rewards, inject the historical prices of gained items
+    const isCrime = catLower === "crimes" || titleLower.includes("crime");
+    if (isCrime && data.items_gained && typeof data.items_gained === "object") {
+      const historicalValues: Record<string, number> = {};
+      for (const itemIdStr of Object.keys(data.items_gained)) {
+        const itemId = Number(itemIdStr);
+        if (itemId && itemPriceMap.has(itemId)) {
+          historicalValues[itemIdStr] = itemPriceMap.get(itemId) || 0;
+        }
+      }
+      data.historical_item_values = historicalValues;
+    }
+
     await db
       .insertInto("sentinel_financial_logs" as any)
       .values({
@@ -796,9 +812,10 @@ export async function syncFinanceLogs(): Promise<void> {
   const now = new Date();
   const startOfTodayTCT = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000);
 
-  let fromTimestamp = startOfTodayTCT;
+  // Start sync from latest log timestamp minus 24 hours to catch out-of-order logs safely
+  let fromTimestamp = Math.floor(Date.now() / 1000) - 3600 * 24;
   if (latestLog) {
-    fromTimestamp = Math.max(startOfTodayTCT, Number(latestLog.timestamp));
+    fromTimestamp = Math.min(fromTimestamp, Number(latestLog.timestamp) - 3600 * 24);
   }
   const toTimestamp = Math.floor(Date.now() / 1000);
 
@@ -1161,16 +1178,86 @@ export async function syncPortfolioSnapshot(): Promise<void> {
           const transactionsList = holding.transactions || [];
           let totalCost = 0;
           let totalSharesForCost = 0;
+          let T_start = 0;
           for (const tx of transactionsList) {
             const txShares = Number(tx.shares || 0);
             const txPrice = Number(tx.price || 0);
             totalCost += txShares * txPrice;
             totalSharesForCost += txShares;
+
+            const t = Number(tx.time || tx.timestamp || 0);
+            if (t > 0 && (T_start === 0 || t < T_start)) {
+              T_start = t;
+            }
           }
           const avgBuyPrice = totalSharesForCost > 0 ? (totalCost / totalSharesForCost) : priceInfo.price;
           const boughtValue = avgBuyPrice * shares;
           const profitLoss = totalVal - boughtValue;
           const profitLossPct = boughtValue > 0 ? (profitLoss / boughtValue) * 100 : 0;
+
+          if (T_start > 0) {
+            const resetKey = `benefit_payout_reset:${stockId}:${T_start}`;
+            const alreadyReset = await db
+              .selectFrom("sentinel_processed_benefit_logs")
+              .select("log_id")
+              .where("log_id", "=", resetKey)
+              .executeTakeFirst();
+
+            if (!alreadyReset) {
+              portfolioLogger.info(`[Portfolio] Resetting benefit payouts for stock ${stockId} since purchase time ${new Date(T_start * 1000).toISOString()}`);
+              
+              // 1. Delete existing payouts for this stock
+              await db
+                .deleteFrom("sentinel_stock_benefit_payouts")
+                .where("stock_id", "=", stockId)
+                .execute();
+
+              // 2. Find all processed logs for this stock to reset those >= T_start
+              const stockLogs = await db
+                .selectFrom("sentinel_financial_logs")
+                .select(["log_id", "timestamp", "category", "title", "data"])
+                .where((eb: any) =>
+                  eb.or([
+                    eb("category", "like", "%stock%"),
+                    eb("title", "like", "%dividend%"),
+                    eb("title", "like", "%benefit%"),
+                    eb("category", "=", "134")
+                  ])
+                )
+                .execute();
+
+              const logIdsToUnprocess: string[] = [];
+              for (const log of stockLogs) {
+                const parsed = parseStockPayoutLog(log, new Map(), pointPrice, new Map());
+                if (parsed && Number(parsed.ticker) === stockId) {
+                  const logTime = Number(log.timestamp);
+                  if (logTime >= T_start && log.log_id) {
+                    logIdsToUnprocess.push(log.log_id);
+                  }
+                }
+              }
+
+              if (logIdsToUnprocess.length > 0) {
+                await db
+                  .deleteFrom("sentinel_processed_benefit_logs")
+                  .where("log_id", "in", logIdsToUnprocess)
+                  .execute();
+              }
+
+              // 3. Mark this T_start as reset
+              await db
+                .insertInto("sentinel_processed_benefit_logs")
+                .values({
+                  log_id: resetKey,
+                  processed_at: new Date().toISOString()
+                })
+                .onConflict((oc: any) => oc.column("log_id").doNothing())
+                .execute();
+
+              // 4. Trigger reprocessing of payouts
+              await processStockBenefitPayouts(db);
+            }
+          }
 
           holdings.push({
             id: stockId,

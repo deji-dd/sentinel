@@ -250,17 +250,25 @@ export class TornApiClient {
         return data;
       } catch (error: any) {
         lastError = error;
+        const isRateLimit =
+          error &&
+          error.message &&
+          (error.message.includes("Too many requests") ||
+            error.message.includes("rate limit") ||
+            error.message.includes("Rate limit"));
+
         const isNetworkOrTimeout =
           error instanceof TypeError ||
           error.name === "AbortError" ||
-          error.message.includes("status");
+          error.message.includes("status") ||
+          isRateLimit;
 
         if (!isNetworkOrTimeout || attempt === maxAttempts) {
           throw error;
         }
 
-        // Backoff: 200ms * attempt
-        const delay = 200 * attempt;
+        // Backoff: 1000ms * attempt if rate limited, else 200ms * attempt
+        const delay = isRateLimit ? 1000 * attempt : 200 * attempt;
         await new Promise((resolve) => setTimeout(resolve, delay));
       } finally {
         clearTimeout(timeoutId);
@@ -348,17 +356,25 @@ export class TornApiClient {
         return data as T;
       } catch (error: any) {
         lastError = error;
+        const isRateLimit =
+          error &&
+          error.message &&
+          (error.message.includes("Too many requests") ||
+            error.message.includes("rate limit") ||
+            error.message.includes("Rate limit"));
+
         const isNetworkOrTimeout =
           error instanceof TypeError ||
           error.name === "AbortError" ||
-          error.message.includes("status");
+          error.message.includes("status") ||
+          isRateLimit;
 
         if (!isNetworkOrTimeout || attempt === maxAttempts) {
           throw error;
         }
 
-        // Backoff: 200ms * attempt
-        const delay = 200 * attempt;
+        // Backoff: 1000ms * attempt if rate limited, else 200ms * attempt
+        const delay = isRateLimit ? 1000 * attempt : 200 * attempt;
         await new Promise((resolve) => setTimeout(resolve, delay));
       } finally {
         clearTimeout(timeoutId);

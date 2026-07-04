@@ -9,7 +9,6 @@ import {
   Dumbbell,
   Sun,
   Moon,
-  FlaskConical,
   Palette,
   Bell,
   BellOff,
@@ -32,14 +31,13 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { usePush } from "@/hooks/use-push";
- 
+
 const navItems = [
   { name: "Overview", href: "/", icon: Home },
   { name: "Finance", href: "/finance", icon: Landmark },
   { name: "Portfolio", href: "/portfolio", icon: TrendingUp },
   { name: "Gym", href: "/gym", icon: Dumbbell },
   { name: "Crimes", href: "/crimes", icon: Fingerprint },
-  { name: "Beta", href: "/beta", icon: FlaskConical },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

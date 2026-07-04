@@ -249,6 +249,15 @@ export default function PortfolioPage() {
   const activeStockValuation = activeBenefits.reduce((sum, b) => sum + (b.held_shares * b.current_price), 0);
   const averageApr = activeStockValuation > 0 ? (totalAnnualYield / activeStockValuation) * 100 : 0;
 
+  const totalInvestmentCost = stocks.holdings?.reduce((sum, h) => sum + (h.shares * (h.avg_buy_price ?? h.price ?? 0)), 0) || 0;
+  const totalStockPL = stocks.holdings?.reduce((sum, h) => sum + (h.profit_loss ?? 0), 0) || 0;
+  const totalStockPLPct = totalInvestmentCost > 0 ? (totalStockPL / totalInvestmentCost) * 100 : 0;
+
+  const totalDividendsEarned = payouts
+    .filter(p => stocks.benefits.some(b => b.stock_id === Number(p.stock_id) && (b.active_increments || 0) >= 1))
+    .reduce((sum, p) => sum + Number(p.value_accumulated), 0);
+  const totalRoiTillDate = totalInvestmentCost > 0 ? (totalDividendsEarned / totalInvestmentCost) * 100 : 0;
+
   // Filter benefits list
   const filteredBenefits = stocks.benefits.filter(b => {
     if (filterTab === "active") return (b.active_increments || 0) >= 1;
@@ -266,7 +275,9 @@ export default function PortfolioPage() {
     if (sortBy === "progress") {
       return b.progress_pct - a.progress_pct;
     }
-    return b.apr - a.apr; // Default sorting by APR
+    const aprA = a.next_increment_apr !== undefined && a.next_increment_apr > 0 ? a.next_increment_apr : a.apr;
+    const aprB = b.next_increment_apr !== undefined && b.next_increment_apr > 0 ? b.next_increment_apr : b.apr;
+    return aprB - aprA;
   });
 
   // Helper to map payouts to benefits
@@ -327,7 +338,7 @@ export default function PortfolioPage() {
         </div>
 
         {/* Top Summary Metrics */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
             <div className="absolute top-0 right-0 h-16 w-16 bg-amber-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
               <Coins className="h-5 w-5 text-amber-500" />
@@ -339,6 +350,9 @@ export default function PortfolioPage() {
               <CardTitle className="text-2xl font-bold font-heading text-zinc-900 dark:text-zinc-50">
                 {formatCurrency(stocks.total_value)}
               </CardTitle>
+              <p className={`text-[11px] font-semibold mt-0.5 flex items-center gap-1 ${totalStockPL >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                {totalStockPL >= 0 ? "▲" : "▼"} {formatCurrency(totalStockPL)} ({totalStockPL >= 0 ? "+" : ""}{totalStockPLPct.toFixed(2)}%)
+              </p>
             </CardHeader>
           </Card>
 
@@ -359,6 +373,9 @@ export default function PortfolioPage() {
                     : totalAnnualYield
                 )}
               </CardTitle>
+              <p className="text-[11px] text-zinc-400 font-semibold mt-0.5">
+                Valued from active blocks
+              </p>
             </CardHeader>
           </Card>
 
@@ -379,6 +396,26 @@ export default function PortfolioPage() {
                     : averageApr
                 ).toFixed(timeframe === "yearly" ? 2 : 4)}%
               </CardTitle>
+              <p className="text-[11px] text-zinc-400 font-semibold mt-0.5">
+                Yield on owned active shares
+              </p>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 h-16 w-16 bg-violet-500/10 rounded-bl-full flex items-center justify-center transition-all group-hover:scale-110">
+              <CircleDollarSign className="h-5 w-5 text-violet-500" />
+            </div>
+            <CardHeader className="pb-2">
+              <CardDescription className="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">
+                Total Dividends & ROI
+              </CardDescription>
+              <CardTitle className="text-2xl font-bold font-heading text-violet-600 dark:text-violet-400">
+                {formatCurrency(totalDividendsEarned)}
+              </CardTitle>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-semibold mt-0.5">
+                {totalRoiTillDate.toFixed(2)}% overall ROI till date
+              </p>
             </CardHeader>
           </Card>
         </div>
@@ -499,6 +536,11 @@ export default function PortfolioPage() {
                                   {timeframe === "daily" ? "Daily" : timeframe === "monthly" ? "Monthly" : "APR"}
                                 </span>
                               </p>
+                              {benefit.next_increment_apr !== undefined && benefit.next_increment_apr > 0 && benefit.next_increment_apr !== benefit.apr && (
+                                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
+                                  Next Tier: {benefit.next_increment_apr.toFixed(2)}% APR
+                                </p>
+                              )}
                             </div>
                             <div className="text-right">
                               <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
@@ -535,6 +577,20 @@ export default function PortfolioPage() {
                             {benefit.held_shares.toLocaleString()} / {benefit.next_required_total_shares.toLocaleString()}
                           </span>
                         </div>
+                        {(() => {
+                          const holding = stocks.holdings?.find(h => h.id === benefit.stock_id);
+                          if (!holding || holding.shares === 0) return null;
+                          const plVal = holding.profit_loss ?? 0;
+                          const plPct = holding.profit_loss_pct ?? 0;
+                          return (
+                            <div className="flex justify-between text-[10px] font-medium">
+                              <span className="text-zinc-500">Stock Profit/Loss</span>
+                              <span className={`font-semibold ${plVal >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                                {plVal >= 0 ? "+" : ""}{formatCurrency(plVal)} ({plVal >= 0 ? "+" : ""}{plPct.toFixed(2)}%)
+                              </span>
+                            </div>
+                          );
+                        })()}
                         <div className="w-full bg-zinc-100 dark:bg-zinc-900 h-1.5 rounded-full overflow-hidden">
                           <div
                             className={`h-1.5 rounded-full transition-all duration-300 ${
@@ -550,34 +606,53 @@ export default function PortfolioPage() {
                             <span>Next tier needs:</span>
                             <span className="font-mono text-zinc-600 dark:text-zinc-300">
                               {benefit.shares_needed.toLocaleString()} sh ({formatCurrency(benefit.cost_to_complete)})
+                              {benefit.next_increment_apr !== undefined && benefit.next_increment_apr > 0 && (
+                                <span className="text-amber-600 dark:text-amber-400 ml-1">
+                                  ({benefit.next_increment_apr.toFixed(2)}% APR)
+                                </span>
+                              )}
                             </span>
                           </div>
                         )}
                       </div>
 
                       {/* Historical aggregation section */}
-                      <div className="bg-zinc-50/50 dark:bg-zinc-900/30 rounded-xl p-3 border border-dashed border-zinc-200 dark:border-zinc-800 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider flex items-center gap-1">
-                            <CircleDollarSign className="size-3 text-zinc-400" />
-                            Historical Earnings
-                          </span>
-                          {hist.totalVal > 0 && (
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                              {formatCurrency(hist.totalVal)}
-                            </span>
-                          )}
-                        </div>
-                        {hist.detailStr ? (
-                          <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug line-clamp-1 italic">
-                            Gotten: {hist.detailStr}
-                          </p>
-                        ) : (
-                          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">
-                            No dividend payouts tracked yet.
-                          </p>
-                        )}
-                      </div>
+                      {(() => {
+                        const holding = stocks.holdings?.find(h => h.id === benefit.stock_id);
+                        const avgBuyPrice = holding?.avg_buy_price || benefit.current_price;
+                        const activeCost = benefit.held_shares * avgBuyPrice;
+                        const roiTillDate = activeCost > 0 ? (hist.totalVal / activeCost) * 100 : 0;
+                        
+                        return (
+                          <div className="bg-zinc-50/50 dark:bg-zinc-900/30 rounded-xl p-3 border border-dashed border-zinc-200 dark:border-zinc-800 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                                <CircleDollarSign className="size-3 text-zinc-400" />
+                                Dividends Earned
+                              </span>
+                              <div className="text-right">
+                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                  {formatCurrency(hist.totalVal)}
+                                </span>
+                                {hist.totalVal > 0 && activeCost > 0 && (
+                                  <span className="text-[9px] text-zinc-400 font-mono ml-1">
+                                    ({roiTillDate.toFixed(2)}% ROI)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {hist.detailStr ? (
+                              <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug line-clamp-1 italic">
+                                Gotten: {hist.detailStr}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">
+                                No dividend payouts tracked yet.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 </motion.div>
