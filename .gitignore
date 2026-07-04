@@ -78,3 +78,5 @@ apps/bot/dev-log.txt
 **/.zed
 
 **/vite.config.js
+
+**/details/*
