@@ -106,18 +106,21 @@ export function parseFinanceLedger(
     }
     // B. Bazaar
     else if (category === "bazaars" || title.includes("bazaar")) {
-      amount = Number(
-        logData.money_gained ||
-          logData.money_received ||
-          logData.total_price ||
-          logData.price ||
-          logData.money ||
-          0,
-      );
-      if (amount > 0) {
-        isIncome = true;
-        transactionCategory = "bazaar";
-        description = `Bazaar sale: ${logData.item_name || logData.type || "items"}`;
+      if (title.includes("sell")) {
+        amount = Number(
+          logData.cost_total ||
+            logData.money_gained ||
+            logData.money_received ||
+            logData.total_price ||
+            logData.price ||
+            logData.money ||
+            0,
+        );
+        if (amount > 0) {
+          isIncome = true;
+          transactionCategory = "bazaar";
+          description = `Bazaar sale: ${logData.item_name || logData.type || "items"}`;
+        }
       }
     }
     // C. Item Market

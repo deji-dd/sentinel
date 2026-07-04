@@ -3,51 +3,10 @@ import { Router, type Request, type Response } from "express";
 import { TABLE_NAMES, parseFinanceLedger } from "@sentinel/shared";
 import { db } from "../../lib/db-client.js";
 import { getServerContext } from "../context.js";
-import { tornApi } from "../../services/torn-client.js";
 
 export const financeRouter = Router();
 
-const FINANCE_LOG_CATEGORIES = new Set([
-  "bazaars",
-  "item market",
-  "itemmarket",
-  "stocks",
-  "stocks incoming",
-  "stocks outgoing",
-  "stock specials",
-  "company",
-  "company outgoing",
-  "company incoming",
-  "company special",
-  "crimes",
-  "crime success",
-  "attacking",
-  "attacks outgoing",
-  "attacks incoming",
-  "faction",
-  "faction outgoing",
-  "faction incoming",
-  "faction payout",
-  "upkeep",
-  "loan",
-  "drugs",
-  "item use drug",
-  "item use booster",
-  "item use medical",
-  "item use alcohol",
-  "item use candy",
-  "points",
-  "points outgoing",
-  "points incoming",
-  "points building",
-  "bounties",
-  "bounty",
-]);
 
-// Get personal API key from environment only
-function getPersonalApiKey(): string | undefined {
-  return process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
-}
 
 
 
@@ -572,7 +531,23 @@ financeRouter.post("/debug-recalculate-today", async (req: Request, res: Respons
       .where("date", "=", dateStr)
       .execute();
 
-    // 3. Find logs worker ID
+    // 3. Clear benefit payouts and processed benefit logs to rebuild with correct values
+    await db.deleteFrom("sentinel_stock_benefit_payouts").execute();
+    await db.deleteFrom("sentinel_processed_benefit_logs").execute();
+
+    // 4. Reset logs worker backfill metadata so it re-scans the full log history
+    await db
+      .updateTable(TABLE_NAMES.WORKER_SCHEDULES)
+      .set({ metadata: null })
+      .where("worker_id", "in", (qb) =>
+        qb
+          .selectFrom(TABLE_NAMES.WORKERS)
+          .select("id")
+          .where("name", "=", "torn_finance_logs_worker")
+      )
+      .execute();
+
+    // 5. Find worker IDs to reschedule
     const workers = await db
       .selectFrom(TABLE_NAMES.WORKERS)
       .select(["id", "name"])

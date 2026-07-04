@@ -22,6 +22,7 @@ export interface TrainingRecommendationResult {
   maxHappy: number;
   factionPerks: FactionPerks;
   activeGymName: string;
+  energyDrinkBoost?: number;
   buildInfo: {
     selectedBuild: string;
     ratios: {
@@ -39,6 +40,7 @@ export async function getPersonalTrainingRecommendations(
   apiKey?: string,
   tornApi?: TornApiClient
 ): Promise<TrainingRecommendationResult> {
+  let energyDrinkBoost = 0;
   // 1. Fetch current battle stats from snapshots
   const stats = await db
     .selectFrom(TABLE_NAMES.BATTLESTATS_SNAPSHOTS)
@@ -146,16 +148,6 @@ export async function getPersonalTrainingRecommendations(
     return Math.round(num).toLocaleString();
   };
 
-  const statsBehind = [
-    { name: "strength", label: "Strength", diff: diffStr, current: currentStr, target: targetStr },
-    { name: "defense", label: "Defense", diff: diffDef, current: currentDef, target: targetDef },
-    { name: "speed", label: "Speed", diff: diffSpd, current: currentSpd, target: targetSpd },
-    { name: "dexterity", label: "Dexterity", diff: diffDex, current: currentDex, target: targetDex },
-  ];
-
-  const sortedBehind = [...statsBehind].sort((a, b) => b.diff - a.diff);
-  const recommendedStatObj = sortedBehind[0];
-
   // 4. Fetch Faction Perks (Steadfast) from Torn API
   const factionPerks: FactionPerks = { strength: 0, defense: 0, speed: 0, dexterity: 0 };
   let maxBoosterCooldownMins = 24 * 60; // default 24h
@@ -195,6 +187,7 @@ export async function getPersonalTrainingRecommendations(
       }
 
       const gymPerkRegex = /([+-]?\d+)\s*%\s*(strength|defense|speed|dexterity)\s*gym\s*gains/i;
+      const energyDrinkPerkRegex = /([+-]?\d+)\s*%\s*energy\s*gain\s*from\s*energy\s*drinks/i;
       for (const str of perkStrings) {
         const match = str.match(gymPerkRegex);
         if (match) {
@@ -205,10 +198,13 @@ export async function getPersonalTrainingRecommendations(
           else if (stat === "speed") factionPerks.speed += pct;
           else if (stat === "dexterity") factionPerks.dexterity += pct;
         }
+
+        const energyDrinkMatch = str.match(energyDrinkPerkRegex);
+        if (energyDrinkMatch) {
+          energyDrinkBoost += parseInt(energyDrinkMatch[1], 10);
+        }
       }
 
-      // Check for booster cooldown limit increase perks (Toleration branch)
-      // e.g. "Provides a +24h booster cooldown limit" or similar
       const boosterPerkRegex = /([+-]?\d+)\s*h(?:our)?s?\s*booster\s*cooldown\s*limit/i;
       for (const str of perkStrings) {
         const match = str.match(boosterPerkRegex);
@@ -223,10 +219,34 @@ export async function getPersonalTrainingRecommendations(
       console.error("[Training Recommendations Utility] Failed to fetch perks from Torn:", err);
     }
   }
+
   if (boosterCooldown > 24 * 60 * 60) {
     maxBoosterCooldownMins = Math.max(maxBoosterCooldownMins, 48 * 60);
   }
   const maxBoosterCooldownSeconds = maxBoosterCooldownMins * 60;
+
+  // Calculate training multiplier for each stat (gym multiplier * faction perks)
+  const strGymMult = (activeGym.strength / 10) * (1 + factionPerks.strength / 100);
+  const defGymMult = (activeGym.defense / 10) * (1 + factionPerks.defense / 100);
+  const spdGymMult = (activeGym.speed / 10) * (1 + factionPerks.speed / 100);
+  const dexGymMult = (activeGym.dexterity / 10) * (1 + factionPerks.dexterity / 100);
+
+  const statsBehind = [
+    { name: "strength", label: "Strength", diff: diffStr, current: currentStr, target: targetStr, gymMult: strGymMult },
+    { name: "defense", label: "Defense", diff: diffDef, current: currentDef, target: targetDef, gymMult: defGymMult },
+    { name: "speed", label: "Speed", diff: diffSpd, current: currentSpd, target: targetSpd, gymMult: spdGymMult },
+    { name: "dexterity", label: "Dexterity", diff: diffDex, current: currentDex, target: targetDex, gymMult: dexGymMult },
+  ];
+
+  // Calculate focus recommendation score = relative difference * active gym multiplier
+  const getRecommendationScore = (s: typeof statsBehind[0]) => {
+    if (s.diff <= 0) return s.diff; // negative or zero difference
+    const relativeDifference = s.target > 0 ? s.diff / s.target : 0;
+    return relativeDifference * s.gymMult;
+  };
+
+  const sortedBehind = [...statsBehind].sort((a, b) => getRecommendationScore(b) - getRecommendationScore(a));
+  const recommendedStatObj = sortedBehind[0];
 
   // 5. Calculate Recommendations Texts
   const recommendedStatName = recommendedStatObj.name;
@@ -347,6 +367,7 @@ export async function getPersonalTrainingRecommendations(
     maxHappy: happyMaximum,
     factionPerks,
     activeGymName: activeGym.name,
+    energyDrinkBoost,
     buildInfo: {
       selectedBuild: build,
       ratios: {

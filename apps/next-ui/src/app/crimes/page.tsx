@@ -2,12 +2,45 @@
 
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
-import { Target, Coins, Zap, Banknote, RefreshCw, BarChart3, ListCollapse, Info } from "lucide-react";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ResponsiveContainer,
+} from "recharts";
+import {
+  Target,
+  Coins,
+  Zap,
+  Banknote,
+  RefreshCw,
+  BarChart3,
+  ListCollapse,
+  Info,
+} from "lucide-react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
 import { motion, AnimatePresence } from "framer-motion";
@@ -98,7 +131,7 @@ interface APIResponse {
 export default function CrimesPage() {
   const [data, setData] = useState<APIResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCrimeId, setSelectedCrimeId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "charts">("overview");
@@ -106,6 +139,39 @@ export default function CrimesPage() {
   const [subcrimesPage, setSubcrimesPage] = useState(0);
 
   const { setSyncOptions, setLastSyncedText } = useSync();
+
+  const fetchData = async (showToast = false) => {
+    setError(null);
+    if (showToast) setRefreshing(true);
+    try {
+      const res = await fetch("/api/bot/config/personal/crimes");
+      if (res.ok) {
+        const json: APIResponse = await res.json();
+        setData(json);
+
+        // Auto select first crime if none selected
+        if (json.crimes && json.crimes.length > 0 && selectedCrimeId === null) {
+          // Default to the recommended focus crime if available
+          setSelectedCrimeId(
+            json.recommendations.focus_crime_id ?? json.crimes[0].id,
+          );
+        }
+
+        if (showToast) {
+          toast.success("Crimes history synchronized successfully");
+        }
+      } else {
+        throw new Error(`Server returned ${res.status} ${res.statusText}`);
+      }
+    } catch (err: unknown) {
+      console.error("Error fetching crimes data:", err);
+      setError(err instanceof Error ? err.message : String(err));
+      toast.error("Failed to load crimes data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   const runSyncAction = async () => {
     const toastId = toast.loading("Syncing crimes records from Torn API...");
@@ -140,6 +206,7 @@ export default function CrimesPage() {
       setSyncOptions(null);
       setLastSyncedText("");
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setSyncOptions, setLastSyncedText]);
 
   useEffect(() => {
@@ -160,37 +227,6 @@ export default function CrimesPage() {
     }
   }, [data, setLastSyncedText]);
 
-  const fetchData = async (showToast = false) => {
-    setError(null);
-    if (showToast) setRefreshing(true);
-    try {
-      const res = await fetch("/api/bot/config/personal/crimes");
-      if (res.ok) {
-        const json: APIResponse = await res.json();
-        setData(json);
-        
-        // Auto select first crime if none selected
-        if (json.crimes && json.crimes.length > 0 && selectedCrimeId === null) {
-          // Default to the recommended focus crime if available
-          setSelectedCrimeId(json.recommendations.focus_crime_id ?? json.crimes[0].id);
-        }
-
-        if (showToast) {
-          toast.success("Crimes history synchronized successfully");
-        }
-      } else {
-        throw new Error(`Server returned ${res.status} ${res.statusText}`);
-      }
-    } catch (err: unknown) {
-      console.error("Error fetching crimes data:", err);
-      setError(err instanceof Error ? err.message : String(err));
-      toast.error("Failed to load crimes data");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
@@ -208,7 +244,9 @@ export default function CrimesPage() {
       <DashboardLayout>
         <div className="flex h-64 items-center justify-center gap-2">
           <RefreshCw className="h-6 w-6 animate-spin text-amber-500" />
-          <span className="text-zinc-500 dark:text-zinc-400">Loading Crimes analysis...</span>
+          <span className="text-zinc-500 dark:text-zinc-400">
+            Loading Crimes analysis...
+          </span>
         </div>
       </DashboardLayout>
     );
@@ -219,7 +257,9 @@ export default function CrimesPage() {
       <DashboardLayout>
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading">Crimes</h1>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading">
+              Crimes
+            </h1>
             <p className="text-zinc-500 dark:text-zinc-400">
               Track historical crime payouts and analyze profitability metrics.
             </p>
@@ -238,24 +278,47 @@ export default function CrimesPage() {
   const { crimes, syncStatus, recommendations } = data;
 
   // Calculate totals
-  const totalProfit = crimes.reduce((sum, c) => sum + c.profitability.total_profit, 0);
-  const totalCashProfit = crimes.reduce((sum, c) => sum + c.profitability.cash_profit, 0);
-  const totalItemsProfit = crimes.reduce((sum, c) => sum + c.profitability.items_profit, 0);
+  const totalProfit = crimes.reduce(
+    (sum, c) => sum + c.profitability.total_profit,
+    0,
+  );
+  const totalCashProfit = crimes.reduce(
+    (sum, c) => sum + c.profitability.cash_profit,
+    0,
+  );
+  const totalItemsProfit = crimes.reduce(
+    (sum, c) => sum + c.profitability.items_profit,
+    0,
+  );
   const totalNerveSpent = crimes.reduce((sum, c) => sum + c.nerve_spent, 0);
   const totalAttempts = crimes.reduce((sum, c) => sum + c.attempts.total, 0);
 
-  const selectedCrime = crimes.find((c) => c.id === selectedCrimeId) || crimes[0];
-  const recommendedNerveCrimeName = crimes.find((c) => c.id === recommendations.focus_crime_id)?.name || "N/A";
-  const recommendedTotalCrimeName = crimes.find((c) => c.profitability.total_profit === Math.max(...crimes.map(x => x.profitability.total_profit)))?.name || "N/A";
+  const selectedCrime =
+    crimes.find((c) => c.id === selectedCrimeId) || crimes[0];
+  const recommendedNerveCrimeName =
+    crimes.find((c) => c.id === recommendations.focus_crime_id)?.name || "N/A";
+  const recommendedTotalCrimeName =
+    crimes.find(
+      (c) =>
+        c.profitability.total_profit ===
+        Math.max(...crimes.map((x) => x.profitability.total_profit)),
+    )?.name || "N/A";
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val);
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(val);
   };
 
   const formatShortCurrency = (num: number) => {
-    if (num >= 1e9) return "$" + (num / 1e9).toFixed(1).replace(/\.0$/, "") + "b";
-    if (num >= 1e6) return "$" + (num / 1e6).toFixed(1).replace(/\.0$/, "") + "m";
-    if (num >= 1e3) return "$" + (num / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+    if (num >= 1e9)
+      return "$" + (num / 1e9).toFixed(1).replace(/\.0$/, "") + "b";
+    if (num >= 1e6)
+      return "$" + (num / 1e6).toFixed(1).replace(/\.0$/, "") + "m";
+    if (num >= 1e3)
+      return "$" + (num / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
     return formatCurrency(num);
   };
 
@@ -281,7 +344,8 @@ export default function CrimesPage() {
               Crimes Analysis
             </h1>
             <p className="text-zinc-500 dark:text-zinc-400">
-              Aggregate and compare crime payouts to optimize your nerve spending efficiency.
+              Aggregate and compare crime payouts to optimize your nerve
+              spending efficiency.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -320,7 +384,9 @@ export default function CrimesPage() {
               <Target className="h-5 w-5 text-amber-500" />
             </div>
             <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Focus Recommendation</CardDescription>
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">
+                Focus Recommendation
+              </CardDescription>
               <CardTitle className="text-xl font-bold font-heading text-amber-600 dark:text-amber-400">
                 {recommendedNerveCrimeName}
               </CardTitle>
@@ -337,7 +403,9 @@ export default function CrimesPage() {
               <Coins className="h-5 w-5 text-emerald-500" />
             </div>
             <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Most Profitable Crime</CardDescription>
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">
+                Most Profitable Crime
+              </CardDescription>
               <CardTitle className="text-xl font-bold font-heading text-emerald-600 dark:text-emerald-400">
                 {recommendedTotalCrimeName}
               </CardTitle>
@@ -354,7 +422,9 @@ export default function CrimesPage() {
               <Banknote className="h-5 w-5 text-blue-500" />
             </div>
             <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Total Profit Earned</CardDescription>
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">
+                Total Profit Earned
+              </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-zinc-950 dark:text-zinc-50">
                 {formatShortCurrency(totalProfit)}
               </CardTitle>
@@ -372,14 +442,17 @@ export default function CrimesPage() {
               <Zap className="h-5 w-5 text-rose-500" />
             </div>
             <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">Total Resource Spent</CardDescription>
+              <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">
+                Total Resource Spent
+              </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-zinc-950 dark:text-zinc-50">
                 {totalNerveSpent.toLocaleString()} Nerve
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                Spent across {totalAttempts.toLocaleString()} total commit attempts
+                Spent across {totalAttempts.toLocaleString()} total commit
+                attempts
               </p>
             </CardContent>
           </Card>
@@ -391,19 +464,28 @@ export default function CrimesPage() {
             {/* Crimes List Table */}
             <Card className="md:col-span-4 border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-bold font-heading">Crimes Ledger</CardTitle>
-                <CardDescription>Select a crime to view details, subcrimes, and uniques achievements.</CardDescription>
+                <CardTitle className="text-lg font-bold font-heading">
+                  Crimes Ledger
+                </CardTitle>
+                <CardDescription>
+                  Select a crime to view details, subcrimes, and uniques
+                  achievements.
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0 sm:p-6 sm:pt-0">
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent border-zinc-200 dark:border-zinc-900">
-                        <TableHead className="w-[180px]">Crime</TableHead>
+                        <TableHead className="w-45">Crime</TableHead>
                         <TableHead className="text-right">Nerve</TableHead>
                         <TableHead className="text-right">Success %</TableHead>
-                        <TableHead className="text-right">Total Profit</TableHead>
-                        <TableHead className="text-right">Profit / Nerve</TableHead>
+                        <TableHead className="text-right">
+                          Total Profit
+                        </TableHead>
+                        <TableHead className="text-right">
+                          Profit / Nerve
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -421,18 +503,28 @@ export default function CrimesPage() {
                           >
                             <TableCell className="py-3">
                               <div>
-                                <div className="text-sm font-semibold">{crime.name}</div>
+                                <div className="text-sm font-semibold">
+                                  {crime.name}
+                                </div>
                                 <span className="text-[10px] text-zinc-500 dark:text-zinc-400 capitalize bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-200/40 dark:border-zinc-800/40 mt-1 inline-block">
                                   {crime.category_name}
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right py-3 font-mono text-xs">{crime.nerve_spent.toLocaleString()}</TableCell>
                             <TableCell className="text-right py-3 font-mono text-xs">
-                              {crime.attempts.total > 0 ? (crime.profitability.success_rate * 100).toFixed(1) + "%" : "0.0%"}
+                              {crime.nerve_spent.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right py-3 font-mono text-xs">
+                              {crime.attempts.total > 0
+                                ? (
+                                    crime.profitability.success_rate * 100
+                                  ).toFixed(1) + "%"
+                                : "0.0%"}
                             </TableCell>
                             <TableCell className="text-right py-3 font-mono text-xs font-semibold">
-                              {formatShortCurrency(crime.profitability.total_profit)}
+                              {formatShortCurrency(
+                                crime.profitability.total_profit,
+                              )}
                             </TableCell>
                             <TableCell className="text-right py-3">
                               <Badge
@@ -440,8 +532,8 @@ export default function CrimesPage() {
                                   crime.profitability.profit_per_nerve > 2000
                                     ? "default"
                                     : crime.profitability.profit_per_nerve > 500
-                                    ? "secondary"
-                                    : "outline"
+                                      ? "secondary"
+                                      : "outline"
                                 }
                                 className={`font-mono text-[10px] px-2 py-0.5 ${
                                   crime.profitability.profit_per_nerve > 2000
@@ -449,7 +541,9 @@ export default function CrimesPage() {
                                     : ""
                                 }`}
                               >
-                                {formatCurrency(crime.profitability.profit_per_nerve)}
+                                {formatCurrency(
+                                  crime.profitability.profit_per_nerve,
+                                )}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -483,9 +577,12 @@ export default function CrimesPage() {
                           </span>
                         )}
                       </div>
-                      <CardTitle className="text-xl font-bold font-heading mt-2">{selectedCrime.name}</CardTitle>
+                      <CardTitle className="text-xl font-bold font-heading mt-2">
+                        {selectedCrime.name}
+                      </CardTitle>
                       <CardDescription className="capitalize">
-                        Category: {selectedCrime.category_name} | Skill Level: {selectedCrime.skill}%
+                        Category: {selectedCrime.category_name} | Skill Level:{" "}
+                        {selectedCrime.skill}%
                       </CardDescription>
                     </CardHeader>
 
@@ -505,25 +602,39 @@ export default function CrimesPage() {
                       {/* Success / Fail Visualizer */}
                       <div className="space-y-2">
                         <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 flex justify-between">
-                          <span>Attempt Outcomes ({selectedCrime.attempts.total} total)</span>
-                          <span className="text-emerald-500">{(selectedCrime.profitability.success_rate * 100).toFixed(1)}% Success</span>
+                          <span>
+                            Attempt Outcomes ({selectedCrime.attempts.total}{" "}
+                            total)
+                          </span>
+                          <span className="text-emerald-500">
+                            {(
+                              selectedCrime.profitability.success_rate * 100
+                            ).toFixed(1)}
+                            % Success
+                          </span>
                         </div>
                         {selectedCrime.attempts.total > 0 ? (
                           <div className="h-3 w-full rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden flex">
                             <div
                               title={`Success: ${selectedCrime.attempts.success}`}
                               className="bg-emerald-500 h-full"
-                              style={{ width: `${(selectedCrime.attempts.success / selectedCrime.attempts.total) * 100}%` }}
+                              style={{
+                                width: `${(selectedCrime.attempts.success / selectedCrime.attempts.total) * 100}%`,
+                              }}
                             />
                             <div
                               title={`Fail: ${selectedCrime.attempts.fail}`}
                               className="bg-amber-500 h-full"
-                              style={{ width: `${(selectedCrime.attempts.fail / selectedCrime.attempts.total) * 100}%` }}
+                              style={{
+                                width: `${(selectedCrime.attempts.fail / selectedCrime.attempts.total) * 100}%`,
+                              }}
                             />
                             <div
                               title={`Critical Fail: ${selectedCrime.attempts.critical_fail}`}
                               className="bg-rose-500 h-full"
-                              style={{ width: `${(selectedCrime.attempts.critical_fail / selectedCrime.attempts.total) * 100}%` }}
+                              style={{
+                                width: `${(selectedCrime.attempts.critical_fail / selectedCrime.attempts.total) * 100}%`,
+                              }}
                             />
                           </div>
                         ) : (
@@ -531,13 +642,16 @@ export default function CrimesPage() {
                         )}
                         <div className="flex justify-between text-[10px] text-zinc-400 dark:text-zinc-500">
                           <span className="flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" /> Success ({selectedCrime.attempts.success})
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />{" "}
+                            Success ({selectedCrime.attempts.success})
                           </span>
                           <span className="flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" /> Fail ({selectedCrime.attempts.fail})
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" />{" "}
+                            Fail ({selectedCrime.attempts.fail})
                           </span>
                           <span className="flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-rose-500 inline-block" /> Crit Fail ({selectedCrime.attempts.critical_fail})
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-500 inline-block" />{" "}
+                            Crit Fail ({selectedCrime.attempts.critical_fail})
                           </span>
                         </div>
                       </div>
@@ -547,7 +661,8 @@ export default function CrimesPage() {
                         <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 flex justify-between">
                           <span>Unique Achievements</span>
                           <span>
-                            {selectedCrime.uniques.length} / {selectedCrime.unique_outcomes_count} Found
+                            {selectedCrime.uniques.length} /{" "}
+                            {selectedCrime.unique_outcomes_count} Found
                           </span>
                         </div>
                         <div className="w-full bg-zinc-100 dark:bg-zinc-900 rounded-full h-2">
@@ -556,14 +671,16 @@ export default function CrimesPage() {
                             style={{
                               width: `${
                                 selectedCrime.unique_outcomes_count > 0
-                                  ? (selectedCrime.uniques.length / selectedCrime.unique_outcomes_count) * 100
+                                  ? (selectedCrime.uniques.length /
+                                      selectedCrime.unique_outcomes_count) *
+                                    100
                                   : 0
                               }%`,
                             }}
                           />
                         </div>
                         {selectedCrime.uniques.length > 0 && (
-                          <div className="max-h-[100px] overflow-y-auto border border-zinc-200/50 dark:border-zinc-800/50 rounded-lg p-2 bg-white/30 dark:bg-zinc-950/20">
+                          <div className="max-h-25 overflow-y-auto border border-zinc-200/50 dark:border-zinc-800/50 rounded-lg p-2 bg-white/30 dark:bg-zinc-950/20">
                             <div className="grid grid-cols-5 gap-1">
                               {selectedCrime.uniques.map((unique) => (
                                 <div
@@ -581,27 +698,44 @@ export default function CrimesPage() {
 
                       {/* Item Payouts breakdown */}
                       <div className="space-y-2">
-                        <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Item Rewards Earned</span>
+                        <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                          Item Rewards Earned
+                        </span>
                         {selectedCrime.rewards.items.length > 0 ? (
                           <div className="space-y-2">
                             <div className="border border-zinc-200/50 dark:border-zinc-800/50 rounded-lg overflow-hidden">
                               <Table>
                                 <TableHeader className="bg-zinc-50 dark:bg-zinc-900/50">
                                   <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-900">
-                                    <TableHead className="py-1 text-[10px] h-7">Item</TableHead>
-                                    <TableHead className="py-1 text-right text-[10px] h-7">Qty</TableHead>
-                                    <TableHead className="py-1 text-right text-[10px] h-7">Est. Value</TableHead>
+                                    <TableHead className="py-1 text-[10px] h-7">
+                                      Item
+                                    </TableHead>
+                                    <TableHead className="py-1 text-right text-[10px] h-7">
+                                      Qty
+                                    </TableHead>
+                                    <TableHead className="py-1 text-right text-[10px] h-7">
+                                      Est. Value
+                                    </TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {selectedCrime.rewards.items
                                     .slice(itemsPage * 5, (itemsPage + 1) * 5)
                                     .map((item) => (
-                                      <TableRow key={item.id} className="hover:bg-transparent border-zinc-100 dark:border-zinc-900/40">
-                                        <TableCell className="py-1.5 text-xs font-medium">{item.name}</TableCell>
-                                        <TableCell className="py-1.5 text-right font-mono text-xs text-zinc-500">x{item.amount}</TableCell>
+                                      <TableRow
+                                        key={item.id}
+                                        className="hover:bg-transparent border-zinc-100 dark:border-zinc-900/40"
+                                      >
+                                        <TableCell className="py-1.5 text-xs font-medium">
+                                          {item.name}
+                                        </TableCell>
+                                        <TableCell className="py-1.5 text-right font-mono text-xs text-zinc-500">
+                                          x{item.amount}
+                                        </TableCell>
                                         <TableCell className="py-1.5 text-right font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                          {formatShortCurrency(item.total_value)}
+                                          {formatShortCurrency(
+                                            item.total_value,
+                                          )}
                                         </TableCell>
                                       </TableRow>
                                     ))}
@@ -610,18 +744,38 @@ export default function CrimesPage() {
                             </div>
                             {selectedCrime.rewards.items.length > 5 && (
                               <div className="flex items-center justify-between text-[10px] px-1 text-zinc-500">
-                                <span>Page {itemsPage + 1} of {Math.ceil(selectedCrime.rewards.items.length / 5)}</span>
+                                <span>
+                                  Page {itemsPage + 1} of{" "}
+                                  {Math.ceil(
+                                    selectedCrime.rewards.items.length / 5,
+                                  )}
+                                </span>
                                 <div className="flex gap-2">
                                   <button
-                                    onClick={() => setItemsPage(p => Math.max(0, p - 1))}
+                                    onClick={() =>
+                                      setItemsPage((p) => Math.max(0, p - 1))
+                                    }
                                     disabled={itemsPage === 0}
                                     className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 disabled:opacity-40 cursor-pointer transition hover:bg-zinc-200 dark:hover:bg-zinc-800"
                                   >
                                     Prev
                                   </button>
                                   <button
-                                    onClick={() => setItemsPage(p => Math.min(Math.ceil(selectedCrime.rewards.items.length / 5) - 1, p + 1))}
-                                    disabled={(itemsPage + 1) * 5 >= selectedCrime.rewards.items.length}
+                                    onClick={() =>
+                                      setItemsPage((p) =>
+                                        Math.min(
+                                          Math.ceil(
+                                            selectedCrime.rewards.items.length /
+                                              5,
+                                          ) - 1,
+                                          p + 1,
+                                        ),
+                                      )
+                                    }
+                                    disabled={
+                                      (itemsPage + 1) * 5 >=
+                                      selectedCrime.rewards.items.length
+                                    }
                                     className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 disabled:opacity-40 cursor-pointer transition hover:bg-zinc-200 dark:hover:bg-zinc-800"
                                   >
                                     Next
@@ -640,24 +794,41 @@ export default function CrimesPage() {
                       {/* Subcrimes Table */}
                       {selectedCrime.attempts.subcrimes.length > 0 && (
                         <div className="space-y-2">
-                          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Subcrimes Details</span>
+                          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                            Subcrimes Details
+                          </span>
                           <div className="space-y-2">
                             <div className="border border-zinc-200/50 dark:border-zinc-800/50 rounded-lg overflow-hidden">
                               <Table>
                                 <TableHeader className="bg-zinc-50 dark:bg-zinc-900/50">
                                   <TableRow className="hover:bg-transparent border-zinc-100 dark:border-zinc-900">
-                                    <TableHead className="py-1 text-[10px] h-7">Subcrime</TableHead>
-                                    <TableHead className="py-1 text-right text-[10px] h-7">Attempts</TableHead>
-                                    <TableHead className="py-1 text-right text-[10px] h-7">Success %</TableHead>
+                                    <TableHead className="py-1 text-[10px] h-7">
+                                      Subcrime
+                                    </TableHead>
+                                    <TableHead className="py-1 text-right text-[10px] h-7">
+                                      Attempts
+                                    </TableHead>
+                                    <TableHead className="py-1 text-right text-[10px] h-7">
+                                      Success %
+                                    </TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {selectedCrime.attempts.subcrimes
-                                    .slice(subcrimesPage * 5, (subcrimesPage + 1) * 5)
+                                    .slice(
+                                      subcrimesPage * 5,
+                                      (subcrimesPage + 1) * 5,
+                                    )
                                     .map((sub) => {
-                                      const subRate = sub.total > 0 ? (sub.success / sub.total) * 100 : 0;
+                                      const subRate =
+                                        sub.total > 0
+                                          ? (sub.success / sub.total) * 100
+                                          : 0;
                                       return (
-                                        <TableRow key={sub.id} className="hover:bg-transparent border-zinc-100 dark:border-zinc-900/40">
+                                        <TableRow
+                                          key={sub.id}
+                                          className="hover:bg-transparent border-zinc-100 dark:border-zinc-900/40"
+                                        >
                                           <TableCell className="py-1.5 text-xs font-medium">
                                             {sub.name || `Subcrime #${sub.id}`}
                                             {sub.nerve_cost ? (
@@ -666,7 +837,9 @@ export default function CrimesPage() {
                                               </span>
                                             ) : null}
                                           </TableCell>
-                                          <TableCell className="py-1.5 text-right font-mono text-xs text-zinc-500">{sub.total.toLocaleString()}</TableCell>
+                                          <TableCell className="py-1.5 text-right font-mono text-xs text-zinc-500">
+                                            {sub.total.toLocaleString()}
+                                          </TableCell>
                                           <TableCell className="py-1.5 text-right font-mono text-xs font-semibold">
                                             {subRate.toFixed(1)}%
                                           </TableCell>
@@ -678,18 +851,40 @@ export default function CrimesPage() {
                             </div>
                             {selectedCrime.attempts.subcrimes.length > 5 && (
                               <div className="flex items-center justify-between text-[10px] px-1 text-zinc-500">
-                                <span>Page {subcrimesPage + 1} of {Math.ceil(selectedCrime.attempts.subcrimes.length / 5)}</span>
+                                <span>
+                                  Page {subcrimesPage + 1} of{" "}
+                                  {Math.ceil(
+                                    selectedCrime.attempts.subcrimes.length / 5,
+                                  )}
+                                </span>
                                 <div className="flex gap-2">
                                   <button
-                                    onClick={() => setSubcrimesPage(p => Math.max(0, p - 1))}
+                                    onClick={() =>
+                                      setSubcrimesPage((p) =>
+                                        Math.max(0, p - 1),
+                                      )
+                                    }
                                     disabled={subcrimesPage === 0}
                                     className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 disabled:opacity-40 cursor-pointer transition hover:bg-zinc-200 dark:hover:bg-zinc-800"
                                   >
                                     Prev
                                   </button>
                                   <button
-                                    onClick={() => setSubcrimesPage(p => Math.min(Math.ceil(selectedCrime.attempts.subcrimes.length / 5) - 1, p + 1))}
-                                    disabled={(subcrimesPage + 1) * 5 >= selectedCrime.attempts.subcrimes.length}
+                                    onClick={() =>
+                                      setSubcrimesPage((p) =>
+                                        Math.min(
+                                          Math.ceil(
+                                            selectedCrime.attempts.subcrimes
+                                              .length / 5,
+                                          ) - 1,
+                                          p + 1,
+                                        ),
+                                      )
+                                    }
+                                    disabled={
+                                      (subcrimesPage + 1) * 5 >=
+                                      selectedCrime.attempts.subcrimes.length
+                                    }
                                     className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 disabled:opacity-40 cursor-pointer transition hover:bg-zinc-200 dark:hover:bg-zinc-800"
                                   >
                                     Next
@@ -703,8 +898,22 @@ export default function CrimesPage() {
                     </CardContent>
 
                     <div className="p-4 border-t border-zinc-100 dark:border-zinc-900 bg-zinc-50/50 dark:bg-zinc-900/20 text-[10px] text-zinc-400 dark:text-zinc-500 flex justify-between shrink-0">
-                      <span>Nerve Cost: {selectedCrime.nerve_spent > 0 ? (selectedCrime.nerve_spent / selectedCrime.attempts.total).toFixed(1) : "0"} per commit</span>
-                      <span>Total Payout: {formatCurrency(selectedCrime.profitability.total_profit)}</span>
+                      <span>
+                        Nerve Cost:{" "}
+                        {selectedCrime.nerve_spent > 0
+                          ? (
+                              selectedCrime.nerve_spent /
+                              selectedCrime.attempts.total
+                            ).toFixed(1)
+                          : "0"}{" "}
+                        per commit
+                      </span>
+                      <span>
+                        Total Payout:{" "}
+                        {formatCurrency(
+                          selectedCrime.profitability.total_profit,
+                        )}
+                      </span>
                     </div>
                   </Card>
                 </motion.div>
@@ -717,10 +926,15 @@ export default function CrimesPage() {
             {/* Efficiency Chart */}
             <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-bold font-heading">Nerve Efficiency</CardTitle>
-                <CardDescription>Average profit earned per single Nerve spent (higher is better).</CardDescription>
+                <CardTitle className="text-lg font-bold font-heading">
+                  Nerve Efficiency
+                </CardTitle>
+                <CardDescription>
+                  Average profit earned per single Nerve spent (higher is
+                  better).
+                </CardDescription>
               </CardHeader>
-              <CardContent className="h-[360px]">
+              <CardContent className="h-90">
                 <ChartContainer
                   config={{
                     profit_per_nerve: {
@@ -731,12 +945,36 @@ export default function CrimesPage() {
                   className="h-full w-full"
                 >
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" className="dark:stroke-zinc-800" />
-                      <XAxis dataKey="name" stroke="#888888" fontSize={11} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#888888" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
+                    <BarChart
+                      data={chartData}
+                      margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#e4e4e7"
+                        className="dark:stroke-zinc-800"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        stroke="#888888"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        stroke="#888888"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => `$${v}`}
+                      />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="profit_per_nerve" fill="var(--color-profit_per_nerve)" radius={[4, 4, 0, 0]} />
+                      <Bar
+                        dataKey="profit_per_nerve"
+                        fill="var(--color-profit_per_nerve)"
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
@@ -746,10 +984,15 @@ export default function CrimesPage() {
             {/* Total Profit Breakdown */}
             <Card className="border-zinc-200 dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/50 backdrop-blur shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-bold font-heading">Profit Source Comparison</CardTitle>
-                <CardDescription>Comparison of Cash payout vs estimated Market Value of items rewarded.</CardDescription>
+                <CardTitle className="text-lg font-bold font-heading">
+                  Profit Source Comparison
+                </CardTitle>
+                <CardDescription>
+                  Comparison of Cash payout vs estimated Market Value of items
+                  rewarded.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="h-[360px]">
+              <CardContent className="h-90">
                 <ChartContainer
                   config={{
                     cash_profit: {
@@ -764,9 +1007,24 @@ export default function CrimesPage() {
                   className="h-full w-full"
                 >
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 20, right: 10, left: 15, bottom: 20 }} stackOffset="sign">
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" className="dark:stroke-zinc-800" />
-                      <XAxis dataKey="name" stroke="#888888" fontSize={11} tickLine={false} axisLine={false} />
+                    <BarChart
+                      data={chartData}
+                      margin={{ top: 20, right: 10, left: 15, bottom: 20 }}
+                      stackOffset="sign"
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#e4e4e7"
+                        className="dark:stroke-zinc-800"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        stroke="#888888"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                      />
                       <YAxis
                         stroke="#888888"
                         fontSize={11}
@@ -779,8 +1037,17 @@ export default function CrimesPage() {
                         }}
                       />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="cash_profit" fill="var(--color-cash_profit)" stackId="a" />
-                      <Bar dataKey="items_profit" fill="var(--color-items_profit)" radius={[4, 4, 0, 0]} stackId="a" />
+                      <Bar
+                        dataKey="cash_profit"
+                        fill="var(--color-cash_profit)"
+                        stackId="a"
+                      />
+                      <Bar
+                        dataKey="items_profit"
+                        fill="var(--color-items_profit)"
+                        radius={[4, 4, 0, 0]}
+                        stackId="a"
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
@@ -792,10 +1059,14 @@ export default function CrimesPage() {
         {/* Footer Sync Date */}
         <div className="flex justify-between items-center text-xs text-zinc-400 dark:text-zinc-500">
           <span>
-            {syncStatus.lastSyncAt ? `Last synced: ${new Date(syncStatus.lastSyncAt).toLocaleString()}` : "Never synced"}
+            {syncStatus.lastSyncAt
+              ? `Last synced: ${new Date(syncStatus.lastSyncAt).toLocaleString()}`
+              : "Never synced"}
           </span>
           <span>
-            {syncStatus.nextRunAt ? `Next scheduled sync: ${new Date(syncStatus.nextRunAt).toLocaleString()}` : "No scheduled sync"}
+            {syncStatus.nextRunAt
+              ? `Next scheduled sync: ${new Date(syncStatus.nextRunAt).toLocaleString()}`
+              : "No scheduled sync"}
           </span>
         </div>
       </div>

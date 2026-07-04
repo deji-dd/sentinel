@@ -4,16 +4,11 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  TrendingUp,
   Percent,
   Coins,
-  ArrowUpRight,
   Gift,
   AlertCircle,
-  Award,
   CircleDollarSign,
-  ChevronRight,
-  Plus
 } from "lucide-react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import {
@@ -119,13 +114,13 @@ export default function PortfolioPage() {
   const [data, setData] = useState<PortfolioData | null>(null);
   const [payouts, setPayouts] = useState<StockBenefitPayout[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Sorting and Filtering
   const [sortBy, setSortBy] = useState<"apr" | "cost" | "progress">("apr");
   const [filterTab, setFilterTab] = useState<"all" | "active" | "locked">("all");
-  const [timeframe, setTimeframe] = useState<"daily" | "monthly" | "yearly">("daily");
+  const [timeframe, setTimeframe] = useState<"daily" | "monthly" | "yearly">("yearly");
 
   const { setSyncOptions, setLastSyncedText } = useSync();
 
@@ -201,6 +196,7 @@ export default function PortfolioPage() {
       setSyncOptions(null);
       setLastSyncedText("");
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setSyncOptions, setLastSyncedText]);
 
   useEffect(() => {
@@ -212,6 +208,7 @@ export default function PortfolioPage() {
   }, [data, setLastSyncedText]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
   }, []);
 
@@ -280,8 +277,9 @@ export default function PortfolioPage() {
     stockPayouts.forEach(p => {
       try {
         const details = JSON.parse(p.item_details || "{}");
-        Object.entries(details).forEach(([name, info]: any) => {
-          detailParts.push(`${info.quantity}x ${name}`);
+        Object.entries(details).forEach(([name, info]) => {
+          const quantity = (info as { quantity?: number })?.quantity ?? 0;
+          detailParts.push(`${quantity}x ${name}`);
         });
       } catch {}
     });
@@ -387,7 +385,7 @@ export default function PortfolioPage() {
 
         {/* Filters & Control Row */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-zinc-200 dark:border-zinc-900 pt-6">
-          <Tabs value={filterTab} onValueChange={(val: any) => setFilterTab(val)} className="w-full sm:w-auto">
+          <Tabs value={filterTab} onValueChange={(val: string) => setFilterTab(val as typeof filterTab)} className="w-full sm:w-auto">
             <TabsList className="bg-zinc-100 dark:bg-zinc-900">
               <TabsTrigger value="all" className="text-xs font-semibold">All Blocks</TabsTrigger>
               <TabsTrigger value="active" className="text-xs font-semibold">Active ({activeBenefits.length})</TabsTrigger>
@@ -399,7 +397,7 @@ export default function PortfolioPage() {
             <span className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold">Sort by:</span>
             <select
               value={sortBy}
-              onChange={(e: any) => setSortBy(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSortBy(e.target.value as typeof sortBy)}
               className="text-xs font-semibold bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 focus:outline-none cursor-pointer"
             >
               <option value="apr">Dividend Yield (APR)</option>
@@ -474,37 +472,50 @@ export default function PortfolioPage() {
                     <CardContent className="flex-1 flex flex-col justify-between space-y-4">
                       {/* Return Rates details */}
                       <div className="bg-zinc-50 dark:bg-zinc-900/60 rounded-xl p-3 flex items-center justify-between border border-zinc-100 dark:border-zinc-900">
-                        <div>
-                          <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
-                            {timeframe === "daily" ? "Daily Yield" : timeframe === "monthly" ? "Monthly Yield" : "Yield / APR"}
-                          </p>
-                          <p className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
-                            {(
-                              timeframe === "daily" 
-                                ? benefit.apr / 365 
-                                : timeframe === "monthly" 
-                                ? benefit.apr / 12 
-                                : benefit.apr
-                            ).toFixed(timeframe === "yearly" ? 2 : 4)}%{" "}
-                            <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-normal">
-                              {timeframe === "daily" ? "Daily" : timeframe === "monthly" ? "Monthly" : "APR"}
+                        {benefit.annual_payout_value === 0 ? (
+                          <div className="flex items-center justify-between w-full py-1">
+                            <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">
+                              Yield Valuation
                             </span>
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
-                            {timeframe === "daily" ? "Est. Daily Value" : timeframe === "monthly" ? "Est. Monthly Value" : "Est. Annual Value"}
-                          </p>
-                          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                            {formatCurrency(
-                              timeframe === "daily" 
-                                ? benefit.annual_payout_value / 365 
-                                : timeframe === "monthly" 
-                                ? benefit.annual_payout_value / 12 
-                                : benefit.annual_payout_value
-                            )}
-                          </p>
-                        </div>
+                            <Badge className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-none font-bold text-[10px] uppercase">
+                              {["MCS", "MSG", "PRT"].includes(benefit.acronym) ? "Stat Payouts" : "Passive Block"}
+                            </Badge>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
+                                {timeframe === "daily" ? "Daily Yield" : timeframe === "monthly" ? "Monthly Yield" : "Yield / APR"}
+                              </p>
+                              <p className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                                {(
+                                  timeframe === "daily" 
+                                    ? benefit.apr / 365 
+                                    : timeframe === "monthly" 
+                                    ? benefit.apr / 12 
+                                    : benefit.apr
+                                ).toFixed(timeframe === "yearly" ? 2 : 4)}%{" "}
+                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-normal">
+                                  {timeframe === "daily" ? "Daily" : timeframe === "monthly" ? "Monthly" : "APR"}
+                                </span>
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider">
+                                {timeframe === "daily" ? "Est. Daily Value" : timeframe === "monthly" ? "Est. Monthly Value" : "Est. Annual Value"}
+                              </p>
+                              <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                                {formatCurrency(
+                                  timeframe === "daily" 
+                                    ? benefit.annual_payout_value / 365 
+                                    : timeframe === "monthly" 
+                                    ? benefit.annual_payout_value / 12 
+                                    : benefit.annual_payout_value
+                                )}
+                              </p>
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       {/* Benefit payout description */}
@@ -557,7 +568,7 @@ export default function PortfolioPage() {
                             </span>
                           )}
                         </div>
-                        {hist.totalVal > 0 ? (
+                        {hist.detailStr ? (
                           <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug line-clamp-1 italic">
                             Gotten: {hist.detailStr}
                           </p>

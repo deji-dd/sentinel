@@ -11,7 +11,6 @@ import {
 } from "./daily-summary.js";
 
 import { db } from "../lib/db-client.js";
-import { TABLE_NAMES } from "@sentinel/shared";
 
 const COLORS = {
   positive: 0x43b581, // Green

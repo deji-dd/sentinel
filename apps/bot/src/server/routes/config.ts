@@ -2732,42 +2732,52 @@ configRouter.get(
         : 150;
       const avgHappy = maxHappy; // Use player maximum happy as training baseline
 
-      // Average daily energy
-      const fourteenDaysAgo = Math.floor(Date.now() / 1000) - 14 * 24 * 60 * 60;
-      const recentEnergy = await db
+      // 4. Fetch daily history for charts based on timeframe (7d, 30d, 90d, or all)
+      const timeframe =
+        typeof req.query.timeframe === "string"
+          ? req.query.timeframe.toLowerCase()
+          : "30d";
+      let daysLimit = 30;
+      if (timeframe === "7d") daysLimit = 7;
+      else if (timeframe === "90d") daysLimit = 90;
+      else if (timeframe === "all") daysLimit = 3650; // 10 years
+
+      let daysAgoTimestamp =
+        Math.floor(Date.now() / 1000) - daysLimit * 24 * 60 * 60;
+      if (timeframe === "all") {
+        daysAgoTimestamp = 0; // fetch all records
+      }
+
+      // Average daily energy within timeframe
+      const timeframeEnergy = await db
         .selectFrom("sentinel_gym_train_logs" as any)
         .select(db.fn.sum("energy").as("total_energy"))
-        .where("timestamp", ">=", fourteenDaysAgo)
+        .where("timestamp", ">=", daysAgoTimestamp)
         .executeTakeFirst();
 
-      const totalEnergy = parseFloat(recentEnergy?.total_energy as string) || 0;
-      let avgDailyEnergy = totalEnergy / 14;
+      const totalEnergy = parseFloat(timeframeEnergy?.total_energy as string) || 0;
+      
+      const firstLog = await db
+        .selectFrom("sentinel_gym_train_logs" as any)
+        .select("timestamp")
+        .orderBy("timestamp", "asc")
+        .limit(1)
+        .executeTakeFirst();
 
-      if (avgDailyEnergy < 50) {
-        // Calculate avg over actual log range if data spans less than 14 days
-        const firstLog = await db
-          .selectFrom("sentinel_gym_train_logs" as any)
-          .select("timestamp")
-          .orderBy("timestamp", "asc")
-          .limit(1)
-          .executeTakeFirst();
-
-        if (firstLog) {
-          const daysSpan = Math.max(
-            1,
-            Math.ceil(
-              (Date.now() / 1000 - Number(firstLog.timestamp)) / (24 * 60 * 60),
-            ),
-          );
-          const allTimeEnergy = await db
-            .selectFrom("sentinel_gym_train_logs" as any)
-            .select(db.fn.sum("energy").as("total_energy"))
-            .executeTakeFirst();
-          const totalAllTimeEnergy =
-            parseFloat(allTimeEnergy?.total_energy as string) || 0;
-          avgDailyEnergy = totalAllTimeEnergy / daysSpan;
+      let actualDays = daysLimit;
+      if (firstLog) {
+        const spanDays = Math.max(
+          1,
+          Math.ceil(
+            (Date.now() / 1000 - Number(firstLog.timestamp)) / (24 * 60 * 60),
+          ),
+        );
+        if (timeframe === "all" || spanDays < daysLimit) {
+          actualDays = spanDays;
         }
       }
+
+      let avgDailyEnergy = totalEnergy / actualDays;
 
       if (avgDailyEnergy < 50) {
         avgDailyEnergy = 250; // default to standard active player training
@@ -2802,22 +2812,6 @@ configRouter.get(
         defense: totalCount > 0 ? distCounts.defense / totalCount : 0.25,
         dexterity: totalCount > 0 ? distCounts.dexterity / totalCount : 0.25,
       };
-
-      // 4. Fetch daily history for charts based on timeframe (7d, 30d, 90d, or all)
-      const timeframe =
-        typeof req.query.timeframe === "string"
-          ? req.query.timeframe.toLowerCase()
-          : "30d";
-      let daysLimit = 30;
-      if (timeframe === "7d") daysLimit = 7;
-      else if (timeframe === "90d") daysLimit = 90;
-      else if (timeframe === "all") daysLimit = 3650; // 10 years
-
-      let daysAgoTimestamp =
-        Math.floor(Date.now() / 1000) - daysLimit * 24 * 60 * 60;
-      if (timeframe === "all") {
-        daysAgoTimestamp = 0; // fetch all records
-      }
 
       const dailyHistoryLogs = await db
         .selectFrom("sentinel_gym_train_logs" as any)
@@ -2974,6 +2968,183 @@ configRouter.get(
         };
       });
 
+      // 8. Expected Gym Gains Per Energy
+      const expectedGainPerEnergy: Record<string, number> = {};
+      for (const key of statsKeys) {
+        const currentVal = statsData[key];
+        const baseGymMult = activeGym[key] || 20;
+        const perkPct = recs.factionPerks[key] || 0;
+        const gymMult = (baseGymMult / 10) * (1 + perkPct / 100);
+        
+        const happyVal = Math.max(1, avgHappy || 5000);
+        const A = 1.15 * gymMult * 10 * (3.48e-7 * Math.log(happyVal) + 3.09e-6);
+        const B = 1.15 * gymMult * 10 * (6.83e-5 * happyVal - 0.03);
+        
+        const gainPer10E = A * currentVal + B;
+        expectedGainPerEnergy[key] = Math.max(0.01, gainPer10E / 10);
+      }
+
+      // 9. Fetch booster prices from Torn Items DB
+      const boosterNames = [
+        "Dumbbells",
+        "Skateboard",
+        "Boxing Gloves",
+        "Parachute",
+        "Feathery Hotel Coupon",
+        "Can of Munster",
+        "Can of Santa Shooters",
+        "Can of Red Cow",
+        "Can of Rockstar Rudolph",
+        "Can of Taurine Elite",
+        "Can of X-MASS"
+      ];
+      
+      const dbBoosterItems = await db
+        .selectFrom("sentinel_torn_items")
+        .select(["name", "value"])
+        .where("name", "in", boosterNames)
+        .execute()
+        .catch(() => []);
+        
+      const boosterPriceMap = new Map<string, number>();
+      for (const item of dbBoosterItems) {
+        boosterPriceMap.set(item.name.toLowerCase(), Number(item.value || 0));
+      }
+
+      const getAvgPrice = (names: string[], fallback: number): number => {
+        let sum = 0;
+        let count = 0;
+        for (const name of names) {
+          const val = boosterPriceMap.get(name.toLowerCase());
+          if (val && val > 0) {
+            sum += val;
+            count++;
+          }
+        }
+        return count > 0 ? sum / count : fallback;
+      };
+
+      const seNames: Record<string, string> = {
+        strength: "dumbbells",
+        speed: "skateboard",
+        defense: "boxing gloves",
+        dexterity: "parachute"
+      };
+
+      const boosterOptimization: Record<string, any[]> = {};
+      
+      for (const key of statsKeys) {
+        const currentVal = statsData[key];
+        const gainPerE = expectedGainPerEnergy[key];
+        
+        // A. Stat Enhancer (SE)
+        const seItemName = seNames[key];
+        const sePrice = boosterPriceMap.get(seItemName) || 450000000;
+        const seGain = currentVal * 0.01;
+        const seEquivEnergy = seGain / gainPerE;
+        const seStatPerMillion = seGain / (sePrice / 1000000);
+        // SE consumes 6 hours of booster cooldown
+        const seEfficiencyScore = seStatPerMillion / 6;
+        const seCostPerEnergy = sePrice / seEquivEnergy;
+        
+        // B. Can 20 Energy
+        const can20Price = getAvgPrice(["can of munster", "can of santa shooters"], 2200000);
+        const can20Energy = 20 * (1 + (recs.energyDrinkBoost || 0) / 100);
+        const can20Gain = can20Energy * gainPerE;
+        const can20StatPerMillion = can20Gain / (can20Price / 1000000);
+        // Can consumes 2 hours of booster cooldown
+        const can20EfficiencyScore = can20StatPerMillion / 2;
+        const can20CostPerEnergy = can20Price / can20Energy;
+
+        // C. Can 25 Energy
+        const can25Price = getAvgPrice(["can of red cow", "can of rockstar rudolph"], 2500000);
+        const can25Energy = 25 * (1 + (recs.energyDrinkBoost || 0) / 100);
+        const can25Gain = can25Energy * gainPerE;
+        const can25StatPerMillion = can25Gain / (can25Price / 1000000);
+        // Can consumes 2 hours of booster cooldown
+        const can25EfficiencyScore = can25StatPerMillion / 2;
+        const can25CostPerEnergy = can25Price / can25Energy;
+
+        // D. Can 30 Energy
+        const can30Price = getAvgPrice(["can of taurine elite", "can of x-mass"], 3000000);
+        const can30Energy = 30 * (1 + (recs.energyDrinkBoost || 0) / 100);
+        const can30Gain = can30Energy * gainPerE;
+        const can30StatPerMillion = can30Gain / (can30Price / 1000000);
+        // Can consumes 2 hours of booster cooldown
+        const can30EfficiencyScore = can30StatPerMillion / 2;
+        const can30CostPerEnergy = can30Price / can30Energy;
+
+        // E. FHC (Refills max energy = 150 E)
+        const fhcPrice = boosterPriceMap.get("feathery hotel coupon") || 13500000;
+        const fhcGain = 150 * gainPerE;
+        const fhcStatPerMillion = fhcGain / (fhcPrice / 1000000);
+        // FHC consumes 6 hours of booster cooldown
+        const fhcEfficiencyScore = fhcStatPerMillion / 6;
+        const fhcCostPerEnergy = fhcPrice / 150;
+
+        const options = [
+          {
+            name: `${seItemName.charAt(0).toUpperCase() + seItemName.slice(1)} (SE)`,
+            type: "Stat Enhancer",
+            cost: sePrice,
+            energy: seEquivEnergy,
+            cooldown: 6,
+            stat_gained: seGain,
+            stat_per_million: seStatPerMillion,
+            efficiency_score: seEfficiencyScore,
+            cost_per_energy: seCostPerEnergy,
+          },
+          {
+            name: "Energy Can (20 E)",
+            type: "Booster Can",
+            cost: can20Price,
+            energy: can20Energy,
+            cooldown: 2,
+            stat_gained: can20Gain,
+            stat_per_million: can20StatPerMillion,
+            efficiency_score: can20EfficiencyScore,
+            cost_per_energy: can20CostPerEnergy,
+          },
+          {
+            name: "Energy Can (25 E)",
+            type: "Booster Can",
+            cost: can25Price,
+            energy: can25Energy,
+            cooldown: 2,
+            stat_gained: can25Gain,
+            stat_per_million: can25StatPerMillion,
+            efficiency_score: can25EfficiencyScore,
+            cost_per_energy: can25CostPerEnergy,
+          },
+          {
+            name: "Energy Can (30 E)",
+            type: "Booster Can",
+            cost: can30Price,
+            energy: can30Energy,
+            cooldown: 2,
+            stat_gained: can30Gain,
+            stat_per_million: can30StatPerMillion,
+            efficiency_score: can30EfficiencyScore,
+            cost_per_energy: can30CostPerEnergy,
+          },
+          {
+            name: "Feathery Hotel Coupon (150 E)",
+            type: "FHC",
+            cost: fhcPrice,
+            energy: 150,
+            cooldown: 6,
+            stat_gained: fhcGain,
+            stat_per_million: fhcStatPerMillion,
+            efficiency_score: fhcEfficiencyScore,
+            cost_per_energy: fhcCostPerEnergy,
+          }
+        ];
+
+        // Sort by efficiency_score descending
+        options.sort((a, b) => b.efficiency_score - a.efficiency_score);
+        boosterOptimization[key] = options;
+      }
+
       // Fetch 10 most recent logs
       const recentLogs = await db
         .selectFrom("sentinel_gym_train_logs" as any)
@@ -3011,6 +3182,7 @@ configRouter.get(
         projections,
         history,
         recentLogs,
+        boosterOptimization,
         syncStatus: {
           totalRecords: count,
           lastSyncAt: scheduleRow?.last_run_at || null,

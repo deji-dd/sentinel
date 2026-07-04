@@ -76,7 +76,7 @@ function parseStockPayoutLog(
   pointPrice: number,
   itemMap: Map<number, { name: string; value: number }>
 ): ParsedPayout | null {
-  const category = String(log.category || "").toLowerCase();
+  const _category = String(log.category || "").toLowerCase();
   const title = String(log.title || "").toLowerCase();
   let logData: any = {};
   try {
@@ -175,27 +175,27 @@ function parseStockPayoutLog(
 
     if (energy > 0) {
       quantity = energy;
-      value = energy * 3000;
+      value = 0;
       itemDetails["Energy"] = {
         quantity,
-        unit_price: 3000,
-        total_value: value
+        unit_price: 0,
+        total_value: 0
       };
     } else if (nerve > 0) {
       quantity = nerve;
-      value = nerve * 2500;
+      value = 0;
       itemDetails["Nerve"] = {
         quantity,
-        unit_price: 2500,
-        total_value: value
+        unit_price: 0,
+        total_value: 0
       };
     } else if (happy > 0) {
       quantity = happy;
-      value = happy * 500;
+      value = 0;
       itemDetails["Happiness"] = {
         quantity,
-        unit_price: 500,
-        total_value: value
+        unit_price: 0,
+        total_value: 0
       };
     }
   }
@@ -1255,15 +1255,12 @@ export async function syncPortfolioSnapshot(): Promise<void> {
           if (descLower.includes("six-pack")) {
             payoutValue = priceMap.get("six-pack of energy drink") || 12000000;
           } else {
-            const fhcPrice = priceMap.get("feathery hotel coupon") || 13500000;
-            payoutValue = 100 * (fhcPrice / 150);
+            payoutValue = 0;
           }
         } else if (descLower.includes("nerve")) {
-          const beerPrice = priceMap.get("bottle of beer") || 3000;
-          payoutValue = 10 * beerPrice;
+          payoutValue = 0;
         } else if (descLower.includes("happy") || descLower.includes("happiness")) {
-          const edvdPrice = priceMap.get("erotic dvd") || 2800000;
-          payoutValue = 1000 * (edvdPrice / 2500);
+          payoutValue = 0;
         } else if (descLower.includes("lawyer's business card")) {
           payoutValue = priceMap.get("lawyer's business card") || 500000;
         } else if (descLower.includes("medical supplies")) {
