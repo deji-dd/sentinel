@@ -338,12 +338,20 @@ financeRouter.get("/daily-snapshots", async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Forbidden: Owner access only" });
     }
 
-    const snapshots = await db
+    const limitQuery = req.query.limit ? Number(req.query.limit) : 30;
+    let query = db
       .selectFrom("sentinel_daily_finance_snapshots" as any)
       .selectAll()
-      .orderBy("date", "asc")
-      .limit(30)
-      .execute();
+      .orderBy("date", "desc");
+
+    if (limitQuery > 0) {
+      query = query.limit(limitQuery);
+    }
+
+    const snapshots = await query.execute();
+    
+    // Sort in ascending order of date for chronological charting
+    snapshots.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     res.json(snapshots);
   } catch (error) {

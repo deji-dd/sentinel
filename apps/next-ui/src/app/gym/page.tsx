@@ -38,7 +38,6 @@ import {
   Target,
   Dumbbell,
   TrendingUp,
-  Info,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -348,35 +347,32 @@ export default function GymPage() {
       textColor: "text-indigo-600 dark:text-indigo-400",
       description:
         steadfastPct > 0
-          ? `+${steadfastPct}% gains (perks active)`
+          ? `+${steadfastPct}% gains`
           : "No active Faction Steadfast perk for this stat",
     },
     {
-      title: "Total Attributes",
+      title: "Total Stats",
       value: formatShortNumber(data.currentStats.total),
       icon: Dumbbell,
       iconColor: "text-amber-500",
       bgClass: "bg-amber-500/10",
       textColor: "text-amber-600 dark:text-amber-400",
-      description: "Sum of Strength, Speed, Defense, and Dexterity",
     },
     {
-      title: "Daily Avg. Gain",
+      title: "Avg. Gain",
       value: `+${formatShortNumber(dailyAvgStatGain)}`,
       icon: TrendingUp,
       iconColor: "text-emerald-500",
       bgClass: "bg-emerald-500/10",
       textColor: "text-emerald-600 dark:text-emerald-400",
-      description: `Daily avg trained stats in this ${timeframe} timeframe`,
     },
     {
-      title: "Avg. Daily Energy",
+      title: "Avg. Energy",
       value: `${formatNumber(data.avgDailyEnergy)} E`,
       icon: Flame,
       iconColor: "text-rose-500",
       bgClass: "bg-rose-500/10",
       textColor: "text-rose-600 dark:text-rose-400",
-      description: `Energy trained per day in this ${timeframe} timeframe`,
     },
   ];
 
@@ -389,10 +385,6 @@ export default function GymPage() {
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">
               Gym Analytics
             </h1>
-            <p className="text-zinc-500 dark:text-zinc-400 text-xs">
-              Track your gym gains, analyze training efficiency, and get optimal
-              gym recommendations.
-            </p>
           </div>
 
           {/* Timeframe selector */}
@@ -401,11 +393,10 @@ export default function GymPage() {
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                  timeframe === tf
-                    ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-200"
-                }`}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${timeframe === tf
+                  ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-200"
+                  }`}
               >
                 {tf.toUpperCase()}
               </button>
@@ -500,9 +491,6 @@ export default function GymPage() {
                 <CardTitle className="text-lg font-bold font-heading">
                   Training Gains Progression
                 </CardTitle>
-                <CardDescription>
-                  Daily stat increases mapped across attributes.
-                </CardDescription>
               </div>
             </CardHeader>
             <CardContent>
@@ -678,9 +666,6 @@ export default function GymPage() {
               <CardTitle className="text-lg font-bold font-heading">
                 Recent Training Logs
               </CardTitle>
-              <CardDescription>
-                Direct synchronization records from Torn API.
-              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-hidden">
@@ -752,13 +737,8 @@ export default function GymPage() {
             <div>
               <CardTitle className="text-lg font-bold font-heading flex items-center gap-2">
                 <Zap className="h-5 w-5 text-amber-500 animate-pulse" />
-                Booster Training Efficiency Optimizer
+                Booster Training Efficiency
               </CardTitle>
-              <CardDescription>
-                Compare the returns of using Stat Enhancers (SEs), energy cans,
-                and Feathery Hotel Coupons (FHC) against normal gym training
-                based on current item market values.
-              </CardDescription>
             </div>
 
             {/* Stat selector tabs */}
@@ -768,11 +748,10 @@ export default function GymPage() {
                   <button
                     key={st}
                     onClick={() => setOptimizerStat(st)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer capitalize ${
-                      optimizerStat === st
-                        ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm"
-                        : "text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-200"
-                    }`}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer capitalize ${optimizerStat === st
+                      ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-200"
+                      }`}
                   >
                     {st}
                   </button>
@@ -781,27 +760,6 @@ export default function GymPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Explainer callout */}
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                <Info className="h-4 w-4 text-blue-500" />
-                <span>How is this calculated?</span>
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                We calculate your expected gym gain per energy using the
-                official Torn formula (factoring in your active gym{" "}
-                <strong>{data.activeGym}</strong>, Steadfast perks, and average
-                happiness). Cans and FHCs give fixed energy (FHC is scaled to
-                your 150 E cap). Stat Enhancers (SEs) increase your current stat
-                by <strong>1%</strong>.<strong> Equivalent Energy</strong> is
-                the raw energy required in a normal gym to match that
-                booster&apos;s stat gain. The rankings below are sorted by{" "}
-                <strong>Efficiency Rating</strong> (stat gained per $1M spent
-                per booster cooldown hour) to optimize the scarce daily booster
-                limits.
-              </p>
-            </div>
-
             {/* Booster comparison table */}
             <div className="rounded-md border border-zinc-200/80 dark:border-zinc-800/80 overflow-hidden">
               {loading ? (

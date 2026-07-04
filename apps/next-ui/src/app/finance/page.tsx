@@ -196,13 +196,13 @@ export default function FinanceLedgerPage() {
   const isMobile = useIsMobile();
   const [data, setData] = useState<LedgerData | null>(null);
   const [snapshots, setSnapshots] = useState<DailySnapshot[]>([]);
+  const [timeframe, setTimeframe] = useState<"7d" | "30d" | "all">("30d");
   const [loading, setLoading] = useState(true);
   const [, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
     "pl" | "transactions" | "performance"
   >("pl");
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   const { setSyncOptions, setLastSyncedText } = useSync();
 
@@ -253,13 +253,14 @@ export default function FinanceLedgerPage() {
     setTxPage(1);
   }, [searchQuery, txFilter, txCategoryFilter]);
 
-  const fetchData = async (showToast = false) => {
+  const fetchData = async (showToast = false, chartTimeframe = timeframe) => {
     setError(null);
     if (showToast) setRefreshing(true);
     try {
+      const limit = chartTimeframe === "7d" ? 7 : chartTimeframe === "30d" ? 30 : 0;
       const [res, snapRes] = await Promise.all([
         fetch("/api/bot/finance/ledger"),
-        fetch("/api/bot/finance/daily-snapshots"),
+        fetch(`/api/bot/finance/daily-snapshots?limit=${limit}`),
       ]);
 
       if (res.ok) {
@@ -286,6 +287,10 @@ export default function FinanceLedgerPage() {
     }
   };
 
+  useEffect(() => {
+    fetchData(false, timeframe);
+  }, [timeframe]);
+
   const runSyncAction = async (target: "logs" | "portfolio") => {
     const label = target === "logs" ? "financial logs" : "portfolio assets";
     const toastId = toast.loading(`Syncing ${label} from Torn API...`);
@@ -308,31 +313,6 @@ export default function FinanceLedgerPage() {
     }
   };
 
-  const handleDebugClearToday = async () => {
-    setIsConfirmOpen(true);
-  };
-
-  const executeDebugClearToday = async () => {
-    const token = localStorage.getItem("sentinel_session_token") || "";
-    const toastId = toast.loading("Clearing today's data and triggering recalculation...");
-    try {
-      const res = await fetch("/api/bot/finance/debug-recalculate-today", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        toast.success(json.message || "Recalculation triggered successfully", { id: toastId });
-        await fetchData(false);
-      } else {
-        throw new Error(`Failed with status: ${res.status}`);
-      }
-    } catch (err: unknown) {
-      toast.error((err as Error).message || "Failed to trigger debug recalculation", { id: toastId });
-    }
-  };
   const runFixHistoryAction = async () => {
     const token = localStorage.getItem("sentinel_session_token") || "";
     const toastId = toast.loading("Recalculating and fixing database history...");
@@ -606,15 +586,6 @@ export default function FinanceLedgerPage() {
               Finance Ledger
             </h1>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDebugClearToday}
-              className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-900/50 rounded-lg transition-colors duration-150"
-            >
-              Debug: Recalculate Today
-            </button>
-          </div>
         </div>
 
         {/* Wealth Summary Cards */}
@@ -740,13 +711,26 @@ export default function FinanceLedgerPage() {
               >
                 {/* Recharts chart */}
                 <Card className="border-zinc-200/80 dark:border-zinc-800/80">
-                  <CardHeader>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                     <CardTitle className="text-lg font-bold text-zinc-950 dark:text-zinc-50">
-                      Daily Net Profit & Net Worth Trends
+                      Trends
                     </CardTitle>
-                    <CardDescription>
-                      Performance overview over the last 30 snapshots.
-                    </CardDescription>
+                    {/* Timeframe Selector */}
+                    <div className="flex bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm shrink-0">
+                      {(["7d", "30d", "all"] as const).map((tf) => (
+                        <button
+                          key={tf}
+                          onClick={() => setTimeframe(tf)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                            timeframe === tf
+                              ? "bg-white dark:bg-zinc-950 text-zinc-950 dark:text-zinc-50 shadow-sm"
+                              : "text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-200"
+                          }`}
+                        >
+                          {tf.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {snapshots.length === 0 ? (
@@ -948,13 +932,13 @@ export default function FinanceLedgerPage() {
                                   Assets Value
                                 </TableHead>
                                 <TableHead className="font-bold text-right">
-                                  Daily Inflow
+                                  Inflow
                                 </TableHead>
                                 <TableHead className="font-bold text-right">
-                                  Daily Outflow
+                                  Outflow
                                 </TableHead>
                                 <TableHead className="font-bold text-right">
-                                  Daily Net Profit
+                                  Net Profit
                                 </TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1017,7 +1001,7 @@ export default function FinanceLedgerPage() {
                       <div className="p-1 rounded bg-emerald-500/10 text-emerald-500">
                         <ArrowUpRight className="h-4 w-4" />
                       </div>
-                      Inflows (Passive & Active)
+                      Inflows
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -1107,7 +1091,7 @@ export default function FinanceLedgerPage() {
                       <div className="p-1 rounded bg-red-500/10 text-red-500">
                         <ArrowDownRight className="h-4 w-4" />
                       </div>
-                      Outflows & Consumed reserves
+                      Outflows
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -1375,84 +1359,6 @@ export default function FinanceLedgerPage() {
           </AnimatePresence>
         </div>
       </div>
-
-      <ConfirmDialog
-        isOpen={isConfirmOpen}
-        onClose={() => setIsConfirmOpen(false)}
-        onConfirm={executeDebugClearToday}
-        title="Recalculate Today's Data?"
-        description="This will clear all locally saved financial logs and daily snapshots for today, and force the logs sync worker to re-fetch and rebuild today's snapshots from scratch."
-        confirmText="Recalculate"
-      />
     </DashboardLayout>
-  );
-}
-
-interface ConfirmDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  title: string;
-  description: string;
-  confirmText?: string;
-  cancelText?: string;
-}
-
-function ConfirmDialog({
-  isOpen,
-  onClose,
-  onConfirm,
-  title,
-  description,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
-}: ConfirmDialogProps) {
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-zinc-950/40 backdrop-blur-sm"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-            className="relative w-full max-w-md overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-6 shadow-lg z-10"
-          >
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-50 font-heading">
-              {title}
-            </h3>
-            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              {description}
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-3.5 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg transition-colors cursor-pointer"
-              >
-                {cancelText}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onConfirm();
-                  onClose();
-                }}
-                className="px-3.5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
-              >
-                {confirmText}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
   );
 }

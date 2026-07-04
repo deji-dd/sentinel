@@ -292,7 +292,7 @@ export default function PortfolioPage() {
           const quantity = (info as { quantity?: number })?.quantity ?? 0;
           detailParts.push(`${quantity}x ${name}`);
         });
-      } catch {}
+      } catch { }
     });
     return {
       totalVal,
@@ -309,11 +309,8 @@ export default function PortfolioPage() {
             <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50 font-heading">
               Investments Portfolio
             </h1>
-            <p className="text-zinc-500 dark:text-zinc-400 text-sm max-w-2xl">
-              Track your stock benefit blocks, calculate real APR on held assets, plan purchases, and monitor historical dividends.
-            </p>
           </div>
-          
+
           {/* Timeframe Toggles */}
           <div className="flex bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 self-start md:self-auto shadow-sm shrink-0">
             <button
@@ -366,11 +363,11 @@ export default function PortfolioPage() {
               </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-emerald-600 dark:text-emerald-400">
                 {formatCurrency(
-                  timeframe === "daily" 
-                    ? totalAnnualYield / 365 
-                    : timeframe === "monthly" 
-                    ? totalAnnualYield / 12 
-                    : totalAnnualYield
+                  timeframe === "daily"
+                    ? totalAnnualYield / 365
+                    : timeframe === "monthly"
+                      ? totalAnnualYield / 12
+                      : totalAnnualYield
                 )}
               </CardTitle>
               <p className="text-[11px] text-zinc-400 font-semibold mt-0.5">
@@ -389,11 +386,11 @@ export default function PortfolioPage() {
               </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-indigo-600 dark:text-indigo-400">
                 {(
-                  timeframe === "daily" 
-                    ? averageApr / 365 
-                    : timeframe === "monthly" 
-                    ? averageApr / 12 
-                    : averageApr
+                  timeframe === "daily"
+                    ? averageApr / 365
+                    : timeframe === "monthly"
+                      ? averageApr / 12
+                      : averageApr
                 ).toFixed(timeframe === "yearly" ? 2 : 4)}%
               </CardTitle>
               <p className="text-[11px] text-zinc-400 font-semibold mt-0.5">
@@ -467,10 +464,9 @@ export default function PortfolioPage() {
                 >
                   <Card className="border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-950/60 shadow-sm flex flex-col h-full hover:shadow-md transition-shadow relative overflow-hidden">
                     {/* Status accent bar */}
-                    <div className={`absolute top-0 left-0 right-0 h-1 ${
-                      cardStatus === "active" ? "bg-emerald-500" :
+                    <div className={`absolute top-0 left-0 right-0 h-1 ${cardStatus === "active" ? "bg-emerald-500" :
                       cardStatus === "progressing" ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-800"
-                    }`} />
+                      }`} />
 
                     <CardHeader className="pb-3 pt-5">
                       <div className="flex items-start justify-between">
@@ -526,11 +522,11 @@ export default function PortfolioPage() {
                               </p>
                               <p className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
                                 {(
-                                  timeframe === "daily" 
-                                    ? benefit.apr / 365 
-                                    : timeframe === "monthly" 
-                                    ? benefit.apr / 12 
-                                    : benefit.apr
+                                  timeframe === "daily"
+                                    ? benefit.apr / 365
+                                    : timeframe === "monthly"
+                                      ? benefit.apr / 12
+                                      : benefit.apr
                                 ).toFixed(timeframe === "yearly" ? 2 : 4)}%{" "}
                                 <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-normal">
                                   {timeframe === "daily" ? "Daily" : timeframe === "monthly" ? "Monthly" : "APR"}
@@ -548,11 +544,11 @@ export default function PortfolioPage() {
                               </p>
                               <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
                                 {formatCurrency(
-                                  timeframe === "daily" 
-                                    ? benefit.annual_payout_value / 365 
-                                    : timeframe === "monthly" 
-                                    ? benefit.annual_payout_value / 12 
-                                    : benefit.annual_payout_value
+                                  timeframe === "daily"
+                                    ? benefit.annual_payout_value / 365
+                                    : timeframe === "monthly"
+                                      ? benefit.annual_payout_value / 12
+                                      : benefit.annual_payout_value
                                 )}
                               </p>
                             </div>
@@ -593,10 +589,9 @@ export default function PortfolioPage() {
                         })()}
                         <div className="w-full bg-zinc-100 dark:bg-zinc-900 h-1.5 rounded-full overflow-hidden">
                           <div
-                            className={`h-1.5 rounded-full transition-all duration-300 ${
-                              cardStatus === "active" ? "bg-emerald-500" :
+                            className={`h-1.5 rounded-full transition-all duration-300 ${cardStatus === "active" ? "bg-emerald-500" :
                               cardStatus === "progressing" ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-700"
-                            }`}
+                              }`}
                             style={{ width: `${benefit.progress_pct}%` }}
                           />
                         </div>
@@ -622,7 +617,7 @@ export default function PortfolioPage() {
                         const avgBuyPrice = holding?.avg_buy_price || benefit.current_price;
                         const activeCost = benefit.held_shares * avgBuyPrice;
                         const roiTillDate = activeCost > 0 ? (hist.totalVal / activeCost) * 100 : 0;
-                        
+
                         return (
                           <div className="bg-zinc-50/50 dark:bg-zinc-900/30 rounded-xl p-3 border border-dashed border-zinc-200 dark:border-zinc-800 space-y-1">
                             <div className="flex items-center justify-between">

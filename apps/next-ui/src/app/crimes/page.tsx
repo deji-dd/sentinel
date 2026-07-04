@@ -275,7 +275,7 @@ export default function CrimesPage() {
     );
   }
 
-  const { crimes, syncStatus, recommendations } = data;
+  const { crimes, recommendations } = data;
 
   // Calculate totals
   const totalProfit = crimes.reduce(
@@ -343,32 +343,26 @@ export default function CrimesPage() {
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl font-heading text-zinc-900 dark:text-zinc-50">
               Crimes Analysis
             </h1>
-            <p className="text-zinc-500 dark:text-zinc-400">
-              Aggregate and compare crime payouts to optimize your nerve
-              spending efficiency.
-            </p>
           </div>
           <div className="flex items-center gap-3">
             {/* View switcher tabs */}
             <div className="inline-flex rounded-lg p-1 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
               <button
                 onClick={() => setActiveTab("overview")}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  activeTab === "overview"
-                    ? "bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-sm"
-                    : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200"
-                }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === "overview"
+                  ? "bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-sm"
+                  : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200"
+                  }`}
               >
                 <ListCollapse className="h-3.5 w-3.5" />
                 Overview
               </button>
               <button
                 onClick={() => setActiveTab("charts")}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  activeTab === "charts"
-                    ? "bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-sm"
-                    : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200"
-                }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === "charts"
+                  ? "bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-sm"
+                  : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200"
+                  }`}
               >
                 <BarChart3 className="h-3.5 w-3.5" />
                 Charts
@@ -443,10 +437,10 @@ export default function CrimesPage() {
             </div>
             <CardHeader className="pb-2">
               <CardDescription className="text-xs uppercase tracking-wider text-zinc-500">
-                Total Resource Spent
+                Total Nerve Spent
               </CardDescription>
               <CardTitle className="text-2xl font-bold font-heading text-zinc-950 dark:text-zinc-50">
-                {totalNerveSpent.toLocaleString()} Nerve
+                {totalNerveSpent.toLocaleString()}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -495,11 +489,10 @@ export default function CrimesPage() {
                           <TableRow
                             key={crime.id}
                             onClick={() => setSelectedCrimeId(crime.id)}
-                            className={`cursor-pointer transition-all border-zinc-100 dark:border-zinc-900/60 ${
-                              isSelected
-                                ? "bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium"
-                                : "hover:bg-zinc-100/50 dark:hover:bg-zinc-900/40"
-                            }`}
+                            className={`cursor-pointer transition-all border-zinc-100 dark:border-zinc-900/60 ${isSelected
+                              ? "bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium"
+                              : "hover:bg-zinc-100/50 dark:hover:bg-zinc-900/40"
+                              }`}
                           >
                             <TableCell className="py-3">
                               <div>
@@ -517,8 +510,8 @@ export default function CrimesPage() {
                             <TableCell className="text-right py-3 font-mono text-xs">
                               {crime.attempts.total > 0
                                 ? (
-                                    crime.profitability.success_rate * 100
-                                  ).toFixed(1) + "%"
+                                  crime.profitability.success_rate * 100
+                                ).toFixed(1) + "%"
                                 : "0.0%"}
                             </TableCell>
                             <TableCell className="text-right py-3 font-mono text-xs font-semibold">
@@ -535,11 +528,10 @@ export default function CrimesPage() {
                                       ? "secondary"
                                       : "outline"
                                 }
-                                className={`font-mono text-[10px] px-2 py-0.5 ${
-                                  crime.profitability.profit_per_nerve > 2000
-                                    ? "bg-amber-600 hover:bg-amber-700 text-white"
-                                    : ""
-                                }`}
+                                className={`font-mono text-[10px] px-2 py-0.5 ${crime.profitability.profit_per_nerve > 2000
+                                  ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                  : ""
+                                  }`}
                               >
                                 {formatCurrency(
                                   crime.profitability.profit_per_nerve,
@@ -669,13 +661,12 @@ export default function CrimesPage() {
                           <div
                             className="bg-amber-500 h-2 rounded-full"
                             style={{
-                              width: `${
-                                selectedCrime.unique_outcomes_count > 0
-                                  ? (selectedCrime.uniques.length /
-                                      selectedCrime.unique_outcomes_count) *
-                                    100
-                                  : 0
-                              }%`,
+                              width: `${selectedCrime.unique_outcomes_count > 0
+                                ? (selectedCrime.uniques.length /
+                                  selectedCrime.unique_outcomes_count) *
+                                100
+                                : 0
+                                }%`,
                             }}
                           />
                         </div>
@@ -766,7 +757,7 @@ export default function CrimesPage() {
                                         Math.min(
                                           Math.ceil(
                                             selectedCrime.rewards.items.length /
-                                              5,
+                                            5,
                                           ) - 1,
                                           p + 1,
                                         ),
@@ -902,9 +893,9 @@ export default function CrimesPage() {
                         Nerve Cost:{" "}
                         {selectedCrime.nerve_spent > 0
                           ? (
-                              selectedCrime.nerve_spent /
-                              selectedCrime.attempts.total
-                            ).toFixed(1)
+                            selectedCrime.nerve_spent /
+                            selectedCrime.attempts.total
+                          ).toFixed(1)
                           : "0"}{" "}
                         per commit
                       </span>
@@ -1055,20 +1046,6 @@ export default function CrimesPage() {
             </Card>
           </div>
         )}
-
-        {/* Footer Sync Date */}
-        <div className="flex justify-between items-center text-xs text-zinc-400 dark:text-zinc-500">
-          <span>
-            {syncStatus.lastSyncAt
-              ? `Last synced: ${new Date(syncStatus.lastSyncAt).toLocaleString()}`
-              : "Never synced"}
-          </span>
-          <span>
-            {syncStatus.nextRunAt
-              ? `Next scheduled sync: ${new Date(syncStatus.nextRunAt).toLocaleString()}`
-              : "No scheduled sync"}
-          </span>
-        </div>
       </div>
     </DashboardLayout>
   );
