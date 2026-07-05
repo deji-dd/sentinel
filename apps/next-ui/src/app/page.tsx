@@ -13,10 +13,16 @@ import {
 import Link from "next/link";
 
 interface LedgerData {
-  networth: number;
-  liquid_capital: number;
-  income: { total: number };
-  expenses: { total: number };
+  pl: {
+    income: { total: number };
+    expenses: { total: number };
+  };
+  assets: {
+    total_value: number;
+    liquid: {
+      total_value: number;
+    };
+  };
 }
 
 interface GymData {
@@ -115,7 +121,7 @@ export default function Home() {
   }, []);
 
   // Calculate composite metrics
-  const totalNetworth = ledger?.networth ?? 0;
+  const totalNetworth = ledger?.assets?.total_value ?? 0;
   const totalStockAssets = portfolio?.stocks?.total_value ?? 0;
   const totalGymStats = gym?.currentStats?.total ?? 0;
   const totalCrimesCommitted = crimes?.crimes?.reduce((sum, c) => sum + (c.attempts?.total ?? 0), 0) ?? 0;
@@ -168,7 +174,7 @@ export default function Home() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-[10px] text-zinc-400 font-medium">Liquid: {formatCurrency(ledger?.liquid_capital ?? 0)}</p>
+                <p className="text-[10px] text-zinc-400 font-medium">Liquid: {formatCurrency(ledger?.assets?.liquid?.total_value ?? 0)}</p>
               </CardContent>
             </Card>
 
@@ -249,11 +255,11 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-4 bg-zinc-50/50 dark:bg-zinc-900/30 p-3 rounded-lg border border-zinc-200/40 dark:border-zinc-800/40">
                   <div>
                     <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Inflow Total</span>
-                    <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{formatCurrency(ledger?.income?.total ?? 0)}</p>
+                    <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{formatCurrency(ledger?.pl?.income?.total ?? 0)}</p>
                   </div>
                   <div>
                     <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Outflow Total</span>
-                    <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{formatCurrency(ledger?.expenses?.total ?? 0)}</p>
+                    <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">{formatCurrency(ledger?.pl?.expenses?.total ?? 0)}</p>
                   </div>
                 </div>
                 <Link

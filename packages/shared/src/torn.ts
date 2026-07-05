@@ -267,8 +267,8 @@ export class TornApiClient {
           throw error;
         }
 
-        // Backoff: 1000ms * attempt if rate limited, else 200ms * attempt
-        const delay = isRateLimit ? 1000 * attempt : 200 * attempt;
+        // Backoff: 5000ms * attempt if rate limited, else 200ms * attempt
+        const delay = isRateLimit ? 5000 * attempt : 200 * attempt;
         await new Promise((resolve) => setTimeout(resolve, delay));
       } finally {
         clearTimeout(timeoutId);

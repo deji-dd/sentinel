@@ -17,6 +17,37 @@ export interface SentinelApiKeyUserMapping {
   user_id: number;
 }
 
+export interface SentinelArmorAnalysis {
+  analysis_json: string;
+  updated_at: string;
+  user_id: string | null;
+}
+
+export interface SentinelArmorItemDetails {
+  armor: number;
+  bonus_title: string | null;
+  bonus_value: number | null;
+  item_id: number;
+  name: string;
+  quality: number;
+  rarity: string | null;
+  uid: string | null;
+  updated_at: string;
+}
+
+export interface SentinelArmorMarketListings {
+  amount: number;
+  id: string | null;
+  item_id: number;
+  listing_id: string;
+  market_type: string;
+  price: number;
+  seller_id: number | null;
+  seller_name: string | null;
+  uid: string;
+  updated_at: string;
+}
+
 export interface SentinelAssistConfig {
   assist_channel_id: string | null;
   created_at: Generated<string>;
@@ -132,6 +163,18 @@ export interface SentinelDailyFinanceSnapshots {
   net_profit: number;
   outflow: number;
   updated_at: Generated<string>;
+}
+
+export interface SentinelDailyGymSummary {
+  created_at: string;
+  date: string | null;
+  defense_gain: Generated<number>;
+  dexterity_gain: Generated<number>;
+  energy_spent: Generated<number>;
+  happy_spent: Generated<number>;
+  speed_gain: Generated<number>;
+  strength_gain: Generated<number>;
+  updated_at: string;
 }
 
 export interface SentinelDashboardSessions {
@@ -894,8 +937,11 @@ export interface SentinelUserAlerts {
 export interface SentinelUserAssets {
   asset_key: string;
   asset_type: string;
+  average_cost: Generated<number>;
   created_at: Generated<string>;
+  is_loaned: Generated<number>;
   quantity: Generated<number>;
+  uid: Generated<string>;
   updated_at: Generated<string>;
 }
 
@@ -959,6 +1005,23 @@ export interface SentinelUserData {
   player_id: Generated<number | null>;
   profile_image: string | null;
   updated_at: Generated<string>;
+}
+
+export interface SentinelUserLiabilities {
+  created_at: Generated<string>;
+  interest_rate: Generated<number>;
+  liability_id: string | null;
+  principal: number;
+  updated_at: Generated<string>;
+}
+
+export interface SentinelUserLogs {
+  category: string;
+  created_at: Generated<string>;
+  data: string;
+  log_id: string | null;
+  timestamp: number;
+  title: string;
 }
 
 export interface SentinelUsers {
@@ -1083,6 +1146,9 @@ export interface SentinelWorkerSchedules {
 
 export interface DB {
   sentinel_api_key_user_mapping: SentinelApiKeyUserMapping;
+  sentinel_armor_analysis: SentinelArmorAnalysis;
+  sentinel_armor_item_details: SentinelArmorItemDetails;
+  sentinel_armor_market_listings: SentinelArmorMarketListings;
   sentinel_assist_config: SentinelAssistConfig;
   sentinel_assist_ip_rate_limits: SentinelAssistIpRateLimits;
   sentinel_assist_script_generation_limits: SentinelAssistScriptGenerationLimits;
@@ -1092,6 +1158,7 @@ export interface DB {
   sentinel_bazaar_mug_config: SentinelBazaarMugConfig;
   sentinel_bazaar_mug_targets: SentinelBazaarMugTargets;
   sentinel_daily_finance_snapshots: SentinelDailyFinanceSnapshots;
+  sentinel_daily_gym_summary: SentinelDailyGymSummary;
   sentinel_dashboard_sessions: SentinelDashboardSessions;
   sentinel_destination_travel_times: SentinelDestinationTravelTimes;
   sentinel_faction_roles: SentinelFactionRoles;
@@ -1158,6 +1225,8 @@ export interface DB {
   sentinel_user_cooldowns: SentinelUserCooldowns;
   sentinel_user_crimes: SentinelUserCrimes;
   sentinel_user_data: SentinelUserData;
+  sentinel_user_liabilities: SentinelUserLiabilities;
+  sentinel_user_logs: SentinelUserLogs;
   sentinel_user_snapshots: SentinelUserSnapshots;
   sentinel_users: SentinelUsers;
   sentinel_verified_users: SentinelVerifiedUsers;

@@ -173,7 +173,8 @@ export async function getPersonalTrainingRecommendations(
   db: Kysely<DB>,
   userId: string,
   apiKey?: string,
-  tornApi?: TornApiClient
+  tornApi?: TornApiClient,
+  prefetchedPerks?: any
 ): Promise<TrainingRecommendationResult> {
   let energyDrinkBoost = 0;
   // 1. Fetch current battle stats from snapshots
@@ -289,10 +290,10 @@ export async function getPersonalTrainingRecommendations(
   let maxBoosterCooldownMins = 24 * 60; // default 24h
   let perkMultipliers = { strength: 1.0, speed: 1.0, defense: 1.0, dexterity: 1.0 };
 
-  if (apiKey) {
+  if (prefetchedPerks || apiKey) {
     try {
       const client = tornApi || new TornApiClient();
-      const perksResponse = await client.getRaw<any>("/user", apiKey, {
+      const perksResponse = prefetchedPerks || await client.getRaw<any>("/user", apiKey!, {
         selections: "perks",
       });
 

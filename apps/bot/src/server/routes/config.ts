@@ -2214,6 +2214,47 @@ configRouter.post("/bazaar-mug", async (req: Request, res: Response) => {
   }
 });
 
+configRouter.get("/personal/backfill-status", async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Missing session token" });
+
+  const { magicLinkService } = getServerContext(req);
+  try {
+    const session = await magicLinkService.validateSession(token, "config");
+    if (!session)
+      return res.status(401).json({ error: "Invalid or expired session" });
+
+    const schedule = await db
+      .selectFrom("sentinel_worker_schedules as s")
+      .innerJoin("sentinel_workers as w", "s.worker_id", "w.id")
+      .select(["s.metadata"])
+      .where("w.name", "=", "central_log_manager")
+      .executeTakeFirst();
+
+    let backfillComplete = false;
+    let oldestTimestamp = 0;
+    let totalPagesCrawled = 0;
+
+    if (schedule?.metadata) {
+      try {
+        const parsed = JSON.parse(schedule.metadata);
+        backfillComplete = !!parsed.backfill_complete;
+        oldestTimestamp = Number(parsed.oldest_timestamp || 0);
+        totalPagesCrawled = Number(parsed.total_pages_crawled || 0);
+      } catch {}
+    }
+
+    res.json({
+      backfill_complete: backfillComplete,
+      oldest_timestamp: oldestTimestamp,
+      total_pages_crawled: totalPagesCrawled,
+    });
+  } catch (error) {
+    console.error("[HTTP] Error fetching log backfill status:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 configRouter.get("/personal/builds", async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Missing session token" });
@@ -2634,6 +2675,25 @@ configRouter.post("/personal", async (req: Request, res: Response) => {
       )
       .execute();
 
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      let currentDir = process.cwd();
+      let workspaceRoot = currentDir;
+      while (currentDir !== path.dirname(currentDir)) {
+        if (fs.existsSync(path.join(currentDir, "pnpm-workspace.yaml"))) {
+          workspaceRoot = currentDir;
+          break;
+        }
+        currentDir = path.dirname(currentDir);
+      }
+      const triggerPath = path.join(workspaceRoot, "data", ".settings-trigger");
+      fs.writeFileSync(triggerPath, Date.now().toString(), "utf-8");
+      console.log(`[Config Router] Triggered settings reload at: ${triggerPath}`);
+    } catch (e) {
+      console.warn("[Config Router] Failed to write settings trigger:", e);
+    }
+
     // Log update to admin logging channel
     const { sendAdminSystemLog } = await import("../../lib/admin-logger.js");
     await sendAdminSystemLog(
@@ -2833,45 +2893,64 @@ configRouter.get(
         dexterity: totalCount > 0 ? distCounts.dexterity / totalCount : 0.25,
       };
 
-      const dailyHistoryLogs = await db
-        .selectFrom("sentinel_gym_train_logs" as any)
-        .select([
-          sql`date(timestamp, 'unixepoch', 'localtime')`.as("day"),
-          "stat",
-          db.fn.sum("gain").as("total_gain"),
-          db.fn.sum("energy").as("total_energy"),
-        ])
-        .where("timestamp", ">=", daysAgoTimestamp)
-        .groupBy(["day", "stat"])
-        .orderBy("day", "asc")
-        .execute();
+      let history: any[] = [];
 
-      const historyMap: Record<string, any> = {};
-      for (const log of dailyHistoryLogs) {
-        const day = String(log.day);
-        if (!historyMap[day]) {
-          historyMap[day] = {
-            day,
-            strength: 0,
-            speed: 0,
-            defense: 0,
-            dexterity: 0,
-            energy: 0,
-          };
+      if (timeframe === "all") {
+        const summaries = await db
+          .selectFrom("sentinel_daily_gym_summary" as any)
+          .selectAll()
+          .orderBy("date", "asc")
+          .execute();
+
+        history = summaries.map((row: any) => ({
+          day: row.date,
+          strength: Number(row.strength_gain || 0),
+          speed: Number(row.speed_gain || 0),
+          defense: Number(row.defense_gain || 0),
+          dexterity: Number(row.dexterity_gain || 0),
+          energy: Number(row.energy_spent || 0),
+        }));
+      } else {
+        const dailyHistoryLogs = await db
+          .selectFrom("sentinel_gym_train_logs" as any)
+          .select([
+            sql`date(timestamp, 'unixepoch', 'localtime')`.as("day"),
+            "stat",
+            db.fn.sum("gain").as("total_gain"),
+            db.fn.sum("energy").as("total_energy"),
+          ])
+          .where("timestamp", ">=", daysAgoTimestamp)
+          .groupBy(["day", "stat"])
+          .orderBy("day", "asc")
+          .execute();
+
+        const historyMap: Record<string, any> = {};
+        for (const log of dailyHistoryLogs) {
+          const day = String(log.day);
+          if (!historyMap[day]) {
+            historyMap[day] = {
+              day,
+              strength: 0,
+              speed: 0,
+              defense: 0,
+              dexterity: 0,
+              energy: 0,
+            };
+          }
+          const stat = String(log.stat).toLowerCase();
+          const gain = parseFloat(String(log.total_gain || 0));
+          const energy = parseInt(String(log.total_energy || 0), 10);
+          if (stat === "strength") historyMap[day].strength += gain;
+          else if (stat === "speed") historyMap[day].speed += gain;
+          else if (stat === "defense") historyMap[day].defense += gain;
+          else if (stat === "dexterity") historyMap[day].dexterity += gain;
+
+          historyMap[day].energy += energy;
         }
-        const stat = String(log.stat).toLowerCase();
-        const gain = parseFloat(String(log.total_gain || 0));
-        const energy = parseInt(String(log.total_energy || 0), 10);
-        if (stat === "strength") historyMap[day].strength += gain;
-        else if (stat === "speed") historyMap[day].speed += gain;
-        else if (stat === "defense") historyMap[day].defense += gain;
-        else if (stat === "dexterity") historyMap[day].dexterity += gain;
-
-        historyMap[day].energy += energy;
+        history = Object.values(historyMap).sort((a: any, b: any) =>
+          a.day.localeCompare(b.day),
+        );
       }
-      const history = Object.values(historyMap).sort((a: any, b: any) =>
-        a.day.localeCompare(b.day),
-      );
 
       // 5. Fetch sync status & metadata
       const totalLogsCount = await db

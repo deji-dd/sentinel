@@ -49,6 +49,10 @@ async function startAllWorkers(): Promise<void> {
     logSection("Initializing rate limiting...");
     await initializeApiKeyMappings(scope);
     await initializeRateLimitCache();
+    logSection("Initializing in-memory settings cache...");
+    const { settingsCache } = await import("./lib/settings-cache.js");
+    await settingsCache.hydrate();
+    settingsCache.startWatching();
 
     const startedCount = startWorkersForScope(scope);
     logSection(`Started ${startedCount} worker runners`);

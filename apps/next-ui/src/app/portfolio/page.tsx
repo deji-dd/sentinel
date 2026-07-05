@@ -54,14 +54,6 @@ interface StockBenefitPayout {
 }
 
 interface PortfolioData {
-  city_bank: {
-    amount: number;
-    profit?: number;
-    principal?: number;
-    timeleft: number;
-    progress_pct: number;
-    cayman_bank: number;
-  };
   stocks: {
     total_value: number;
     benefits: StockBenefit[];

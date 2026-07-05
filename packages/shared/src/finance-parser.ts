@@ -26,6 +26,7 @@ export interface ParseFinanceLedgerResult {
     outbound_mugs: number;
     faction_withdrawals: number;
     trades: number;
+    capital_gains: number;
     other: number;
     total: number;
   };
@@ -36,10 +37,50 @@ export interface ParseFinanceLedgerResult {
     inbound_mugs: number;
     rehab: number;
     trades: number;
+    capital_gains: number;
+    financing_fees: number;
+    donations: number;
     other: number;
     total: number;
   };
   transactions: ParsedTransaction[];
+}
+
+function isItemOrLoanEvent(category: string, title: string): boolean {
+  const catLower = category.toLowerCase();
+  const titleLower = title.toLowerCase();
+
+  if (catLower === "faction") {
+    return (
+      titleLower.includes("item") ||
+      titleLower.includes("borrow") ||
+      titleLower.includes("return") ||
+      titleLower.includes("loan")
+    );
+  }
+
+  return (
+    catLower === "bazaars" ||
+    catLower === "item market" ||
+    catLower === "itemmarket" ||
+    catLower === "shops" ||
+    catLower === "trades" ||
+    catLower === "loan" ||
+    catLower === "points" ||
+    catLower === "points market" ||
+    catLower === "pointsmarket" ||
+    catLower === "stocks" ||
+    catLower === "stock" ||
+    catLower.includes("item use") ||
+    catLower === "drugs" ||
+    catLower === "drug" ||
+    titleLower.includes("bazaar") ||
+    titleLower.includes("item market") ||
+    titleLower.includes("loan") ||
+    titleLower.includes("stock") ||
+    titleLower.includes("points buy") ||
+    titleLower.includes("points sell")
+  );
 }
 
 export function parseFinanceLedger(
@@ -58,6 +99,7 @@ export function parseFinanceLedger(
     outbound_mugs: 0,
     faction_withdrawals: 0,
     trades: 0,
+    capital_gains: 0,
     other: 0,
     total: 0,
   };
@@ -68,6 +110,9 @@ export function parseFinanceLedger(
     inbound_mugs: 0,
     rehab: 0,
     trades: 0,
+    capital_gains: 0,
+    financing_fees: 0,
+    donations: 0,
     other: 0,
     total: 0,
   };
@@ -87,6 +132,94 @@ export function parseFinanceLedger(
     let isExpense = false;
     let transactionCategory = "other";
     let description = row.title || "";
+
+    const isProcessed = logData.processed_inventory === true;
+    const hasSpecialPl = 
+      logData.capital_gains_profit !== undefined ||
+      logData.consumable_expense !== undefined ||
+      logData.financing_fees_outflow !== undefined ||
+      logData.donations_outflow !== undefined ||
+      logData.is_loan_borrow === true ||
+      logData.is_loan_repayment === true;
+
+    if (isProcessed && (hasSpecialPl || isItemOrLoanEvent(category, title))) {
+      if (logData.capital_gains_profit !== undefined && logData.capital_gains_profit !== 0) {
+        amount = Math.abs(logData.capital_gains_profit);
+        if (logData.capital_gains_profit > 0) {
+          isIncome = true;
+          transactionCategory = "capital_gains";
+          description = `Capital Gains profit: ${logData.item_name || logData.type || "item"}`;
+        } else {
+          isExpense = true;
+          transactionCategory = "capital_gains";
+          description = `Capital Gains loss: ${logData.item_name || logData.type || "item"}`;
+        }
+      }
+      else if (logData.consumable_expense !== undefined) {
+        amount = logData.consumable_expense;
+        isExpense = amount > 0;
+        transactionCategory = "consumables";
+        const itemId = Number(logData.item || logData.item_id || logData.id || 0);
+        const qty = Number(logData.quantity || logData.qty || 1);
+        const name = itemId && itemMap.has(itemId) ? itemMap.get(itemId)!.name : "consumable";
+        description = `Used consumable: ${name} x${qty}`;
+
+        // Handle supply pack / openable cash gains (inflow)
+        if (logData.money && Number(logData.money) > 0) {
+          const incAmt = Number(logData.money);
+          income.other += incAmt;
+          income.total += incAmt;
+          transactions.push({
+            id: `${logId}_inflow`,
+            timestamp,
+            type: "income",
+            category: "other",
+            title: row.title,
+            amount: incAmt,
+            description: `Opened ${name}: Gained $${incAmt.toLocaleString()}`,
+          });
+        }
+      }
+      else if (logData.financing_fees_outflow !== undefined && logData.financing_fees_outflow > 0) {
+        amount = logData.financing_fees_outflow;
+        isExpense = true;
+        transactionCategory = "financing_fees";
+        description = `Loan interest fee payment`;
+      }
+      else if (logData.donations_outflow !== undefined && logData.donations_outflow > 0) {
+        amount = logData.donations_outflow;
+        isExpense = true;
+        transactionCategory = "donations";
+        const itemId = Number(logData.item || logData.item_id || logData.id || 0);
+        const qty = Number(logData.quantity || logData.qty || 1);
+        const name = itemId && itemMap.has(itemId) ? itemMap.get(itemId)!.name : "items";
+        description = `Donated items to faction: ${name} x${qty}`;
+      }
+      else {
+        // Fallback for sales that didn't calculate capital gains (e.g. missing item details or points/stocks fallback)
+        const isSaleEvent = title.includes("sell") || title.includes("sold") || title.includes("bought by") || title.includes("receive");
+        if (isSaleEvent) {
+          amount = Number(
+            logData.cost_total ||
+              logData.money_gained ||
+              logData.money_received ||
+              logData.total_price ||
+              logData.price ||
+              logData.money ||
+              logData.total_value ||
+              0,
+          );
+          if (amount > 0) {
+            isIncome = true;
+            transactionCategory = category === "bazaars" ? "bazaar" : (category.includes("market") ? "item_market" : (category === "stocks" || category === "stock" ? "stocks" : "other"));
+            description = `Sale (Revenue fallback): ${logData.item_name || logData.type || "items"}`;
+          }
+        } else {
+          isIncome = false;
+          isExpense = false;
+        }
+      }
+    } else {
 
     // A. Stocks
     if (
@@ -570,6 +703,28 @@ export function parseFinanceLedger(
           description = `Trade items outgoing: ${itemNames.slice(0, 3).join(", ")}${itemNames.length > 3 ? "..." : ""} (Trade #${logData.parsed_trade_id || logData.trade_id || ""})`;
         }
       }
+    }
+    // O. Money Transfers (User to User)
+    else if (
+      category === "money" ||
+      title.includes("money send") ||
+      title.includes("money receive") ||
+      category.includes("money")
+    ) {
+      amount = Number(logData.money || logData.amount || logData.cash || 0);
+      if (amount > 0) {
+        if (title.includes("receive")) {
+          isIncome = true;
+          transactionCategory = "other";
+          description = `Received money from ${logData.sender_name || logData.sender || "player"}`;
+        } else if (title.includes("send")) {
+          isExpense = true;
+          transactionCategory = "other";
+          description = `Sent money to ${logData.receiver_name || logData.receiver || "player"}`;
+        }
+      }
+    }
+
     }
 
     if (isIncome && amount > 0) {

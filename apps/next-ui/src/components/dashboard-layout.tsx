@@ -14,10 +14,45 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const { syncOptions, lastSyncedText, isSyncing, setIsSyncing } = useSync();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [backfillStatus, setBackfillStatus] = useState<{
+    backfill_complete: boolean;
+    oldest_timestamp?: number;
+    total_pages_crawled?: number;
+  } | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
+
+    let intervalId: any = null;
+
+    async function checkBackfill() {
+      try {
+        const token = localStorage.getItem("session_token") || "dev-token";
+        const res = await fetch(`/api/bot/config/personal/backfill-status?_t=${Date.now()}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBackfillStatus(data);
+          if (data.backfill_complete && intervalId) {
+            clearInterval(intervalId);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    checkBackfill();
+    intervalId = setInterval(checkBackfill, 15000);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, []);
 
   return (
@@ -144,6 +179,24 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {mounted && backfillStatus && !backfillStatus.backfill_complete && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-center gap-2 text-xs text-amber-600 dark:text-amber-400 font-medium select-none animate-pulse">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+            </span>
+            <span>
+              Historical sync in progress. Data will be incomplete
+              {backfillStatus.oldest_timestamp && backfillStatus.oldest_timestamp > 0 ? (() => {
+                const date = new Date(backfillStatus.oldest_timestamp * 1000);
+                const pad = (n: number) => String(n).padStart(2, "0");
+                const formattedTct = `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}/${date.getUTCFullYear()} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} TCT`;
+                return `, oldest log: ${formattedTct}`;
+              })() : ""}.
+            </span>
+          </div>
+        )}
 
         {/* Viewport Content Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 outline-none">
