@@ -1,5 +1,14 @@
-import { TornApiClient } from "@sentinel/shared";
-import { storeSystemApiKey } from "../lib/system-api-keys.js";
+#!/usr/bin/env tsx
+import { TornApiClient, encryptApiKey, hashApiKey } from "@sentinel/shared";
+import { SystemApiKeys } from "@sentinel/shared";
+import { randomUUID } from "crypto";
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY!;
+const API_KEY_HASH_PEPPER = process.env.API_KEY_HASH_PEPPER!;
+
+if (!ENCRYPTION_KEY || !API_KEY_HASH_PEPPER) {
+  throw new Error("CRITICAL: Missing encryption environment variables.");
+}
 
 const bootstrapTornApi = new TornApiClient();
 
@@ -9,6 +18,11 @@ interface CliOptions {
   isPrimary: boolean;
 }
 
+/**
+ * Parses command line arguments to extract API key configuration.
+ * @param argv Standard process.argv slice.
+ * @returns Parsed CLI options.
+ */
 function parseArgs(argv: string[]): CliOptions {
   let apiKey = "";
   let keyType: "personal" | "system" = "system";
@@ -21,28 +35,22 @@ function parseArgs(argv: string[]): CliOptions {
       isPrimary = true;
       continue;
     }
-
     if (arg === "--api-key" && argv[i + 1]) {
       apiKey = argv[i + 1];
       i += 1;
       continue;
     }
-
     if (arg.startsWith("--api-key=")) {
       apiKey = arg.split("=")[1] || "";
       continue;
     }
-
     if (arg === "--type" && argv[i + 1]) {
-      const value = argv[i + 1] as "personal" | "system";
-      keyType = value;
+      keyType = argv[i + 1] as "personal" | "system";
       i += 1;
       continue;
     }
-
     if (arg.startsWith("--type=")) {
-      const value = arg.split("=")[1] as "personal" | "system";
-      keyType = value;
+      keyType = arg.split("=")[1] as "personal" | "system";
       continue;
     }
   }
@@ -50,30 +58,20 @@ function parseArgs(argv: string[]): CliOptions {
   return { apiKey, keyType, isPrimary };
 }
 
-function validateApiKey(apiKey: string): void {
-  if (!/^[a-zA-Z0-9]{16}$/.test(apiKey)) {
-    throw new Error(
-      "Invalid API key format. Expected a 16-character alphanumeric key.",
-    );
-  }
-}
-
+/**
+ * Executes the CLI workflow to encrypt and store a new API key into the NoSQL engine.
+ * Bypasses the standard rate limiter to fetch the mapping user ID first.
+ */
 async function run(): Promise<void> {
   const { apiKey, keyType, isPrimary } = parseArgs(process.argv.slice(2));
 
-  if (!apiKey) {
-    throw new Error("Missing --api-key argument.");
+  if (!apiKey || !/^[a-zA-Z0-9]{16}$/.test(apiKey)) {
+    throw new Error(
+      "Invalid or missing API key. Expected a 16-character alphanumeric string.",
+    );
   }
-
-  if (keyType !== "personal" && keyType !== "system") {
-    throw new Error("Invalid --type. Use 'personal' or 'system'.");
-  }
-
-  validateApiKey(apiKey);
 
   try {
-    // Bootstrap call intentionally bypasses rate limiter because this key
-    // is not mapped yet; mapping is created by storeSystemApiKey().
     const data = await bootstrapTornApi.get("/user/basic", { apiKey });
     const userId = data.profile?.id;
 
@@ -81,13 +79,35 @@ async function run(): Promise<void> {
       throw new Error("Invalid API response: missing player id");
     }
 
-    await storeSystemApiKey(apiKey, userId, keyType, isPrimary);
+    const encryptedKey = encryptApiKey(apiKey, ENCRYPTION_KEY);
+    const keyHash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
+
+    // If primary, demote existing primary keys for this user
+    if (isPrimary) {
+      const existingPrimaries = SystemApiKeys.findAll(
+        (doc) => doc.user_id === userId && doc.is_primary,
+      );
+      for (const existing of existingPrimaries) {
+        existing.is_primary = false;
+        SystemApiKeys.insertOne(existing);
+      }
+    }
+
+    SystemApiKeys.insertOne({
+      id: randomUUID(),
+      user_id: userId,
+      api_key_encrypted: encryptedKey,
+      api_key_hash: keyHash,
+      is_primary: isPrimary,
+      key_type: keyType,
+      invalid_count: 0,
+      last_invalid_at: null,
+    });
 
     console.log(
-      `Saved ${keyType} key for player ${userId} ${isPrimary ? "(primary)" : ""}`,
+      `✅ Saved ${keyType} key for player ${userId} ${isPrimary ? "(primary)" : ""}`,
     );
   } catch (error) {
-    // TornApiClient throws errors (including Torn API errors like invalid key)
     throw new Error(
       `Failed to add system API key: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -95,7 +115,8 @@ async function run(): Promise<void> {
 }
 
 run().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`[AddSystemKey] ${message}`);
+  console.error(
+    `[AddSystemKey] ${error instanceof Error ? error.message : String(error)}`,
+  );
   process.exit(1);
 });

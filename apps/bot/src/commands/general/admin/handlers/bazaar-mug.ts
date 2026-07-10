@@ -18,9 +18,8 @@ import {
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../../lib/db-client.js";
-import { syncBazaarMugCronSchedule } from "../../../../lib/cron-schedule-registry.js";
+import { randomUUID } from "crypto";
+import { BazaarMugConfigs, GuildConfigs } from "@sentinel/shared";
 import { logGuildAction } from "../../../../lib/guild-logger.js";
 
 export type ConfigInteraction =
@@ -63,31 +62,23 @@ function parseTextArray(value: unknown): string[] {
 }
 
 async function getOrCreateBazaarMugConfig(guildId: string) {
-  let config = await db
-    .selectFrom(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-    .selectAll()
-    .where("guild_id", "=", guildId)
-    .executeTakeFirst();
+  let config = BazaarMugConfigs.find({ guild_id: guildId })[0];
 
   if (!config) {
-    await db
-      .insertInto(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .values({
-        guild_id: guildId,
-        is_enabled: 0,
-        min_bazaar_drop_threshold: 10000000,
-        min_offline_time_minutes: 0,
-        target_player_ids_json: JSON.stringify([]),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .execute();
-
-    config = await db
-      .selectFrom(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    config = {
+      id: randomUUID(),
+      guild_id: guildId,
+      is_enabled: 0,
+      dashboard_message_id: null,
+      min_bazaar_drop_threshold: 10000000,
+      min_offline_time_minutes: 0,
+      notification_channel_id: null,
+      ping_role_id: null,
+      target_player_ids_json: JSON.stringify([]),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    BazaarMugConfigs.insertOne(config);
   }
   return config;
 }
@@ -104,16 +95,15 @@ export async function handleShowBazaarMugSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
 
     let enabledModules: string[] = [];
     if (guildConfig?.enabled_modules) {
       try {
-        const parsed = JSON.parse(guildConfig.enabled_modules);
+        const parsed =
+          typeof guildConfig.enabled_modules === "string"
+            ? JSON.parse(guildConfig.enabled_modules)
+            : guildConfig.enabled_modules;
         enabledModules = Array.isArray(parsed) ? parsed : [];
       } catch {
         enabledModules = [];
@@ -244,14 +234,9 @@ export async function handleBazaarMugToggle(
     const config = await getOrCreateBazaarMugConfig(guildId);
     const nextStatus = config.is_enabled ? 0 : 1;
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        is_enabled: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    config.is_enabled = nextStatus;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Status Toggled",
@@ -259,8 +244,6 @@ export async function handleBazaarMugToggle(
         nextStatus ? "Enabled" : "Disabled"
       }**.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {
@@ -335,21 +318,15 @@ export async function handleBazaarMugChannelSelect(
     const channelId = interaction.values[0];
     if (!guildId || !channelId) return;
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        notification_channel_id: channelId,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.notification_channel_id = channelId;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Channel Updated",
       description: `<@${interaction.user.id}> set notification channel to <#${channelId}>.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {
@@ -366,21 +343,15 @@ export async function handleBazaarMugClearChannelBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        notification_channel_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.notification_channel_id = null;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Channel Cleared",
       description: `<@${interaction.user.id}> cleared the notification channel.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {
@@ -460,14 +431,10 @@ export async function handleBazaarMugRoleSelect(
     const roleId = interaction.values[0] || null;
     if (!guildId) return;
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        ping_role_id: roleId,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.ping_role_id = roleId;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Role Updated",
@@ -475,8 +442,6 @@ export async function handleBazaarMugRoleSelect(
         roleId ? `<@&${roleId}>` : "None"
       }.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {
@@ -493,21 +458,15 @@ export async function handleBazaarMugClearRoleBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        ping_role_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.ping_role_id = null;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Role Cleared",
       description: `<@${interaction.user.id}> cleared the notification ping role.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {
@@ -611,21 +570,15 @@ export async function handleBazaarMugThresholdModal(
       return;
     }
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        min_bazaar_drop_threshold: parsed,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.min_bazaar_drop_threshold = parsed;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Threshold Updated",
       description: `<@${interaction.user.id}> set minimum bazaar drop threshold to **$${parsed.toLocaleString()}**.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {
@@ -732,14 +685,10 @@ export async function handleBazaarMugWatchlistModal(
       .map((p) => p.trim())
       .filter((p) => p.length > 0 && /^\d+$/.test(p));
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        target_player_ids_json: JSON.stringify(playerIds),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.target_player_ids_json = JSON.stringify(playerIds);
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Watchlist Updated",
@@ -747,8 +696,6 @@ export async function handleBazaarMugWatchlistModal(
         playerIds.length > 0 ? playerIds.join(", ") : "None"
       }\`.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugWatchlistSettings(interaction, true);
   } catch (error) {
@@ -846,28 +793,24 @@ export async function handleBazaarMugMinOfflineModal(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const val = interaction.fields.getTextInputValue("min_offline_input").trim();
+    const val = interaction.fields
+      .getTextInputValue("min_offline_input")
+      .trim();
     const parsed = parseInt(val, 10);
 
     if (isNaN(parsed) || parsed < 0) {
       return;
     }
 
-    await db
-      .updateTable(TABLE_NAMES.BAZAAR_MUG_CONFIG)
-      .set({
-        min_offline_time_minutes: parsed,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const config = await getOrCreateBazaarMugConfig(guildId);
+    config.min_offline_time_minutes = parsed;
+    config.updated_at = new Date().toISOString();
+    BazaarMugConfigs.insertOne(config);
 
     await logGuildAction(guildId, interaction.client, {
       title: "Bazaar Watcher Min Offline Updated",
       description: `<@${interaction.user.id}> set minimum offline time to **${parsed} minute${parsed === 1 ? "" : "s"}**.`,
     });
-
-    await syncBazaarMugCronSchedule(guildId, interaction.client);
 
     await handleShowBazaarMugSettings(interaction, true);
   } catch (error) {

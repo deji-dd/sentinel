@@ -7,14 +7,13 @@ import {
   initializeAuthorizedUserId,
   createDiscordClient,
 } from "./lib/bot-config.js";
-import { logCommandAudit } from "./lib/command-audit.js";
 import {
   handleAdminCommand,
   isAdminCommandName,
 } from "./lib/admin-commands.js";
 import { handleRegularCommand } from "./lib/regular-commands.js";
 import { routeInteractionHandler } from "./lib/interaction-handlers.js";
-import { handleMemberJoin } from "./lib/auto-verify.js";
+import * as guildMemberAddEvent from "./events/guildMemberAdd.js";
 import { registerClientReadyEvent } from "./lib/client-events.js";
 import {
   handleReactionRoleAdd,
@@ -22,19 +21,33 @@ import {
 } from "./lib/reaction-roles.js";
 
 import { setGlobalClient } from "./lib/global-client.js";
+import { setupIpcServer } from "./lib/ipc-listener.js";
 
 // Global process error handlers to prevent crashes on transient network socket drops
 process.on("uncaughtException", (err) => {
   const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("other side closed") || msg.includes("UND_ERR_SOCKET") || msg.includes("ECONNRESET") || msg.includes("socket hang up")) {
-    console.warn("[Process] Gracefully caught transient network socket error:", msg);
+  if (
+    msg.includes("other side closed") ||
+    msg.includes("UND_ERR_SOCKET") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("socket hang up")
+  ) {
+    console.warn(
+      "[Process] Gracefully caught transient network socket error:",
+      msg,
+    );
   } else {
     console.error("[Process] Uncaught Exception:", err);
   }
 });
 
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("[Process] Unhandled Rejection at:", promise, "reason:", reason);
+  console.error(
+    "[Process] Unhandled Rejection at:",
+    promise,
+    "reason:",
+    reason,
+  );
 });
 
 // Initialize configuration
@@ -49,13 +62,13 @@ setGlobalClient(client);
 // Register client ready event
 registerClientReadyEvent(client);
 
+// IPC server is started in client-events.js after client is ready
+
 // Handle all interactions (commands, buttons, modals, selects, etc.)
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     // Handle chat input commands
     if (interaction.isChatInputCommand()) {
-      await logCommandAudit(interaction);
-
       // Try admin commands first
       if (isAdminCommandName(interaction.commandName)) {
         await handleAdminCommand(interaction, authorizedDiscordUserId, client);
@@ -129,8 +142,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // Handle new member joins - auto-verify if enabled
-client.on(Events.GuildMemberAdd, async (member) => {
-  await handleMemberJoin(member, client);
+client.on(guildMemberAddEvent.name, async (...args) => {
+  try {
+    await guildMemberAddEvent.execute(...args);
+  } catch (error) {
+    console.error(`Error executing ${guildMemberAddEvent.name} event:`, error);
+  }
 });
 
 // Handle message reactions for role assignment

@@ -2,7 +2,7 @@
   "name": "sentinel",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.11.0",
   "scripts": {
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
@@ -25,6 +25,7 @@
     "alliances:refresh-snapshot": "node scripts/refresh-faction-alliances-snapshot.js"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.10.1"
+    "openapi-typescript": "^7.10.1",
+    "repomix": "^1.16.0"
   }
 }

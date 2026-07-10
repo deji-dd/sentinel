@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 
 function parseEnv(filePath) {
   const env = {};
@@ -22,75 +23,76 @@ function parseEnv(filePath) {
   return env;
 }
 
-const workerEnv = parseEnv("/home/deji/repos/sentinel/apps/worker/.env");
-const botEnv = parseEnv("/home/deji/repos/sentinel/apps/bot/.env");
+// __dirname makes it portable for both local dev testing and production
+const basePath = __dirname;
+const workerEnv = parseEnv(path.join(basePath, "apps/worker/.env"));
+const botEnv = parseEnv(path.join(basePath, "apps/bot/.env"));
+const apiEnv = parseEnv(path.join(basePath, "apps/api/.env")); // Future Dashboard API
 
 module.exports = {
   apps: [
+    // 1. THE BRAIN (Heavy Lifter)
     {
       name: "sentinel-worker",
-      cwd: "/home/deji/repos/sentinel/apps/worker",
+      cwd: path.join(basePath, "apps/worker"),
       script: "dist/index.js",
       interpreter: "node",
-      node_args: ["--max-old-space-size=220"],
-      env: {
-        ...workerEnv,
-        NODE_ENV: "production",
-      },
+      // Given slightly more RAM since it processes Torn API payloads
+      node_args: ["--max-old-space-size=250"],
+      env: { ...workerEnv, NODE_ENV: "development" },
+      env_production: { ...workerEnv, NODE_ENV: "production" },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      watch: false,
-      max_memory_restart: "300M",
+      max_memory_restart: "300M", // Hard cap
       error_file: "./logs/worker-error.log",
       out_file: "./logs/worker-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-      merge_logs: true,
       time: true,
-      // Log rotation
       max_size: "10M",
-      retain: 5,
-      // Restart strategy for stability
-      min_uptime: "10s",
-      max_restarts: 10,
-      restart_delay: 4000,
-      // Graceful shutdown
-      kill_timeout: 5000,
-      wait_ready: false,
-      listen_timeout: 3000,
+      retain: 3,
     },
+    // 2. THE HANDS (Discord Connection)
     {
       name: "sentinel-bot",
-      cwd: "/home/deji/repos/sentinel/apps/bot",
+      cwd: path.join(basePath, "apps/bot"),
       script: "dist/index.js",
       interpreter: "node",
-      node_args: [],
-      env: {
-        ...botEnv,
-        NODE_ENV: "production",
-      },
+      // Severely restricted RAM, it just forwards commands and listens to IPC
+      node_args: ["--max-old-space-size=100"],
+      env: { ...botEnv, NODE_ENV: "development" },
+      env_production: { ...botEnv, NODE_ENV: "production" },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      watch: false,
-      max_memory_restart: "250M",
+      max_memory_restart: "200M", // Hard cap
       error_file: "./logs/bot-error.log",
       out_file: "./logs/bot-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-      merge_logs: true,
       time: true,
-      // Log rotation
       max_size: "10M",
-      retain: 5,
-      // Restart strategy for stability
-      min_uptime: "10s",
-      max_restarts: 10,
-      restart_delay: 4000,
-      // Graceful shutdown
-      kill_timeout: 5000,
-      wait_ready: false,
-      listen_timeout: 3000,
+      retain: 3,
     },
+    // 3. THE BRIDGE (Dashboard Server)
+    // {
+    //   name: "sentinel-api",
+    //   cwd: path.join(basePath, "apps/api"),
+    //   script: "dist/index.js",
+    //   interpreter: "node",
+    //   // Fastify/Express are tiny. Kept very lean.
+    //   node_args: ["--max-old-space-size=50"],
+    //   env: { ...apiEnv, NODE_ENV: "production" },
+    //   instances: 1,
+    //   exec_mode: "fork",
+    //   autorestart: true,
+    //   max_memory_restart: "100M", // Hard cap
+    //   error_file: "./logs/api-error.log",
+    //   out_file: "./logs/api-out.log",
+    //   log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+    //   time: true,
+    //   max_size: "10M",
+    //   retain: 3,
+    // },
   ],
 
   deploy: {
@@ -100,10 +102,8 @@ module.exports = {
       ref: "origin/main",
       repo: "git@github.com:deji-dd/sentinel.git",
       path: "/home/deji/repos/sentinel",
-      "pre-deploy-local": "",
       "post-deploy":
-        "pnpm install && pnpm build:all && pm2 reload ecosystem.config.js --env production",
-      "pre-setup": "",
+        "pnpm install && pnpm build && pm2 reload ecosystem.config.js --env production",
     },
   },
 };

@@ -4,7 +4,7 @@
  */
 
 import { Client, GatewayIntentBits, Partials } from "discord.js";
-import { Logger } from "./logger.js";
+import { Logger } from "@sentinel/shared";
 
 const logger = new Logger("Bot");
 
@@ -42,9 +42,7 @@ export function initializeDiscordToken(): string {
     );
   }
 
-  logger.debug(
-    `Using ${isDev ? "local" : "production"} Discord bot instance`,
-  );
+  logger.debug(`Using ${isDev ? "local" : "production"} Discord bot instance`);
 
   return discordToken;
 }
@@ -118,7 +116,8 @@ export function getApiUrl(): string {
  */
 export function getAllowedOrigins(): string[] {
   const prodUiOrigin = process.env.UI_ORIGIN || "https://sentinel.ayodejib.dev";
-  const prodPainterOrigin = process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
+  const prodPainterOrigin =
+    process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
   if (isDev) {
     return ["http://localhost:3000", prodUiOrigin, prodPainterOrigin];
   }

@@ -1,6 +1,5 @@
 import { EmbedBuilder, ChannelType, type Client } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "./db-client.js";
+import { GuildConfigDocument, GuildConfigs } from "@sentinel/shared";
 
 export interface GuildLogOptions {
   title: string;
@@ -14,25 +13,23 @@ export interface GuildLogOptions {
  * Send a log message to the guild's configured log channel
  * @param guildId Discord guild ID
  * @param client Discord client for fetching channel
- * @param db database client for fetching config
  * @param options Log message options
  */
 export async function logGuildAction(
   guildId: string,
   client: Client,
-
   options: GuildLogOptions,
 ): Promise<void> {
   try {
-    // Fetch guild config to get log channel ID
-    const guildConfig = (await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["log_channel_id"])
-      .where("guild_id", "=", guildId)
-      .limit(1)
-      .executeTakeFirst()) as { log_channel_id: string | null } | undefined;
+    // Fetch guild config from fast NoSQL memory to get log channel ID
+    const guildConfig = GuildConfigs.find(
+      (c: GuildConfigDocument) => c.guild_id === guildId,
+    )[0];
 
-    if (!guildConfig?.log_channel_id || !/^\d{17,20}$/.test(guildConfig.log_channel_id)) {
+    if (
+      !guildConfig?.log_channel_id ||
+      !/^\d{17,20}$/.test(guildConfig.log_channel_id)
+    ) {
       // Guild doesn't have logging enabled or it is not a valid snowflake, skip silently
       return;
     }
@@ -64,7 +61,7 @@ export async function logGuildAction(
     const embed = new EmbedBuilder()
       .setColor(options.color ?? 0x3b82f6)
       .setTitle(options.title)
-      .setFooter({ text: "Sentinel" })
+      .setFooter({ text: "Sentinel Auto-Diagnostics" })
       .setTimestamp();
 
     if (options.description) {
@@ -97,7 +94,6 @@ export async function logGuildAction(
 export async function logGuildSuccess(
   guildId: string,
   client: Client,
-
   title: string,
   description?: string,
   fields?: Array<{ name: string; value: string; inline?: boolean }>,
@@ -116,7 +112,6 @@ export async function logGuildSuccess(
 export async function logGuildError(
   guildId: string,
   client: Client,
-
   title: string,
   error: Error | string,
   description?: string,
@@ -138,7 +133,6 @@ export async function logGuildError(
 export async function logGuildWarning(
   guildId: string,
   client: Client,
-
   title: string,
   description?: string,
   fields?: Array<{ name: string; value: string; inline?: boolean }>,
@@ -149,4 +143,87 @@ export async function logGuildWarning(
     color: 0xf59e0b,
     fields,
   });
+}
+
+/**
+ * Route system logs and errors directly to the configured Discord admin channel
+ */
+export async function sendAdminSystemLog(
+  client: Client,
+  level: "info" | "warn" | "error",
+  message: string,
+  errorStack?: string,
+): Promise<void> {
+  try {
+    const adminGuildId = process.env.ADMIN_GUILD_ID;
+    if (!adminGuildId) return;
+
+    const guildConfig = GuildConfigs.findOne(adminGuildId);
+    if (!guildConfig || !guildConfig.log_channel_id) {
+      return; // Admin log channel not configured
+    }
+
+    const channel = await client.channels
+      .fetch(guildConfig.log_channel_id)
+      .catch(() => null);
+    if (!channel || !channel.isTextBased()) {
+      return; // Invalid or inaccessible channel
+    }
+
+    const color =
+      level === "error" ? 0xef4444 : level === "warn" ? 0xf59e0b : 0x3b82f6;
+    const title =
+      level === "error"
+        ? "System Error Alert"
+        : level === "warn"
+          ? "System Warning Alert"
+          : "System Event Log";
+
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setDescription(message.substring(0, 2048))
+      .setColor(color)
+      .setFooter({ text: "Sentinel System" })
+      .setTimestamp();
+
+    if (errorStack) {
+      embed.addFields({
+        name: "Details / Stack Trace",
+        value: `\`\`\`x86asm\n${errorStack.substring(0, 1010)}\n\`\`\``,
+      });
+    }
+
+    // Ping the admin roles if it's an error
+    let content: string | undefined = undefined;
+    if (level === "error" && guildConfig.admin_role_ids?.length > 0) {
+      content = guildConfig.admin_role_ids.map((id) => `<@&${id}>`).join(" ");
+    }
+
+    let attempts = 3;
+    while (attempts > 0) {
+      try {
+        await channel.send({
+          content,
+          embeds: [embed],
+        });
+        break;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (err: any) {
+        attempts--;
+        if (attempts === 0) {
+          console.error(
+            "[SystemLogger] Failed to send log to Discord channel after 3 attempts. Last error:",
+            err,
+          );
+        } else {
+          console.warn(
+            `[SystemLogger] Transient error sending log to Discord channel (attempts remaining: ${attempts}): ${err?.message || err}. Retrying in 500ms...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[SystemLogger] Failed to send log to Discord channel:", err);
+  }
 }

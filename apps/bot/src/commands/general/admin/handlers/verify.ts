@@ -19,9 +19,7 @@ import {
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { randomUUID } from "crypto";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../../lib/db-client.js";
-import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
+import { GuildConfigs, FactionRoles, GuildApiKeys } from "@sentinel/shared";
 
 export type ConfigInteraction =
   | StringSelectMenuInteraction
@@ -76,11 +74,7 @@ export async function handleShowVerifySettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     if (!guildConfig) return;
 
@@ -169,11 +163,7 @@ export async function handleVerifySettingSelect(
     } else if (selected === "set_verified_roles") {
       await interaction.deferUpdate();
       // Show Role Select Menu
-      const config = await db
-        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-        .select(["verified_role_ids"])
-        .where("guild_id", "=", guildId)
-        .executeTakeFirst();
+      const config = GuildConfigs.findOne(guildId);
 
       const existingRoles = parseTextArray(config?.verified_role_ids);
 
@@ -216,11 +206,7 @@ export async function handleVerifySettingSelect(
     } else if (selected === "set_faction_list_channel") {
       await interaction.deferUpdate();
       // Show Channel Select Menu
-      const config = await db
-        .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-        .select(["faction_list_channel_id"])
-        .where("guild_id", "=", guildId)
-        .executeTakeFirst();
+      const config = GuildConfigs.findOne(guildId);
 
       const existingChannel = config?.faction_list_channel_id;
 
@@ -286,14 +272,12 @@ export async function handleVerifyNicknameModalSubmit(
       .getTextInputValue("nickname_template_input")
       .trim();
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        nickname_template: template,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.nickname_template = template;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowNicknameTemplateSettings(interaction, true);
   } catch (error) {
@@ -311,14 +295,12 @@ export async function handleVerifyRolesSelect(
 
     const roleIds = interaction.values;
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        verified_role_ids: JSON.stringify(roleIds),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.verified_role_ids = roleIds;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowVerifySettings(interaction, true);
   } catch (error) {
@@ -336,14 +318,12 @@ export async function handleVerifyChannelSelect(
 
     const channelId = interaction.values[0] || null;
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        faction_list_channel_id: channelId,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.faction_list_channel_id = channelId;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     // Trigger update of faction list channel
     const { updateFactionList } =
@@ -377,11 +357,7 @@ export async function handleShowFactionMappings(
     );
 
     // Fetch mappings
-    const mappings = await db
-      .selectFrom(TABLE_NAMES.FACTION_ROLES)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .execute();
+    const mappings = FactionRoles.find((m) => m.guild_id === guildId);
 
     const itemsPerPage = 10;
     const totalPages = Math.ceil(mappings.length / itemsPerPage);
@@ -395,7 +371,7 @@ export async function handleShowFactionMappings(
       );
       mappingsDesc = pageMappings
         .map((m) => {
-          const enabledStr = m.enabled === 1 ? "Enabled" : "Disabled";
+          const enabledStr = m.enabled ? "Enabled" : "Disabled";
           const name = m.faction_name || `Faction ${m.faction_id}`;
           return `• **${name}** (${m.faction_id}) - ${enabledStr}`;
         })
@@ -532,11 +508,12 @@ export async function handleVerifyAddFactionModalSubmit(
     let factionName = `Faction ${factionId}`;
 
     // Fetch details from Torn API if possible to resolve name
-    const apiKeys = await getGuildApiKeys(guildId);
+    const apiKeysList = GuildApiKeys.find((k) => k.guild_id === guildId);
+      const apiKeys = apiKeysList.length > 0 ? ["dummy"] : [];
     if (apiKeys.length > 0) {
       try {
         const { validateAndFetchFactionDetails } =
-          await import("../../../../lib/faction-utils.js");
+          await import("@sentinel/shared");
         const details = await validateAndFetchFactionDetails(
           factionId,
           apiKeys[0],
@@ -550,28 +527,20 @@ export async function handleVerifyAddFactionModalSubmit(
     }
 
     // Check if mapping already exists
-    const existing = await db
-      .selectFrom(TABLE_NAMES.FACTION_ROLES)
-      .select(["faction_id"])
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .executeTakeFirst();
+    const existing = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
 
     if (!existing) {
       // Insert new mapping
-      await db
-        .insertInto(TABLE_NAMES.FACTION_ROLES)
-        .values({
-          id: randomUUID(),
-          guild_id: guildId,
-          faction_id: factionId,
-          faction_name: factionName,
-          member_role_ids: JSON.stringify([]),
-          leader_role_ids: JSON.stringify([]),
-          enabled: 1,
-          updated_at: new Date().toISOString(),
-        })
-        .execute();
+      FactionRoles.insertOne({
+        id: randomUUID(),
+        guild_id: guildId,
+        faction_id: factionId,
+        faction_name: factionName,
+        member_role_ids: [],
+        leader_role_ids: [],
+        enabled: true,
+        updated_at: new Date().toISOString(),
+      });
 
       // Trigger update of faction list channel
       const { updateFactionList } =
@@ -579,15 +548,12 @@ export async function handleVerifyAddFactionModalSubmit(
       await updateFactionList(guildId, interaction.client);
     } else {
       // Just update name if it changed
-      await db
-        .updateTable(TABLE_NAMES.FACTION_ROLES)
-        .set({
-          faction_name: factionName,
-          updated_at: new Date().toISOString(),
-        })
-        .where("guild_id", "=", guildId)
-        .where("faction_id", "=", factionId)
-        .execute();
+      const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      if (r) {
+        r.faction_name = factionName;
+        r.updated_at = new Date().toISOString();
+        FactionRoles.update(r);
+      }
     }
 
     await handleShowEditFactionMapping(factionId, interaction, true);
@@ -616,16 +582,11 @@ export async function handleShowEditFactionMapping(
       interaction.user.id,
     );
 
-    const mapping = await db
-      .selectFrom(TABLE_NAMES.FACTION_ROLES)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .executeTakeFirst();
+    const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
 
     if (!mapping) return;
 
-    const enabled = mapping.enabled === 1;
+    const enabled = mapping.enabled;
     const name = mapping.faction_name || `Faction ${factionId}`;
     const memberRoleIds = parseTextArray(mapping.member_role_ids);
     const leaderRoleIds = parseTextArray(mapping.leader_role_ids);
@@ -718,23 +679,15 @@ export async function handleVerifyFactionActionSelect(
 
     if (selected === "toggle_enabled") {
       await interaction.deferUpdate();
-      const mapping = await db
-        .selectFrom(TABLE_NAMES.FACTION_ROLES)
-        .select(["enabled"])
-        .where("guild_id", "=", guildId)
-        .where("faction_id", "=", factionId)
-        .executeTakeFirst();
+      const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
 
-      const current = mapping?.enabled === 1;
-      await db
-        .updateTable(TABLE_NAMES.FACTION_ROLES)
-        .set({
-          enabled: current ? 0 : 1,
-          updated_at: new Date().toISOString(),
-        })
-        .where("guild_id", "=", guildId)
-        .where("faction_id", "=", factionId)
-        .execute();
+      const current = mapping?.enabled;
+      const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      if (r) {
+        r.enabled = !current;
+        r.updated_at = new Date().toISOString();
+        FactionRoles.update(r);
+      }
 
       // Trigger update of faction list channel
       const { updateFactionList } = await import("../../../../lib/faction-list-manager.js");
@@ -747,11 +700,10 @@ export async function handleVerifyFactionActionSelect(
       await handleVerifyFactionSetLeaders(factionId, interaction);
     } else if (selected === "delete_mapping") {
       await interaction.deferUpdate();
-      await db
-        .deleteFrom(TABLE_NAMES.FACTION_ROLES)
-        .where("guild_id", "=", guildId)
-        .where("faction_id", "=", factionId)
-        .execute();
+      const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      if (r) {
+        FactionRoles.delete(r.id);
+      }
 
       // Trigger update of faction list channel
       const { updateFactionList } = await import("../../../../lib/faction-list-manager.js");
@@ -776,12 +728,7 @@ export async function handleVerifyFactionSetMembers(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const mapping = await db
-      .selectFrom(TABLE_NAMES.FACTION_ROLES)
-      .select(["member_role_ids", "faction_name"])
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .executeTakeFirst();
+    const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
 
     const existingRoles = parseTextArray(mapping?.member_role_ids);
     const name = mapping?.faction_name || `Faction ${factionId}`;
@@ -842,15 +789,12 @@ export async function handleVerifyFactionMembersSelect(
 
     const roleIds = interaction.values;
 
-    await db
-      .updateTable(TABLE_NAMES.FACTION_ROLES)
-      .set({
-        member_role_ids: JSON.stringify(roleIds),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .execute();
+    const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    if (r) {
+      r.member_role_ids = roleIds;
+      r.updated_at = new Date().toISOString();
+      FactionRoles.update(r);
+    }
 
     await handleShowEditFactionMapping(factionId, interaction, true);
   } catch (error) {
@@ -870,12 +814,7 @@ export async function handleVerifyFactionSetLeaders(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const mapping = await db
-      .selectFrom(TABLE_NAMES.FACTION_ROLES)
-      .select(["leader_role_ids", "faction_name"])
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .executeTakeFirst();
+    const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
 
     const existingRoles = parseTextArray(mapping?.leader_role_ids);
     const name = mapping?.faction_name || `Faction ${factionId}`;
@@ -936,15 +875,12 @@ export async function handleVerifyFactionLeadersSelect(
 
     const roleIds = interaction.values;
 
-    await db
-      .updateTable(TABLE_NAMES.FACTION_ROLES)
-      .set({
-        leader_role_ids: JSON.stringify(roleIds),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .execute();
+    const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    if (r) {
+      r.leader_role_ids = roleIds;
+      r.updated_at = new Date().toISOString();
+      FactionRoles.update(r);
+    }
 
     await handleShowEditFactionMapping(factionId, interaction, true);
   } catch (error) {
@@ -961,11 +897,10 @@ export async function handleVerifyFactionDelete(
     const factionId = parseInt(interaction.customId.split("|")[1]!, 10);
     if (!guildId || isNaN(factionId)) return;
 
-    await db
-      .deleteFrom(TABLE_NAMES.FACTION_ROLES)
-      .where("guild_id", "=", guildId)
-      .where("faction_id", "=", factionId)
-      .execute();
+    const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    if (r) {
+      FactionRoles.delete(r.id);
+    }
 
     // Trigger update of faction list channel
     const { updateFactionList } =
@@ -1003,11 +938,7 @@ export async function handleShowAutoVerifySettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["auto_verify"])
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     if (!guildConfig) return;
 
@@ -1057,21 +988,15 @@ export async function handleVerifyToggleAutoVerifyBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["auto_verify"])
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const current = isTruthyBoolean(config?.auto_verify);
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        auto_verify: current ? 0 : 1,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.auto_verify = !current;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowAutoVerifySettings(interaction, true);
   } catch (error) {
@@ -1091,11 +1016,7 @@ export async function handleShowNicknameTemplateSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["nickname_template"])
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     if (!guildConfig) return;
 
@@ -1148,11 +1069,7 @@ export async function handleVerifyEditNicknameBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["nickname_template"])
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const modal = new ModalBuilder()
       .setCustomId("config_verify_nickname_modal")

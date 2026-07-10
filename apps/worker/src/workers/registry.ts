@@ -1,59 +1,46 @@
-import {
-  startBotCronDispatcherWorker,
-  startCentralLogManager,
-  startStateTicker,
-  startSystemOrchestrator,
-  startTornGymsWorker,
-  startTornFinanceLogsWorker,
-  startTornCrimesWorker,
-} from "./private/index.js";
-import {
-  startTornItemsWorker,
-  startFactionSyncWorker,
-  startTerritoryBlueprintSyncWorker,
-  startWarLedgerSyncWorker,
-  startTerritoryStateSyncWorker,
-  startMercenaryPopulationWorker,
-} from "./public/index.js";
-
-export type WorkerScope = "private" | "public" | "all";
+import * as privateWorkers from "./private/index.js";
+import * as publicWorkers from "./public/index.js";
+import * as systemWorkers from "./system/index.js";
+import * as botWorkers from "./bot/index.js";
 
 type Starter = () => void;
 
-const PRIVATE_WORKERS: Starter[] = [
-  startBotCronDispatcherWorker,
-  startCentralLogManager,
-  startStateTicker,
-  startSystemOrchestrator,
-  startTornGymsWorker,
-  startTornFinanceLogsWorker,
-  startTornCrimesWorker,
-];
+const PRIVATE_WORKERS: Starter[] = [privateWorkers.startItemSyncWorker];
 
 const PUBLIC_WORKERS: Starter[] = [
-  startTornItemsWorker,
-  startFactionSyncWorker,
-  startTerritoryBlueprintSyncWorker,
-  startWarLedgerSyncWorker,
-  startTerritoryStateSyncWorker,
-  startMercenaryPopulationWorker,
+  publicWorkers.startTerritoryBlueprintSync,
+  publicWorkers.startTerritoryActivitySync,
+  publicWorkers.startFactionSync,
 ];
 
-export function startWorkersForScope(scope: WorkerScope): number {
+const BOT_WORKERS: Starter[] = [
+  botWorkers.startBazaarSeeder,
+  botWorkers.startBazaarManager,
+];
+
+const SYSTEM_WORKERS: Starter[] = [systemWorkers.startSystemMaintenance];
+
+export function startWorkers(): number {
   let started = 0;
 
-  if (scope !== "public") {
-    for (const start of PRIVATE_WORKERS) {
-      start();
-      started += 1;
-    }
+  for (const start of SYSTEM_WORKERS) {
+    start();
+    started += 1;
   }
 
-  if (scope !== "private") {
-    for (const start of PUBLIC_WORKERS) {
-      start();
-      started += 1;
-    }
+  for (const start of PRIVATE_WORKERS) {
+    start();
+    started += 1;
+  }
+
+  for (const start of PUBLIC_WORKERS) {
+    start();
+    started += 1;
+  }
+
+  for (const start of BOT_WORKERS) {
+    start();
+    started += 1;
   }
 
   return started;

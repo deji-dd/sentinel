@@ -18,14 +18,12 @@ import {
   REST,
   Routes,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../lib/db-client.js";
+import { GuildConfigs, GuildApiKeys } from "@sentinel/shared";
 import { logGuildSuccess } from "../../../lib/guild-logger.js";
 import {
   deployAllGuildCommands,
   deployGuildCommands,
 } from "../../../lib/deploy-commands-helper.js";
-import { performBackup } from "../../../tasks/db-backup-task.js";
 
 export type AdminInteraction =
   | ChatInputCommandInteraction
@@ -205,10 +203,6 @@ export async function handleShowMainDashboard(
           .setLabel("Redeploy Commands")
           .setValue("redeploy")
           .setDescription("Redeploy slash commands globally and to all guilds"),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Database Backup")
-          .setValue("backup")
-          .setDescription("Manually trigger a database backup and send via DM"),
       );
 
     const selectRow =
@@ -242,8 +236,6 @@ export async function handleAdminDashboardSelect(
       await handleShowGuildModules(interaction, true);
     } else if (selectedTask === "redeploy") {
       await handleShowRedeploy(interaction, true);
-    } else if (selectedTask === "backup") {
-      await handleShowBackup(interaction, true);
     }
   } catch (error) {
     console.error("Error in admin dashboard select handler:", error);
@@ -267,10 +259,7 @@ export async function handleShowGuildInit(
       interaction.user.id,
     );
 
-    const initializedGuilds = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["guild_id"])
-      .execute();
+    const initializedGuilds = GuildConfigs.findAll();
 
     const initializedIds = new Set(initializedGuilds.map((g) => g.guild_id));
 
@@ -398,34 +387,27 @@ async function handleGuildInitSubmit(
   try {
     const client = interaction.client;
 
-    let guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    let guildConfig = GuildConfigs.findOne(guildId);
 
     if (!guildConfig) {
-      await db
-        .insertInto(TABLE_NAMES.GUILD_CONFIG)
-        .values({
-          guild_id: guildId,
-          enabled_modules: JSON.stringify(["admin"]),
-          admin_role_ids: JSON.stringify([]),
-          verified_role_ids: JSON.stringify([]),
-        })
-        .execute();
-
-      try {
-        await db
-          .insertInto(TABLE_NAMES.GUILD_SYNC_JOBS)
-          .values({
-            guild_id: guildId,
-            next_sync_at: new Date().toISOString(),
-          })
-          .execute();
-      } catch {
-        // Ignore duplicate sync job errors
-      }
+      GuildConfigs.insertOne({
+        id: guildId,
+        guild_id: guildId,
+        auto_verify: false,
+        nickname_template: "{name} [{id}]",
+        verified_role_id: null,
+        verified_role_ids: [],
+        sync_interval_seconds: 3600,
+        enabled_modules: ["admin"],
+        admin_role_ids: [],
+        log_channel_id: null,
+        faction_list_channel_id: null,
+        faction_list_message_ids: [],
+        tt_full_channel_id: null,
+        tt_filtered_channel_id: null,
+        tt_territory_ids: [],
+        tt_faction_ids: [],
+      });
 
       await deployGuildCommands(guildId);
 
@@ -460,10 +442,7 @@ export async function handleShowGuildModules(
       interaction.user.id,
     );
 
-    const initializedGuilds = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["guild_id"])
-      .execute();
+    const initializedGuilds = GuildConfigs.findAll();
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
@@ -543,18 +522,11 @@ export async function handleShowGuildModuleConfig(
       interaction.user.id,
     );
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     if (!guildConfig) return;
 
-    const enabledModules: string[] =
-      typeof guildConfig.enabled_modules === "string"
-        ? JSON.parse(guildConfig.enabled_modules)
-        : guildConfig.enabled_modules || [];
+    const enabledModules: string[] = guildConfig.enabled_modules || [];
 
     const cachedGuild = client.guilds.cache.get(guildId);
     const name = cachedGuild ? cachedGuild.name : `Server ID: ${guildId}`;
@@ -572,7 +544,7 @@ export async function handleShowGuildModuleConfig(
       .setCustomId(`admin_guild_modules_save_select|${guildId}`)
       .setPlaceholder("Select modules to enable/disable...")
       .setMinValues(0)
-      .setMaxValues(8)
+      .setMaxValues(5)
       .addOptions(
         new StringSelectMenuOptionBuilder()
           .setLabel("Admin Settings")
@@ -585,25 +557,10 @@ export async function handleShowGuildModuleConfig(
           .setDescription("Verify user Discord accounts to Torn API profiles")
           .setDefault(enabledModules.includes("verify")),
         new StringSelectMenuOptionBuilder()
-          .setLabel("Revive Settings")
-          .setValue("revive")
-          .setDescription("Revive coordination dashboard and output routing")
-          .setDefault(enabledModules.includes("revive")),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Assist Settings")
-          .setValue("assist")
-          .setDescription("Combat assist and automation settings")
-          .setDefault(enabledModules.includes("assist")),
-        new StringSelectMenuOptionBuilder()
           .setLabel("Territories Settings")
           .setValue("territories")
           .setDescription("Territory watching and notifications.")
           .setDefault(enabledModules.includes("territories")),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("Mercenary Settings")
-          .setValue("mercenary")
-          .setDescription("Merc contracts registration and dibs timers")
-          .setDefault(enabledModules.includes("mercenary")),
         new StringSelectMenuOptionBuilder()
           .setLabel("Bazaar Mug Watcher Settings")
           .setValue("bazaar_mug")
@@ -648,8 +605,7 @@ export async function handleGuildModulesSaveSelect(
 
     const hasOtherModules = selectedModules.some((m) => m !== "admin");
     if (hasOtherModules) {
-      const { getGuildApiKeys } = await import("../../../lib/guild-api-keys.js");
-      const keys = await getGuildApiKeys(guildId);
+      const keys = GuildApiKeys.find({ guild_id: guildId });
       if (keys.length === 0) {
         const errorEmbed = new EmbedBuilder()
           .setColor(0xef4444)
@@ -676,13 +632,11 @@ export async function handleGuildModulesSaveSelect(
       selectedModules.push("admin");
     }
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        enabled_modules: JSON.stringify(selectedModules),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const existing = GuildConfigs.findOne(guildId);
+    if (existing) {
+      existing.enabled_modules = selectedModules;
+      GuildConfigs.insertOne(existing);
+    }
 
     await deployGuildCommands(guildId);
 
@@ -800,138 +754,7 @@ export async function handleRedeployConfirm(
   }
 }
 
-export async function handleShowBackup(
-  interaction: AdminInteraction,
-  isAlreadyDeferred = false,
-): Promise<void> {
-  try {
-    if (!isAlreadyDeferred && "deferUpdate" in interaction) {
-      await (interaction as any).deferUpdate();
-    }
 
-    const message = "message" in interaction ? interaction.message : null;
-    const footerText = message?.embeds?.[0]?.footer?.text;
-    const originalUserId = getAdminSessionUserId(
-      footerText,
-      interaction.user.id,
-    );
-
-    const embed = new EmbedBuilder()
-      .setColor(0x8b5cf6)
-      .setTitle("Admin • Database Backup")
-      .setDescription(
-        "Are you sure you want to perform a database backup? The database file will be generated and sent directly to your DMs.",
-      )
-      .setFooter({
-        text: `Sentinel • Admin Session: ${originalUserId}`,
-      })
-      .setTimestamp();
-
-    const confirmBtn = new ButtonBuilder()
-      .setCustomId("admin_backup_confirm")
-      .setLabel("Confirm Backup")
-      .setStyle(ButtonStyle.Danger);
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("admin_back_to_main")
-      .setLabel("Back")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      confirmBtn,
-      backBtn,
-    );
-
-    await interaction.editReply({
-      embeds: [embed],
-      components: [row],
-    });
-  } catch (error) {
-    console.error("Error in handleShowBackup:", error);
-  }
-}
-
-export async function handleBackupConfirm(
-  interaction: ButtonInteraction,
-): Promise<void> {
-  try {
-    await interaction.deferUpdate();
-
-    const client = interaction.client;
-    const footerText = interaction.message?.embeds?.[0]?.footer?.text;
-    const originalUserId = getAdminSessionUserId(
-      footerText,
-      interaction.user.id,
-    );
-
-    const loadingEmbed = new EmbedBuilder()
-      .setColor(0x3b82f6)
-      .setTitle("Admin • Backing Up Database")
-      .setDescription("Generating database backup file. Please wait...")
-      .setFooter({
-        text: `Sentinel • Admin Session: ${originalUserId}`,
-      })
-      .setTimestamp();
-
-    await interaction.editReply({
-      embeds: [loadingEmbed],
-      components: [],
-    });
-
-    await performBackup(client);
-
-    const successEmbed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("Backup Complete")
-      .setDescription(
-        "The database backup has been generated successfully and sent to your DMs.",
-      )
-      .setFooter({
-        text: `Sentinel • Admin Session: ${originalUserId}`,
-      })
-      .setTimestamp();
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("admin_back_to_main")
-      .setLabel("Back")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-    await interaction.editReply({
-      embeds: [successEmbed],
-      components: [row],
-    });
-  } catch (error) {
-    console.error("Error in handleBackupConfirm:", error);
-    const footerText = interaction.message?.embeds?.[0]?.footer?.text;
-    const originalUserId = getAdminSessionUserId(
-      footerText,
-      interaction.user.id,
-    );
-
-    const errorEmbed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("Backup Failed")
-      .setDescription(error instanceof Error ? error.message : String(error))
-      .setFooter({
-        text: `Sentinel • Admin Session: ${originalUserId}`,
-      })
-      .setTimestamp();
-
-    const backBtn = new ButtonBuilder()
-      .setCustomId("admin_back_to_main")
-      .setLabel("Back")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
-
-    await interaction.editReply({
-      embeds: [errorEmbed],
-      components: [row],
-    });
-  }
-}
 
 export async function handleShowGuildDeinit(
   interaction: AdminInteraction,
@@ -950,10 +773,7 @@ export async function handleShowGuildDeinit(
       interaction.user.id,
     );
 
-    const initializedGuilds = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["guild_id"])
-      .execute();
+    const initializedGuilds = GuildConfigs.findAll();
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
@@ -1096,21 +916,7 @@ export async function handleGuildDeinitConfirm(
     );
 
     // Delete guild config
-    await db
-      .deleteFrom(TABLE_NAMES.GUILD_CONFIG)
-      .where("guild_id", "=", guildId)
-      .execute();
-
-    // Delete sync jobs
-    await db
-      .deleteFrom(TABLE_NAMES.GUILD_SYNC_JOBS)
-      .where("guild_id", "=", guildId)
-      .execute();
-
-    // Sync cron schedules
-    const { syncAllGuildCronSchedules } =
-      await import("../../../lib/cron-schedule-registry.js");
-    await syncAllGuildCronSchedules(guildId, client);
+    GuildConfigs.delete(guildId);
 
     // If only, clear guild commands
     if (action === "only") {

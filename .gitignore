@@ -80,3 +80,6 @@ apps/bot/dev-log.txt
 **/vite.config.js
 
 **/details/*
+.repomixignore
+repomix-output.xml
+repomix.config.json

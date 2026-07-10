@@ -10,8 +10,11 @@ import {
   type PartialMessageReaction,
   type PartialUser,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "./db-client.js";
+import {
+  GuildConfigs,
+  ReactionRoleMessages,
+  ReactionRoleMappings,
+} from "@sentinel/shared";
 
 const REACTION_FEEDBACK_TTL_MS = 10000;
 const REACTION_EVENT_LOCK_MS = 4000;
@@ -24,7 +27,7 @@ type ReactionFeedbackType =
   | "invalid"
   | "error";
 
-function parseTextArray(value: unknown): string[] {
+function _parseTextArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string");
   }
@@ -86,12 +89,7 @@ async function sendReactionLogEmbed(
   description: string,
 ): Promise<void> {
   try {
-    const guildConfig = (await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["log_channel_id"])
-      .where("guild_id", "=", guildId)
-      .limit(1)
-      .executeTakeFirst()) as { log_channel_id: string | null } | undefined;
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     const logChannelId = guildConfig?.log_channel_id;
     if (!logChannelId) return;
@@ -261,14 +259,8 @@ export async function handleReactionRoleAdd(
     const emoji = fullReaction.emoji.toString();
     const reactionKey = getReactionKey(messageId, user.id, emoji);
 
-    const guildConfig = (await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select(["enabled_modules"])
-      .where("guild_id", "=", guildId)
-      .limit(1)
-      .executeTakeFirst()) as { enabled_modules: unknown } | undefined;
-
-    const enabledModules = parseTextArray(guildConfig?.enabled_modules);
+    const guildConfig = GuildConfigs.findOne(guildId);
+    const enabledModules = guildConfig?.enabled_modules || [];
     if (!enabledModules.includes("reaction_roles")) {
       return;
     }
@@ -281,12 +273,9 @@ export async function handleReactionRoleAdd(
     const sourceChannelId = fullReaction.message.channelId;
 
     // Check if this message is registered as a reaction-role message
-    const message = (await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select(["id"])
-      .where("message_id", "=", messageId)
-      .limit(1)
-      .executeTakeFirst()) as { id: number } | undefined;
+    const message = ReactionRoleMessages.findFirst(
+      (m) => m.message_id === messageId,
+    );
 
     // Silently ignore reactions on non-reaction-role messages
     if (!message) {
@@ -294,13 +283,9 @@ export async function handleReactionRoleAdd(
     }
 
     // Find the role mapping for this emoji+message combo
-    const mapping = (await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .select(["role_id"])
-      .where("message_id", "=", messageId)
-      .where("emoji", "=", emoji)
-      .limit(1)
-      .executeTakeFirst()) as { role_id: string } | undefined;
+    const mapping = ReactionRoleMappings.findFirst(
+      (m) => m.message_id === messageId && m.emoji === emoji,
+    );
 
     const removeUserReaction = async () => {
       await fullReaction.users.remove(user.id).catch(() => {
@@ -328,31 +313,30 @@ export async function handleReactionRoleAdd(
     const member = await fullReaction.message.guild?.members.fetch(user.id);
     if (!member) return;
 
-    const msgReq = (await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select(["required_role_id"])
-      .where("message_id", "=", messageId)
-      .limit(1)
-      .executeTakeFirst()) as { required_role_id: string | null } | undefined;
+    const msgReq = ReactionRoleMessages.findFirst(
+      (m) => m.message_id === messageId,
+    );
 
     if (msgReq?.required_role_id) {
       const requiredRoleIds = msgReq.required_role_id.split(",");
-      const hasRequiredRole = requiredRoleIds.some(roleId => member.roles.cache.has(roleId));
-      
+      const hasRequiredRole = requiredRoleIds.some((roleId) =>
+        member.roles.cache.has(roleId),
+      );
+
       if (!hasRequiredRole) {
-          await removeUserReaction();
-          await sendReactionFeedback(
-            feedbackChannel,
-            guildId,
-            sourceChannelId,
-            messageId,
-            emoji,
-            user.id,
-            "denied",
-            "Reaction Role Access Denied",
-            `You must have at least one of the required roles to use this: ${requiredRoleIds.map(rid => `<@&${rid}>`).join(", ")}`
-          );
-          return;
+        await removeUserReaction();
+        await sendReactionFeedback(
+          feedbackChannel,
+          guildId,
+          sourceChannelId,
+          messageId,
+          emoji,
+          user.id,
+          "denied",
+          "Reaction Role Access Denied",
+          `You must have at least one of the required roles to use this: ${requiredRoleIds.map((rid) => `<@&${rid}>`).join(", ")}`,
+        );
+        return;
       }
     }
 

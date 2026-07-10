@@ -9,31 +9,35 @@ import {
   AttachmentBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import {
-  TABLE_NAMES,
-  getBurnedTerritories,
-  getFactionNameCached,
-  type WarRecord,
-} from "@sentinel/shared";
-import { db } from "../../../lib/db-client.js";
 import { generateBurnMapPng } from "../../../lib/burn-map-generator.js";
-import { getGuildApiKeys } from "../../../lib/guild-api-keys.js";
-import { tornApi } from "../../../services/torn-client.js";
+import {
+  GuildApiKeys,
+  decryptApiKey,
+  validateAndFetchFactionDetails,
+  WarLedger,
+  TerritoryStates,
+  TerritoryBlueprints,
+} from "@sentinel/shared";
+
+import {
+  getBurnedTerritories,
+  type WarRecord,
+} from "../../../lib/territory-burn-logic.js";
 
 const STATUS_EMOJI_SUCCESS = "<:Green:1474607376140079104>";
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
 
-type TerritoryStateRow = {
-  territory_id: string;
-};
-
-type TerritoryBlueprintRow = {
-  id: string;
-};
-
 async function getActiveApiKey(guildId: string): Promise<string | null> {
-  const apiKeys = await getGuildApiKeys(guildId);
-  return apiKeys.length > 0 ? apiKeys[0] : null;
+  const allKeys = GuildApiKeys.find((k) => k.guild_id === guildId);
+  const keyDoc = allKeys.find((k) => k.is_primary) || allKeys[0];
+  if (!keyDoc) return null;
+
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    throw new Error("CRITICAL: ENCRYPTION_KEY is not set in environment");
+  }
+
+  return decryptApiKey(keyDoc.api_key_encrypted, encryptionKey);
 }
 
 export const data = new SlashCommandBuilder()
@@ -57,7 +61,7 @@ export async function execute(
     const apiKey = guildId ? await getActiveApiKey(guildId) : null;
 
     // Get faction name
-    const factionName = await getFactionNameCached(factionId, tornApi, apiKey);
+    const factionName = await validateAndFetchFactionDetails(factionId, apiKey);
     const factionDisplay = factionName
       ? `${factionName} (${factionId})`
       : `Faction ${factionId}`;
@@ -66,35 +70,36 @@ export async function execute(
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    const wars: WarRecord[] = await db
-      .selectFrom(TABLE_NAMES.WAR_LEDGER)
-      .selectAll()
-      .where("start_time", ">=", ninetyDaysAgo.toISOString())
-      .orderBy("start_time", "desc")
-      .execute();
+    const ninetyDaysMs = ninetyDaysAgo.getTime();
+
+    const warsDocs = WarLedger.find((w) => w.start_time >= ninetyDaysMs);
+    warsDocs.sort((a, b) => b.start_time - a.start_time);
+    const wars: WarRecord[] = warsDocs.map((w) => ({
+      war_id: parseInt(w.id, 10),
+      territory_id: w.territory_id,
+      assaulting_faction: w.assaulting_faction,
+      defending_faction: w.defending_faction,
+      victor_faction: w.victor_faction,
+      start_time: new Date(w.start_time).toISOString(),
+      end_time: w.end_time ? new Date(w.end_time).toISOString() : null,
+    }));
 
     // Get current territory count for faction
-    const ownedTerritories: TerritoryStateRow[] = await db
-      .selectFrom(TABLE_NAMES.TERRITORY_STATE)
-      .select(["territory_id"])
-      .where("faction_id", "=", factionId)
-      .execute();
+    const ownedTerritories = TerritoryStates.find(
+      (t) => t.faction_id === factionId,
+    );
 
     const currentTerritoryCount = ownedTerritories?.length || 0;
 
     // Get all territories
-    const allTerritories: TerritoryBlueprintRow[] = await db
-      .selectFrom(TABLE_NAMES.TERRITORY_BLUEPRINT)
-      .select(["id"])
-      .execute();
-
+    const allTerritories = TerritoryBlueprints.findAll();
     const allTerritoryIds = allTerritories.map((t) => t.id);
 
     // Get burned territories
     const burnedTerritories = getBurnedTerritories(
       factionId,
       allTerritoryIds,
-      wars || [],
+      wars,
       currentTerritoryCount,
     );
 

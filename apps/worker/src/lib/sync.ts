@@ -3,7 +3,7 @@
  * Handles lock mechanism to prevent overlapping syncs.
  */
 
-import { Logger } from "./logger.js";
+import { Logger } from "@sentinel/shared";
 
 interface SyncState {
   isRunning: boolean;

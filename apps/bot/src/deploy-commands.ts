@@ -8,11 +8,7 @@ import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
-import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";
-import * as ttSelectorCommand from "./commands/general/territories/tt-selector.js";
-import * as assistCommand from "./commands/general/assist/assist.js";
-
-function requireEnv(name: string): string {
+import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
@@ -44,8 +40,6 @@ const commands = [
   assaultCheckCommand.data.toJSON(),
   burnMapCommand.data.toJSON(),
   allianceMapCommand.data.toJSON(),
-  ttSelectorCommand.data.toJSON(),
-  assistCommand.data.toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(discordToken);

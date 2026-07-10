@@ -78,15 +78,15 @@ export const TABLE_NAMES = {
   USER_LOGS: "sentinel_user_logs",
 } as const;
 
-/** Alert module types */
-export const ALERT_MODULES = {
-  TRAVEL: "travel",
-  // Future: CRIMES: "crimes", FACTION: "faction", etc.
-} as const;
-/** Rate limiting constants */
-export const RATE_LIMITING = {
-  /** Max requests per minute per Torn user across all API keys and guilds */
-  MAX_REQUESTS_PER_MINUTE: 50,
-  /** Window size for rate limiting (1 minute) */
-  WINDOW_MS: 60000,
-} as const;
+// /** Alert module types */
+// export const ALERT_MODULES = {
+//   TRAVEL: "travel",
+//   // Future: CRIMES: "crimes", FACTION: "faction", etc.
+// } as const;
+// /** Rate limiting constants */
+// export const RATE_LIMITING = {
+//   /** Max requests per minute per Torn user across all API keys and guilds */
+//   MAX_REQUESTS_PER_MINUTE: 50,
+//   /** Window size for rate limiting (1 minute) */
+//   WINDOW_MS: 60000,
+// } as const;

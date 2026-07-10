@@ -8,47 +8,21 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./torn": {
-      "types": "./dist/torn.d.ts",
-      "import": "./dist/torn.js"
-    },
-    "./db/sqlite": {
-      "types": "./dist/db/sqlite.d.ts",
-      "import": "./dist/db/sqlite.js"
-    },
-    "./db/sqlite.js": {
-      "types": "./dist/db/sqlite.d.ts",
-      "import": "./dist/db/sqlite.js"
-    },
-    "./racket-reward": {
-      "types": "./dist/racket-reward.d.ts",
-      "import": "./dist/racket-reward.js"
-    },
-    "./training-recommendations": {
-      "types": "./dist/training-recommendations.d.ts",
-      "import": "./dist/training-recommendations.js"
-    },
-    "./training-recommendations.js": {
-      "types": "./dist/training-recommendations.d.ts",
-      "import": "./dist/training-recommendations.js"
     }
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/generated/torn-api.ts",
-    "generate:kysely-types": "kysely-codegen --dialect sqlite --url ../../data/sentinel-local.db --out-file src/db/kysely-types.ts"
+    "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/torn/torn-api.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.5",
-    "kysely-codegen": "^0.20.0",
     "openapi-typescript": "^7.4.4",
     "typescript": "^5.7.3"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
-    "kysely": "^0.28.11"
+    "kysely": "^0.29.3"
   }
 }

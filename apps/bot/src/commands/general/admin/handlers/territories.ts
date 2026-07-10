@@ -16,8 +16,7 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../../lib/db-client.js";
+import { GuildConfigs } from "@sentinel/shared";
 
 export type ConfigInteraction =
   | StringSelectMenuInteraction
@@ -67,22 +66,10 @@ export async function handleShowTerritoriesSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     // Parse enabled_modules
-    let enabledModules: string[] = [];
-    if (guildConfig?.enabled_modules) {
-      try {
-        const parsed = JSON.parse(guildConfig.enabled_modules);
-        enabledModules = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        enabledModules = [];
-      }
-    }
+    const enabledModules: string[] = guildConfig?.enabled_modules || [];
 
     if (!enabledModules.includes("territories")) {
       const disabledEmbed = new EmbedBuilder()
@@ -187,11 +174,7 @@ export async function handleTerritoriesSetFullChannel(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("tt_full_channel_id")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const currentChannel = config?.tt_full_channel_id
       ? `<#${config.tt_full_channel_id}>`
@@ -239,11 +222,7 @@ export async function handleTerritoriesSetFilteredChannel(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("tt_filtered_channel_id")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const currentChannel = config?.tt_filtered_channel_id
       ? `<#${config.tt_filtered_channel_id}>`
@@ -290,14 +269,12 @@ export async function handleTerritoriesFullChannelSelect(
     const channelId = interaction.values[0];
     if (!guildId || !channelId) return;
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        tt_full_channel_id: channelId,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.tt_full_channel_id = channelId;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowTerritoriesSettings(interaction, true);
   } catch (error) {
@@ -315,14 +292,12 @@ export async function handleTerritoriesFilteredChannelSelect(
     const channelId = interaction.values[0];
     if (!guildId || !channelId) return;
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        tt_filtered_channel_id: channelId,
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.tt_filtered_channel_id = channelId;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowTerritoriesSettings(interaction, true);
   } catch (error) {
@@ -342,11 +317,7 @@ export async function handleShowWatchedTerritoriesSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("tt_territory_ids")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const territoryList = parseTextArray(config?.tt_territory_ids);
     const displayList =
@@ -399,11 +370,7 @@ export async function handleTerritoriesSetWatchedTerritoriesBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("tt_territory_ids")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const territoryList = parseTextArray(config?.tt_territory_ids);
     const currentValue = territoryList.join(", ");
@@ -448,14 +415,12 @@ export async function handleTerritoriesWatchedTerritoriesModal(
       .map((t) => t.trim().toUpperCase())
       .filter((t) => t.length > 0);
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        tt_territory_ids: JSON.stringify(territories),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.tt_territory_ids = territories;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowWatchedTerritoriesSettings(interaction, true);
   } catch (error) {
@@ -475,11 +440,7 @@ export async function handleShowWatchedFactionsSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("tt_faction_ids")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const factionList = parseTextArray(config?.tt_faction_ids);
     const displayList =
@@ -532,11 +493,7 @@ export async function handleTerritoriesSetWatchedFactionsBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const config = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("tt_faction_ids")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const config = GuildConfigs.findOne(guildId);
 
     const factionList = parseTextArray(config?.tt_faction_ids);
     const currentValue = factionList.join(", ");
@@ -581,14 +538,12 @@ export async function handleTerritoriesWatchedFactionsModal(
       .map((f) => f.trim())
       .filter((f) => f.length > 0 && !isNaN(parseInt(f, 10)));
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        tt_faction_ids: JSON.stringify(factions),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    const c = GuildConfigs.findOne(guildId);
+    if (c) {
+      c.tt_faction_ids = factions;
+      c.updated_at = new Date().toISOString();
+      GuildConfigs.update(c);
+    }
 
     await handleShowWatchedFactionsSettings(interaction, true);
   } catch (error) {

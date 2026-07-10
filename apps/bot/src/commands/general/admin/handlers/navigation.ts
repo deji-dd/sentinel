@@ -13,9 +13,7 @@ import {
   type ButtonInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { getGuildApiKeys } from "../../../../lib/guild-api-keys.js";
-import { db } from "../../../../lib/db-client.js";
+import { GuildConfigs, GuildApiKeys } from "@sentinel/shared";
 
 export async function handleViewSelect(
   interaction: StringSelectMenuInteraction,
@@ -26,12 +24,7 @@ export async function handleViewSelect(
 
     const selectedView = interaction.values[0];
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
-
+    const guildConfig = GuildConfigs.findOne(guildId);
     if (!guildConfig) return;
 
     // Now that we have data, defer the update
@@ -39,17 +32,16 @@ export async function handleViewSelect(
 
     if (selectedView === "view_admin") {
       // Show admin settings
-      const apiKeys = await getGuildApiKeys(guildId);
+      const apiKeys = GuildApiKeys.find((k) => k.guild_id === guildId);
 
       let apiKeyDisplay = "No keys configured";
       if (apiKeys.length > 0) {
         apiKeyDisplay = apiKeys
-          .map((key, idx) => {
-            const status =
-              idx === 0
-                ? "<:Green:1474607376140079104>"
-                : "<:Red:1474607810368114886>";
-            return `${status} ...${key.slice(-4)}`;
+          .map((keyDoc) => {
+            const status = keyDoc.is_primary
+              ? "<:Green:1474607376140079104>"
+              : "<:Red:1474607810368114886>";
+            return `${status} ...${keyDoc.api_key_encrypted.slice(-4)}`;
           })
           .join("\n");
       }
@@ -58,10 +50,7 @@ export async function handleViewSelect(
         ? `<#${guildConfig.log_channel_id}>`
         : "Not configured";
 
-      // Parse admin_role_ids from JSON string (SQLite stores as JSON)
-      const adminRoleIds: string[] = guildConfig.admin_role_ids
-        ? JSON.parse(guildConfig.admin_role_ids)
-        : [];
+      const adminRoleIds: string[] = guildConfig.admin_role_ids || [];
 
       let adminRolesDisplay = "None configured";
       if (adminRoleIds.length > 0) {

@@ -4,8 +4,7 @@ import {
   TextChannel,
   Message,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "./db-client.js";
+import { GuildConfigs, FactionRoles } from "@sentinel/shared";
 
 /**
  * Manages the updating faction list in a designated channel.
@@ -16,11 +15,7 @@ export async function updateFactionList(
 ): Promise<void> {
   try {
     // 1. Fetch guild config for faction list channel and message IDs
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
     if (!guildConfig || !guildConfig.faction_list_channel_id) {
       return;
@@ -34,12 +29,7 @@ export async function updateFactionList(
     }
 
     // 2. Fetch all enabled factions for this guild
-    const factions = await db
-      .selectFrom(TABLE_NAMES.FACTION_ROLES)
-      .select(["faction_id", "faction_name"])
-      .where("guild_id", "=", guildId)
-      .where("enabled", "=", 1)
-      .execute();
+    const factions = FactionRoles.find((f) => f.guild_id === guildId && f.enabled);
 
     // 3. Sort factions alphabetically by name
     const sortedFactions = [...factions].sort((a, b) => {
@@ -82,9 +72,7 @@ export async function updateFactionList(
     }
 
     // 5. Update messages
-    const existingMessageIds: string[] = guildConfig.faction_list_message_ids
-      ? JSON.parse(guildConfig.faction_list_message_ids)
-      : [];
+    const existingMessageIds: string[] = guildConfig.faction_list_message_ids || [];
     const newMessageIds: string[] = [];
 
     // Map existing messages to their IDs or null
@@ -123,14 +111,9 @@ export async function updateFactionList(
       }
     }
 
-    await db
-      .updateTable(TABLE_NAMES.GUILD_CONFIG)
-      .set({
-        faction_list_message_ids: JSON.stringify(newMessageIds),
-        updated_at: new Date().toISOString(),
-      })
-      .where("guild_id", "=", guildId)
-      .execute();
+    guildConfig.faction_list_message_ids = newMessageIds;
+    guildConfig.updated_at = new Date().toISOString();
+    GuildConfigs.update(guildConfig);
 
   } catch (error) {
     console.error(`[Faction List] Error updating list for guild ${guildId}:`, error);

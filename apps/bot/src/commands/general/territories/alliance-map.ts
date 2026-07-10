@@ -4,15 +4,9 @@ import {
   AttachmentBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../lib/db-client.js";
+import { TerritoryStates } from "@sentinel/shared";
 import { getFactionToAllianceMap } from "../../../lib/faction-alliances.js";
 import { generateAllianceMapPng } from "../../../lib/alliance-map-generator.js";
-
-type TerritoryOwnershipRow = {
-  territory_id: string;
-  faction_id: number | null;
-};
 
 const DISTINCT_COLORS = [
   "#e74c3c", // red
@@ -58,10 +52,7 @@ export async function execute(
     await interaction.deferReply();
 
     const [ownershipRows, factionToAlliance] = await Promise.all([
-      db
-        .selectFrom(TABLE_NAMES.TERRITORY_STATE)
-        .select(["territory_id", "faction_id"])
-        .execute() as Promise<TerritoryOwnershipRow[]>,
+      Promise.resolve(TerritoryStates.findAll()),
       getFactionToAllianceMap(),
     ]);
 

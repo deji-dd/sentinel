@@ -18,8 +18,7 @@ import {
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { TABLE_NAMES } from "@sentinel/shared";
-import { db } from "../../../../lib/db-client.js";
+import { GuildConfigs, ReactionRoleMessages, ReactionRoleMappings } from "@sentinel/shared";
 import { logGuildAction } from "../../../../lib/guild-logger.js";
 
 export type ConfigInteraction =
@@ -52,21 +51,9 @@ export async function handleShowReactionRolesSettings(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = await db
-      .selectFrom(TABLE_NAMES.GUILD_CONFIG)
-      .select("enabled_modules")
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const guildConfig = GuildConfigs.findOne(guildId);
 
-    let enabledModules: string[] = [];
-    if (guildConfig?.enabled_modules) {
-      try {
-        const parsed = JSON.parse(guildConfig.enabled_modules);
-        enabledModules = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        enabledModules = [];
-      }
-    }
+    const enabledModules: string[] = guildConfig?.enabled_modules || [];
 
     if (!enabledModules.includes("reaction_roles")) {
       const disabledEmbed = new EmbedBuilder()
@@ -91,11 +78,7 @@ export async function handleShowReactionRolesSettings(
     );
 
     // Fetch count of reaction roles messages
-    const existingMessages = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .select("id")
-      .where("guild_id", "=", guildId)
-      .execute();
+    const existingMessages = ReactionRoleMessages.find((m) => m.guild_id === guildId);
 
     const count = existingMessages.length;
 
@@ -596,32 +579,27 @@ export async function handleReactionRolesModalSubmit(
     const dbRequiredRoleIds =
       requiredRoleIds !== "none" ? requiredRoleIds : null;
 
-    await db
-      .insertInto(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .values({
-        guild_id: guildId,
-        channel_id: channelId,
-        message_id: postedMessage.id,
-        title: title,
-        description: description || null,
-        required_role_id: dbRequiredRoleIds,
-        sync_roles: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .execute();
+    ReactionRoleMessages.insertOne({
+      id: postedMessage.id, // using message_id as id since there wasn't one explicitly in insert
+      guild_id: guildId,
+      channel_id: channelId,
+      message_id: postedMessage.id,
+      title: title,
+      description: description || null,
+      required_role_id: dbRequiredRoleIds,
+      sync_roles: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
 
     for (let i = 0; i < roleIds.length; i++) {
-      await db
-        .insertInto(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-        .values({
-          id: Date.now() * 1000 + i + Math.floor(Math.random() * 1000),
-          message_id: postedMessage.id,
-          emoji: emojis[i],
-          role_id: roleIds[i],
-          created_at: new Date().toISOString(),
-        })
-        .execute();
+      ReactionRoleMappings.insertOne({
+        id: `${postedMessage.id}_${emojis[i]}`,
+        message_id: postedMessage.id,
+        emoji: emojis[i],
+        role_id: roleIds[i],
+        created_at: new Date().toISOString(),
+      });
     }
 
     await logGuildAction(guildId, interaction.client, {
@@ -665,11 +643,7 @@ export async function handleShowManageExistingMessages(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const messages = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .selectAll()
-      .where("guild_id", "=", guildId)
-      .execute();
+    const messages = ReactionRoleMessages.find((m) => m.guild_id === guildId);
 
     if (messages.length === 0) {
       const embed = new EmbedBuilder()
@@ -738,15 +712,10 @@ export async function handleReactionRolesSelectMessage(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const msgId = parseInt(interaction.values[0], 10);
-    const messageRecord = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .selectAll()
-      .where("id", "=", msgId)
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const messageId = interaction.values[0];
+    const messageRecord = ReactionRoleMessages.findOne(messageId);
 
-    if (!messageRecord) {
+    if (!messageRecord || messageRecord.guild_id !== guildId) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Message Not Found")
@@ -755,11 +724,7 @@ export async function handleReactionRolesSelectMessage(
       return;
     }
 
-    const mappings = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .selectAll()
-      .where("message_id", "=", messageRecord.message_id)
-      .execute();
+    const mappings = ReactionRoleMappings.find((m) => m.message_id === messageRecord.message_id);
 
     let detailsText = `**Channel:** <#${messageRecord.channel_id}>\n`;
     detailsText += `**Message ID:** \`${messageRecord.message_id}\`\n`;
@@ -817,13 +782,8 @@ export async function handleReactionRoleDeleteMsgBtn(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const msgId = parseInt(interaction.customId.split("|")[1], 10);
-    const messageRecord = await db
-      .selectFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .selectAll()
-      .where("id", "=", msgId)
-      .where("guild_id", "=", guildId)
-      .executeTakeFirst();
+    const msgId = interaction.customId.split("|")[1];
+    const messageRecord = ReactionRoleMessages.findOne(msgId as string);
 
     if (!messageRecord) {
       const errorEmbed = new EmbedBuilder()
@@ -848,15 +808,10 @@ export async function handleReactionRoleDeleteMsgBtn(
     }
 
     // Delete mappings & message from DB
-    await db
-      .deleteFrom(TABLE_NAMES.REACTION_ROLE_MESSAGES)
-      .where("id", "=", msgId)
-      .execute();
+    ReactionRoleMessages.delete(msgId);
 
-    await db
-      .deleteFrom(TABLE_NAMES.REACTION_ROLE_MAPPINGS)
-      .where("message_id", "=", messageRecord.message_id)
-      .execute();
+    const mapsToDelete = ReactionRoleMappings.find((m) => m.message_id === messageRecord.message_id);
+    mapsToDelete.forEach((m) => ReactionRoleMappings.delete(m.id));
 
     await logGuildAction(guildId, interaction.client, {
       title: "Reaction Role Message Deleted",

@@ -1,16 +1,12 @@
 import { EventEmitter } from "events";
-import { getKysely } from "@sentinel/shared/db/sqlite.js";
-import { TABLE_NAMES } from "@sentinel/shared";
 import { watch, existsSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { sentinelDbEngine, Collection, BaseDocument } from "@sentinel/shared";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-export const settingsEmitter = new EventEmitter();
-
-export interface CachedSettings {
+/**
+ * Defines the structure for the Sentinel owner's personal operational settings.
+ */
+export interface OwnerSettingsDocument extends BaseDocument {
   user_id: string | null;
   discord_id: string;
   energy_alerts_enabled: number;
@@ -33,8 +29,20 @@ export interface CachedSettings {
   target_dexterity_ratio: number;
 }
 
+// Instantiate the NoSQL collection for settings.
+// The engine will automatically create the `nosql_personal_settings` table if missing.
+export const PersonalSettings = new Collection<OwnerSettingsDocument>(
+  sentinelDbEngine,
+  "personal_settings",
+);
+
+export const settingsEmitter = new EventEmitter();
+
+/**
+ * Ascends the directory tree to locate the monorepo root.
+ */
 function findWorkspaceRoot(): string {
-  let currentDir = __dirname;
+  let currentDir = process.cwd();
   while (currentDir !== dirname(currentDir)) {
     if (existsSync(join(currentDir, "pnpm-workspace.yaml"))) {
       return currentDir;
@@ -44,9 +52,13 @@ function findWorkspaceRoot(): string {
   return process.cwd();
 }
 
+/**
+ * Manages an in-memory cache of the bot owner's personal settings.
+ * Listens to a local file trigger to hydrate changes without requiring a PM2 restart.
+ */
 class SettingsCache {
-  private cache: CachedSettings | null = null;
-  private isLoaded = false;
+  private cache: OwnerSettingsDocument | null = null;
+  public isLoaded = false;
   private triggerFilePath: string;
 
   constructor() {
@@ -54,71 +66,70 @@ class SettingsCache {
     this.triggerFilePath = join(workspaceRoot, "data", ".settings-trigger");
   }
 
+  /**
+   * Hydrates the in-memory cache by reading directly from the NoSQL engine.
+   */
   async hydrate(): Promise<void> {
     try {
-      const db = getKysely();
       const ownerDiscordId = process.env.SENTINEL_DISCORD_USER_ID;
       if (!ownerDiscordId) {
-        console.warn("[SettingsCache] Warning: SENTINEL_DISCORD_USER_ID is not configured in worker process env");
+        console.warn(
+          "[SettingsCache] Warning: SENTINEL_DISCORD_USER_ID is not configured in environment.",
+        );
         return;
       }
 
-      const settings = await db
-        .selectFrom(TABLE_NAMES.PERSONAL_SETTINGS)
-        .selectAll()
-        .where("discord_id", "=", ownerDiscordId)
-        .executeTakeFirst();
+      // High-speed RAM filter via NoSQL wrapper
+      const settings = PersonalSettings.findFirst(
+        (doc) => doc.discord_id === ownerDiscordId,
+      );
 
       if (settings) {
-        this.cache = {
-          user_id: settings.user_id,
-          discord_id: settings.discord_id,
-          energy_alerts_enabled: Number(settings.energy_alerts_enabled ?? 0),
-          energy_soft_threshold: Number(settings.energy_soft_threshold ?? 130),
-          energy_aggressive_interval_mins: Number(settings.energy_aggressive_interval_mins ?? 5),
-          last_energy_alert_sent_at: settings.last_energy_alert_sent_at,
-          last_energy_alert_type: settings.last_energy_alert_type,
-          drug_alerts_enabled: Number(settings.drug_alerts_enabled ?? 0),
-          last_drug_alert_sent_at: settings.last_drug_alert_sent_at,
-          crime_alerts_enabled: Number(settings.crime_alerts_enabled ?? 0),
-          crime_soft_threshold: Number(settings.crime_soft_threshold ?? 15),
-          last_crime_alert_sent_at: settings.last_crime_alert_sent_at,
-          last_crime_alert_type: settings.last_crime_alert_type,
-          admin_log_channel_id: settings.admin_log_channel_id,
-          error_pings_enabled: Number(settings.error_pings_enabled ?? 1),
-          selected_build: settings.selected_build || "balanced",
-          target_strength_ratio: Number(settings.target_strength_ratio ?? 25.0),
-          target_defense_ratio: Number(settings.target_defense_ratio ?? 25.0),
-          target_speed_ratio: Number(settings.target_speed_ratio ?? 25.0),
-          target_dexterity_ratio: Number(settings.target_dexterity_ratio ?? 25.0),
-        };
+        this.cache = settings;
         this.isLoaded = true;
-        console.log("[SettingsCache] ✓ Successfully hydrated personal settings from database");
+        console.log(
+          "[SettingsCache] ✓ Successfully hydrated personal settings from NoSQL.",
+        );
       } else {
-        console.warn("[SettingsCache] No personal settings found in DB for owner:", ownerDiscordId);
+        console.warn(
+          `[SettingsCache] No personal settings found in NoSQL for owner: ${ownerDiscordId}`,
+        );
       }
     } catch (error) {
-      console.error("[SettingsCache] Failed to hydrate cache from database:", error);
+      console.error("[SettingsCache] Failed to hydrate cache:", error);
     }
   }
 
-  get(): CachedSettings | null {
+  /**
+   * Retrieves the active settings cache.
+   */
+  get(): OwnerSettingsDocument | null {
     return this.cache;
   }
 
-  updateAlertState(updates: Partial<Pick<CachedSettings, 'last_energy_alert_type' | 'last_energy_alert_sent_at' | 'last_crime_alert_type' | 'last_crime_alert_sent_at' | 'last_drug_alert_sent_at'>>): void {
+  /**
+   * Updates specific alert states in RAM.
+   * (Note: This does not persist to DB automatically. The worker should trigger a DB update separately).
+   */
+  updateAlertState(updates: Partial<OwnerSettingsDocument>): void {
     if (this.cache) {
       this.cache = {
         ...this.cache,
-        ...updates
+        ...updates,
       };
     }
   }
 
+  /**
+   * Initializes a filesystem watcher on the trigger file.
+   * Emits a reload event when external processes touch the file.
+   */
   startWatching(): void {
     const dataDir = dirname(this.triggerFilePath);
     if (!existsSync(dataDir)) {
-      console.warn(`[SettingsCache] Data directory does not exist: ${dataDir}. Skipping trigger file watching.`);
+      console.warn(
+        `[SettingsCache] Data directory missing: ${dataDir}. Skipping watcher.`,
+      );
       return;
     }
 
@@ -126,19 +137,23 @@ class SettingsCache {
       try {
         writeFileSync(this.triggerFilePath, "", "utf-8");
       } catch (err) {
-        console.warn(`[SettingsCache] Could not create trigger file: ${this.triggerFilePath}`);
+        console.warn(
+          `[SettingsCache] Could not create trigger file: ${this.triggerFilePath}`,
+        );
       }
     }
 
     try {
       watch(this.triggerFilePath, async (event) => {
         if (event === "change") {
-          console.log("[SettingsCache] Settings change detected! Re-hydrating cache...");
+          console.log(
+            "[SettingsCache] Settings change detected via file! Re-hydrating cache...",
+          );
           settingsEmitter.emit("settings-changed");
         }
       });
     } catch (err) {
-      console.warn("[SettingsCache] Failed to start file watcher on settings trigger:", err);
+      console.warn("[SettingsCache] Failed to start file watcher:", err);
     }
 
     settingsEmitter.on("settings-changed", async () => {
