@@ -2,7 +2,7 @@ import { executeSync } from "../../lib/sync.js";
 import { Logger } from "@sentinel/shared";
 import { dispatchToBot } from "../../lib/ipc.js";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
-import { tornApi, getSystemKeyPool } from "@sentinel/shared";
+import { tornApi, getSystemKeyPool, getRacketBaseName } from "@sentinel/shared";
 import { TerritoryStates, WarLedger, WorkerSchedules } from "@sentinel/shared";
 import type { TornSchema } from "@sentinel/shared";
 import type {
@@ -25,13 +25,13 @@ type ApiOwnership = TornSchema<"FactionTerritoryOwnership">;
 
 // Explicit interface for the V1 global territory wars state dump
 interface ApiTerritoryWarV1 {
+  territory_war_id: number;
   assaulting_faction: number;
   defending_faction: number;
   score: number;
   required_score: number;
-  start_time: number;
-  end_time: number;
-  territory: string;
+  started: number;
+  ends: number;
 }
 
 // ==========================================
@@ -118,7 +118,9 @@ async function executeActivityEngine(): Promise<void> {
     // ==========================================
     // PHASE 1: WAR RESOLUTION
     // ==========================================
-    const activeApiWarIds = new Set(Object.keys(apiWarsMap));
+    const activeApiWarIds = new Set(
+      Object.values(apiWarsMap).map((w) => w.territory_war_id.toString()),
+    );
 
     // Resolve ENDED Wars
     for (const [warId, dbWar] of dbActiveWars) {
@@ -148,22 +150,23 @@ async function executeActivityEngine(): Promise<void> {
     }
 
     // Register NEW Wars
-    for (const [warId, war] of Object.entries(apiWarsMap)) {
-      if (!dbActiveWars.has(warId)) {
+    for (const [territoryName, war] of Object.entries(apiWarsMap)) {
+      const warIdStr = war.territory_war_id.toString();
+      if (!dbActiveWars.has(warIdStr)) {
         warUpserts.push({
-          id: warId,
-          territory_id: war.territory,
+          id: warIdStr,
+          territory_id: territoryName,
           // V1 maps these directly as top-level integers
           assaulting_faction: war.assaulting_faction,
           defending_faction: war.defending_faction,
           victor_faction: null,
-          start_time: war.start_time * 1000,
+          start_time: war.started * 1000,
           end_time: null,
         } as WarLedgerDocument);
 
         dispatchToBot("TERRITORY_EVENT", {
           eventType: "war_started",
-          data: { territory: war.territory, data: war },
+          data: { territory: territoryName, data: war },
         });
         eventsEmitted++;
       }
@@ -172,9 +175,7 @@ async function executeActivityEngine(): Promise<void> {
     // ==========================================
     // PHASE 2: OWNERSHIP & RACKETS
     // ==========================================
-    const activeWarTerritories = new Set(
-      Object.values(apiWarsMap).map((w) => w.territory),
-    );
+    const activeWarTerritories = new Set(Object.keys(apiWarsMap));
 
     for (const tt of apiOwnership) {
       const ttId = tt.id;
@@ -232,19 +233,93 @@ async function executeActivityEngine(): Promise<void> {
           }
         }
 
-        if (oldState.racket_level !== newState.racket_level) {
+        const oldRacketName = oldState.racket_name;
+        const oldRacketLevel = oldState.racket_level;
+        
+        const newRacketName = newState.racket_name;
+        const newRacketLevel = newState.racket_level;
+
+        if (
+          oldRacketName !== newRacketName ||
+          oldRacketLevel !== newRacketLevel
+        ) {
           hasChanged = true;
-          dispatchToBot("TERRITORY_EVENT", {
-            eventType: "racket_changed",
-            data: {
-              territory: ttId,
-              old: oldState,
-              new: newState,
-              factionId: null,
-              war: null,
-            },
-          });
-          eventsEmitted++;
+
+          const oldBaseName = getRacketBaseName(oldRacketName);
+          const newBaseName = getRacketBaseName(newRacketName);
+
+          if (!oldRacketName && newRacketName) {
+            dispatchToBot("TERRITORY_EVENT", {
+              eventType: "racket_spawned",
+              data: {
+                territory: ttId,
+                old: oldState,
+                new: newState,
+                factionId: null,
+                war: null,
+              },
+            });
+            eventsEmitted++;
+          } else if (oldRacketName && !newRacketName) {
+            dispatchToBot("TERRITORY_EVENT", {
+              eventType: "racket_despawned",
+              data: {
+                territory: ttId,
+                old: oldState,
+                new: newState,
+                factionId: null,
+                war: null,
+              },
+            });
+            eventsEmitted++;
+          } else if (
+            oldRacketName &&
+            newRacketName &&
+            oldBaseName === newBaseName &&
+            (oldRacketName !== newRacketName ||
+              oldRacketLevel !== newRacketLevel)
+          ) {
+            const isLevelUp = (newRacketLevel || 0) > (oldRacketLevel || 0);
+            const eventType = isLevelUp ? "racket_leveled_up" : "racket_leveled_down";
+
+            dispatchToBot("TERRITORY_EVENT", {
+              eventType,
+              data: {
+                territory: ttId,
+                old: oldState,
+                new: newState,
+                factionId: null,
+                war: null,
+              },
+            });
+            eventsEmitted++;
+          } else if (
+            oldRacketName &&
+            newRacketName &&
+            oldBaseName !== newBaseName
+          ) {
+            dispatchToBot("TERRITORY_EVENT", {
+              eventType: "racket_despawned",
+              data: {
+                territory: ttId,
+                old: oldState,
+                new: { ...newState, racket_name: null, racket_level: null, racket_reward: null },
+                factionId: null,
+                war: null,
+              },
+            });
+            dispatchToBot("TERRITORY_EVENT", {
+              eventType: "racket_spawned",
+              data: {
+                territory: ttId,
+                old: { ...oldState, racket_name: null, racket_level: null, racket_reward: null },
+                new: newState,
+                factionId: null,
+                war: null,
+              },
+            });
+            eventsEmitted += 2;
+          }
         }
 
         if (oldState.is_warring !== newState.is_warring) {

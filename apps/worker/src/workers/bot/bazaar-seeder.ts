@@ -92,11 +92,8 @@ async function runBazaarSeeder(): Promise<void> {
       if (targetMap.size === 0) continue;
 
       // 4. Wipe old DB targets and insert new ones
-      // Find and delete all old seeded targets for this guild
-      const oldTargets = BazaarMugTargets.find({ guild_id: guildId });
-      for (const old of oldTargets) {
-        BazaarMugTargets.delete(old.id);
-      }
+      // Find and delete all old seeded targets for this guild natively in C++
+      BazaarMugTargets.deleteManyBy({ guild_id: guildId });
 
       // Prepare new documents
       const now = new Date().toISOString();

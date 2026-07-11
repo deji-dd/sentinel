@@ -3,6 +3,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
+import { useSync } from "@/hooks/use-sync";
 import { GlassCard } from "@/components/dashboard/GlassCard";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Activity, Cpu, Database, Network, Clock, ServerCrash } from "lucide-react";
@@ -22,27 +23,43 @@ export function DashboardClient({ initialData }: { initialData: any }) {
   });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/status", {
-          cache: "no-store",
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok) {
-          const freshData = await res.json();
-          setData(freshData);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setData((prev: any) => ({ ...prev, status: "offline" }));
-        }
-      } catch (err) {
+  const { setSyncOptions, setLastSyncedText } = useSync();
+
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch("/api/status", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        const freshData = await res.json();
+        setData(freshData);
+        setLastSyncedText(`Last synced at ${new Date().toLocaleTimeString()}`);
+      } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setData((prev: any) => ({ ...prev, status: "offline" }));
       }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setData((prev: any) => ({ ...prev, status: "offline" }));
+    }
+  };
+
+  useEffect(() => {
+    setSyncOptions([
+      {
+        label: "Sync Gateway Status",
+        action: fetchStatus,
+      },
+    ]);
+    if (data.status !== "offline") {
+      setLastSyncedText(`Last synced at ${new Date().toLocaleTimeString()}`);
+    }
+    return () => {
+      setSyncOptions(null);
+      setLastSyncedText("");
+    };
+  }, [setSyncOptions, setLastSyncedText, data.status]);
 
   useGSAP(() => {
     // Staggered entrance animation for all glass cards

@@ -28,7 +28,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <AppSidebar />
         <SidebarInset className="bg-transparent dark:bg-transparent border-0 overflow-y-auto overflow-x-hidden relative">
         {/* Dynamic Island Header */}
-        <div className="sticky top-4 z-30 flex justify-center w-full px-4 pointer-events-none mb-4">
+        <div className="sticky top-[max(env(safe-area-inset-top),1rem)] z-30 flex justify-center w-full px-4 pointer-events-none mb-4">
           <header className="pointer-events-auto flex shrink-0 items-center justify-between h-14 px-6 gap-6 rounded-full border border-zinc-200/50 dark:border-white/10 bg-white/60 backdrop-blur-2xl dark:bg-zinc-900/60 shadow-[0_20px_40px_rgba(0,0,0,0.1)] transition-all duration-300">
             <div className="flex gap-2 items-center">
               <SidebarTrigger className="text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/60" />

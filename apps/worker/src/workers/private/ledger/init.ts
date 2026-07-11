@@ -32,11 +32,8 @@ export async function initializeLedgerBaseline(): Promise<void> {
     logger.warn(
       "Found assets but no initialization event. A previous baseline run crashed. Wiping corrupted assets to self-heal...",
     );
-    // Fetch all existing assets to delete them
-    const existingAssets = Assets.find({});
-    for (const asset of existingAssets) {
-      Assets.delete(asset.id);
-    }
+    // Fetch and delete all existing assets natively to self-heal
+    Assets.deleteManyBy({});
   }
 
   logger.info("Starting Day Zero baseline initialization...");

@@ -245,6 +245,37 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
   }
 
   /**
+   * Deletes multiple documents based on exact-match property constraints.
+   * * @param filter An object containing key-value pairs to match against the JSON document.
+   * @returns The number of documents deleted.
+   * @emits batch_delete Fired with the count of deleted rows.
+   */
+  public deleteManyBy(filter: Partial<T>): number {
+    const keys = Object.keys(filter);
+
+    if (keys.length === 0) {
+      const result = this.db.prepare(`DELETE FROM ${this.tableName}`).run();
+      if (result.changes > 0) {
+        this.emit("batch_delete", result.changes);
+      }
+      return result.changes;
+    }
+
+    const whereClauses = keys
+      .map((key) => `json_extract(data, '$.${key}') = ?`)
+      .join(" AND ");
+    const values = keys.map((key) => filter[key as keyof T]);
+
+    const query = `DELETE FROM ${this.tableName} WHERE ${whereClauses}`;
+    const result = this.db.prepare(query).run(...values);
+
+    if (result.changes > 0) {
+      this.emit("batch_delete", result.changes);
+    }
+    return result.changes;
+  }
+
+  /**
    * Retrieves the first document that matches a given predicate function.
    * * @param predicate Callback to evaluate each document.
    * @returns The matching document, or null if not found.

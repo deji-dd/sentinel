@@ -5,6 +5,7 @@ import {
   getSystemKeyPool,
   validateAndFetchFactionDetails,
   IpcServer,
+  parseRewardString,
 } from "@sentinel/shared";
 import { logGuildError } from "./guild-logger.js";
 
@@ -309,8 +310,19 @@ async function handleTerritoryEvent(client: Client, payload: any) {
       embed
         .setTitle(`Assault Failed • ${territoryId}`)
         .setColor(0xef4444) // Red
-        .setDescription(
-          `**[${nameAssaulting}](https://www.torn.com/factions.php?step=profile&ID=${fAssaultingId})** failed to assault **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**.`,
+        .setFields(
+          {
+            name: "Territory",
+            value: `[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})`,
+          },
+          {
+            name: "Assaulting Faction",
+            value: `[${nameAssaulting}](https://www.torn.com/factions.php?step=profile&ID=${fAssaultingId})`,
+          },
+          {
+            name: "Defending Faction",
+            value: `[${nameDefending}](https://www.torn.com/factions.php?step=profile&ID=${fDefendingId})`,
+          },
         );
       break;
 
@@ -334,10 +346,17 @@ async function handleTerritoryEvent(client: Client, payload: any) {
       territoryId = eventData.territory;
       involvedFactions.push(String(fGeneralId));
       embed
-        .setTitle(`Territory Abandoned: ${territoryId}`)
+        .setTitle(`Territory Abandoned • ${territoryId}`)
         .setColor(0x6b7280) // Dark Gray
-        .setDescription(
-          `**[${nameGeneral}](https://www.torn.com/factions.php?step=profile&ID=${fGeneralId || 0})** abandoned **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**.`,
+        .setFields(
+          {
+            name: "Territory",
+            value: `[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})`,
+          },
+          {
+            name: "Faction",
+            value: `[${nameGeneral}](https://www.torn.com/factions.php?step=profile&ID=${fGeneralId || 0})`,
+          },
         );
       break;
 
@@ -345,22 +364,29 @@ async function handleTerritoryEvent(client: Client, payload: any) {
       territoryId = eventData.territory;
       involvedFactions.push(String(fGeneralId));
       embed
-        .setTitle(`Territory Claimed: ${territoryId}`)
+        .setTitle(`Territory Claimed • ${territoryId}`)
         .setColor(0x3b82f6) // Blue
-        .setDescription(
-          `**[${nameGeneral}](https://www.torn.com/factions.php?step=profile&ID=${fGeneralId || 0})** claimed **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**!`,
+        .setFields(
+          {
+            name: "Territory",
+            value: `[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})`,
+          },
+          {
+            name: "Faction",
+            value: `[${nameGeneral}](https://www.torn.com/factions.php?step=profile&ID=${fGeneralId || 0})`,
+          },
         );
       break;
 
-    case "racket_changed":
+    case "racket_spawned":
       territoryId = eventData.territory;
       embed
-        .setTitle(`Racket Update: ${territoryId}`)
+        .setTitle(`Racket Spawned • ${territoryId}`)
         .setColor(0x8b5cf6) // Purple
-        .setDescription(`The racket on **${territoryId}** has changed.`)
+        .setDescription(`A new racket has spawned on **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**!`)
         .addFields(
           {
-            name: "New Racket",
+            name: "Racket",
             value: eventData.new?.racket_name || "Unknown",
             inline: true,
           },
@@ -376,6 +402,83 @@ async function handleTerritoryEvent(client: Client, payload: any) {
           },
         );
       break;
+
+    case "racket_despawned":
+      territoryId = eventData.territory;
+      embed
+        .setTitle(`Racket Despawned • ${territoryId}`)
+        .setColor(0x6b7280) // Gray
+        .setDescription(`The racket on **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})** has despawned.`)
+        .addFields(
+          {
+            name: "Racket",
+            value: eventData.old?.racket_name || "Unknown",
+            inline: true,
+          },
+          {
+            name: "Level",
+            value: String(eventData.old?.racket_level || 0),
+            inline: true,
+          },
+          {
+            name: "Reward",
+            value: eventData.old?.racket_reward || "Unknown",
+            inline: true,
+          },
+        );
+      break;
+
+    case "racket_leveled_up":
+    case "racket_leveled_down": {
+      territoryId = eventData.territory;
+      
+      const isLevelUp = eventType === "racket_leveled_up";
+      const oldLevel = eventData.old?.racket_level || 0;
+      const newLevel = eventData.new?.racket_level || 0;
+      
+      // Attempt to parse rewards
+      const oldReward = eventData.old?.racket_reward || "Unknown";
+      const newReward = eventData.new?.racket_reward || "Unknown";
+      
+      let rewardChange = "Unknown";
+      const oldParsed = parseRewardString(oldReward);
+      const newParsed = parseRewardString(newReward);
+      
+      if (oldParsed && newParsed && oldParsed.type === newParsed.type) {
+        const diff = newParsed.amount - oldParsed.amount;
+        const sign = diff >= 0 ? "+" : "";
+        
+        if (oldParsed.type === "cash") {
+            rewardChange = `${sign}$${diff.toLocaleString()}`;
+        } else if (oldParsed.type === "points") {
+            rewardChange = `${sign}${diff.toLocaleString()} Points`;
+        } else {
+            rewardChange = `${sign}${diff.toLocaleString()}x ${newParsed.itemName}`;
+        }
+      }
+
+      embed
+        .setTitle(`Racket Leveled ${isLevelUp ? "Up" : "Down"} • ${territoryId}`)
+        .setColor(isLevelUp ? 0x10b981 : 0xef4444) // Green or Red
+        .addFields(
+          {
+            name: "Racket",
+            value: eventData.new?.racket_name || "Unknown",
+            inline: true,
+          },
+          {
+            name: "Level Change",
+            value: `${oldLevel} ➔ ${newLevel}`,
+            inline: true,
+          },
+          {
+            name: "Daily Reward",
+            value: `${newReward}\n*${rewardChange}*`,
+            inline: true,
+          },
+        );
+      break;
+    }
 
     default:
       logger.warn(`Unhandled territory event type: ${eventType}`);

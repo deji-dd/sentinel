@@ -76,9 +76,6 @@ pnpm --filter api build || { echo "ERROR: api build failed or timed out"; exit 1
 pnpm --filter worker build || { echo "ERROR: worker build failed or timed out"; exit 1; }
 pnpm --filter bot build || { echo "ERROR: bot build failed or timed out"; exit 1; }
 
-echo "Applying SQLite migrations..."
-pnpm sqlite:migrate || { echo "ERROR: sqlite migrations failed or timed out"; exit 1; }
-
 # Ensure logs directory exists
 mkdir -p logs
 

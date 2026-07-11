@@ -46,7 +46,9 @@ export const Assets = new Collection<AssetDocument>(
   sentinelDbEngine, 
   "assets",
   [
-    { key: "asset_id", type: "TEXT" }
+    { key: "asset_id", type: "TEXT" },
+    { key: "owner", type: "TEXT" },
+    { key: "location", type: "TEXT" }
   ]
 );
 export const LedgerEvents = new Collection<LedgerEventDocument>(
@@ -55,6 +57,7 @@ export const LedgerEvents = new Collection<LedgerEventDocument>(
   [
     { key: "type", type: "TEXT" },
     { key: "timestamp", type: "INTEGER" },
-    { key: "status", type: "TEXT" }
+    { key: "status", type: "TEXT" },
+    { key: "log_id", type: "TEXT" }
   ]
 );

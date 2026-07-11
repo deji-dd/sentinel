@@ -52,26 +52,6 @@ export function useWealthLedger() {
 
         if (liveData && mounted) {
           setData(liveData);
-        } else if (mounted) {
-          // Mock data
-          setData({
-            liquidCash: 1250000000,
-            dailyYield: 45000000,
-            recentTransactions: [
-              { id: "1", timestamp: Date.now() - 3600000, category: "sale", description: "Sold 50x Feathery Hotel Coupon", amount: 725000000, cashFlow: 725000000 },
-              { id: "2", timestamp: Date.now() - 7200000, category: "purchase", description: "Bought 5000x Xanax", amount: 0, cashFlow: -4175000000 },
-              { id: "3", timestamp: Date.now() - 86400000, category: "income", description: "Company Daily Wage", amount: 2500000, cashFlow: 2500000 },
-            ],
-            historical: Array.from({ length: 30 }).map((_, i) => ({
-              timestamp: Date.now() - (29 - i) * 86400000,
-              netWorth: 6000000000 + Math.random() * 500000000 + i * 20000000,
-              dailyYield: 10000000 + Math.random() * 2000000,
-            })),
-            actionQueue: [
-              { id: "tx_123", type: "Barter Trade", description: "Traded 5x Xanax for 1x FHC", timestamp: Date.now() - 3600000 },
-              { id: "tx_124", type: "Unique Item", description: "Found 'Golden M4A1' in City", timestamp: Date.now() - 7200000 },
-            ]
-          });
         }
       } catch (err) {
         console.error("Failed to load wealth ledger:", err);
