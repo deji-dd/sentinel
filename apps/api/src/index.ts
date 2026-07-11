@@ -44,10 +44,11 @@ const shutdown = async (signal: string) => {
     await fastify.close();
     logger.info("Fastify server closed.");
     
+    // Stop metrics reporter first while DB is still open
+    stopMetricsReporter("api");
+    
     // Close shared database connection
     sentinelDbEngine.close();
-    
-    stopMetricsReporter("api");
     process.exit(0);
   } catch (err) {
     logger.error("Error during shutdown:", err);

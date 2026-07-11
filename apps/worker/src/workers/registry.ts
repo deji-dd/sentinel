@@ -15,9 +15,9 @@ const PRIVATE_WORKERS: Starter[] = [
 
 // TODO: COMMENT IN DEV, UNCOMMENT BEFORE PUSH
 const PUBLIC_WORKERS: Starter[] = [
-  // publicWorkers.startTerritoryBlueprintSync,
-  // publicWorkers.startTerritoryActivitySync,
-  // publicWorkers.startFactionSync,
+  publicWorkers.startTerritoryBlueprintSync,
+  publicWorkers.startTerritoryActivitySync,
+  publicWorkers.startFactionSync,
 ];
 
 const BOT_WORKERS: Starter[] = [
