@@ -106,6 +106,7 @@ export function startCompanySyncWorker(): void {
             location: "portfolio",
             owner: "personal",
             origin: "company_sync",
+            realized_pnl: 0,
             last_updated: Date.now(),
           };
           Assets.insertOne(assetDoc);

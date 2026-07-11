@@ -93,7 +93,7 @@ export class SentinelDatabase {
   private optimizeEngine() {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("cache_size = -64000"); // Preallocate 64MB of RAM
+    this.db.pragma("cache_size = -10000"); // Preallocate 10MB of RAM
     this.db.pragma("mmap_size = 268435456"); // Project up to 256MB into virtual kernel space
     this.db.pragma("temp_store = MEMORY");
   }

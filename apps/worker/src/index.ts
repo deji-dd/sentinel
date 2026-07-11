@@ -33,7 +33,7 @@ import {
   initializeRateLimitCache,
 } from "@sentinel/shared";
 import { startWorkers } from "./workers/registry.js";
-import { Logger, sentinelDbEngine } from "@sentinel/shared";
+import { Logger, sentinelDbEngine, startMetricsReporter, stopMetricsReporter } from "@sentinel/shared";
 import { startWorkerIpcServer } from "./lib/ipc.js";
 
 const logger = new Logger("worker_root");
@@ -51,6 +51,7 @@ async function startAllWorkers(): Promise<void> {
     // 5. Start incoming UDS IPC Server
     startWorkerIpcServer();
 
+    startMetricsReporter("worker");
     logger.info("Worker process initialized and running.");
     await initializeApiKeyMappings();
     initializeRateLimitCache();
@@ -83,6 +84,7 @@ const handleShutdown = (signal: string) => {
   logger.info(`📛 Received ${signal}. Executing graceful shutdown...`);
 
   try {
+    stopMetricsReporter("worker");
     sentinelDbEngine.close();
     logger.info("Database connection safely closed.");
     process.exit(0);

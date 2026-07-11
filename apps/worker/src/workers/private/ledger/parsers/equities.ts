@@ -24,13 +24,13 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
   // Identify if purchase or sale
   const isBuy =
     title.includes("buy") ||
-    title.includes("invest") ||
-    title.includes("deposit");
-  const isSell = title.includes("sell") || title.includes("withdraw");
+    title.includes("invest");
+  const isSell = title.includes("sell");
   const isUpkeep =
     title.includes("upkeep") ||
     title.includes("fee") ||
     title.includes("upgrade");
+  const isTransfer = category === "Company" && (title.includes("withdraw") || title.includes("deposit"));
 
   let assetType = "equity";
   let assetId: string | number = "";
@@ -83,6 +83,13 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
     // Pure expense (Realized Loss)
     cashFlow -= cost;
     realizedPnl -= cost;
+  } else if (isTransfer) {
+    cashFlow = title.includes("withdraw") ? cost : -cost;
+    assetsAffected.push({
+      asset_id: assetId,
+      quantity_change: 0,
+      cost_basis_impact: -cashFlow, // Offsets cashFlow to ensure Net Impact is 0
+    });
   } else if (isBuy) {
     // Treat cash spent as locked equity
     cashFlow -= cost;
@@ -107,6 +114,7 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
         location: "portfolio",
         owner: "personal",
         origin: "purchase",
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
       Assets.insertOne(assetDoc);
@@ -137,14 +145,21 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
       const mac = assetDoc.moving_average_cost;
 
       // If Torn didn't provide profit, calculate it ourselves based on MAC
+      let calculatedProfit = 0;
       if (data.profit === undefined) {
         const costBasis = mac * qty;
-        const profit = cost - costBasis;
-        realizedPnl += profit;
+        calculatedProfit = cost - costBasis;
+        realizedPnl += calculatedProfit;
       }
 
       assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
       assetDoc.total_cost_basis = assetDoc.quantity * mac;
+      // Add PnL to asset doc
+      if (data.profit !== undefined) {
+        assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) + data.profit;
+      } else {
+        assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) + calculatedProfit;
+      }
       assetDoc.last_updated = Date.now();
       Assets.update(assetDoc);
 
@@ -162,11 +177,16 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
   }
 
   if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
+    let eventType: any = isBuy ? "purchase" : isSell ? "sale" : "loss";
+    if (isTransfer) {
+      eventType = "storage_transfer";
+    }
+
     LedgerEvents.insertOne({
       id: `ledger_ev_${log.id}`,
       log_id: log.id,
       timestamp: log.timestamp,
-      type: isBuy ? "purchase" : isSell ? "sale" : "loss",
+      type: eventType,
       category_id: 9,
       transaction_name: "Equity/Property Transaction",
       assets_affected: assetsAffected,

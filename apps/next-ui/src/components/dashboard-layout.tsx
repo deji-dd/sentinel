@@ -8,61 +8,28 @@ import { Button } from "./ui/button";
 import { useTheme } from "next-themes";
 import { Sun, Moon, Palette, RefreshCw, ChevronDown } from "lucide-react";
 import { useSync } from "@/hooks/use-sync";
+import { SpatialBackground } from "@/components/dashboard/SpatialBackground";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { syncOptions, lastSyncedText, isSyncing, setIsSyncing } = useSync();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [backfillStatus, setBackfillStatus] = useState<{
-    backfill_complete: boolean;
-    oldest_timestamp?: number;
-    total_pages_crawled?: number;
-  } | null>(null);
+
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
-
-    let intervalId: any = null;
-
-    async function checkBackfill() {
-      try {
-        const token = localStorage.getItem("session_token") || "dev-token";
-        const res = await fetch(`/api/bot/config/personal/backfill-status?_t=${Date.now()}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setBackfillStatus(data);
-          if (data.backfill_complete && intervalId) {
-            clearInterval(intervalId);
-          }
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    checkBackfill();
-    intervalId = setInterval(checkBackfill, 15000);
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
   }, []);
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset className="flex flex-col flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950">
-        {/* Top Header */}
-        <header className="sticky top-0 z-20 flex flex-col w-full shrink-0 border-b border-zinc-200 dark:border-zinc-900 bg-white/80 backdrop-blur-md dark:bg-zinc-950/80">
-          <div className="w-full h-[env(safe-area-inset-top)] shrink-0" />
-          <div className="flex h-16 items-center justify-between px-4 shrink-0">
+    <SpatialBackground>
+      <SidebarProvider className="bg-transparent dark:bg-transparent">
+        <AppSidebar />
+        <SidebarInset className="bg-transparent dark:bg-transparent border-0 overflow-y-auto overflow-x-hidden relative">
+        {/* Dynamic Island Header */}
+        <div className="sticky top-4 z-30 flex justify-center w-full px-4 pointer-events-none mb-4">
+          <header className="pointer-events-auto flex shrink-0 items-center justify-between h-14 px-6 gap-6 rounded-full border border-zinc-200/50 dark:border-white/10 bg-white/60 backdrop-blur-2xl dark:bg-zinc-900/60 shadow-[0_20px_40px_rgba(0,0,0,0.1)] transition-all duration-300">
             <div className="flex gap-2 items-center">
               <SidebarTrigger className="text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/60" />
               <Separator orientation="vertical" className="h-11 my-auto" />
@@ -177,35 +144,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               )}
             </div>
-          </div>
-        </header>
-
-        {mounted && backfillStatus && !backfillStatus.backfill_complete && (
-          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-center gap-2 text-xs text-amber-600 dark:text-amber-400 font-medium select-none animate-pulse">
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-            </span>
-            <span>
-              Historical sync in progress. Data will be incomplete
-              {backfillStatus.oldest_timestamp && backfillStatus.oldest_timestamp > 0 ? (() => {
-                const date = new Date(backfillStatus.oldest_timestamp * 1000);
-                const pad = (n: number) => String(n).padStart(2, "0");
-                const formattedTct = `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}/${date.getUTCFullYear()} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} TCT`;
-                return `, oldest log: ${formattedTct}`;
-              })() : ""}.
-            </span>
-          </div>
-        )}
+          </header>
+        </div>
 
         {/* Viewport Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 outline-none">
+        <div className="flex-1 p-4 md:p-8 outline-none relative z-10">
           <div className="mx-auto max-w-7xl w-full">
             {children}
           </div>
-        </main>
+        </div>
       </SidebarInset>
-    </SidebarProvider>
+      </SidebarProvider>
+    </SpatialBackground>
   );
 }
 

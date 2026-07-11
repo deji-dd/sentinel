@@ -71,13 +71,13 @@ async function fetchAndDumpItems(): Promise<void> {
       const existing = existingMap.get(tornId);
 
       if (existing) {
-        existing.data = itemData;
+        existing.data = { ...itemData, item_id: itemData.id };
         docsToUpsert.push(existing);
         updateCount++;
       } else {
         docsToUpsert.push({
           id: crypto.randomUUID(),
-          data: itemData,
+          data: { ...itemData, item_id: itemData.id },
         });
         newCount++;
       }

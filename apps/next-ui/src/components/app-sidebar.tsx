@@ -4,18 +4,18 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+import { cn } from "@/lib/utils";
 import {
   Home,
-  Dumbbell,
   Sun,
   Moon,
   Palette,
   Bell,
   BellOff,
-  Fingerprint,
   Settings,
   Landmark,
-  TrendingUp,
 } from "lucide-react";
 import {
   Sidebar,
@@ -34,10 +34,7 @@ import { usePush } from "@/hooks/use-push";
 
 const navItems = [
   { name: "Overview", href: "/", icon: Home },
-  { name: "Finance", href: "/finance", icon: Landmark },
-  { name: "Portfolio", href: "/portfolio", icon: TrendingUp },
-  { name: "Gym", href: "/gym", icon: Dumbbell },
-  { name: "Crimes", href: "/crimes", icon: Fingerprint },
+  { name: "Wealth Matrix", href: "/wealth", icon: Landmark },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -47,6 +44,25 @@ export function AppSidebar() {
   const [mounted, setMounted] = useState(false);
   const { subscribed, toggle: togglePush, loading: pushLoading } = usePush();
 
+  useGSAP(
+    () => {
+      gsap.fromTo(
+        ".nav-item",
+        { opacity: 0, x: -15, rotateX: -10 },
+        {
+          opacity: 1,
+          x: 0,
+          rotateX: 0,
+          stagger: 0.05,
+          duration: 0.6,
+          ease: "back.out(1.5)",
+          clearProps: "transform",
+        }
+      );
+    },
+    { dependencies: [] }
+  );
+
   // Only render theme-dependent UI after mount to prevent SSR hydration mismatch
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -54,8 +70,8 @@ export function AppSidebar() {
   }, []);
 
   return (
-    <Sidebar className="z-30" collapsible="icon">
-      <SidebarHeader className="p-0 group-data-[collapsible=icon]:hidden border-b border-zinc-200 dark:border-zinc-900 shrink-0 flex flex-col">
+    <Sidebar variant="floating" className="z-30" collapsible="icon">
+      <SidebarHeader className="p-0 group-data-[collapsible=icon]:hidden border-b border-zinc-200/50 dark:border-white/5 shrink-0 flex flex-col bg-transparent">
         <div className="w-full h-[env(safe-area-inset-top)] shrink-0" />
 
         <div className="flex h-16 items-center justify-center px-4 w-full">
@@ -78,15 +94,16 @@ export function AppSidebar() {
                 const isActive = pathname === item.href;
                 const Icon = item.icon;
                 return (
-                  <SidebarMenuItem key={item.href}>
+                  <SidebarMenuItem key={item.href} className="nav-item [perspective:1000px]">
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.name}
-                      className={
+                      className={cn(
+                        "transition-all duration-300 ease-out hover:-translate-y-[1px] hover:shadow-lg",
                         isActive
-                          ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15"
-                          : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/60"
-                      }
+                          ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 shadow-[0_8px_16px_rgba(245,158,11,0.1)]"
+                          : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-500/10 dark:hover:bg-zinc-800/50 hover:border-zinc-200 dark:hover:border-zinc-700/50 border border-transparent backdrop-blur-sm"
+                      )}
                       render={<Link href={item.href} prefetch={false} />}
                     >
                       <Icon className="h-5 w-5" />
@@ -101,19 +118,20 @@ export function AppSidebar() {
       </SidebarContent>
 
       {/* Footer */}
-      <SidebarFooter className="border-t border-zinc-200 dark:border-zinc-900 p-3 space-y-1">
+      <SidebarFooter className="border-t border-zinc-200/50 dark:border-white/5 space-y-1 bg-transparent">
         <SidebarMenu>
           {/* Push Notifications Toggle */}
-          <SidebarMenuItem>
+          <SidebarMenuItem className="nav-item">
             <SidebarMenuButton
               onClick={togglePush}
               disabled={pushLoading}
               tooltip={subscribed ? "Disable Alerts" : "Enable Alerts"}
-              className={
+              className={cn(
+                "transition-all duration-300 ease-out hover:-translate-y-[1px] hover:shadow-lg",
                 subscribed
-                  ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/60"
-              }
+                  ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 shadow-[0_8px_16px_rgba(245,158,11,0.1)]"
+                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-500/10 dark:hover:bg-zinc-800/50 hover:border-zinc-200 dark:hover:border-zinc-700/50 border border-transparent backdrop-blur-sm"
+              )}
             >
               {subscribed ? (
                 <>
@@ -130,12 +148,12 @@ export function AppSidebar() {
           </SidebarMenuItem>
 
           {/* Theme Switcher */}
-          <SidebarMenuItem>
+          <SidebarMenuItem className="nav-item">
             {mounted ? (
               <SidebarMenuButton
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 tooltip={theme === "dark" ? "Light Mode" : "Dark Mode"}
-                className="text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/60"
+                className="transition-all duration-300 ease-out hover:-translate-y-[1px] hover:shadow-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-500/10 dark:hover:bg-zinc-800/50 hover:border-zinc-200 dark:hover:border-zinc-700/50 border border-transparent backdrop-blur-sm"
               >
                 {theme === "dark" ? (
                   <>

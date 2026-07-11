@@ -24,6 +24,9 @@ export interface TerritoryStateDocument extends BaseDocument {
 export const TerritoryStates = new Collection<TerritoryStateDocument>(
   sentinelDbEngine,
   "territory_states",
+  [
+    { key: "faction_id", type: "INTEGER" }
+  ]
 );
 
 // 3. Historical War Ledger (15s Sync)
@@ -39,6 +42,11 @@ export interface WarLedgerDocument extends BaseDocument {
 export const WarLedger = new Collection<WarLedgerDocument>(
   sentinelDbEngine,
   "war_ledger",
+  [
+    { key: "territory_id", type: "TEXT" },
+    { key: "assaulting_faction", type: "INTEGER" },
+    { key: "defending_faction", type: "INTEGER" }
+  ]
 );
 
 // 4. Racket Tenures (Used to calculate "$50M earned over 5 days")
@@ -53,4 +61,8 @@ export interface RacketTenureDocument extends BaseDocument {
 export const RacketTenures = new Collection<RacketTenureDocument>(
   sentinelDbEngine,
   "racket_tenures",
+  [
+    { key: "territory_id", type: "TEXT" },
+    { key: "faction_id", type: "INTEGER" }
+  ]
 );

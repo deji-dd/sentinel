@@ -31,7 +31,15 @@ async function handleProxy(req: NextRequest) {
     // Set up request headers, forcing Authorization header so the bot's MagicLinkService
     // bypasses check and authenticates as the owner.
     const headers = new Headers();
-    headers.set("Content-Type", req.headers.get("content-type") || "application/json");
+    req.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "host") {
+        headers.set(key, value);
+      }
+    });
+    
+    if (!headers.has("content-type")) {
+      headers.set("Content-Type", "application/json");
+    }
     headers.set("Authorization", "Bearer dev-token");
 
     if (env.SENTINEL_INTERNAL_SECRET) {

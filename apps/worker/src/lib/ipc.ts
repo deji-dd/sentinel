@@ -22,6 +22,8 @@ export const workerIpcServer = new IpcServer("/tmp/sentinel-worker.sock", (packe
       WorkerSchedules.insertOne(schedule);
       logger.info(`Force running worker: ${packet.payload.workerName}`);
     }
+  } else if (packet.action === "RECALCULATE_MAC" && packet.payload?.transactionId) {
+    logger.info(`Acknowledged RECALCULATE_MAC for transaction ${packet.payload.transactionId}. (Logic to be implemented)`);
   }
 });
 

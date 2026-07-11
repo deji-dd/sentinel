@@ -12,6 +12,7 @@ export interface AssetDocument extends BaseDocument {
   quantity: number;
   moving_average_cost: number; // Cost Basis per unit (in fiat/dollars)
   total_cost_basis: number; // Total Cost Basis (quantity * moving_average_cost)
+  realized_pnl: number; // Running total of all realized profit/loss
   location: AssetLocation;
   owner: "personal" | "faction";
   origin: string; // e.g. "legacy_init", "purchase", "trade", "crime"
@@ -36,9 +37,24 @@ export interface LedgerEventDocument extends BaseDocument {
   
   cash_flow: number; // Positive for cash gained, negative for cash spent
   realized_pnl: number; // 0 if no PnL event, else the Realized Profit or Loss
+  status?: "pending_review" | "resolved"; // For Action Queue tracking
   
   raw_log: any; // The raw parsed log object or event details
 }
 
-export const Assets = new Collection<AssetDocument>(sentinelDbEngine, "assets");
-export const LedgerEvents = new Collection<LedgerEventDocument>(sentinelDbEngine, "ledger_events");
+export const Assets = new Collection<AssetDocument>(
+  sentinelDbEngine, 
+  "assets",
+  [
+    { key: "asset_id", type: "TEXT" }
+  ]
+);
+export const LedgerEvents = new Collection<LedgerEventDocument>(
+  sentinelDbEngine, 
+  "ledger_events",
+  [
+    { key: "type", type: "TEXT" },
+    { key: "timestamp", type: "INTEGER" },
+    { key: "status", type: "TEXT" }
+  ]
+);

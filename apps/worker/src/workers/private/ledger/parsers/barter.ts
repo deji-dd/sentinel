@@ -174,6 +174,7 @@ export async function parseBarterTrade(log: TornSchema<"UserLog">) {
         location: "inventory", // items end up in inventory
         owner: "personal",
         origin: "barter",
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
       Assets.insertOne(assetDoc);

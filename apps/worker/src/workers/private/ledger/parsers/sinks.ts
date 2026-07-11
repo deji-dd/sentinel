@@ -47,6 +47,7 @@ export async function parseTransformationSink(log: TornSchema<"UserLog">) {
 
       assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
       assetDoc.total_cost_basis = assetDoc.quantity * mac;
+      assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) - totalBurnedCost;
       assetDoc.last_updated = Date.now();
       Assets.update(assetDoc);
 
@@ -95,6 +96,7 @@ export async function parseTransformationSink(log: TornSchema<"UserLog">) {
         location: "inventory",
         owner: "personal",
         origin: "transformation",
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
       Assets.insertOne(assetDoc);

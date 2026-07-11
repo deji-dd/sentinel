@@ -1,0 +1,24 @@
+{
+  "name": "@sentinel/api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sentinel Fastify API Gateway",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx watch --env-file=.env src/index.ts _app=sentinel-api",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js _app=sentinel-api",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@sentinel/shared": "workspace:*",
+    "fastify": "^5.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

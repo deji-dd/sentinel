@@ -65,6 +65,7 @@ export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
         location: "inventory",
         owner: "personal",
         origin: "purchase",
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
     }
@@ -87,6 +88,7 @@ export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
       const costBasis = assetDoc.moving_average_cost;
       const profit = (priceEach - costBasis) * qty;
       realizedPnl += profit;
+      assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) + profit;
       cashFlow += totalCost;
 
       assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
@@ -108,9 +110,10 @@ export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
   }
 
   // Handle Points bought/sold
-  if (data.points) {
-    const qty = data.points;
-    const totalCost = data.cost || data.total_cost || 0;
+  const isPointsTransaction = title.includes("points") || logId === 5010 || logId === 5011;
+  if (isPointsTransaction || data.points) {
+    const qty = data.points || data.quantity || 1;
+    const totalCost = data.cost || data.total_cost || data.cost_total || 0;
     const priceEach = totalCost / qty;
 
     const existingAssets = Assets.find({
@@ -130,6 +133,7 @@ export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
             location: "inventory",
             owner: "personal",
             origin: "purchase",
+            realized_pnl: 0,
             last_updated: Date.now(),
           };
 
@@ -149,6 +153,7 @@ export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
     } else if (sale) {
       const profit = (priceEach - assetDoc.moving_average_cost) * qty;
       realizedPnl += profit;
+      assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) + profit;
       cashFlow += totalCost;
 
       assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);

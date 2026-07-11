@@ -54,6 +54,7 @@ export async function parseFactionLiability(log: TornSchema<"UserLog">) {
           location: "inventory",
           owner: "faction",
           origin: "faction_loan",
+          realized_pnl: 0,
           last_updated: Date.now(),
         };
         Assets.insertOne(assetDoc);
@@ -132,6 +133,7 @@ export async function parseFactionLiability(log: TornSchema<"UserLog">) {
 
           assetDoc.quantity = Math.max(0, assetDoc.quantity - item.qty);
           assetDoc.total_cost_basis = assetDoc.quantity * mac;
+          assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) - costImpact;
           assetDoc.last_updated = Date.now();
           Assets.update(assetDoc);
 

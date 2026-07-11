@@ -20,13 +20,19 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
   /**
    * @param engine The optimized SentinelDatabase connection pool.
    * @param tableName Base name of the collection (auto-prefixed with 'nosql_').
+   * @param indexedFields Optional array of fields to automatically index via virtual columns.
    */
-  constructor(engine: SentinelDatabase, tableName: string) {
+  constructor(
+    engine: SentinelDatabase, 
+    tableName: string,
+    private indexedFields: Array<{ key: string, type: "TEXT" | "INTEGER" | "REAL" }> = []
+  ) {
     super();
     this.db = engine.db;
     this.tableName = `nosql_${tableName}`;
 
     this.initializeTable();
+    this.initializeIndexes();
     this.prepareStatements();
   }
 
@@ -37,6 +43,37 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
         data TEXT NOT NULL
       )
     `);
+  }
+
+  private initializeIndexes() {
+    if (!this.indexedFields || this.indexedFields.length === 0) return;
+
+    const columns = this.db.pragma(`table_info(${this.tableName})`) as any[];
+    const existingColumns = new Set(columns.map(c => c.name));
+
+    for (const field of this.indexedFields) {
+      if (!existingColumns.has(field.key)) {
+        try {
+          this.db.exec(`
+            ALTER TABLE ${this.tableName} 
+            ADD COLUMN ${field.key} ${field.type} GENERATED ALWAYS AS (data ->> '$.${field.key}') VIRTUAL
+          `);
+        } catch (err: any) {
+          // Ignore duplicate column errors caused by multiprocess startup race conditions
+          if (!err.message.includes("duplicate column name")) {
+            throw err;
+          }
+        }
+      }
+
+      const safeSuffix = field.key.replace(/[^a-zA-Z0-9]/g, "_").replace(/^_+/, "");
+      const indexName = `idx_${this.tableName}_${safeSuffix}`;
+
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS ${indexName} 
+        ON ${this.tableName} (${field.key})
+      `);
+    }
   }
 
   private prepareStatements() {

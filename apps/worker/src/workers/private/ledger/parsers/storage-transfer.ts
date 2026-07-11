@@ -109,6 +109,7 @@ export async function parseStorageTransfer(log: TornSchema<"UserLog">) {
         location: sourceLocation,
         owner: "personal",
         origin: "unknown",
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
       Assets.insertOne(sourceAsset);
@@ -159,6 +160,7 @@ export async function parseStorageTransfer(log: TornSchema<"UserLog">) {
         location: targetLocation,
         owner: "personal",
         origin: sourceAsset.origin,
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
       Assets.insertOne(targetAsset);

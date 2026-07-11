@@ -22,6 +22,7 @@ import {
 
 import { setGlobalClient } from "./lib/global-client.js";
 import { setupIpcServer } from "./lib/ipc-listener.js";
+import { startMetricsReporter, stopMetricsReporter } from "@sentinel/shared";
 
 // Global process error handlers to prevent crashes on transient network socket drops
 process.on("uncaughtException", (err) => {
@@ -61,6 +62,8 @@ setGlobalClient(client);
 
 // Register client ready event
 registerClientReadyEvent(client);
+
+startMetricsReporter("bot");
 
 // IPC server is started in client-events.js after client is ready
 
@@ -168,3 +171,12 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 });
 
 await client.login(discordToken);
+
+const shutdown = () => {
+  console.log("Shutting down bot...");
+  stopMetricsReporter("bot");
+  process.exit(0);
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

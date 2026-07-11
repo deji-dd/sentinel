@@ -6,9 +6,9 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "NODE_ENV=development tsx watch src/index.ts",
+    "dev": "NODE_ENV=development tsx watch src/index.ts _app=sentinel-bot",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js _app=sentinel-bot",
     "deploy-commands": "tsx src/deploy-commands.ts",
     "lint": "eslint src/"
   },

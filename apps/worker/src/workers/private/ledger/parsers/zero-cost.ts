@@ -95,6 +95,7 @@ export async function parseZeroCostInjection(log: TornSchema<"UserLog">) {
         location: "inventory",
         owner: "personal",
         origin: "zero_cost_injection",
+        realized_pnl: 0,
         last_updated: Date.now(),
       };
       Assets.insertOne(assetDoc);

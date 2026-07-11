@@ -38,13 +38,13 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       // Given slightly more RAM since it processes Torn API payloads
-      node_args: ["--max-old-space-size=250"],
+      node_args: ["--max-old-space-size=128"],
       env: { ...workerEnv, NODE_ENV: "development" },
       env_production: { ...workerEnv, NODE_ENV: "production" },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      max_memory_restart: "300M", // Hard cap
+      max_memory_restart: "200M", // Hard cap
       error_file: "./logs/worker-error.log",
       out_file: "./logs/worker-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
@@ -59,13 +59,13 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       // Severely restricted RAM, it just forwards commands and listens to IPC
-      node_args: ["--max-old-space-size=100"],
+      node_args: ["--max-old-space-size=75"],
       env: { ...botEnv, NODE_ENV: "development" },
       env_production: { ...botEnv, NODE_ENV: "production" },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      max_memory_restart: "200M", // Hard cap
+      max_memory_restart: "125M", // Hard cap
       error_file: "./logs/bot-error.log",
       out_file: "./logs/bot-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
@@ -74,25 +74,25 @@ module.exports = {
       retain: 3,
     },
     // 3. THE BRIDGE (Dashboard Server)
-    // {
-    //   name: "sentinel-api",
-    //   cwd: path.join(basePath, "apps/api"),
-    //   script: "dist/index.js",
-    //   interpreter: "node",
-    //   // Fastify/Express are tiny. Kept very lean.
-    //   node_args: ["--max-old-space-size=50"],
-    //   env: { ...apiEnv, NODE_ENV: "production" },
-    //   instances: 1,
-    //   exec_mode: "fork",
-    //   autorestart: true,
-    //   max_memory_restart: "100M", // Hard cap
-    //   error_file: "./logs/api-error.log",
-    //   out_file: "./logs/api-out.log",
-    //   log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-    //   time: true,
-    //   max_size: "10M",
-    //   retain: 3,
-    // },
+    {
+      name: "sentinel-api",
+      cwd: path.join(basePath, "apps/api"),
+      script: "dist/index.js",
+      interpreter: "node",
+      // Fastify/Express are tiny. Kept very lean.
+      node_args: ["--max-old-space-size=64"],
+      env: { ...apiEnv, NODE_ENV: "production" },
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_memory_restart: "100M", // Hard cap
+      error_file: "./logs/api-error.log",
+      out_file: "./logs/api-out.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      time: true,
+      max_size: "10M",
+      retain: 3,
+    },
   ],
 
   deploy: {

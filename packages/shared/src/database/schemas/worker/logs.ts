@@ -22,6 +22,10 @@ export interface LogSyncStateDocument extends BaseDocument {
 export const PersonalLogs = new Collection<PersonalLogDocument>(
   sentinelDbEngine,
   "personal_logs",
+  [
+    { key: "category", type: "TEXT" },
+    { key: "timestamp", type: "INTEGER" }
+  ]
 );
 
 export const LogSyncStates = new Collection<LogSyncStateDocument>(
