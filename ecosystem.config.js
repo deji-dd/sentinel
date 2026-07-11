@@ -39,8 +39,8 @@ module.exports = {
       interpreter: "node",
       // Given slightly more RAM since it processes Torn API payloads
       node_args: ["--max-old-space-size=128"],
-      env: { ...workerEnv, NODE_ENV: "development" },
-      env_production: { ...workerEnv, NODE_ENV: "production" },
+      env: { NODE_ENV: "development", ...workerEnv },
+      env_production: { NODE_ENV: "production", ...workerEnv },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
@@ -60,8 +60,8 @@ module.exports = {
       interpreter: "node",
       // Severely restricted RAM, it just forwards commands and listens to IPC
       node_args: ["--max-old-space-size=75"],
-      env: { ...botEnv, NODE_ENV: "development" },
-      env_production: { ...botEnv, NODE_ENV: "production" },
+      env: { NODE_ENV: "development", ...botEnv },
+      env_production: { NODE_ENV: "production", ...botEnv },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
@@ -81,7 +81,8 @@ module.exports = {
       interpreter: "node",
       // Fastify/Express are tiny. Kept very lean.
       node_args: ["--max-old-space-size=64"],
-      env: { ...apiEnv, NODE_ENV: "production" },
+      env: { NODE_ENV: "development", ...apiEnv },
+      env_production: { NODE_ENV: "production", ...apiEnv },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
