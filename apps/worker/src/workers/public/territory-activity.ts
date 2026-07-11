@@ -1,5 +1,5 @@
 import { executeSync } from "../../lib/sync.js";
-import { Logger, TornFactions } from "@sentinel/shared";
+import { Logger } from "@sentinel/shared";
 import { dispatchToBot } from "../../lib/ipc.js";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { tornApi, getSystemKeyPool } from "@sentinel/shared";
@@ -98,6 +98,14 @@ async function executeActivityEngine(): Promise<void> {
       (page) => page.territoryOwnership || [],
     ) as ApiOwnership[];
 
+    // Maps for O(1) lookups to avoid O(N^2) bottlenecks
+    const apiRacketsMap = new Map<string, ApiRacket>(
+      apiRackets.map((r) => [r.name, r]),
+    );
+    const apiOwnershipMap = new Map<string, ApiOwnership>(
+      apiOwnership.map((o) => [o.id, o]),
+    );
+
     const dbStates = new Map(TerritoryStates.findAll().map((s) => [s.id, s]));
     const dbActiveWars = new Map(
       WarLedger.findAll((w) => w.end_time === null).map((w) => [w.id, w]),
@@ -116,8 +124,7 @@ async function executeActivityEngine(): Promise<void> {
     for (const [warId, dbWar] of dbActiveWars) {
       if (!activeApiWarIds.has(warId)) {
         const currentOwner =
-          apiOwnership.find((o) => o.id === dbWar.territory_id)?.owned_by ||
-          null;
+          apiOwnershipMap.get(dbWar.territory_id)?.owned_by || null;
 
         dbWar.end_time = Date.now();
         dbWar.victor_faction = currentOwner;
@@ -174,7 +181,7 @@ async function executeActivityEngine(): Promise<void> {
       const oldState = dbStates.get(ttId);
       const newFaction = tt.owned_by || null;
 
-      const racket = apiRackets.find((r) => r.name === ttId);
+      const racket = apiRacketsMap.get(ttId);
       const isWarring = activeWarTerritories.has(ttId);
 
       const newState = {
