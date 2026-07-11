@@ -42,13 +42,9 @@ export function useWealthLedger() {
 
     async function fetchData() {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
-        
-        // In a real scenario, we would await fetch calls here.
-        // For now, if endpoints don't exist, we fallback to mock data.
         let liveData = null;
         try {
-          const res = await fetch(`${apiUrl}/api/ledger/wealth-state`, { signal: AbortSignal.timeout(1000) });
+          const res = await fetch(`/api/ledger/wealth-state`, { signal: AbortSignal.timeout(1000) });
           if (res.ok) liveData = await res.json();
         } catch {
           // Fallback

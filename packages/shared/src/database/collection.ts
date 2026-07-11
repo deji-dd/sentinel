@@ -28,6 +28,7 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
     private indexedFields: Array<{ key: string, type: "TEXT" | "INTEGER" | "REAL" }> = []
   ) {
     super();
+    this.setMaxListeners(0);
     this.db = engine.db;
     this.tableName = `nosql_${tableName}`;
 

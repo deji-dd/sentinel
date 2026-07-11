@@ -25,8 +25,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
-        const res = await fetch(`${apiUrl}/api/status`, {
+        const res = await fetch("/api/status", {
           cache: "no-store",
           signal: AbortSignal.timeout(2000),
         });
