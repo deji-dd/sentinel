@@ -50,7 +50,7 @@ export function useWealthLedger() {
         try {
           const res = await fetch(`${apiUrl}/api/ledger/wealth-state`, { signal: AbortSignal.timeout(1000) });
           if (res.ok) liveData = await res.json();
-        } catch (e) {
+        } catch {
           // Fallback
         }
 
@@ -69,7 +69,7 @@ export function useWealthLedger() {
             historical: Array.from({ length: 30 }).map((_, i) => ({
               timestamp: Date.now() - (29 - i) * 86400000,
               netWorth: 6000000000 + Math.random() * 500000000 + i * 20000000,
-              liquidCash: 1000000000 + Math.random() * 200000000,
+              dailyYield: 10000000 + Math.random() * 2000000,
             })),
             actionQueue: [
               { id: "tx_123", type: "Barter Trade", description: "Traded 5x Xanax for 1x FHC", timestamp: Date.now() - 3600000 },

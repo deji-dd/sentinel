@@ -70,8 +70,9 @@ else
   exit 0
 fi
 
-echo "Building worker and bot..."
+echo "Building shared, api, worker and bot..."
 pnpm --filter shared build || { echo "ERROR: shared build failed or timed out"; exit 1; }
+pnpm --filter api build || { echo "ERROR: api build failed or timed out"; exit 1; }
 pnpm --filter worker build || { echo "ERROR: worker build failed or timed out"; exit 1; }
 pnpm --filter bot build || { echo "ERROR: bot build failed or timed out"; exit 1; }
 
