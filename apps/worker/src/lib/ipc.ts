@@ -1,4 +1,4 @@
-import { IpcClient, IpcServer, Logger } from "@sentinel/shared";
+import { IpcClient, IpcServer, Logger, WorkerSchedules } from "@sentinel/shared";
 
 const logger = new Logger("Worker_IPC");
 
@@ -14,7 +14,15 @@ export function dispatchToBot(action: string, payload: any): void {
 // Server to receive messages from Bot/API (for future use)
 export const workerIpcServer = new IpcServer("/tmp/sentinel-worker.sock", (packet) => {
   logger.info("Worker received IPC message: " + JSON.stringify(packet));
-  // Handlers for incoming worker commands can go here
+  
+  if (packet.action === "FORCE_RUN_WORKER" && packet.payload?.workerName) {
+    const schedule = WorkerSchedules.findOne(packet.payload.workerName);
+    if (schedule) {
+      schedule.force_run = true;
+      WorkerSchedules.insertOne(schedule);
+      logger.info(`Force running worker: ${packet.payload.workerName}`);
+    }
+  }
 });
 
 export function startWorkerIpcServer() {

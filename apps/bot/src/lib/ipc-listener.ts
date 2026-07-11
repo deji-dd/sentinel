@@ -254,16 +254,25 @@ async function handleTerritoryEvent(client: Client, payload: any) {
       territoryId = eventData.territory;
       involvedFactions.push(String(fAssaultingId), String(fDefendingId));
       embed
-        .setTitle(`War Started: ${territoryId}`)
+        .setTitle(`Assault Begun • ${territoryId}`)
         .setColor(0xf59e0b) // Orange
-        .setDescription(
-          `**[${nameAssaulting}](https://www.torn.com/factions.php?step=profile&ID=${fAssaultingId})** has assaulted **[${nameDefending}](https://www.torn.com/factions.php?step=profile&ID=${fDefendingId})** for control of **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**!`,
-        )
-        .addFields({
-          name: "Start Time",
-          value: `<t:${Math.floor(eventData.data?.start_time || Date.now() / 1000)}:f>`,
-          inline: true,
-        });
+        .addFields(
+          {
+            name: "Territory",
+            value: `[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})`,
+            inline: false,
+          },
+          {
+            name: "Assaulting Faction",
+            value: `[${nameAssaulting}](https://www.torn.com/factions.php?step=profile&ID=${fAssaultingId})`,
+            inline: false,
+          },
+          {
+            name: "Defending Faction",
+            value: `[${nameDefending}](https://www.torn.com/factions.php?step=profile&ID=${fDefendingId})`,
+            inline: false,
+          },
+        );
       break;
 
     case "assault_succeeded":
@@ -274,32 +283,35 @@ async function handleTerritoryEvent(client: Client, payload: any) {
         String(fVictorId),
       );
       embed
-        .setTitle(`Assault Succeeded: ${territoryId}`)
+        .setTitle(`Assault Succeeded • ${territoryId}`)
         .setColor(0x10b981) // Green
-        .setDescription(
-          `**[${nameVictor}](https://www.torn.com/factions.php?step=profile&ID=${fVictorId})** has successfully claimed **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**!`,
-        )
         .addFields({
-          name: "End Time",
-          value: `<t:${Math.floor((eventData.war?.end_time || Date.now()) / 1000)}:f>`,
-          inline: true,
+          name: "Territory",
+          value: `[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})`,
+          inline: false,
+        })
+        .addFields({
+          name: "Assaulting Faction",
+          value: `[${nameVictor}](https://www.torn.com/factions.php?step=profile&ID=${fVictorId})`,
+          inline: false,
+        })
+        .addFields({
+          name: "Defending Faction",
+          value: `[${nameDefending}](https://www.torn.com/factions.php?step=profile&ID=${fDefendingId})`,
+          inline: false,
         });
+
       break;
 
     case "assault_failed":
       territoryId = eventData.war?.territory;
       involvedFactions.push(String(fAssaultingId), String(fDefendingId));
       embed
-        .setTitle(`Assault Failed: ${territoryId}`)
+        .setTitle(`Assault Failed • ${territoryId}`)
         .setColor(0xef4444) // Red
         .setDescription(
           `**[${nameAssaulting}](https://www.torn.com/factions.php?step=profile&ID=${fAssaultingId})** failed to assault **[${territoryId}](https://www.torn.com/city.php#terrName=${territoryId})**.`,
-        )
-        .addFields({
-          name: "End Time",
-          value: `<t:${Math.floor((eventData.war?.end_time || Date.now()) / 1000)}:f>`,
-          inline: true,
-        });
+        );
       break;
 
     case "peace_treaty":

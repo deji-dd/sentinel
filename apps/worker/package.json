@@ -13,6 +13,7 @@
     "add-key": "tsx --env-file=.env src/scripts/add-system-api-key.ts",
     "dedupe-keys": "tsx --env-file=.env src/scripts/dedupe-system-api-keys.ts",
     "trigger": "tsx --env-file=.env src/scripts/trigger.ts",
+    "heal-ledger": "tsx --env-file=.env src/scripts/heal-ledger.ts",
     "lint": "eslint src/"
   },
   "dependencies": {

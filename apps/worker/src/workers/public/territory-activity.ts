@@ -20,12 +20,8 @@ let keyIndex = 0;
 // TYPE DEFINITIONS
 // ==========================================
 
-type ApiRacket = NonNullable<
-  TornSchema<"FactionRacketsResponse">["rackets"]
->[number];
-type ApiOwnership = NonNullable<
-  TornSchema<"FactionTerritoriesOwnershipResponse">["territoryOwnership"]
->[number];
+type ApiRacket = TornSchema<"TornRacket">;
+type ApiOwnership = TornSchema<"FactionTerritoryOwnership">;
 
 // Explicit interface for the V1 global territory wars state dump
 interface ApiTerritoryWarV1 {
@@ -136,7 +132,10 @@ async function executeActivityEngine(): Promise<void> {
             ? "assault_succeeded"
             : "assault_failed";
 
-        dispatchToBot("TERRITORY_EVENT", { eventType: type, data: { war: dbWar } });
+        dispatchToBot("TERRITORY_EVENT", {
+          eventType: type,
+          data: { war: dbWar },
+        });
         eventsEmitted++;
       }
     }

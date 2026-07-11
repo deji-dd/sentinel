@@ -14,8 +14,6 @@ export interface EventRunnerConfig {
   defaultCadenceSeconds: number;
   /** The async function containing the core logic to execute when the timer fires */
   handler: () => Promise<boolean | void>;
-  /** Optional: How often to poll for external CLI triggers in ms (default: 5000) */
-  pollIntervalMs?: number;
 }
 
 /**
@@ -28,7 +26,6 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
   const logger = new Logger(config.worker);
   let activeTimer: ReturnType<typeof setTimeout> | null = null;
   let isExecuting = false;
-  const pollMs = config.pollIntervalMs || 5000;
 
   // 1. Initialize or fetch the schedule on boot
   let schedule = WorkerSchedules.findOne(config.worker);
@@ -104,22 +101,6 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
       }
     }
   });
-
-  // 5. Cross-Process Heartbeat for External Triggers
-  setInterval(() => {
-    if (isExecuting) return; // Don't interrupt if it's already working
-
-    // Perform a lightning-fast RAM/Disk check to bypass the process boundary
-    const latestDoc = WorkerSchedules.findOne(config.worker);
-    if (!latestDoc) return;
-
-    // If an external script set force_run, but our local RAM didn't catch the event
-    if (latestDoc.force_run && !schedule!.force_run) {
-      logger.info(`External CLI trigger detected!`);
-      schedule = latestDoc; // Sync the local state
-      queueNextRun(); // Fire instantly
-    }
-  }, pollMs);
 
   // Kick off the initial lifecycle
   queueNextRun();

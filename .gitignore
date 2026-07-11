@@ -79,7 +79,7 @@ apps/bot/dev-log.txt
 
 **/vite.config.js
 
-**/details/*
+**/context/*
 .repomixignore
 repomix-output.xml
 repomix.config.json

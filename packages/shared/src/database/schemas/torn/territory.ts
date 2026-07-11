@@ -5,7 +5,7 @@ import type { TornSchema } from "../../../torn/torn.js";
 // 1. Static Blueprint (Daily Sync)
 export interface TerritoryBlueprintDocument extends BaseDocument {
   // id is the territory name (e.g., 'JCA')
-  data: TornSchema<"TornTerritoriesResponse">["territory"][number];
+  data: TornSchema<"TornTerritory">;
 }
 export const TerritoryBlueprints = new Collection<TerritoryBlueprintDocument>(
   sentinelDbEngine,

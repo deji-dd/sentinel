@@ -2,7 +2,7 @@ import { TornSchema } from "../../../torn/torn.js";
 import { BaseDocument, Collection } from "../../collection.js";
 import { sentinelDbEngine } from "../../engine.js";
 
-type SingleTornItem = TornSchema<"TornItemsResponse">["items"][number];
+type SingleTornItem = TornSchema<"TornItem">;
 
 export interface TornItemDocument extends BaseDocument {
   /** * The unmodified JSON object from the Torn API.

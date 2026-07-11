@@ -5,8 +5,14 @@ import * as botWorkers from "./bot/index.js";
 
 type Starter = () => void;
 
-const PRIVATE_WORKERS: Starter[] = [privateWorkers.startItemSyncWorker];
+const PRIVATE_WORKERS: Starter[] = [
+  privateWorkers.startItemSyncWorker,
+  privateWorkers.startLogManager,
+  privateWorkers.startCompanySyncWorker,
+  privateWorkers.startLedgerWorker,
+];
 
+// TODO: COMMENT IN DEV, UNCOMMENT BEFORE PUSH
 const PUBLIC_WORKERS: Starter[] = [
   publicWorkers.startTerritoryBlueprintSync,
   publicWorkers.startTerritoryActivitySync,

@@ -4,7 +4,7 @@ import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { tornApi, getWorkerApiKey } from "@sentinel/shared";
 import { TornItems, TornSchema, WorkerSchedules } from "@sentinel/shared";
 
-const WORKER_NAME = "torn_items";
+const WORKER_NAME = "items_sync";
 const logger = new Logger(WORKER_NAME);
 const ONE_DAY_SECONDS = 86400;
 

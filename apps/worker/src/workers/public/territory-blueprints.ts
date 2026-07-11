@@ -12,9 +12,7 @@ const logger = new Logger(WORKER_NAME);
  * Represents a strictly typed, single territory blueprint object extracted
  * natively from the Torn OpenAPI schema response.
  */
-type SingleTerritory = NonNullable<
-  TornSchema<"TornTerritoriesResponse">["territory"]
->[number];
+type SingleTerritory = TornSchema<"TornTerritory">;
 
 /**
  * Calculates the epoch timestamp for the next execution target.
