@@ -5,7 +5,7 @@ import { sentinelDbEngine } from "../../engine.js";
 /**
  * Represents a daily snapshot of a company's profile, employees, and calculated profit.
  */
-export interface CompanyDailyProfitDocument extends BaseDocument {
+export type CompanyDailyProfitDocument = BaseDocument & {
   timestamp: number;
   inflow: number;
   outflow: number;
@@ -13,7 +13,7 @@ export interface CompanyDailyProfitDocument extends BaseDocument {
 
   profile: TornSchema<"CompanyProfileExtended">;
   employees: TornSchema<"CompanyEmployeeFull">[];
-}
+};
 
 export const CompanyDailyProfits = new Collection<CompanyDailyProfitDocument>(
   sentinelDbEngine,

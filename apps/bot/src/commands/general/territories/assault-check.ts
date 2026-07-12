@@ -21,7 +21,7 @@ const STATUS_EMOJI_SUCCESS = "<:Green:1474607376140079104>";
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
 
 async function getActiveApiKey(guildId: string): Promise<string | null> {
-  const allKeys = GuildApiKeys.find((k) => k.guild_id === guildId);
+  const allKeys = GuildApiKeys.find({ guild_id: guildId });
   const keyDoc = allKeys.find((k) => k.is_primary) || allKeys[0];
   if (!keyDoc) return null;
 
@@ -70,11 +70,11 @@ export async function execute(
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
     const ninetyDaysMs = ninetyDaysAgo.getTime();
 
-    const warsDocs = WarLedger.find((w) => w.start_time >= ninetyDaysMs);
+    const warsDocs = WarLedger.findAll((w) => w.start_time >= ninetyDaysMs);
     warsDocs.sort((a, b) => b.start_time - a.start_time);
     const wars: WarRecord[] = warsDocs.map((w) => ({
       war_id: parseInt(w.id, 10),
-      territory_id: w.territory_id,
+      territory_id: w.id,
       assaulting_faction: w.assaulting_faction,
       defending_faction: w.defending_faction,
       victor_faction: w.victor_faction,
@@ -110,9 +110,7 @@ export async function execute(
     const infoNotes: string[] = [];
 
     // Get current territory count for faction
-    const ownedTerritories = TerritoryStates.find(
-      (t) => t.faction_id === factionId,
-    );
+    const ownedTerritories = TerritoryStates.find({ faction_id: factionId });
 
     const currentTerritoryCount = ownedTerritories?.length || 0;
 

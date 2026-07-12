@@ -26,7 +26,10 @@ export async function parseBarterTrade(log: TornSchema<"UserLog">) {
   // 1. Fetch all related trade logs from PersonalLogs
   // In sqlite json_extract, '$.data.parsed_trade_id' will match nested.
   // We type cast to any to bypass strict TS checking for nested keys
-  const tradeLogs = PersonalLogs.find({ "data.parsed_trade_id": tradeId });
+  const tradeLogs = PersonalLogs.find({
+    "data.parsed_trade_id": tradeId,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 
   let outgoingMoney = 0;
   let incomingMoney = 0;

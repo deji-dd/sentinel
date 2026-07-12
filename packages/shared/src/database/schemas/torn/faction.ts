@@ -5,11 +5,11 @@ import type { TornSchema } from "../../../torn/torn.js";
 // Extracts the precise nested faction structure from the OpenAPI spec
 type FactionBasicData = TornSchema<"FactionBasic">;
 
-export interface TornFactionDocument extends BaseDocument {
+export type TornFactionDocument = BaseDocument & {
   // id is the stringified Torn Faction ID (e.g. "13784")
   data: FactionBasicData;
   updated_at: number; // Unix Epoch ms
-}
+};
 
 export const TornFactions = new Collection<TornFactionDocument>(
   sentinelDbEngine,

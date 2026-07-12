@@ -11,11 +11,28 @@ const REQUEST_TIMEOUT = 30000; // 30 seconds - increased from 10s for better rel
 /**
  * Torn API Error Response - properly typed from OpenAPI spec
  */
-export interface TornApiError {
+/**
+ * Torn API Error Response type
+ */
+export interface TornApiErrorResponse {
   error: {
     code: number;
     error: string;
   };
+}
+
+/**
+ * Custom Error class that allows accessing the specific Torn API error code
+ * in catch blocks.
+ */
+export class TornError extends Error {
+  code: number;
+
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = "TornError";
+    this.code = code;
+  }
 }
 
 export const TORN_ERROR_CODES: Record<number, string> = {
@@ -233,7 +250,7 @@ export class TornApiClient {
             await this.onInvalidKey(apiKey, error.code);
           }
 
-          throw new Error(errorMessage);
+          throw new TornError(error.code, errorMessage);
         }
 
         // Check for HTTP errors
@@ -250,11 +267,11 @@ export class TornApiClient {
       } catch (error: any) {
         lastError = error;
         const isRateLimit =
-          error &&
-          error.message &&
-          (error.message.includes("Too many requests") ||
-            error.message.includes("rate limit") ||
-            error.message.includes("Rate limit"));
+          (error instanceof TornError && error.code === 5) ||
+          (error &&
+            error.message &&
+            (error.message.includes("rate limit") ||
+              error.message.includes("Rate limit")));
 
         const isNetworkOrTimeout =
           error instanceof TypeError ||
@@ -339,7 +356,7 @@ export class TornApiClient {
             await this.onInvalidKey(apiKey, error.code);
           }
 
-          throw new Error(errorMessage);
+          throw new TornError(error.code, errorMessage);
         }
 
         // Check for HTTP errors
@@ -356,11 +373,11 @@ export class TornApiClient {
       } catch (error: any) {
         lastError = error;
         const isRateLimit =
-          error &&
-          error.message &&
-          (error.message.includes("Too many requests") ||
-            error.message.includes("rate limit") ||
-            error.message.includes("Rate limit"));
+          (error instanceof TornError && error.code === 5) ||
+          (error &&
+            error.message &&
+            (error.message.includes("rate limit") ||
+              error.message.includes("Rate limit")));
 
         const isNetworkOrTimeout =
           error instanceof TypeError ||

@@ -44,7 +44,7 @@ export function usePush() {
       applicationServerKey: urlBase64ToUint8Array(vapidKey),
     });
 
-    await fetch("/api/push/subscribe", {
+    await fetch("/api/settings/push", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub.toJSON()),
@@ -58,7 +58,7 @@ export function usePush() {
     const sub = await registration.pushManager.getSubscription();
     if (sub) {
       await sub.unsubscribe();
-      await fetch("/api/push/subscribe", {
+      await fetch("/api/settings/push", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ endpoint: sub.endpoint }),

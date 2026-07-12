@@ -3,7 +3,7 @@ import { Logger } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 
 // Import the collections that need pruning
-import { VerificationJobs, RateLimits } from "@sentinel/shared";
+import { RateLimits } from "@sentinel/shared";
 
 const WORKER_NAME = "system_maintenance";
 const logger = new Logger(WORKER_NAME);
@@ -13,19 +13,14 @@ const logger = new Logger(WORKER_NAME);
  * Prevents SQLite from bloating with historical job logs and expired rate limits.
  */
 async function runPruningJobs(): Promise<void> {
-  const finishSync = logger.time("Running daily system maintenance...");
-
-  // 1. Prune Verification Jobs older than 7 days
-  // This keeps a 1-week history for debugging, but prevents infinite table growth
-  const jobsDeleted = VerificationJobs.deleteOlderThan(7, "$.created_at");
-  logger.info(`Pruned ${jobsDeleted} historical verification jobs.`);
+  const finishSync = logger.time();
 
   // 2. Prune Rate Limit cache older than 1 day
   // Since WINDOW_MS is only 60 seconds, anything older than 24h is definitely dead weight
   const rateLimitsDeleted = RateLimits.deleteOlderThan(1, "$.requested_at");
   logger.info(`Pruned ${rateLimitsDeleted} expired rate limit entries.`);
 
-  finishSync("Daily system maintenance completed.");
+  finishSync();
 }
 
 export async function executeMaintenance(): Promise<void> {

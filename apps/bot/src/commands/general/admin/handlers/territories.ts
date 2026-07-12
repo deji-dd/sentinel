@@ -111,15 +111,21 @@ export async function handleShowTerritoriesSettings(
         new StringSelectMenuOptionBuilder()
           .setLabel("Set Full Notifications Channel")
           .setValue("set_full_notifications_channel")
-          .setDescription("Channel where all territory assault notifications are posted"),
+          .setDescription(
+            "Channel where all territory assault notifications are posted",
+          ),
         new StringSelectMenuOptionBuilder()
           .setLabel("Set Filtered Notifications Channel")
           .setValue("set_filtered_notifications_channel")
-          .setDescription("Channel where watched territory/faction alerts are posted"),
+          .setDescription(
+            "Channel where watched territory/faction alerts are posted",
+          ),
         new StringSelectMenuOptionBuilder()
           .setLabel("Set Watched Territories")
           .setValue("set_watched_territories")
-          .setDescription("Configure territory IDs to watch for filtered alerts"),
+          .setDescription(
+            "Configure territory IDs to watch for filtered alerts",
+          ),
         new StringSelectMenuOptionBuilder()
           .setLabel("Set Watched Factions")
           .setValue("set_watched_factions")
@@ -272,7 +278,6 @@ export async function handleTerritoriesFullChannelSelect(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.tt_full_channel_id = channelId;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -295,7 +300,6 @@ export async function handleTerritoriesFilteredChannelSelect(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.tt_filtered_channel_id = channelId;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -352,7 +356,10 @@ export async function handleShowWatchedTerritoriesSettings(
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(editBtn, backBtn);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      editBtn,
+      backBtn,
+    );
 
     await interaction.editReply({
       embeds: [embed],
@@ -418,7 +425,6 @@ export async function handleTerritoriesWatchedTerritoriesModal(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.tt_territory_ids = territories;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -475,7 +481,10 @@ export async function handleShowWatchedFactionsSettings(
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(editBtn, backBtn);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      editBtn,
+      backBtn,
+    );
 
     await interaction.editReply({
       embeds: [embed],
@@ -529,19 +538,16 @@ export async function handleTerritoriesWatchedFactionsModal(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const value = interaction.fields
-      .getTextInputValue("factions_input")
-      .trim();
+    const value = interaction.fields.getTextInputValue("factions_input").trim();
 
     const factions = value
       .split(",")
-      .map((f) => f.trim())
-      .filter((f) => f.length > 0 && !isNaN(parseInt(f, 10)));
+      .map((f) => parseInt(f.trim(), 10))
+      .filter((n) => !isNaN(n));
 
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.tt_faction_ids = factions;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 

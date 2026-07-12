@@ -11,8 +11,8 @@ export default async function Home() {
     const apiUrl = env.API_URL || env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
     // Attempt to fetch live status from the API Gateway
     const res = await fetch(`${apiUrl}/api/status`, {
-      next: { revalidate: 0 }, // No caching, we want real-time gateway status
-      signal: AbortSignal.timeout(2000) // 2-second timeout so page doesn't hang if offline
+      next: { revalidate: 0 },
+      cache: "no-store"
     });
     
     if (res.ok) {

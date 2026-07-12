@@ -275,7 +275,6 @@ export async function handleVerifyNicknameModalSubmit(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.nickname_template = template;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -298,7 +297,6 @@ export async function handleVerifyRolesSelect(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.verified_role_ids = roleIds;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -321,7 +319,6 @@ export async function handleVerifyChannelSelect(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.faction_list_channel_id = channelId;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -357,11 +354,14 @@ export async function handleShowFactionMappings(
     );
 
     // Fetch mappings
-    const mappings = FactionRoles.find((m) => m.guild_id === guildId);
+    const mappings = FactionRoles.find({ guild_id: guildId });
 
     const itemsPerPage = 10;
     const totalPages = Math.ceil(mappings.length / itemsPerPage);
-    const currentPage = Math.max(0, Math.min(page, Math.max(0, totalPages - 1)));
+    const currentPage = Math.max(
+      0,
+      Math.min(page, Math.max(0, totalPages - 1)),
+    );
 
     let mappingsDesc = "No faction mappings configured yet.";
     if (mappings.length > 0) {
@@ -411,7 +411,7 @@ export async function handleShowFactionMappings(
       select.addOptions(options);
 
       components.push(
-        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
       );
     }
 
@@ -425,7 +425,10 @@ export async function handleShowFactionMappings(
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(addBtn, backBtn);
+    const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      addBtn,
+      backBtn,
+    );
 
     if (totalPages > 1) {
       const prevBtn = new ButtonBuilder()
@@ -508,8 +511,8 @@ export async function handleVerifyAddFactionModalSubmit(
     let factionName = `Faction ${factionId}`;
 
     // Fetch details from Torn API if possible to resolve name
-    const apiKeysList = GuildApiKeys.find((k) => k.guild_id === guildId);
-      const apiKeys = apiKeysList.length > 0 ? ["dummy"] : [];
+    const apiKeysList = GuildApiKeys.find({ guild_id: guildId });
+    const apiKeys = apiKeysList.length > 0 ? ["dummy"] : [];
     if (apiKeys.length > 0) {
       try {
         const { validateAndFetchFactionDetails } =
@@ -518,8 +521,8 @@ export async function handleVerifyAddFactionModalSubmit(
           factionId,
           apiKeys[0],
         );
-        if (details && details.name) {
-          factionName = details.name;
+        if (details && details.data.name) {
+          factionName = details.data.name;
         }
       } catch (err) {
         console.warn(`Failed to fetch faction details from Torn API: ${err}`);
@@ -527,7 +530,10 @@ export async function handleVerifyAddFactionModalSubmit(
     }
 
     // Check if mapping already exists
-    const existing = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const existing = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
 
     if (!existing) {
       // Insert new mapping
@@ -539,7 +545,6 @@ export async function handleVerifyAddFactionModalSubmit(
         member_role_ids: [],
         leader_role_ids: [],
         enabled: true,
-        updated_at: new Date().toISOString(),
       });
 
       // Trigger update of faction list channel
@@ -548,10 +553,12 @@ export async function handleVerifyAddFactionModalSubmit(
       await updateFactionList(guildId, interaction.client);
     } else {
       // Just update name if it changed
-      const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      const r = FactionRoles.find({
+        guild_id: guildId,
+        faction_id: factionId,
+      })[0];
       if (r) {
         r.faction_name = factionName;
-        r.updated_at = new Date().toISOString();
         FactionRoles.update(r);
       }
     }
@@ -582,7 +589,10 @@ export async function handleShowEditFactionMapping(
       interaction.user.id,
     );
 
-    const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const mapping = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
 
     if (!mapping) return;
 
@@ -644,7 +654,9 @@ export async function handleShowEditFactionMapping(
         new StringSelectMenuOptionBuilder()
           .setLabel("Set Leader Roles")
           .setValue("set_leaders")
-          .setDescription("Select Discord roles for faction leaders/co-leaders"),
+          .setDescription(
+            "Select Discord roles for faction leaders/co-leaders",
+          ),
         new StringSelectMenuOptionBuilder()
           .setLabel("Delete Mapping")
           .setValue("delete_mapping")
@@ -656,7 +668,8 @@ export async function handleShowEditFactionMapping(
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const rowSelect = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    const rowSelect =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
     const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
     await interaction.editReply({
@@ -679,18 +692,24 @@ export async function handleVerifyFactionActionSelect(
 
     if (selected === "toggle_enabled") {
       await interaction.deferUpdate();
-      const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      const mapping = FactionRoles.find({
+        guild_id: guildId,
+        faction_id: factionId,
+      })[0];
 
       const current = mapping?.enabled;
-      const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      const r = FactionRoles.find({
+        guild_id: guildId,
+        faction_id: factionId,
+      })[0];
       if (r) {
         r.enabled = !current;
-        r.updated_at = new Date().toISOString();
         FactionRoles.update(r);
       }
 
       // Trigger update of faction list channel
-      const { updateFactionList } = await import("../../../../lib/faction-list-manager.js");
+      const { updateFactionList } =
+        await import("../../../../lib/faction-list-manager.js");
       await updateFactionList(guildId, interaction.client);
 
       await handleShowEditFactionMapping(factionId, interaction, true);
@@ -700,13 +719,17 @@ export async function handleVerifyFactionActionSelect(
       await handleVerifyFactionSetLeaders(factionId, interaction);
     } else if (selected === "delete_mapping") {
       await interaction.deferUpdate();
-      const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+      const r = FactionRoles.find({
+        guild_id: guildId,
+        faction_id: factionId,
+      })[0];
       if (r) {
         FactionRoles.delete(r.id);
       }
 
       // Trigger update of faction list channel
-      const { updateFactionList } = await import("../../../../lib/faction-list-manager.js");
+      const { updateFactionList } =
+        await import("../../../../lib/faction-list-manager.js");
       await updateFactionList(guildId, interaction.client);
 
       await handleShowFactionMappings(interaction, 0, true);
@@ -728,7 +751,10 @@ export async function handleVerifyFactionSetMembers(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const mapping = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
 
     const existingRoles = parseTextArray(mapping?.member_role_ids);
     const name = mapping?.faction_name || `Faction ${factionId}`;
@@ -789,10 +815,12 @@ export async function handleVerifyFactionMembersSelect(
 
     const roleIds = interaction.values;
 
-    const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const r = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
     if (r) {
       r.member_role_ids = roleIds;
-      r.updated_at = new Date().toISOString();
       FactionRoles.update(r);
     }
 
@@ -814,7 +842,10 @@ export async function handleVerifyFactionSetLeaders(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const mapping = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const mapping = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
 
     const existingRoles = parseTextArray(mapping?.leader_role_ids);
     const name = mapping?.faction_name || `Faction ${factionId}`;
@@ -875,10 +906,12 @@ export async function handleVerifyFactionLeadersSelect(
 
     const roleIds = interaction.values;
 
-    const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const r = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
     if (r) {
       r.leader_role_ids = roleIds;
-      r.updated_at = new Date().toISOString();
       FactionRoles.update(r);
     }
 
@@ -897,7 +930,10 @@ export async function handleVerifyFactionDelete(
     const factionId = parseInt(interaction.customId.split("|")[1]!, 10);
     if (!guildId || isNaN(factionId)) return;
 
-    const r = FactionRoles.find(m => m.guild_id === guildId && m.faction_id === factionId)[0];
+    const r = FactionRoles.find({
+      guild_id: guildId,
+      faction_id: factionId,
+    })[0];
     if (r) {
       FactionRoles.delete(r.id);
     }
@@ -945,14 +981,17 @@ export async function handleShowAutoVerifySettings(
     const autoVerify = isTruthyBoolean(guildConfig.auto_verify);
     const message = "message" in interaction ? interaction.message : null;
     const footerText = message?.embeds?.[0]?.footer?.text;
-    const originalUserId = getConfigSessionUserId(footerText, interaction.user.id);
+    const originalUserId = getConfigSessionUserId(
+      footerText,
+      interaction.user.id,
+    );
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Auto-Verification Settings")
       .setDescription(
         "Choose whether to automatically process and verify members when they join the server.\n\n" +
-          `**Current Status:** ${autoVerify ? "Enabled (process members on join)" : "Disabled"}`
+          `**Current Status:** ${autoVerify ? "Enabled (process members on join)" : "Disabled"}`,
       )
       .setFooter({
         text: `Sentinel • Config Session: ${originalUserId}`,
@@ -969,7 +1008,10 @@ export async function handleShowAutoVerifySettings(
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn, backBtn);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      toggleBtn,
+      backBtn,
+    );
 
     await interaction.editReply({
       embeds: [embed],
@@ -994,7 +1036,6 @@ export async function handleVerifyToggleAutoVerifyBtn(
     const c = GuildConfigs.findOne(guildId);
     if (c) {
       c.auto_verify = !current;
-      c.updated_at = new Date().toISOString();
       GuildConfigs.update(c);
     }
 
@@ -1023,7 +1064,10 @@ export async function handleShowNicknameTemplateSettings(
     const template = guildConfig.nickname_template || "{name} [{id}]";
     const message = "message" in interaction ? interaction.message : null;
     const footerText = message?.embeds?.[0]?.footer?.text;
-    const originalUserId = getConfigSessionUserId(footerText, interaction.user.id);
+    const originalUserId = getConfigSessionUserId(
+      footerText,
+      interaction.user.id,
+    );
 
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
@@ -1034,7 +1078,7 @@ export async function handleShowNicknameTemplateSettings(
           "**Available Placeholders:**\n" +
           "• `{name}` - Torn user name\n" +
           "• `{id}` - Torn user ID\n" +
-          "• `{tag}` - Faction tag (if member belongs to mapped faction)"
+          "• `{tag}` - Faction tag (if member belongs to mapped faction)",
       )
       .setFooter({
         text: `Sentinel • Config Session: ${originalUserId}`,
@@ -1051,7 +1095,10 @@ export async function handleShowNicknameTemplateSettings(
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(editBtn, backBtn);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      editBtn,
+      backBtn,
+    );
 
     await interaction.editReply({
       embeds: [embed],

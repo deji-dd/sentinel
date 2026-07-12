@@ -44,7 +44,7 @@ export function useWealthLedger() {
       try {
         let liveData = null;
         try {
-          const res = await fetch(`/api/ledger/wealth-state`, { signal: AbortSignal.timeout(1000) });
+          const res = await fetch(`/api/ledger/wealth-state`);
           if (res.ok) liveData = await res.json();
         } catch {
           // Fallback

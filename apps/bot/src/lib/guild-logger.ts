@@ -1,5 +1,5 @@
 import { EmbedBuilder, ChannelType, type Client } from "discord.js";
-import { GuildConfigDocument, GuildConfigs } from "@sentinel/shared";
+import { GuildConfigs } from "@sentinel/shared";
 
 export interface GuildLogOptions {
   title: string;
@@ -22,9 +22,7 @@ export async function logGuildAction(
 ): Promise<void> {
   try {
     // Fetch guild config from fast NoSQL memory to get log channel ID
-    const guildConfig = GuildConfigs.find(
-      (c: GuildConfigDocument) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
 
     if (
       !guildConfig?.log_channel_id ||

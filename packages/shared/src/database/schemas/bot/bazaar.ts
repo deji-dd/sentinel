@@ -1,7 +1,7 @@
 import { BaseDocument, Collection } from "../../collection.js";
 import { sentinelDbEngine } from "../../engine.js";
 
-export interface BazaarMugConfigDocument extends BaseDocument {
+export type BazaarMugConfigDocument = BaseDocument & {
   // id is typically the guild_id
   guild_id: string;
   is_enabled: number; // 1 or 0
@@ -13,16 +13,16 @@ export interface BazaarMugConfigDocument extends BaseDocument {
   target_player_ids_json: string; // Legacy array string
   created_at: string;
   updated_at: string;
-}
+};
 
-export interface BazaarMugTargetDocument extends BaseDocument {
+export type BazaarMugTargetDocument = BaseDocument & {
   guild_id: string;
   player_id: string;
   player_name: string | null;
   source: string;
   created_at: string;
   updated_at: string;
-}
+};
 
 export const BazaarMugConfigs = new Collection<BazaarMugConfigDocument>(
   sentinelDbEngine,

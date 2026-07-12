@@ -20,9 +20,7 @@ export function startCompanySyncWorker(): void {
   workerEvents.on("NEW_PERSONAL_LOG", async (log: TornSchema<"UserLog">) => {
     // 6222 represents "Company director pay" log type
     if (log.details.id === 6222) {
-      const finishSync = logger.time(
-        `Received Director Pay log ID: ${log.id}. Starting company sync.`,
-      );
+      const finishSync = logger.time();
 
       try {
         const apiKey = getWorkerApiKey("personal");
@@ -131,9 +129,7 @@ export function startCompanySyncWorker(): void {
           raw_log: log,
         });
 
-        finishSync(
-          `Company sync complete. Profit calculated: $${profit.toLocaleString()}`,
-        );
+        finishSync();
       } catch (error) {
         finishSync();
         logger.error("Failed to sync company data:", error);

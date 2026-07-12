@@ -16,6 +16,7 @@ import {
   BellOff,
   Settings,
   Landmark,
+  Target,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,6 +36,7 @@ import { usePush } from "@/hooks/use-push";
 const navItems = [
   { name: "Overview", href: "/", icon: Home },
   { name: "Wealth Matrix", href: "/wealth", icon: Landmark },
+  { name: "Crime Ledger", href: "/crimes", icon: Target },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

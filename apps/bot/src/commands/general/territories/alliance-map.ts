@@ -67,7 +67,7 @@ export async function execute(
       const allianceName = factionToAlliance.get(row.faction_id) ?? "Unaligned";
       const color = colorForAllianceName(allianceName);
 
-      territoryFillById.set(row.territory_id, color);
+      territoryFillById.set(row.id, color);
       allianceCounts.set(
         allianceName,
         (allianceCounts.get(allianceName) || 0) + 1,

@@ -18,7 +18,11 @@ import {
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { GuildConfigs, ReactionRoleMessages, ReactionRoleMappings } from "@sentinel/shared";
+import {
+  GuildConfigs,
+  ReactionRoleMessages,
+  ReactionRoleMappings,
+} from "@sentinel/shared";
 import { logGuildAction } from "../../../../lib/guild-logger.js";
 
 export type ConfigInteraction =
@@ -78,7 +82,7 @@ export async function handleShowReactionRolesSettings(
     );
 
     // Fetch count of reaction roles messages
-    const existingMessages = ReactionRoleMessages.find((m) => m.guild_id === guildId);
+    const existingMessages = ReactionRoleMessages.find({ guild_id: guildId });
 
     const count = existingMessages.length;
 
@@ -105,7 +109,9 @@ export async function handleShowReactionRolesSettings(
         new StringSelectMenuOptionBuilder()
           .setLabel("Manage Existing Messages")
           .setValue("manage_msgs")
-          .setDescription("List details or delete configured reaction role messages"),
+          .setDescription(
+            "List details or delete configured reaction role messages",
+          ),
       );
 
     const backBtn = new ButtonBuilder()
@@ -225,8 +231,9 @@ async function showRequiredRolesSelectScreen(
     .setLabel("Back")
     .setStyle(ButtonStyle.Secondary);
 
-  const rowSelect =
-    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+  const rowSelect = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+    roleSelect,
+  );
   const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(
     skipBtn,
     backBtn,
@@ -344,8 +351,9 @@ async function showSelectMappedRolesScreen(
     .setLabel("Back")
     .setStyle(ButtonStyle.Secondary);
 
-  const rowSelect =
-    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+  const rowSelect = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+    roleSelect,
+  );
   const rowBtn = new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
 
   await interaction.editReply({
@@ -395,7 +403,9 @@ export async function handleReactionRolesRolesSelect(
       .setStyle(ButtonStyle.Primary);
 
     const backBtn = new ButtonBuilder()
-      .setCustomId(`rr_btn_back_to_mapped_roles|${channelId}|${requiredRoleIds}`)
+      .setCustomId(
+        `rr_btn_back_to_mapped_roles|${channelId}|${requiredRoleIds}`,
+      )
       .setLabel("Back")
       .setStyle(ButtonStyle.Secondary);
 
@@ -427,7 +437,9 @@ export async function handleReactionRolesFillDetails(
     const selectedCount = roleIds.split(",").length;
 
     const modal = new ModalBuilder()
-      .setCustomId(`rr_modal_create_message|${channelId}|${requiredRoleIds}|${roleIds}`)
+      .setCustomId(
+        `rr_modal_create_message|${channelId}|${requiredRoleIds}|${roleIds}`,
+      )
       .setTitle("Create Reaction Role Message");
 
     const titleInput = new TextInputBuilder()
@@ -483,7 +495,9 @@ export async function handleReactionRolesModalSubmit(
     const roleIds = roleIdsStr.split(",");
 
     const title = interaction.fields.getTextInputValue("title").trim();
-    const description = interaction.fields.getTextInputValue("description").trim();
+    const description = interaction.fields
+      .getTextInputValue("description")
+      .trim();
     const emojisInput = interaction.fields.getTextInputValue("emojis").trim();
 
     // Parse and validate emojis
@@ -502,7 +516,9 @@ export async function handleReactionRolesModalSubmit(
         );
 
       const tryAgainBtn = new ButtonBuilder()
-        .setCustomId(`rr_btn_fill_details|${channelId}|${requiredRoleIds}|${roleIdsStr}`)
+        .setCustomId(
+          `rr_btn_fill_details|${channelId}|${requiredRoleIds}|${roleIdsStr}`,
+        )
         .setLabel("Try Again")
         .setStyle(ButtonStyle.Primary);
 
@@ -571,7 +587,10 @@ export async function handleReactionRolesModalSubmit(
       try {
         await postedMessage.react(emoji);
       } catch (e) {
-        console.warn(`Failed to react with ${emoji} on message ${postedMessage.id}:`, e);
+        console.warn(
+          `Failed to react with ${emoji} on message ${postedMessage.id}:`,
+          e,
+        );
       }
     }
 
@@ -588,8 +607,6 @@ export async function handleReactionRolesModalSubmit(
       description: description || null,
       required_role_id: dbRequiredRoleIds,
       sync_roles: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     });
 
     for (let i = 0; i < roleIds.length; i++) {
@@ -598,7 +615,6 @@ export async function handleReactionRolesModalSubmit(
         message_id: postedMessage.id,
         emoji: emojis[i],
         role_id: roleIds[i],
-        created_at: new Date().toISOString(),
       });
     }
 
@@ -619,7 +635,9 @@ export async function handleReactionRolesModalSubmit(
 
     // Hold visual success message briefly, then redirect back to dashboard
     setTimeout(async () => {
-      await handleShowReactionRolesSettings(interaction, true).catch(() => null);
+      await handleShowReactionRolesSettings(interaction, true).catch(
+        () => null,
+      );
     }, 2500);
   } catch (error) {
     console.error("Error creating reaction role message:", error);
@@ -643,7 +661,7 @@ export async function handleShowManageExistingMessages(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const messages = ReactionRoleMessages.find((m) => m.guild_id === guildId);
+    const messages = ReactionRoleMessages.find({ guild_id: guildId });
 
     if (messages.length === 0) {
       const embed = new EmbedBuilder()
@@ -670,7 +688,9 @@ export async function handleShowManageExistingMessages(
     const embed = new EmbedBuilder()
       .setColor(0x8b5cf6)
       .setTitle("Manage Reaction Role Messages")
-      .setDescription("Select a message from the dropdown below to view details or delete it.");
+      .setDescription(
+        "Select a message from the dropdown below to view details or delete it.",
+      );
 
     const select = new StringSelectMenuBuilder()
       .setCustomId("rr_select_manage_msg")
@@ -719,12 +739,16 @@ export async function handleReactionRolesSelectMessage(
       const errorEmbed = new EmbedBuilder()
         .setColor(0xef4444)
         .setTitle("Message Not Found")
-        .setDescription("Could not find the reaction role message in the database.");
+        .setDescription(
+          "Could not find the reaction role message in the database.",
+        );
       await interaction.editReply({ embeds: [errorEmbed], components: [] });
       return;
     }
 
-    const mappings = ReactionRoleMappings.find((m) => m.message_id === messageRecord.message_id);
+    const mappings = ReactionRoleMappings.find({
+      message_id: messageRecord.message_id,
+    });
 
     let detailsText = `**Channel:** <#${messageRecord.channel_id}>\n`;
     detailsText += `**Message ID:** \`${messageRecord.message_id}\`\n`;
@@ -740,7 +764,9 @@ export async function handleReactionRolesSelectMessage(
 
     detailsText += `\n**Mappings:**\n`;
     if (mappings.length > 0) {
-      detailsText += mappings.map((m) => `${m.emoji} → <@&${m.role_id}>`).join("\n");
+      detailsText += mappings
+        .map((m) => `${m.emoji} → <@&${m.role_id}>`)
+        .join("\n");
     } else {
       detailsText += `*None configured*`;
     }
@@ -796,21 +822,30 @@ export async function handleReactionRoleDeleteMsgBtn(
 
     // Try deleting Discord message
     try {
-      const channel = await interaction.client.channels.fetch(messageRecord.channel_id);
+      const channel = await interaction.client.channels.fetch(
+        messageRecord.channel_id,
+      );
       if (channel && channel.isTextBased()) {
-        const discordMsg = await (channel as any).messages.fetch(messageRecord.message_id);
+        const discordMsg = await (channel as any).messages.fetch(
+          messageRecord.message_id,
+        );
         if (discordMsg) {
           await discordMsg.delete();
         }
       }
     } catch (e) {
-      console.warn("Could not delete the Discord message directly (it might be already deleted):", e);
+      console.warn(
+        "Could not delete the Discord message directly (it might be already deleted):",
+        e,
+      );
     }
 
     // Delete mappings & message from DB
     ReactionRoleMessages.delete(msgId);
 
-    const mapsToDelete = ReactionRoleMappings.find((m) => m.message_id === messageRecord.message_id);
+    const mapsToDelete = ReactionRoleMappings.find({
+      message_id: messageRecord.message_id,
+    });
     mapsToDelete.forEach((m) => ReactionRoleMappings.delete(m.id));
 
     await logGuildAction(guildId, interaction.client, {
@@ -822,12 +857,16 @@ export async function handleReactionRoleDeleteMsgBtn(
     const successEmbed = new EmbedBuilder()
       .setColor(0x22c55e)
       .setTitle("Deleted Reaction Role Message")
-      .setDescription("The Discord message and database records have been deleted.");
+      .setDescription(
+        "The Discord message and database records have been deleted.",
+      );
 
     await interaction.editReply({ embeds: [successEmbed], components: [] });
 
     setTimeout(async () => {
-      await handleShowReactionRolesSettings(interaction, true).catch(() => null);
+      await handleShowReactionRolesSettings(interaction, true).catch(
+        () => null,
+      );
     }, 2500);
   } catch (error) {
     console.error("Error deleting reaction role message:", error);

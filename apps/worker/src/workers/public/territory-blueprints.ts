@@ -5,7 +5,7 @@ import { tornApi, getSystemKeyPool } from "@sentinel/shared";
 import { TerritoryBlueprints, WorkerSchedules } from "@sentinel/shared";
 import type { TornSchema } from "@sentinel/shared";
 
-const WORKER_NAME = "territory_blueprints";
+const WORKER_NAME = "tt_sync";
 const logger = new Logger(WORKER_NAME);
 
 /**
@@ -42,7 +42,7 @@ function getNext0300UtcTimestamp(lastRunAt: number | null): number {
  * @returns {Promise<void>} Resolves when the transaction is successfully committed to the database.
  */
 async function fetchAndDumpBlueprints(): Promise<void> {
-  const finishLog = logger.time("Syncing territory blueprints.");
+  const finishLog = logger.time();
 
   try {
     // 1. Initialize API key rotator for parallel execution
@@ -97,7 +97,7 @@ async function fetchAndDumpBlueprints(): Promise<void> {
       WorkerSchedules.insertOne(schedule);
     }
 
-    finishLog(`Stored ${docsToUpsert.length} territories.`);
+    finishLog();
   } catch (error) {
     logger.error("Failed to sync territory blueprints", error);
     throw error;

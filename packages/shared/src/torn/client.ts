@@ -92,9 +92,7 @@ class UnifiedRateLimiter {
     ramMap.set(keyHash, timestamps);
 
     // 2. Non-blocking write-behind to SQLite via NoSQL wrapper
-    const mapping = ApiKeyMappings.find(
-      (doc: any) => doc.api_key_hash === keyHash,
-    )[0];
+    const mapping = ApiKeyMappings.find({ api_key_hash: keyHash })[0];
 
     RateLimits.insertOne({
       id: randomUUID(),
@@ -132,14 +130,10 @@ const rateLimiter = new UnifiedRateLimiter();
  */
 async function markApiKeyInvalid(apiKey: string): Promise<void> {
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
-  const mapping = ApiKeyMappings.find(
-    (doc: any) => doc.api_key_hash === hash,
-  )[0];
+  const mapping = ApiKeyMappings.find({ api_key_hash: hash })[0];
   if (!mapping) return;
 
-  const userKeys = SystemApiKeys.find(
-    (doc: any) => doc.user_id === mapping.user_id,
-  );
+  const userKeys = SystemApiKeys.find({ user_id: mapping.user_id });
 
   for (const key of userKeys) {
     const decrypted = decryptApiKey(key.api_key_encrypted, ENCRYPTION_KEY);
@@ -179,9 +173,7 @@ export const tornApi = new TornApiClient({
  */
 async function ensureApiKeyMapped(apiKey: string): Promise<number | null> {
   const hash = hashApiKey(apiKey, API_KEY_HASH_PEPPER);
-  const existing = ApiKeyMappings.find(
-    (doc: any) => doc.api_key_hash === hash,
-  )[0];
+  const existing = ApiKeyMappings.find({ api_key_hash: hash })[0];
   if (existing) return existing.user_id;
 
   try {
@@ -213,7 +205,7 @@ export async function initializeApiKeyMappings(): Promise<number[]> {
   const envKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
   if (envKey) keysToMap.push(envKey);
 
-  const dbKeys = SystemApiKeys.find((doc: any) => doc.key_type === "system");
+  const dbKeys = SystemApiKeys.find({ key_type: "system" });
   for (const doc of dbKeys) {
     keysToMap.push(decryptApiKey(doc.api_key_encrypted, ENCRYPTION_KEY));
   }
@@ -242,7 +234,7 @@ let systemKeyIndex = 0;
  * Use this when feeding keys into batch handlers.
  */
 export function getSystemKeyPool(): string[] {
-  const keyDocs = SystemApiKeys.find((doc: any) => doc.key_type === "system");
+  const keyDocs = SystemApiKeys.find({ key_type: "system" });
 
   if (keyDocs.length === 0) {
     throw new Error("[CRITICAL] No system API keys found in the database.");

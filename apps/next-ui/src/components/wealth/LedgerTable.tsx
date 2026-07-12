@@ -57,7 +57,7 @@ export const columns: ColumnDef<TransactionItem>[] = [
     cell: ({ row }) => {
       const cat: string = row.getValue("category");
       let colorClass = "bg-zinc-500/10 text-zinc-600 dark:bg-zinc-500/20 dark:text-zinc-400";
-      
+
       if (['purchase', 'sale', 'trade', 'barter'].includes(cat)) {
         colorClass = "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400";
       } else if (['income', 'injection'].includes(cat)) {
@@ -101,13 +101,13 @@ export const columns: ColumnDef<TransactionItem>[] = [
       const amount = parseFloat(row.getValue("cashFlow"));
       const isPositive = amount > 0;
       const isZero = amount === 0;
-      
+
       return (
         <div className="text-right font-medium">
           <span className={
-            isPositive ? "text-emerald-600 dark:text-emerald-400" : 
-            isZero ? "text-zinc-400 dark:text-zinc-500" :
-            "text-red-600 dark:text-red-400"
+            isPositive ? "text-emerald-600 dark:text-emerald-400" :
+              isZero ? "text-zinc-400 dark:text-zinc-500" :
+                "text-red-600 dark:text-red-400"
           }>
             {isPositive ? '+' : ''}{amount < 0 ? '-' : ''}
             ${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -136,13 +136,13 @@ export const columns: ColumnDef<TransactionItem>[] = [
       const amount = parseFloat(row.getValue("amount"));
       const isPositive = amount > 0;
       const isZero = amount === 0;
-      
+
       return (
         <div className="text-right font-bold pr-4">
           <span className={
-            isPositive ? "text-emerald-600 dark:text-emerald-400" : 
-            isZero ? "text-zinc-400 dark:text-zinc-500" :
-            "text-red-600 dark:text-red-400"
+            isPositive ? "text-emerald-600 dark:text-emerald-400" :
+              isZero ? "text-zinc-400 dark:text-zinc-500" :
+                "text-red-600 dark:text-red-400"
           }>
             {isPositive ? '+' : ''}{amount < 0 ? '-' : ''}
             ${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -206,10 +206,10 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
             className="pl-9 bg-white/50 dark:bg-black/20 border-zinc-200 dark:border-white/5 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-600 focus:border-indigo-500/50"
           />
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-zinc-500" />
-          <select 
+          <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="h-10 px-3 py-2 text-sm rounded-md border bg-white/50 dark:bg-black/20 border-zinc-200 dark:border-white/5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
@@ -234,9 +234,9 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
                       {header.isPlaceholder
                         ? null
                         : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
                     </TableHead>
                   );
                 })}
@@ -268,10 +268,10 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
           </TableBody>
         </Table>
       </div>
-      
+
       {/* Pagination Controls */}
-      <div className="flex items-center justify-between px-2 text-sm text-zinc-500 dark:text-zinc-400">
-        <div>
+      <div className="flex flex-col gap-3 md:flex-row md:gap-0 items-center md:justify-between mx-auto px-2 text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="text-center">
           Showing {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1} to{" "}
           {Math.min(
             (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
@@ -279,7 +279,7 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
           )}{" "}
           of {table.getFilteredRowModel().rows.length} entries
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center justify-center space-x-2">
           <Button
             variant="outline"
             size="sm"

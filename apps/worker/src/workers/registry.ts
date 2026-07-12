@@ -1,16 +1,16 @@
 import * as privateWorkers from "./private/index.js";
 import * as publicWorkers from "./public/index.js";
 import * as systemWorkers from "./system/index.js";
-import * as botWorkers from "./bot/index.js";
+// import * as botWorkers from "./bot/index.js";
 
 type Starter = () => void;
 
 const PRIVATE_WORKERS: Starter[] = [
-  privateWorkers.startItemSyncWorker,
   privateWorkers.startLogManager,
   privateWorkers.startCompanySyncWorker,
   privateWorkers.startLedgerWorker,
   privateWorkers.startLiquidCashEngineWorker,
+  privateWorkers.startCrimeParser,
 ];
 
 // TODO: COMMENT IN DEV, UNCOMMENT BEFORE PUSH
@@ -18,11 +18,13 @@ const PUBLIC_WORKERS: Starter[] = [
   publicWorkers.startTerritoryBlueprintSync,
   publicWorkers.startTerritoryActivitySync,
   publicWorkers.startFactionSync,
+  publicWorkers.startCrimeReferenceSync,
+  publicWorkers.startItemSyncWorker,
 ];
 
 const BOT_WORKERS: Starter[] = [
-  botWorkers.startBazaarSeeder,
-  botWorkers.startBazaarManager,
+  // botWorkers.startBazaarSeeder,
+  // botWorkers.startBazaarManager,
 ];
 
 const SYSTEM_WORKERS: Starter[] = [systemWorkers.startSystemMaintenance];

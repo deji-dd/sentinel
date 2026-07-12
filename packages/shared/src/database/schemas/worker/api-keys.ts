@@ -4,7 +4,7 @@ import { sentinelDbEngine } from "../../engine.js";
 /**
  * Represents a stored, encrypted system or personal API key.
  */
-export interface SystemApiKeyDocument extends BaseDocument {
+export type SystemApiKeyDocument = BaseDocument & {
   user_id: number;
   api_key_encrypted: string;
   api_key_hash: string;
@@ -12,25 +12,25 @@ export interface SystemApiKeyDocument extends BaseDocument {
   key_type: "personal" | "system";
   invalid_count: number;
   last_invalid_at: number | null;
-}
+};
 
 /**
  * Maps a hashed API key to a specific Torn user ID for rate limit tracking.
  */
-export interface ApiKeyMappingDocument extends BaseDocument {
+export type ApiKeyMappingDocument = BaseDocument & {
   api_key_hash: string;
   user_id: number;
   source: string;
-}
+};
 
 /**
  * Tracks individual API requests per key to enforce Torn's 100/min rule.
  */
-export interface RateLimitDocument extends BaseDocument {
+export type RateLimitDocument = BaseDocument & {
   api_key_hash: string;
   requested_at: number; // Stored as Unix epoch milliseconds for fast sorting
   user_id: number | null;
-}
+};
 
 export const SystemApiKeys = new Collection<SystemApiKeyDocument>(
   sentinelDbEngine,

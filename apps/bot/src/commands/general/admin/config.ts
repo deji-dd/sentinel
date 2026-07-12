@@ -27,7 +27,6 @@ import {
   decryptApiKey,
   encryptApiKey,
   tornApi,
-  GuildConfigDocument,
 } from "@sentinel/shared";
 import { logGuildError, logGuildSuccess } from "../../../lib/guild-logger.js";
 
@@ -72,9 +71,7 @@ export async function checkConfigPermissions(
     return { allowed: true };
   }
 
-  const guildConfig = GuildConfigs.find(
-    (c: GuildConfigDocument) => c.guild_id === guildId,
-  )[0];
+  const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
 
   if (!guildConfig) {
     return {
@@ -337,9 +334,7 @@ export async function execute(
     const effectiveGuildId = guildId || adminGuildId || "DM";
 
     // Check NoSQL config
-    let guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === effectiveGuildId,
-    )[0];
+    let guildConfig = GuildConfigs.find({ guild_id: effectiveGuildId })[0];
 
     if (!guildConfig && isAdminGuild) {
       guildConfig = GuildConfigs.insertOne({
@@ -476,9 +471,7 @@ export async function handleViewSelect(
 
     if (!guildId) return;
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
 
     if (!guildConfig) {
       const errorEmbed = new EmbedBuilder()
@@ -506,7 +499,7 @@ export async function handleViewSelect(
     }
 
     if (selectedView !== "admin") {
-      const keys = GuildApiKeys.find((k: any) => k.guild_id === guildId);
+      const keys = GuildApiKeys.find({ guild_id: guildId });
       if (keys.length === 0) {
         const errorEmbed = new EmbedBuilder()
           .setColor(0xef4444)
@@ -569,9 +562,7 @@ export async function handleBackToMenu(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
     const enabledModules = parseArray(guildConfig?.enabled_modules);
     const row = buildConfigViewMenuRow(enabledModules);
 
@@ -613,9 +604,7 @@ export async function handleEditLogChannelButton(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
 
     const channelSelectMenu = new ChannelSelectMenuBuilder()
       .setCustomId("config_log_channel_select")
@@ -683,9 +672,7 @@ export async function handleLogChannelSelect(
       return;
     }
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
     if (guildConfig) {
       guildConfig.log_channel_id = selectedChannel.id;
       GuildConfigs.insertOne(guildConfig);
@@ -729,9 +716,7 @@ export async function handleClearLogChannel(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
     if (guildConfig) {
       guildConfig.log_channel_id = null;
       GuildConfigs.insertOne(guildConfig);
@@ -778,9 +763,7 @@ export async function handleEditAdminRolesButton(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
     const adminRoleIds = parseArray(guildConfig?.admin_role_ids);
 
     const roleSelectMenu = new RoleSelectMenuBuilder()
@@ -835,9 +818,7 @@ export async function handleAdminRolesSelect(
     const selectedRoleIds = interaction.values;
     if (!guildId) return;
 
-    const guildConfig = GuildConfigs.find(
-      (c: any) => c.guild_id === guildId,
-    )[0];
+    const guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
     if (guildConfig) {
       guildConfig.admin_role_ids = selectedRoleIds;
       GuildConfigs.insertOne(guildConfig);
@@ -969,7 +950,7 @@ export async function handleInitializeGuild(
     if (!guildId) return;
     await interaction.deferUpdate();
 
-    let guildConfig = GuildConfigs.find((c: any) => c.guild_id === guildId)[0];
+    let guildConfig = GuildConfigs.find({ guild_id: guildId })[0];
     if (!guildConfig) {
       GuildConfigs.insertOne({
         id: randomUUID(),
@@ -1114,7 +1095,7 @@ export async function handleShowApiKeys(
     const guildId = interaction.guildId;
     if (!guildId) return;
 
-    const keysData = GuildApiKeys.find((k: any) => k.guild_id === guildId);
+    const keysData = GuildApiKeys.find({ guild_id: guildId });
     const footerText = interaction.message?.embeds?.[0]?.footer?.text;
     const originalUserId = getSessionUserId(footerText, interaction.user.id);
 
@@ -1295,9 +1276,10 @@ export async function handleConfigAddApiKeyModal(
 
     // De-primary existing keys if needed
     if (isPrimary) {
-      const existingPrimaries = GuildApiKeys.find(
-        (k: any) => k.guild_id === guildId && k.is_primary,
-      );
+      const existingPrimaries = GuildApiKeys.find({
+        guild_id: guildId,
+        is_primary: true,
+      });
       for (const existing of existingPrimaries) {
         existing.is_primary = false;
         GuildApiKeys.insertOne(existing);
@@ -1311,8 +1293,6 @@ export async function handleConfigAddApiKeyModal(
       api_key_encrypted: encryptedKey,
       provided_by: interaction.user.id,
       is_primary: isPrimary,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     });
 
     const maskedKey = `•••• •••• •••• ${apiKey.slice(-4)}`;

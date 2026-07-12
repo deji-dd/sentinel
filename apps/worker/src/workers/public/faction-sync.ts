@@ -23,7 +23,7 @@ export function startFactionSync() {
     worker: WORKER_NAME,
     defaultCadenceSeconds: 86400, // Run once daily
     handler: async () => {
-      const finishLog = logger.time("Starting faction sync.");
+      const finishLog = logger.time();
 
       try {
         // 1. Get all faction IDs we're tracking from guild mappings
@@ -37,7 +37,7 @@ export function startFactionSync() {
         ) as number[];
 
         if (uniqueFactionIds.length === 0) {
-          finishLog("No factions to sync");
+          finishLog();
           return;
         }
 
@@ -73,15 +73,11 @@ export function startFactionSync() {
           delayMs,
         );
 
-        let successCount = 0;
-        let errorCount = 0;
-
         // 4. Dump into NoSQL Engine
         const docsToInsert = [];
 
         for (const { factionId, data, error } of results) {
           if (error || !data) {
-            errorCount++;
             continue;
           }
 
@@ -90,17 +86,13 @@ export function startFactionSync() {
             data: data,
             updated_at: Date.now(),
           });
-
-          successCount++;
         }
 
         if (docsToInsert.length > 0) {
           TornFactions.insertMany(docsToInsert);
         }
 
-        finishLog(
-          `Synced ${successCount}/${uniqueFactionIds.length} factions, ${errorCount} errors.`,
-        );
+        finishLog();
       } catch (error) {
         logger.error("Faction sync failed", error);
       }

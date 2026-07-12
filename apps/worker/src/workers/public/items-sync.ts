@@ -1,5 +1,5 @@
 import { executeSync } from "../../lib/sync.js";
-import { Logger } from "@sentinel/shared";
+import { Logger, SystemState, SystemStateDocument } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { tornApi, getWorkerApiKey } from "@sentinel/shared";
 import { TornItems, TornSchema, WorkerSchedules } from "@sentinel/shared";
@@ -7,6 +7,8 @@ import { TornItems, TornSchema, WorkerSchedules } from "@sentinel/shared";
 const WORKER_NAME = "items_sync";
 const logger = new Logger(WORKER_NAME);
 const ONE_DAY_SECONDS = 86400;
+
+type ItemsInitState = Extract<SystemStateDocument, { init: boolean }>;
 
 /**
  * Calculates the target timestamp for the next execution.
@@ -38,11 +40,20 @@ function getNext0300UtcTimestamp(lastRunAt: number | null): number {
  * fast NoSQL upsert to mirror the state in the local database.
  */
 async function fetchAndDumpItems(): Promise<void> {
-  const finishSync = logger.time("Starting items sync.");
+  const finishSync = logger.time();
 
   try {
+    const isCrimesInit = SystemState.find<ItemsInitState>({
+      id: "items_init_state",
+    })[0]?.init;
+
+    if (!isCrimesInit) {
+      logger.info("Crimes not initialized. Clearing table...");
+      TornItems.deleteManyBy({});
+    }
+
     // 1. Fetch raw data from the API
-    const apiKey = getWorkerApiKey("personal");
+    const apiKey = getWorkerApiKey("system");
     const response = (await tornApi.get("/torn/items", {
       apiKey,
     })) as TornSchema<"TornItemsResponse">;
@@ -54,33 +65,14 @@ async function fetchAndDumpItems(): Promise<void> {
       return;
     }
 
-    // 1. Pull the entire existing database state into a high-speed RAM Map
-    // Key: Torn Numeric ID (as string), Value: Full NoSQL Document
-    const existingDocs = TornItems.findAll();
-    const existingMap = new Map(
-      existingDocs.map((doc) => [String(doc.data.id), doc]),
-    );
-
     const docsToUpsert = [];
-    let newCount = 0;
-    let updateCount = 0;
 
     // 2. Iterate the API response and prepare the payload purely in memory
     for (const itemData of items) {
-      const tornId = String(itemData.id);
-      const existing = existingMap.get(tornId);
-
-      if (existing) {
-        existing.data = { ...itemData, item_id: itemData.id };
-        docsToUpsert.push(existing);
-        updateCount++;
-      } else {
-        docsToUpsert.push({
-          id: crypto.randomUUID(),
-          data: { ...itemData, item_id: itemData.id },
-        });
-        newCount++;
-      }
+      docsToUpsert.push({
+        id: itemData.id.toString(),
+        data: itemData,
+      });
     }
 
     // 3. Execute a single, highly-optimized SQLite transaction
@@ -88,9 +80,7 @@ async function fetchAndDumpItems(): Promise<void> {
       TornItems.insertMany(docsToUpsert);
     }
 
-    finishSync(
-      `Item sync complete. Added: ${newCount}, Updated: ${updateCount}`,
-    );
+    finishSync();
 
     // --- NEW REALIGNMENT LOGIC ---
     // Dynamically adjust the cadence so the scheduler's next jump lands exactly on 03:00 UTC
@@ -113,7 +103,7 @@ async function fetchAndDumpItems(): Promise<void> {
 /**
  * Wraps the execution logic in the lock manager to prevent overlap.
  */
-export async function executeItemSync(): Promise<void> {
+async function executeItemSync(): Promise<void> {
   await fetchAndDumpItems();
 }
 

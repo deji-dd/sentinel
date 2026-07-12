@@ -32,7 +32,7 @@ export async function handleViewSelect(
 
     if (selectedView === "view_admin") {
       // Show admin settings
-      const apiKeys = GuildApiKeys.find((k) => k.guild_id === guildId);
+      const apiKeys = GuildApiKeys.find({ guild_id: guildId });
 
       let apiKeyDisplay = "No keys configured";
       if (apiKeys.length > 0) {

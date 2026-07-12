@@ -1,9 +1,4 @@
-import {
-  type Client,
-  EmbedBuilder,
-  TextChannel,
-  Message,
-} from "discord.js";
+import { type Client, EmbedBuilder, TextChannel, Message } from "discord.js";
 import { GuildConfigs, FactionRoles } from "@sentinel/shared";
 
 /**
@@ -24,12 +19,14 @@ export async function updateFactionList(
     const channelId = guildConfig.faction_list_channel_id;
     const channel = client.channels.cache.get(channelId) as TextChannel;
     if (!channel) {
-      console.warn(`[Faction List] Channel ${channelId} not found in cache for guild ${guildId}`);
+      console.warn(
+        `[Faction List] Channel ${channelId} not found in cache for guild ${guildId}`,
+      );
       return;
     }
 
     // 2. Fetch all enabled factions for this guild
-    const factions = FactionRoles.find((f) => f.guild_id === guildId && f.enabled);
+    const factions = FactionRoles.find({ guild_id: guildId, enabled: true });
 
     // 3. Sort factions alphabetically by name
     const sortedFactions = [...factions].sort((a, b) => {
@@ -72,7 +69,8 @@ export async function updateFactionList(
     }
 
     // 5. Update messages
-    const existingMessageIds: string[] = guildConfig.faction_list_message_ids || [];
+    const existingMessageIds: string[] =
+      guildConfig.faction_list_message_ids || [];
     const newMessageIds: string[] = [];
 
     // Map existing messages to their IDs or null
@@ -112,10 +110,11 @@ export async function updateFactionList(
     }
 
     guildConfig.faction_list_message_ids = newMessageIds;
-    guildConfig.updated_at = new Date().toISOString();
     GuildConfigs.update(guildConfig);
-
   } catch (error) {
-    console.error(`[Faction List] Error updating list for guild ${guildId}:`, error);
+    console.error(
+      `[Faction List] Error updating list for guild ${guildId}:`,
+      error,
+    );
   }
 }

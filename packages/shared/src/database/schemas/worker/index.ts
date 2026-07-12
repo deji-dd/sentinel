@@ -5,3 +5,4 @@ export * from "./company.js";
 export * from "./cash-history.js";
 
 export * from "./ledger.js";
+export * from "./crime-ledger.js";

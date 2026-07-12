@@ -5,7 +5,6 @@ import {
   GuildApiKeys,
   tornApi,
   decryptApiKey,
-  GuildApiKeyDocument,
 } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { randomUUID } from "crypto";
@@ -26,9 +25,7 @@ async function runBazaarSeeder(): Promise<void> {
     const guildId = config.guild_id;
 
     // 1. Get a valid guild API key
-    const encryptedKeys = GuildApiKeys.find(
-      (k: GuildApiKeyDocument) => k.guild_id === guildId,
-    );
+    const encryptedKeys = GuildApiKeys.find({ guild_id: guildId });
     if (encryptedKeys.length === 0) {
       logger.warn(`No API keys found for Guild ${guildId}. Skipping seeder.`);
       continue;

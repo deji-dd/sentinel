@@ -21,7 +21,6 @@ import {
 } from "./lib/reaction-roles.js";
 
 import { setGlobalClient } from "./lib/global-client.js";
-import { setupIpcServer } from "./lib/ipc-listener.js";
 import { startMetricsReporter, stopMetricsReporter } from "@sentinel/shared";
 
 // Global process error handlers to prevent crashes on transient network socket drops

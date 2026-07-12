@@ -83,3 +83,5 @@ apps/bot/dev-log.txt
 .repomixignore
 repomix-output.xml
 repomix.config.json
+
+**/test.ts

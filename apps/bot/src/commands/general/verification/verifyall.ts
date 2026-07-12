@@ -2,14 +2,10 @@ import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   PermissionFlagsBits,
+  EmbedBuilder,
 } from "discord.js";
-import {
-  VerificationJobs,
-  GuildConfigs,
-  type VerificationJobDocument,
-  type GuildConfigDocument,
-} from "@sentinel/shared";
-import { randomUUID } from "crypto";
+import { GuildConfigs } from "@sentinel/shared";
+import { dispatchToWorker } from "../../../lib/ipc/index.js";
 
 export const data = new SlashCommandBuilder()
   .setName("verifyall")
@@ -30,9 +26,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   try {
     // 1. Verify the guild is actually configured for Sentinel
-    const config = GuildConfigs.find(
-      (c: GuildConfigDocument) => c.guild_id === guildId,
-    )[0];
+    const config = GuildConfigs.find({ guild_id: guildId })[0];
     if (!config) {
       return interaction.editReply(
         "This server has not been configured for verification yet.",
@@ -46,26 +40,26 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     // Filter out bots, they don't play Torn
     const humanMembers = members.filter((m) => !m.user.bot);
 
-    // 3. Map them into our NoSQL Job Schema
-    const now = Date.now();
-    const jobs: VerificationJobDocument[] = humanMembers.map((member) => ({
-      id: randomUUID(), // Required by BaseDocument
+    // 3. Map them into VerificationRequest IPC payloads
+    const jobs = humanMembers.map((member) => ({
       guild_id: guildId,
+      channel_id: interaction.channelId,
       discord_id: member.id,
-      status: "pending",
-      module: "manual_sync",
-      payload: {},
-      created_at: now,
+      current_role_ids: Array.from(member.roles.cache.keys()),
+      current_nickname: member.nickname || null,
     }));
 
-    // 4. Bulk insert into SQLite (Takes < 10ms for 1,000 rows)
-    if (jobs.length > 0) {
-      VerificationJobs.insertMany(jobs);
-    }
+    // 4. Send them as a bulk packet to the worker
+    dispatchToWorker({ action: "verify_bulk", data: jobs });
 
-    await interaction.editReply(
-      `Successfully queued background verification for **${jobs.length}** members. Changes will appear shortly!`,
-    );
+    const successEmbed = new EmbedBuilder()
+      .setColor(0x3b82f6) // Blue for pending
+      .setTitle("Verification Queued")
+      .setDescription(
+        `The verification request for  **${jobs.length}** members has been placed in the queue.`,
+      );
+
+    await interaction.editReply({ embeds: [successEmbed] });
   } catch (error) {
     console.error("[VerifyAll] Error queuing jobs:", error);
     await interaction.editReply(

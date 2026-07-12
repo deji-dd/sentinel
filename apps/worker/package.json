@@ -14,6 +14,7 @@
     "dedupe-keys": "tsx --env-file=.env src/scripts/dedupe-system-api-keys.ts",
     "trigger": "tsx --env-file=.env src/scripts/trigger.ts",
     "heal-ledger": "tsx --env-file=.env src/scripts/heal-ledger.ts",
+    "seed:crimes": "tsx --env-file=.env scripts/seed-crime-baseline.ts",
     "lint": "eslint src/"
   },
   "dependencies": {

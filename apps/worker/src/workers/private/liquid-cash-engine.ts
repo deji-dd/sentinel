@@ -16,7 +16,7 @@ const logger = new Logger(WORKER_NAME);
 const CADENCE_SECONDS = 120;
 
 async function executeLiquidCashEngine(): Promise<void> {
-  const finishSync = logger.time("Starting liquid cash engine.");
+  const finishSync = logger.time();
 
   try {
     const apiKey = getWorkerApiKey("personal");
@@ -95,7 +95,7 @@ async function executeLiquidCashEngine(): Promise<void> {
       CashHistory.insertOne(snapshotDoc);
     }
 
-    finishSync(`Calculated liquid cash: $${totalLiquidity.toLocaleString()}`);
+    finishSync();
   } catch (error) {
     logger.error("Failed to run liquid cash engine:", error);
     finishSync();

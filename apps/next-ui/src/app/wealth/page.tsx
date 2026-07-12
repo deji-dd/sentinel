@@ -110,7 +110,7 @@ export default function WealthPage() {
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Recent Transactions</h2>
               </div>
             </div>
-            <div className="p-6">
+            <div className="md:p-6">
               <LedgerTable data={data.recentTransactions} />
             </div>
           </GlassCard>

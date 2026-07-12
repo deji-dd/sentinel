@@ -1,13 +1,12 @@
 import { BaseDocument, Collection } from "@sentinel/shared";
 import { sentinelDbEngine } from "../../engine.js"; // Your DB Engine
 
-export interface GuildConfigDocument extends BaseDocument {
+export type GuildConfigDocument = BaseDocument & {
   guild_id: string;
   auto_verify: boolean;
   nickname_template: string;
   verified_role_id: string | null;
   verified_role_ids: string[];
-  sync_interval_seconds: number;
   enabled_modules: string[];
   admin_role_ids: string[];
   log_channel_id: string | null;
@@ -16,39 +15,43 @@ export interface GuildConfigDocument extends BaseDocument {
   tt_full_channel_id: string | null;
   tt_filtered_channel_id: string | null;
   tt_territory_ids: string[];
-  tt_faction_ids: string[];
-}
+  tt_faction_ids: number[];
+};
 
-export interface FactionRoleMappingDocument extends BaseDocument {
+export type FactionRoleMappingDocument = BaseDocument & {
   guild_id: string;
   faction_id: number;
   faction_name: string | null;
   member_role_ids: string[];
   leader_role_ids: string[];
   enabled: boolean;
-}
+};
 
-export interface GuildApiKeyDocument extends BaseDocument {
+export type GuildApiKeyDocument = BaseDocument & {
   guild_id: string;
   user_id: number;
   api_key_encrypted: string;
   is_primary: boolean;
-}
+  provided_by: string;
+};
 
-export interface ReactionRoleMessageDocument extends BaseDocument {
+export type ReactionRoleMessageDocument = BaseDocument & {
   guild_id: string;
   message_id: string;
   required_role_id: string | null;
   sync_roles: boolean;
-}
+  channel_id: string;
+  title: string;
+  description: string;
+};
 
-export interface ReactionRoleMappingDocument extends BaseDocument {
+export type ReactionRoleMappingDocument = BaseDocument & {
   message_id: string;
   role_id: string;
   emoji: string;
-}
+};
 
-export interface MercenaryRegisteredMercDocument extends BaseDocument {
+export type MercenaryRegisteredMercDocument = BaseDocument & {
   guild_id: string;
   discord_id: string;
   api_key: string | null;
@@ -56,50 +59,45 @@ export interface MercenaryRegisteredMercDocument extends BaseDocument {
   torn_name: string;
   is_active: boolean;
   updated_at: string;
-}
+};
 
-export interface MercenaryConfigDocument extends BaseDocument {
+export type MercenaryConfigDocument = BaseDocument & {
   guild_id: string;
   merc_role_ids: string[];
-}
+};
 
-export interface VerifiedUserDocument extends BaseDocument {
+export type VerifiedUserDocument = BaseDocument & {
   discord_id: string;
   torn_id: number;
   torn_name: string;
   faction_id: number | null;
   faction_tag: string | null;
   updated_at: string;
-}
+};
 
-export interface VerificationTargetState {
-  guildId: string;
-  discordId: string;
-  targetNickname: string;
-  managedRoleIds: string[]; // The strict boundary of roles the Bot can touch
-  targetRoleIds: string[]; // The roles the user actually qualifies for
-  isNewUser: boolean;
-  isUpdate: boolean;
-  status: "success" | "not_linked" | "error";
-  errorMessage?: string;
-  logData?: {
-    tornId: number;
-    tornName: string;
-    factionName: string | null;
-  };
-}
-export interface VerificationJobDocument extends BaseDocument {
+export type VerificationRequest = {
   guild_id: string;
+  channel_id: string;
   discord_id: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  module: "auto_verify" | "manual_sync";
-  payload: {
-    nickname_template?: string;
-    verified_role_ids?: string[];
-  };
-  error_message?: string;
-  created_at: number; // CHANGED: Must be Unix Epoch ms for the DB pruner to work
-}
+  current_role_ids: string[];
+  current_nickname: string | null;
+};
+
+export type VerificationSuccessResponse = {
+  guild_id: string;
+  channel_id: string;
+  discord_id: string;
+  roles_to_add: string[] | null;
+  roles_to_remove: string[] | null;
+  new_nickname: string | null;
+};
+
+export type VerificationFailureResponse = {
+  guild_id: string;
+  channel_id: string;
+  discord_id: string;
+  error: { message: string };
+};
 
 // Instantiate the collections
 export const GuildConfigs = new Collection<GuildConfigDocument>(
@@ -134,8 +132,4 @@ export const MercenaryConfigs = new Collection<MercenaryConfigDocument>(
 export const VerifiedUsers = new Collection<VerifiedUserDocument>(
   sentinelDbEngine,
   "verified_users",
-);
-export const VerificationJobs = new Collection<VerificationJobDocument>(
-  sentinelDbEngine,
-  "verification_jobs",
 );

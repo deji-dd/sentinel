@@ -1,14 +1,32 @@
 import { BaseDocument, Collection } from "../collection.js";
 import { sentinelDbEngine } from "../engine.js";
 
-export interface SystemStateDocument extends BaseDocument {
-  id: string; // 'api', 'worker', 'bot'
-  cpu?: number;
-  memory?: number; // in MB
-  last_updated: number; // Unix timestamp
-  status?: "online" | "offline" | "connected";
-  liquid_cash?: number;
-}
+type TTInitState = {
+  id:
+    | "war_ledger_init_state"
+    | "tt_init_state"
+    | "crimes_init_state"
+    | "items_init_state";
+  init: boolean;
+};
+
+type UserState = {
+  id: "user_state";
+  liquid_cash: number;
+};
+
+export type SystemStateDocument = BaseDocument &
+  (
+    | TTInitState
+    | UserState
+    | {
+        id: "api" | "worker" | "bot";
+        cpu?: number;
+        memory?: number; // in MB
+        last_updated: number; // Unix timestamp
+        status?: "online" | "offline" | "connected";
+      }
+  );
 
 // Automatically creates the `nosql_system_state` table if it does not exist
 export const SystemState = new Collection<SystemStateDocument>(

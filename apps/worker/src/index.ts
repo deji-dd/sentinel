@@ -33,8 +33,13 @@ import {
   initializeRateLimitCache,
 } from "@sentinel/shared";
 import { startWorkers } from "./workers/registry.js";
-import { Logger, sentinelDbEngine, startMetricsReporter, stopMetricsReporter } from "@sentinel/shared";
-import { startWorkerIpcServer } from "./lib/ipc.js";
+import {
+  Logger,
+  sentinelDbEngine,
+  startMetricsReporter,
+  stopMetricsReporter,
+} from "@sentinel/shared";
+import { setupIpcServer } from "./lib/ipc/index.js";
 
 const logger = new Logger("worker_root");
 
@@ -49,7 +54,7 @@ async function startAllWorkers(): Promise<void> {
 
   try {
     // 5. Start incoming UDS IPC Server
-    startWorkerIpcServer();
+    setupIpcServer();
 
     startMetricsReporter("worker");
     logger.info("Worker process initialized and running.");
