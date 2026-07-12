@@ -23,7 +23,7 @@ export function setupIpcServer(client: Client): void {
   const ipcServer = new IpcServer(socketPath, async (packet: toBotPacket) => {
     const { action } = packet;
 
-    const finishSync = logger.time();
+    logger.info("received: ", packet.action);
 
     const tt_actions = [
       "peace_treaty",
@@ -40,12 +40,12 @@ export function setupIpcServer(client: Client): void {
 
     try {
       if (tt_actions.includes(action)) {
-        await handleTerritoryEvent(client, packet, finishSync, logger);
+        await handleTerritoryEvent(client, packet, logger);
         return;
       }
 
       if (action === "verification_fail" || action === "verification_success") {
-        await handleVerificationEvent(client, packet, logger, finishSync);
+        await handleVerificationEvent(client, packet, logger);
         return;
       }
 

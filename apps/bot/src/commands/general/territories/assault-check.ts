@@ -74,7 +74,7 @@ export async function execute(
     warsDocs.sort((a, b) => b.start_time - a.start_time);
     const wars: WarRecord[] = warsDocs.map((w) => ({
       war_id: parseInt(w.id, 10),
-      territory_id: w.id,
+      territory_id: w.tt,
       assaulting_faction: w.assaulting_faction,
       defending_faction: w.defending_faction,
       victor_faction: w.victor_faction,

@@ -6,7 +6,6 @@ export async function handleVerificationEvent(
   client: Client,
   packet: toBotPacket,
   logger: Logger,
-  finishSync: () => void,
 ) {
   const { action, data } = packet;
   let guild: Guild | null = null;
@@ -122,7 +121,6 @@ export async function handleVerificationEvent(
           await channel.send({ embeds: [embed] }).catch(() => null);
         }
       }
-      finishSync();
     } catch (error) {
       logger.error("Failed to handle verification event", error);
       await logGuildError(
@@ -132,8 +130,6 @@ export async function handleVerificationEvent(
         error instanceof Error ? error.message : String(error),
         `Failed to apply roles/nickname to <@${data.discord_id}>.`,
       );
-    } finally {
-      finishSync();
     }
   }
 }

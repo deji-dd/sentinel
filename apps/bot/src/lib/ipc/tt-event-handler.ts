@@ -16,7 +16,6 @@ import { Client, EmbedBuilder, TextChannel } from "discord.js";
 export async function handleTerritoryEvent(
   client: Client,
   packet: toBotPacket,
-  finishSync: () => void,
   logger: Logger,
 ) {
   try {
@@ -41,7 +40,7 @@ export async function handleTerritoryEvent(
         getFactionName(dFacId),
         getFactionName(vFacId),
       ]);
-      tt = packet.data.id;
+      tt = packet.data.tt;
 
       if (aFacId) involvedFactions.push(aFacId);
       if (dFacId) involvedFactions.push(dFacId);
@@ -335,7 +334,6 @@ export async function handleTerritoryEvent(
         }
       }
     }
-    finishSync();
   } catch (err) {
     logger.error("Failed to handle territory event", err);
   }

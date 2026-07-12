@@ -28,6 +28,7 @@ export const TerritoryStates = new Collection<TerritoryStateDocument>(
 // 3. Historical War Ledger (15s Sync)
 export type WarLedgerDocument = BaseDocument & {
   // id is the tt name
+  tt: string;
   assaulting_faction: number;
   defending_faction: number;
   victor_faction: number | null;

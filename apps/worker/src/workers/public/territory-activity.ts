@@ -121,7 +121,7 @@ async function executeActivityEngine(): Promise<void> {
 
     const dbStates = new Map(TerritoryStates.findAll().map((s) => [s.id, s]));
     const dbActiveWars = new Map(
-      WarLedger.findAll((w) => w.end_time === null).map((w) => [w.id, w]),
+      WarLedger.findAll((w) => w.end_time === null).map((w) => [w.tt, w]),
     );
 
     const stateUpserts: TerritoryStateDocument[] = [];
@@ -137,7 +137,6 @@ async function executeActivityEngine(): Promise<void> {
       if (!activeApiWarIds.has(tt)) {
         const currentOwner = apiOwnershipMap.get(tt)?.owned_by;
 
-        dbWar.id = tt; // Ensure it has the correct property name for dispatch
         dbWar.end_time = Date.now();
 
         if (currentOwner) {
@@ -168,7 +167,8 @@ async function executeActivityEngine(): Promise<void> {
     for (const [tt, war] of Object.entries(apiWarsMap)) {
       if (!dbActiveWars.has(tt)) {
         const data = {
-          id: tt,
+          id: war.territory_war_id.toString(),
+          tt: tt,
           assaulting_faction: war.assaulting_faction,
           defending_faction: war.defending_faction,
           victor_faction: null,

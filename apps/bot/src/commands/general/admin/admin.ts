@@ -397,7 +397,6 @@ async function handleGuildInitSubmit(
         nickname_template: "{name} [{id}]",
         verified_role_id: null,
         verified_role_ids: [],
-        sync_interval_seconds: 3600,
         enabled_modules: ["admin"],
         admin_role_ids: [],
         log_channel_id: null,
@@ -753,8 +752,6 @@ export async function handleRedeployConfirm(
     console.error("Error in handleRedeployConfirm:", error);
   }
 }
-
-
 
 export async function handleShowGuildDeinit(
   interaction: AdminInteraction,
