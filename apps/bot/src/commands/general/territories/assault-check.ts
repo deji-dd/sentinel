@@ -284,7 +284,7 @@ export async function execute(
         inline: false,
       });
       embed.setFooter({
-        text: "Results may be incomplete without 90 days of war data.",
+        text: "Sentinel • Results may be incomplete without 90 days of war data.",
       });
     }
 

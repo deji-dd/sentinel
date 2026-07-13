@@ -38,6 +38,7 @@ import {
   sentinelDbEngine,
   startMetricsReporter,
   stopMetricsReporter,
+  SystemState,
 } from "@sentinel/shared";
 import { setupIpcServer } from "./lib/ipc/index.js";
 
@@ -68,6 +69,14 @@ async function startAllWorkers(): Promise<void> {
 
     const startedCount = startWorkers();
     logger.info(`Started ${startedCount} worker runners`);
+
+    SystemState.insertOne({
+      id: "worker_boot_alert",
+      component: "worker",
+      message: "Worker process successfully booted up.",
+      timestamp: Date.now(),
+      reported: false,
+    });
   } catch (error) {
     logger.error("Failed to start workers:", error);
     process.exit(1);

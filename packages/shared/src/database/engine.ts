@@ -93,8 +93,18 @@ export class SentinelDatabase {
   private optimizeEngine() {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("cache_size = -10000"); // Preallocate 10MB of RAM
-    this.db.pragma("mmap_size = 268435456"); // Project up to 256MB into virtual kernel space
+
+    const isProd = process.env.NODE_ENV === "production";
+
+    // Default to -25000 (25MB) for dev, -100000 (100MB) for prod, or custom env value
+    const cacheSize =
+      process.env.SQLITE_CACHE_SIZE || (isProd ? "-50000" : "-250000");
+    // Default to 256MB for dev, 1GB for prod, or custom env value
+    const mmapSize =
+      process.env.SQLITE_MMAP_SIZE || (isProd ? "1073741824" : "1073741824");
+
+    this.db.pragma(`cache_size = ${cacheSize}`);
+    this.db.pragma(`mmap_size = ${mmapSize}`);
     this.db.pragma("temp_store = MEMORY");
   }
 

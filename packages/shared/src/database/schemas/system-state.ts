@@ -31,6 +31,13 @@ export type SystemStateDocument = BaseDocument &
         last_updated: number; // Unix timestamp
         status?: "online" | "offline" | "connected";
       }
+    | {
+        id: "api_boot_alert" | "worker_boot_alert" | "bot_boot_alert";
+        component: "api" | "worker" | "bot";
+        message: string;
+        timestamp: number;
+        reported: boolean;
+      }
   );
 
 // Automatically creates the `nosql_system_state` table if it does not exist

@@ -152,7 +152,7 @@ export async function execute(
         inline: true,
       })
       .setFooter({
-        text: "Red = Cannot assault (72h cooldown) | Gray = Available to assault",
+        text: "Sentinel • Red = Cannot assault (72h cooldown) | Gray = Available to assault",
       })
       .setTimestamp();
 

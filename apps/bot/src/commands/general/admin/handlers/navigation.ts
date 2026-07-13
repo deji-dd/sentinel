@@ -80,7 +80,7 @@ export async function handleViewSelect(
           },
         )
         .setFooter({
-          text: "API keys are encrypted and stored securely",
+          text: "Sentinel",
         });
 
       const apiKeysBtn = new ButtonBuilder()

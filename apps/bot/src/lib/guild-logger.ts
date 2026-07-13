@@ -59,7 +59,7 @@ export async function logGuildAction(
     const embed = new EmbedBuilder()
       .setColor(options.color ?? 0x3b82f6)
       .setTitle(options.title)
-      .setFooter({ text: "Sentinel Auto-Diagnostics" })
+      .setFooter({ text: "Sentinel" })
       .setTimestamp();
 
     if (options.description) {
@@ -181,7 +181,7 @@ export async function sendAdminSystemLog(
       .setTitle(title)
       .setDescription(message.substring(0, 2048))
       .setColor(color)
-      .setFooter({ text: "Sentinel System" })
+      .setFooter({ text: "Sentinel" })
       .setTimestamp();
 
     if (errorStack) {

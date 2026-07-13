@@ -124,7 +124,7 @@ export async function execute(
         },
       )
       .setFooter({
-        text: "Unaligned = faction not mapped to an alliance",
+        text: "Sentinel • Unaligned = faction not mapped to an alliance",
       })
       .setTimestamp();
 

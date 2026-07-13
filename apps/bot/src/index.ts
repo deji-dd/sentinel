@@ -21,7 +21,11 @@ import {
 } from "./lib/reaction-roles.js";
 
 import { setGlobalClient } from "./lib/global-client.js";
-import { startMetricsReporter, stopMetricsReporter } from "@sentinel/shared";
+import {
+  startMetricsReporter,
+  stopMetricsReporter,
+  SystemState,
+} from "@sentinel/shared";
 
 // Global process error handlers to prevent crashes on transient network socket drops
 process.on("uncaughtException", (err) => {
@@ -170,6 +174,14 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 });
 
 await client.login(discordToken);
+
+SystemState.insertOne({
+  id: "bot_boot_alert",
+  component: "bot",
+  message: "Discord Bot process successfully booted up.",
+  timestamp: Date.now(),
+  reported: false,
+});
 
 const shutdown = () => {
   console.log("Shutting down bot...");

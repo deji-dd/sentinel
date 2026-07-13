@@ -200,7 +200,9 @@ async function sendReactionFeedback(
       )
       .setTitle(title)
       .setDescription(description)
-      .setFooter({ text: "This message auto-deletes in 10 seconds" });
+      .setFooter({
+        text: "Sentinel • This message auto-deletes in 10 seconds",
+      });
 
     const feedbackMessage = await (
       channel as {

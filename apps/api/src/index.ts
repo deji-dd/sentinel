@@ -4,11 +4,12 @@ import {
   sentinelDbEngine,
   startMetricsReporter,
   stopMetricsReporter,
+  SystemState,
 } from "@sentinel/shared";
 import healthRoutes from "./routes/health.js";
 import statusRoutes from "./routes/status.js";
 import ledgerRoutes from "./routes/ledger.js";
-import { crimesRoutes } from "./routes/crimes.js";
+// import { crimesRoutes } from "./routes/crimes.js";
 // import { settingsRoutes } from "./routes/settings.js";
 import cors from "@fastify/cors";
 
@@ -27,7 +28,7 @@ fastify.register(cors, {
 fastify.register(healthRoutes);
 fastify.register(statusRoutes);
 fastify.register(ledgerRoutes);
-fastify.register(crimesRoutes, { prefix: "/api/crimes" });
+// fastify.register(crimesRoutes, { prefix: "/api/crimes" });
 // fastify.register(settingsRoutes, { prefix: "/api/settings" });
 
 async function start() {
@@ -39,6 +40,14 @@ async function start() {
 
     await fastify.listen({ port: PORT, host: HOST });
     logger.info(`Fastify API Gateway listening on http://${HOST}:${PORT}`);
+
+    SystemState.update({
+      id: "api_boot_alert",
+      component: "api",
+      message: "API Gateway process successfully booted up.",
+      timestamp: Date.now(),
+      reported: false,
+    });
   } catch (err) {
     logger.error("Error starting API Gateway:", err);
     process.exit(1);
