@@ -20,6 +20,7 @@ export interface HistoricalPoint {
   timestamp: number;
   netWorth: number;
   dailyYield: number;
+  liquidCash: number;
 }
 
 export function useWealthLedger() {

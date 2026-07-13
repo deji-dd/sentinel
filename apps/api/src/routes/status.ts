@@ -68,7 +68,7 @@ export default async function statusRoutes(fastify: FastifyInstance) {
 
       const eventsProcessedToday = sentinelDbEngine.db
         .prepare(
-          `SELECT COUNT(*) as count FROM nosql_ledger_events WHERE CAST(json_extract(data, '$.timestamp') AS INTEGER) >= ?`,
+          `SELECT COUNT(*) as count FROM nosql_ledger_events WHERE timestamp >= ?`,
         )
         .get(startOfDaySeconds) as { count: number };
 

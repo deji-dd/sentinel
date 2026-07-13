@@ -1,4 +1,4 @@
-import { getItemValue, Logger } from "@sentinel/shared";
+import { getItemValue, Logger, TornCrimes } from "@sentinel/shared";
 import { type TornSchema, CrimeLedger } from "@sentinel/shared";
 
 const logger = new Logger("crime_parser");
@@ -21,10 +21,12 @@ export function parseCrimes(log: TornSchema<"UserLog">): void {
     const base = CrimeLedger.findOne(crimeId.toString());
     if (!base) return;
 
+    const crimeData = TornCrimes.findOne(crimeId.toString());
+    if (!crimeData) return;
+
     const oldNerve = base.nerve_spent;
     const oldTotalValue = base.total_value;
 
-    const crimeName = data.crime_action;
     const currentNerveSpent = data.nerve;
     let currentTotalValue = 0;
 
@@ -39,7 +41,7 @@ export function parseCrimes(log: TornSchema<"UserLog">): void {
     // Insert incremental record
     CrimeLedger.update({
       id: crimeId.toString(),
-      crime_name: crimeName,
+      crime_name: crimeData.data.name,
       nerve_spent: currentNerveSpent + oldNerve,
       total_value: currentTotalValue + oldTotalValue,
     });

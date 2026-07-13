@@ -19,9 +19,11 @@ const nextConfig: NextConfig = {
 };
 
 if (process.env.NODE_ENV !== "production") {
-  import("@opennextjs/cloudflare").then(({ initOpenNextCloudflareForDev }) => {
-    initOpenNextCloudflareForDev();
-  });
+  // NOTE: Disabled Miniflare/Cloudflare Dev emulation to drastically improve local dev performance.
+  // Uncomment this only if you are actively testing Cloudflare bindings (KV, D1, etc.) locally!
+  // import("@opennextjs/cloudflare").then(({ initOpenNextCloudflareForDev }) => {
+  //   initOpenNextCloudflareForDev();
+  // });
 }
 
 export default nextConfig;

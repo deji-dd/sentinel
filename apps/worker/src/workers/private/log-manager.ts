@@ -23,7 +23,10 @@ import { parseFactionLiability } from "./parsers/faction.js";
 import { parseEquityProperty } from "./parsers/equities.js";
 
 type InitState = Extract<SystemStateDocument, { init: boolean }>;
-type CrimesInitState = Extract<SystemStateDocument, { timestamp: number }>;
+type CrimesInitState = Extract<
+  SystemStateDocument,
+  { timestamp: number; init: boolean }
+>;
 
 const WORKER_NAME = "log_manager";
 

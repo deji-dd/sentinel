@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Bell, BellOff, Settings, Zap, Target, Activity } from "lucide-react";
 import { toast } from "sonner";
+import GlobalLoading from "@/components/dashboard/GlobalLoading";
+import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 
 export default function SettingsPage() {
   const { subscribed, loading, toggle } = usePush();
@@ -19,6 +21,7 @@ export default function SettingsPage() {
   });
 
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
+  const showLoader = useMinimumLoading(loading || isLoadingPreferences, 2000);
 
   // Fetch initial preferences from backend
   useEffect(() => {
@@ -62,6 +65,14 @@ export default function SettingsPage() {
       setPreferences(preferences);
     }
   };
+
+  if (showLoader) {
+    return (
+      <DashboardLayout>
+        <GlobalLoading />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

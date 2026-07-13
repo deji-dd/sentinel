@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { sentinelDbEngine, Logger } from "@sentinel/shared";
+import { sentinelDbEngine, Logger, getItemValue } from "@sentinel/shared";
 import { sendToWorker } from "../lib/ipc.js";
 
 const logger = new Logger("api_ledger_routes");
@@ -26,26 +26,38 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
       });
 
       // 2. Query Recent Transactions
+      const startOfDayUTC = new Date();
+      startOfDayUTC.setUTCHours(0, 0, 0, 0);
+      const startTimestamp = Math.floor(startOfDayUTC.getTime() / 1000);
+
       const txRows = db
         .prepare(
           `
         SELECT data FROM nosql_ledger_events
+        WHERE timestamp >= ?
         ORDER BY timestamp DESC
-        LIMIT 100
-      `,
+      `
         )
-        .all() as { data: string }[];
+        .all(startTimestamp) as { data: string }[];
 
       const recentTransactions = txRows.map((row) => {
         const doc = JSON.parse(row.data);
         const logTitle = doc.raw_log?.details?.title;
         const description = logTitle ? `${logTitle}` : doc.transaction_name;
 
-        const costBasisImpact = (doc.assets_affected || []).reduce(
-          (acc: number, cur: any) => acc + (cur.cost_basis_impact || 0),
+        const marketValueImpact = (doc.assets_affected || []).reduce(
+          (acc: number, cur: any) => {
+            const val = getItemValue(cur.asset_id.toString());
+            // If it's a known item, use its dynamic market value.
+            // If it's an equity/property/company (val === 0), fall back to the recorded cost_basis_impact.
+            const impact = val > 0 
+              ? (cur.quantity_change * val) 
+              : (cur.cost_basis_impact || 0);
+            return acc + impact;
+          },
           0
         );
-        const netImpact = (doc.cash_flow || 0) + costBasisImpact;
+        const netImpact = (doc.cash_flow || 0) + marketValueImpact;
 
         return {
           id: doc.id || doc.log_id || Math.random().toString(),
@@ -62,7 +74,7 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
         .prepare(
           `
         SELECT data FROM nosql_cash_history 
-        ORDER BY CAST(json_extract(data, '$.timestamp') AS INTEGER) DESC 
+        ORDER BY timestamp DESC 
         LIMIT 31
       `,
         )
@@ -76,6 +88,7 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
         timestamp: number;
         netWorth: number;
         dailyYield: number;
+        liquidCash: number;
       }[] = [];
 
       if (snapshots.length > 0) {
@@ -97,6 +110,7 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
             timestamp: current.timestamp * 1000,
             netWorth: current.liquid_cash,
             dailyYield: yieldForDay,
+            liquidCash: current.liquid_cash,
           });
         }
 

@@ -12,9 +12,12 @@ import { ActionQueueSheet } from "@/components/wealth/ActionQueueSheet";
 import { GlassCard } from "@/components/dashboard/GlassCard";
 import { Activity, List } from "lucide-react";
 import { useSync } from "@/hooks/use-sync";
+import GlobalLoading from "@/components/dashboard/GlobalLoading";
+import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 
 export default function WealthPage() {
   const { data, loading, refetch } = useWealthLedger();
+  const showLoader = useMinimumLoading(loading || !data, 2000);
   const containerRef = useRef<HTMLDivElement>(null);
   const { setSyncOptions, setLastSyncedText } = useSync();
 
@@ -37,7 +40,7 @@ export default function WealthPage() {
   }, [setSyncOptions, setLastSyncedText, refetch, data]);
 
   useGSAP(() => {
-    if (loading || !data) return;
+    if (showLoader || !data) return;
 
     gsap.from(".header-reveal", {
       y: -20,
@@ -57,17 +60,12 @@ export default function WealthPage() {
       delay: 0.2,
       clearProps: "all"
     });
-  }, { scope: containerRef, dependencies: [loading] });
+  }, { scope: containerRef, dependencies: [showLoader] });
 
-  if (loading || !data) {
+  if (showLoader || !data) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <div className="flex flex-col items-center gap-4 text-zinc-500">
-            <Activity className="w-8 h-8 animate-pulse text-indigo-500" />
-            <p className="animate-pulse">Loading Wealth Matrix...</p>
-          </div>
-        </div>
+        <GlobalLoading />
       </DashboardLayout>
     );
   }
@@ -93,7 +91,7 @@ export default function WealthPage() {
         </div>
 
         <div className="section-reveal mb-8">
-          <GlassCard className="pt-6" tiltIntensity={2}>
+          <GlassCard className="pt-6" tiltIntensity={0}>
             <div className="flex items-center gap-2 mb-2 px-2">
               <Activity className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
               <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">30-Day Net Worth Trajectory</h2>

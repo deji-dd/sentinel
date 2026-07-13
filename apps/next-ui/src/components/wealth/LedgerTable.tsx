@@ -9,6 +9,7 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   SortingState,
+  ColumnFiltersState,
   useReactTable,
 } from "@tanstack/react-table";
 import {
@@ -156,6 +157,7 @@ export const columns: ColumnDef<TransactionItem>[] = [
 export function LedgerTable({ data }: { data: TransactionItem[] }) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "timestamp", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // Get unique categories for the dropdown
@@ -172,11 +174,13 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
     onSortingChange: setSorting,
     getSortedRowModel: getSortedRowModel(),
     onGlobalFilterChange: setGlobalFilter,
+    onColumnFiltersChange: setColumnFilters,
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     state: {
       sorting,
       globalFilter,
+      columnFilters,
     },
     initialState: {
       pagination: {
@@ -185,14 +189,7 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
     },
   });
 
-  // Apply category filter if set
-  React.useEffect(() => {
-    if (categoryFilter && categoryFilter !== "all") {
-      table.getColumn("category")?.setFilterValue(categoryFilter);
-    } else {
-      table.getColumn("category")?.setFilterValue(undefined);
-    }
-  }, [categoryFilter, table]);
+  // Removed problematic useEffect that was causing infinite render loops during pagination
 
   return (
     <div className="space-y-4">
@@ -211,7 +208,11 @@ export function LedgerTable({ data }: { data: TransactionItem[] }) {
           <Filter className="h-4 w-4 text-zinc-500" />
           <select
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setCategoryFilter(val);
+              setColumnFilters(val === "all" ? [] : [{ id: "category", value: val }]);
+            }}
             className="h-10 px-3 py-2 text-sm rounded-md border bg-white/50 dark:bg-black/20 border-zinc-200 dark:border-white/5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
           >
             <option value="all">All Categories</option>

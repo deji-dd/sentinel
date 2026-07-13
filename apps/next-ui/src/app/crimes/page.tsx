@@ -1,6 +1,14 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+  SortingState,
+} from "@tanstack/react-table";
 import { useSync } from "@/hooks/use-sync";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { GlassCard } from "@/components/dashboard/GlassCard";
@@ -13,6 +21,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Activity, Target } from "lucide-react";
+import GlobalLoading from "@/components/dashboard/GlobalLoading";
+import { useMinimumLoading } from "@/hooks/use-minimum-loading";
+import { CrimeKPICards } from "@/components/crimes/CrimeKPICards";
+import { CrimePieChart } from "@/components/crimes/CrimePieChart";
 
 interface CrimeROI {
   crime_name: string;
@@ -21,9 +33,12 @@ interface CrimeROI {
   profit_per_nerve: number;
 }
 
+
 export default function CrimesDashboard() {
   const [data, setData] = useState<CrimeROI[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "profit_per_nerve", desc: true }]);
+  const showLoader = useMinimumLoading(loading, 2000);
 
   const { setSyncOptions, setLastSyncedText } = useSync();
 
@@ -73,6 +88,62 @@ export default function CrimesDashboard() {
     }).format(value);
   };
 
+  const columns = useMemo(
+    () => [
+      {
+        accessorKey: "crime_name",
+        header: () => <div className="text-left">Crime Name</div>,
+        cell: (info: any) => <span className="font-medium">{info.getValue()}</span>,
+      },
+      {
+        accessorKey: "nerve_spent",
+        header: () => <div className="text-right cursor-pointer select-none">Total Nerve Spent</div>,
+        cell: (info: any) => <div className="text-right">{info.getValue().toLocaleString()}</div>,
+      },
+      {
+        accessorKey: "total_value",
+        header: () => <div className="text-right cursor-pointer select-none">Total Value Generated</div>,
+        cell: (info: any) => (
+          <div className="text-right text-emerald-600 dark:text-emerald-400">
+            {formatCurrency(info.getValue())}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "profit_per_nerve",
+        header: () => (
+          <div className="text-right font-bold text-emerald-600 dark:text-emerald-400 cursor-pointer select-none">
+            Profit / Nerve
+          </div>
+        ),
+        cell: (info: any) => (
+          <div className="text-right font-bold text-emerald-600 dark:text-emerald-400">
+            {formatCurrency(info.getValue())}
+          </div>
+        ),
+      },
+    ],
+    []
+  );
+
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  if (showLoader) {
+    return (
+      <DashboardLayout>
+        <GlobalLoading />
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-6">
@@ -85,34 +156,47 @@ export default function CrimesDashboard() {
           </p>
         </header>
 
+        {data.length > 0 && (
+          <>
+            <CrimeKPICards data={data} />
+            <CrimePieChart data={data} />
+          </>
+        )}
+
         <GlassCard className="glass-widget overflow-hidden" tiltIntensity={0}>
           <div className="p-6">
             <h2 className="text-xl font-bold flex items-center gap-2 mb-6">
               <Activity className="text-indigo-400" /> ROI Analysis
             </h2>
-            
-            {loading ? (
-              <div className="flex justify-center p-8 text-zinc-500">Loading data...</div>
-            ) : data.length === 0 ? (
+
+            {data.length === 0 ? (
               <div className="flex justify-center p-8 text-zinc-500">No crime data available yet. Run the baseline seeder.</div>
             ) : (
               <div className="rounded-md border border-zinc-200 dark:border-white/10">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-zinc-200 dark:border-white/10 hover:bg-transparent">
-                      <TableHead>Crime Name</TableHead>
-                      <TableHead className="text-right">Total Nerve Spent</TableHead>
-                      <TableHead className="text-right">Total Value Generated</TableHead>
-                      <TableHead className="text-right font-bold text-emerald-600 dark:text-emerald-400">Profit / Nerve</TableHead>
-                    </TableRow>
+                    {table.getHeaderGroups().map((headerGroup) => (
+                      <TableRow key={headerGroup.id} className="border-zinc-200 dark:border-white/10 hover:bg-transparent">
+                        {headerGroup.headers.map((header) => (
+                          <TableHead
+                            key={header.id}
+                            onClick={header.column.getToggleSortingHandler()}
+                            className={header.column.getCanSort() ? "cursor-pointer select-none" : ""}
+                          >
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    ))}
                   </TableHeader>
                   <TableBody>
-                    {data.map((row) => (
-                      <TableRow key={row.crime_name} className="border-zinc-200 dark:border-white/10">
-                        <TableCell className="font-medium">{row.crime_name}</TableCell>
-                        <TableCell className="text-right">{row.nerve_spent.toLocaleString()}</TableCell>
-                        <TableCell className="text-right text-emerald-600 dark:text-emerald-400">{formatCurrency(row.total_value)}</TableCell>
-                        <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(row.profit_per_nerve)}</TableCell>
+                    {table.getRowModel().rows.map((row) => (
+                      <TableRow key={row.id} className="border-zinc-200 dark:border-white/10">
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell key={cell.id}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
                       </TableRow>
                     ))}
                   </TableBody>
