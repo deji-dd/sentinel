@@ -9,7 +9,7 @@ import {
 } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 
-const WORKER_NAME = "liquid_cash_engine";
+const WORKER_NAME = "liquid_cash_sync";
 const logger = new Logger(WORKER_NAME);
 
 // Run every 2 minutes
@@ -32,42 +32,47 @@ async function executeLiquidCashEngine(): Promise<void> {
       throw new Error("Failed to extract money object from response");
     }
 
-    // 2. Fetch the latest company details dynamically from the API
-    const rawRes = await tornApi.get("/company", {
-      apiKey,
-      queryParams: {
-        selections: ["profile", "employees"],
-      },
-    });
-
-    const res = rawRes as TornSchema<"CompanyProfileResponseMixed"> &
-      TornSchema<"CompanyEmployeesResponse">;
-
-    const profile = res.profile as
-      | TornSchema<"CompanyProfileExtended">
-      | undefined;
-    const employees = res.employees as
-      | TornSchema<"CompanyEmployeeFull">[]
-      | undefined;
-
     let withdrawableCorporateCash = 0;
 
-    if (profile && employees) {
-      const dailyAdCost = profile.advertisement_budget || 0;
+    if (money.company > 0) {
+      try {
+        // 2. Fetch the latest company details dynamically from the API
+        const rawRes = await tornApi.get("/company", {
+          apiKey,
+          queryParams: {
+            selections: ["profile", "employees"],
+          },
+        });
 
-      let employeesWage = 0;
-      for (const employee of employees) {
-        employeesWage += employee.wage || 0;
+        const res = rawRes as TornSchema<"CompanyProfileResponseMixed"> &
+          TornSchema<"CompanyEmployeesResponse">;
+
+        const profile = res.profile as
+          | TornSchema<"CompanyProfileExtended">
+          | undefined;
+        const employees = res.employees as
+          | TornSchema<"CompanyEmployeeFull">[]
+          | undefined;
+
+        if (profile && employees) {
+          const dailyAdCost = profile.advertisement_budget || 0;
+          let employeesWage = 0;
+          for (const employee of employees) {
+            employeesWage += employee.wage || 0;
+          }
+          const weeklyBurn = (employeesWage + dailyAdCost) * 7;
+          withdrawableCorporateCash = Math.max(0, money.company - weeklyBurn);
+        } else {
+          withdrawableCorporateCash = money.company;
+        }
+      } catch (error) {
+        // Fallback: If API throws (e.g. not a director or company error)
+        withdrawableCorporateCash = money.company;
+        logger.error(
+          "Failed to calculate withdrawable corporate cash, defaulting to company bank balance",
+          error,
+        );
       }
-
-      const weeklyBurn = (employeesWage + dailyAdCost) * 7;
-
-      // Calculate withdrawable corporate cash: company bank minus weekly burn, minimum 0
-      withdrawableCorporateCash = Math.max(0, money.company - weeklyBurn);
-    } else {
-      // Fallback: If no company profile data is available.
-      // Default to the raw company bank balance.
-      withdrawableCorporateCash = money.company || 0;
     }
 
     // 3. Calculate Total Liquidity
@@ -88,17 +93,11 @@ async function executeLiquidCashEngine(): Promise<void> {
       liquid_cash: totalLiquidity,
     };
 
-    const existing = CashHistory.findOne(startOfDayUtc.toString());
-    if (existing) {
-      CashHistory.update({ ...existing, ...snapshotDoc });
-    } else {
-      CashHistory.insertOne(snapshotDoc);
-    }
+    CashHistory.update(snapshotDoc);
 
     finishSync();
   } catch (error) {
     logger.error("Failed to run liquid cash engine:", error);
-    finishSync();
     throw error;
   }
 }

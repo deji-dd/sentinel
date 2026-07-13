@@ -508,9 +508,14 @@ export class ApiKeyRotator {
     for (let i = 0; i < items.length; i += concurrency) {
       const batch = items.slice(i, i + concurrency);
       const batchResults = await Promise.all(
-        batch.map((item, idx) =>
-          handler(item, this.keys[idx % this.keys.length]),
-        ),
+        batch.map(async (item) => {
+          const apiKey = this.getNextKey();
+          const cooldown = getApiKeyCooldownRemainingMs(apiKey);
+          if (cooldown > 0) {
+            await new Promise((resolve) => setTimeout(resolve, cooldown));
+          }
+          return handler(item, apiKey);
+        }),
       );
       results.push(...batchResults);
 
@@ -544,6 +549,12 @@ export class ApiKeyRotator {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const apiKey = this.getNextKey();
+
+      const cooldown = getApiKeyCooldownRemainingMs(apiKey);
+      if (cooldown > 0) {
+        await new Promise((resolve) => setTimeout(resolve, cooldown));
+      }
+
       const result = await handler(item, apiKey);
       results.push(result);
 

@@ -68,7 +68,6 @@ async function startAllWorkers(): Promise<void> {
 
     const startedCount = startWorkers();
     logger.info(`Started ${startedCount} worker runners`);
-    logger.info("All workers started successfully.");
   } catch (error) {
     logger.error("Failed to start workers:", error);
     process.exit(1);

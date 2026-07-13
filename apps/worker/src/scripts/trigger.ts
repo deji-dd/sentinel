@@ -8,7 +8,7 @@
  * pnpm worker:trigger system_maintenance
  */
 
-import { IpcClient } from "@sentinel/shared";
+import { constants, IpcClient, toWorkerPacket } from "@sentinel/shared";
 
 const workerName = process.argv[2];
 
@@ -24,15 +24,15 @@ function triggerWorker() {
   console.log(`Triggering ${workerName}...`);
 
   // Connect to the worker's UDS socket
-  const workerIpcClient = new IpcClient("/tmp/sentinel-worker.sock");
-  
+  const workerIpcClient = new IpcClient(constants.worker_ipc_path);
+
   workerIpcClient.send({
-    action: "FORCE_RUN_WORKER",
-    payload: { workerName }
-  });
+    action: "force_run_worker",
+    data: { worker_name: workerName },
+  } as toWorkerPacket);
 
   console.log(`[${workerName}] trigger command sent via UDS.`);
-  
+
   // Allow a tiny delay for the socket to flush before exiting
   setTimeout(() => process.exit(0), 100);
 }

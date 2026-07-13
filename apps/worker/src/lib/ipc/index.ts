@@ -5,6 +5,10 @@ import {
   toBotPacket,
   constants,
   toWorkerPacket,
+  WorkerSchedules,
+  GuildApiKeys,
+  decryptApiKey,
+  ApiKeyRotator,
 } from "@sentinel/shared";
 import { runVerificationJob } from "../../job-runners/verification_engine.js";
 
@@ -27,21 +31,38 @@ export function setupIpcServer() {
 
       logger.info("Worker received IPC message: " + packet.action);
       try {
-        // if (packet.action === "FORCE_RUN_WORKER" && packet.payload?.workerName) {
-        //   const schedule = WorkerSchedules.findOne(packet.payload.workerName);
-        //   if (schedule) {
-        //     schedule.force_run = true;
-        //     WorkerSchedules.insertOne(schedule);
-        //     logger.info(`Force running worker: ${packet.payload.workerName}`);
-        //   }
-        // }
+        if (packet.action === "force_run_worker") {
+          const schedule = WorkerSchedules.findOne(packet.data.worker_name);
+          if (schedule) {
+            schedule.force_run = true;
+            WorkerSchedules.insertOne(schedule);
+            logger.info(`Force running worker: ${packet.data.worker_name}`);
+          }
+        }
         if (packet.action === "verify") {
           await runVerificationJob(packet.data);
         } else if (packet.action === "verify_bulk") {
+          // Group jobs by guild_id
+          const guildJobs = new Map<string, typeof packet.data>();
           for (const job of packet.data) {
-            await runVerificationJob(job);
-            // Small delay to prevent instantly freezing the event loop while Queue builds
-            await new Promise((r) => setTimeout(r, 100));
+            if (!guildJobs.has(job.guild_id)) guildJobs.set(job.guild_id, []);
+            guildJobs.get(job.guild_id)!.push(job);
+          }
+
+          for (const [guildId, jobs] of guildJobs.entries()) {
+            const apiKeys = GuildApiKeys.find({ guild_id: guildId }).map((k) =>
+              decryptApiKey(k.api_key_encrypted, process.env.ENCRYPTION_KEY!),
+            );
+            if (apiKeys.length === 0) continue;
+
+            const rotator = new ApiKeyRotator(apiKeys);
+            await rotator.processSequential(
+              jobs,
+              async (job, key) => {
+                await runVerificationJob(job, key);
+              },
+              5000,
+            ); // 1s delay between verifications per guild
           }
         }
       } catch (error) {

@@ -2,7 +2,11 @@ import { BaseDocument, Collection } from "../../collection.js";
 import { sentinelDbEngine } from "../../engine.js";
 
 export type AssetCategory =
-  "item" | "point" | "equity" | "property" | "company";
+  | "item"
+  | "point"
+  | "equity"
+  | "property"
+  | "company";
 export type AssetLocation =
   | "inventory"
   | "bazaar"
@@ -47,11 +51,13 @@ export type LedgerEventDocument = BaseDocument & {
   category_id: number; // The context.xml category (1-9)
   transaction_name: string; // e.g. "Asset Purchase", "Fiat Generation"
 
-  assets_affected: {
-    asset_id: string | number;
-    quantity_change: number; // Negative for loss/sale, positive for gain/purchase
-    cost_basis_impact: number; // How much the cost basis changed for this specific movement
-  }[];
+  assets_affected:
+    | {
+        asset_id: string | number;
+        quantity_change: number; // Negative for loss/sale, positive for gain/purchase
+        cost_basis_impact: number; // How much the cost basis changed for this specific movement
+      }[]
+    | null;
 
   cash_flow: number; // Positive for cash gained, negative for cash spent
   realized_pnl: number; // 0 if no PnL event, else the Realized Profit or Loss

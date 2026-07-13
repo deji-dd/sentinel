@@ -6,14 +6,13 @@ import {
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 
-export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
+export function parseStandardCash(log: TornSchema<"UserLog">) {
   const logId = log.details.id;
   const isPurchase = [1112, 1225, 4200, 4201, 5010, 4320].includes(logId);
   const isSale = [1226, 1113, 4210, 4220, 5011, 4322].includes(logId);
 
   // Fallbacks based on string title/category if log types change
   const title = log.details.title.toLowerCase();
-  const _category = log.details.category;
 
   const purchase =
     isPurchase || title.includes("buy") || title.includes("bought");
@@ -110,7 +109,8 @@ export async function parseStandardCashTransaction(log: TornSchema<"UserLog">) {
   }
 
   // Handle Points bought/sold
-  const isPointsTransaction = title.includes("points") || logId === 5010 || logId === 5011;
+  const isPointsTransaction =
+    title.includes("points") || logId === 5010 || logId === 5011;
   if (isPointsTransaction || data.points) {
     const qty = data.points || data.quantity || 1;
     const totalCost = data.cost || data.total_cost || data.cost_total || 0;

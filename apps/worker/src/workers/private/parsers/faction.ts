@@ -7,7 +7,7 @@ import {
 import { randomUUID } from "crypto";
 import { extractItemsFromLogData } from "./utils.js";
 
-export async function parseFactionLiability(log: TornSchema<"UserLog">) {
+export function parseFactionLiability(log: TornSchema<"UserLog">) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
   const logId = log.details.id;

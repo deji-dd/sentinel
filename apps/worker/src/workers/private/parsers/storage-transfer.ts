@@ -7,7 +7,7 @@ import {
 import { randomUUID } from "crypto";
 import { AssetLocation } from "@sentinel/shared";
 
-export async function parseStorageTransfer(log: TornSchema<"UserLog">) {
+export function parseStorageTransfer(log: TornSchema<"UserLog">) {
   const logId = log.details.id;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;

@@ -7,18 +7,9 @@ import {
 import { randomUUID } from "crypto";
 import { extractItemsFromLogData } from "./utils.js";
 
-export async function parseZeroCostInjection(log: TornSchema<"UserLog">) {
+export function parseZeroCostInjection(log: TornSchema<"UserLog">) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
-
-  // Extract items gained
-  const _itemsGained = extractItemsFromLogData(data);
-  // Specifically ignore "items_lost" for zero-cost injection since this parser is only for gains.
-  // Actually, extractItemsFromLogData grabs both items_gained and items_lost if we're not careful.
-  // Let's filter manually if data.items_lost is present, but extractItemsFromLogData merged them.
-  // We should probably filter out `items_lost` keys in the extraction, but since we know it's a zero-cost injection,
-  // we will just process items. Wait, if a crime gives items_gained and items_lost, we need to handle both?
-  // Usually crimes are either success (gain) or fail (lose).
 
   // Actually, we'll only look at `items_gained` or `item` or `items` that represent gains in this parser.
   const gainedItems: {

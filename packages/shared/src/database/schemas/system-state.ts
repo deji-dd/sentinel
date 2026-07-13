@@ -1,24 +1,29 @@
 import { BaseDocument, Collection } from "../collection.js";
 import { sentinelDbEngine } from "../engine.js";
 
-type TTInitState = {
-  id:
-    | "war_ledger_init_state"
-    | "tt_init_state"
-    | "crimes_init_state"
-    | "items_init_state";
-  init: boolean;
-};
+type InitState =
+  | {
+      id:
+        | "war_ledger_init_state"
+        | "tt_init_state"
+        | "crimes_init_state"
+        | "items_init_state";
+      init: boolean;
+    }
+  | {
+      id: "crimes_ledger_init_state" | "items_ledger_init_state";
+      init: boolean;
+      timestamp: number;
+    };
 
-type UserState = {
-  id: "user_state";
-  liquid_cash: number;
-};
+// type UserState = {
+//   id: "user_state";
+//   liquid_cash: number;
+// };
 
 export type SystemStateDocument = BaseDocument &
   (
-    | TTInitState
-    | UserState
+    | InitState
     | {
         id: "api" | "worker" | "bot";
         cpu?: number;

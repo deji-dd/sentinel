@@ -7,10 +7,7 @@ type Starter = () => void;
 
 const PRIVATE_WORKERS: Starter[] = [
   privateWorkers.startLogManager,
-  privateWorkers.startCompanySyncWorker,
-  privateWorkers.startLedgerWorker,
   privateWorkers.startLiquidCashEngineWorker,
-  privateWorkers.startCrimeParser,
 ];
 
 // TODO: COMMENT IN DEV, UNCOMMENT BEFORE PUSH

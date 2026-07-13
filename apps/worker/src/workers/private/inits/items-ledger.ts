@@ -7,47 +7,59 @@ import {
   AssetDocument,
   TornItemDocument,
   Assets,
-  LedgerEvents,
+  SystemState,
+  ApiKeyRotator,
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 
-const logger = new Logger("ledger_init");
+type PointsMarketResponse = {
+  pointsmarket: Record<
+    string,
+    { cost: number; quantity: number; total_cost: number }
+  >;
+};
+type UserResponse = TornSchema<"UserMoneyResponse"> & {
+  bazaar:
+    | {
+        ID: number;
+        UID?: number;
+        name: string;
+        type: string;
+        quantity: number;
+        price: number;
+        market_price: number;
+      }[]
+    | [];
+  display:
+    | {
+        ID: number;
+        UID?: number;
+        name: string;
+        type: string;
+        quantity: number;
+        market_price: number;
+      }[]
+    | [];
+};
+
+const logger = new Logger("items_ledger_init");
 
 /**
  * Initializes the ledger by fetching a baseline of assets if the database is empty.
  * This satisfies Category 1: The Initialization (Day Zero)
  */
-export async function initializeLedgerBaseline(): Promise<void> {
-  const isInitialized = LedgerEvents.find({ log_id: "init" }).length > 0;
-
-  if (isInitialized) {
-    logger.debug("Ledger already initialized successfully. Skipping.");
-    return;
-  }
-
-  // If assets exist but initialization isn't marked as complete, a previous run crashed halfway.
-  // We must self-heal by wiping the corrupted baseline so we can start fresh.
-  const assetCount = Assets.find({}).length;
-  if (assetCount > 0) {
-    logger.warn(
-      "Found assets but no initialization event. A previous baseline run crashed. Wiping corrupted assets to self-heal...",
-    );
-    // Fetch and delete all existing assets natively to self-heal
-    Assets.deleteManyBy({});
-  }
-
-  logger.info("Starting Day Zero baseline initialization...");
-
+export async function runItemsLedgerInit(): Promise<void> {
   try {
+    const finishSync = logger.time();
     const apiKey = getWorkerApiKey("personal");
-    if (!apiKey) throw new Error("No personal API key found");
+
+    Assets.deleteManyBy({});
 
     // Fetch Bazaar, Display, and Points (money selection)
     const userRes = (await tornApi.get("/user", {
       apiKey,
       queryParams: { selections: ["bazaar", "money", "display"] },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    })) as unknown as UserResponse;
 
     const bazaar = userRes.bazaar || [];
     const display = userRes.display || [];
@@ -57,15 +69,14 @@ export async function initializeLedgerBaseline(): Promise<void> {
     const marketRes = (await tornApi.get("/market", {
       apiKey,
       queryParams: { selections: ["pointsmarket"] },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    })) as unknown as PointsMarketResponse;
 
     const pointsMarket = marketRes.pointsmarket || {};
     // Use the first available listing cost as the "average" point cost, or default to a safe 45k
     const firstPointListingId = Object.keys(pointsMarket)[0];
     const pointCost = firstPointListingId
       ? pointsMarket[firstPointListingId].cost
-      : 45000;
+      : 32000;
 
     // Torn API v2 requires explicit categories for inventory fetching
     const categories: string[] = [
@@ -97,30 +108,28 @@ export async function initializeLedgerBaseline(): Promise<void> {
     ];
 
     let inventory: TornSchema<"UserInventoryItem">[] = [];
-    logger.info(
-      `Fetching ${categories.length} inventory categories to build baseline...`,
-    );
 
-    for (const cat of categories) {
-      try {
-        const invRes = (await tornApi.get("/user/inventory", {
-          apiKey,
-          queryParams: { cat, limit: 250 },
-        })) as TornSchema<"UserInventoryResponse">;
+    let rotator = new ApiKeyRotator([apiKey]);
 
-        if (invRes.inventory?.items) {
-          inventory = inventory.concat(invRes.inventory.items);
+    await rotator.processSequential(
+      categories,
+      async (cat, key) => {
+        try {
+          const invRes = (await tornApi.get("/user/inventory", {
+            apiKey: key,
+            queryParams: { cat, limit: 250 },
+          })) as TornSchema<"UserInventoryResponse">;
+
+          if (invRes.inventory?.items) {
+            inventory = inventory.concat(invRes.inventory.items);
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (_e) {
+          // Ignore errors for categories that might be empty or invalid
         }
-      } catch (err) {
-        // Ignore errors for categories that might be empty or invalid
-      }
-    }
-
-    logger.info(
-      `Fetched baseline: ${inventory.length} inventory items, ${bazaar.length} bazaar items, ${display.length} display items, ${pointsCount} points at $${pointCost}`,
+      },
+      1000,
     );
-
-    let injectedItems = 0;
 
     // Helper function to insert items
     const insertItems = (
@@ -141,10 +150,11 @@ export async function initializeLedgerBaseline(): Promise<void> {
         // Bazaar items might have a 'price' field, but Cost Basis strictly uses system value
         const costBasis = systemValue || 0;
 
+        const itemUid = item.uid || item.UID;
         // If item has a UID (e.g. weapons/armor), track as non-fungible
-        if (item.uid) {
+        if (itemUid) {
           Assets.insertOne({
-            id: `uid_${item.uid}`,
+            id: `uid_${itemUid}`,
             type: "item",
             asset_id: itemId,
             quantity: 1, // Unique items are always quantity 1
@@ -156,7 +166,6 @@ export async function initializeLedgerBaseline(): Promise<void> {
             realized_pnl: 0,
             last_updated: Date.now(),
           });
-          injectedItems++;
         } else {
           // Check if fungible item already exists in this location to aggregate quantity
           const existing = Assets.find({
@@ -186,7 +195,6 @@ export async function initializeLedgerBaseline(): Promise<void> {
               realized_pnl: 0,
               last_updated: Date.now(),
             });
-            injectedItems++;
           }
         }
       }
@@ -211,29 +219,15 @@ export async function initializeLedgerBaseline(): Promise<void> {
         realized_pnl: 0,
         last_updated: Date.now(),
       });
-      injectedItems++;
     }
 
-    const now = new Date();
-    now.setUTCHours(0, 0, 0, 0);
-    const midnightUTC = Math.floor(now.getTime() / 1000);
-
-    LedgerEvents.insertOne({
-      id: `ledger_ev_init_${Date.now()}`,
-      log_id: "init",
-      timestamp: midnightUTC, // Sync to midnight UTC of the initialization day
-      type: "init",
-      category_id: 1, // Or 0
-      transaction_name: "Day Zero Initialization",
-      assets_affected: [],
-      cash_flow: 0,
-      realized_pnl: 0,
-      raw_log: {},
+    SystemState.update({
+      id: "items_ledger_init_state",
+      timestamp: Math.floor(Date.now() / 1000),
+      init: true,
     });
 
-    logger.info(
-      `Ledger Initialization complete. ${injectedItems} asset groups injected.`,
-    );
+    finishSync();
   } catch (error) {
     logger.error("Failed to initialize ledger baseline:", error);
   }

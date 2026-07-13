@@ -6,7 +6,7 @@ import {
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 
-export async function parseTransformationSink(log: TornSchema<"UserLog">) {
+export function parseTransformationSink(log: TornSchema<"UserLog">) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
   const logId = log.details.id;

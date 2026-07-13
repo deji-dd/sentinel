@@ -6,10 +6,9 @@ import {
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 
-export async function parseEquityProperty(log: TornSchema<"UserLog">) {
+export function parseEquityProperty(log: TornSchema<"UserLog">) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
-  const _logId = log.details.id;
   const title = log.details.title.toLowerCase();
   const category = log.details.category;
 
@@ -22,15 +21,15 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
   }[] = [];
 
   // Identify if purchase or sale
-  const isBuy =
-    title.includes("buy") ||
-    title.includes("invest");
+  const isBuy = title.includes("buy") || title.includes("invest");
   const isSell = title.includes("sell");
   const isUpkeep =
     title.includes("upkeep") ||
     title.includes("fee") ||
     title.includes("upgrade");
-  const isTransfer = category === "Company" && (title.includes("withdraw") || title.includes("deposit"));
+  const isTransfer =
+    category === "Company" &&
+    (title.includes("withdraw") || title.includes("deposit"));
 
   let assetType = "equity";
   let assetId: string | number = "";
@@ -177,6 +176,7 @@ export async function parseEquityProperty(log: TornSchema<"UserLog">) {
   }
 
   if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let eventType: any = isBuy ? "purchase" : isSell ? "sale" : "loss";
     if (isTransfer) {
       eventType = "storage_transfer";

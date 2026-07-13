@@ -5,15 +5,12 @@ import {
   AssetDocument,
   TornItems,
   PersonalLogs,
-  Logger,
   TornItemDocument,
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 import { extractItemsFromLogData } from "./utils.js";
 
-const _logger = new Logger("ledger_barter");
-
-export async function parseBarterTrade(log: TornSchema<"UserLog">) {
+export function parseBarterTrade(log: TornSchema<"UserLog">) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
   const tradeId = data.parsed_trade_id;

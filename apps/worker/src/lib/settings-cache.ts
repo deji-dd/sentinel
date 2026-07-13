@@ -1,7 +1,14 @@
 import { EventEmitter } from "events";
 import { watch, existsSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
-import { sentinelDbEngine, Collection, BaseDocument } from "@sentinel/shared";
+import {
+  sentinelDbEngine,
+  Collection,
+  BaseDocument,
+  Logger,
+} from "@sentinel/shared";
+
+const logger = new Logger("settings_cache");
 
 /**
  * Defines the structure for the Sentinel owner's personal operational settings.
@@ -73,8 +80,8 @@ class SettingsCache {
     try {
       const ownerDiscordId = process.env.SENTINEL_DISCORD_USER_ID;
       if (!ownerDiscordId) {
-        console.warn(
-          "[SettingsCache] Warning: SENTINEL_DISCORD_USER_ID is not configured in environment.",
+        logger.warn(
+          "SENTINEL_DISCORD_USER_ID is not configured in environment.",
         );
         return;
       }
@@ -87,16 +94,14 @@ class SettingsCache {
       if (settings) {
         this.cache = settings;
         this.isLoaded = true;
-        console.log(
-          "[SettingsCache] ✓ Successfully hydrated personal settings from NoSQL.",
-        );
+        logger.info("Successfully hydrated personal settings from NoSQL.");
       } else {
-        console.warn(
-          `[SettingsCache] No personal settings found in NoSQL for owner: ${ownerDiscordId}`,
+        logger.warn(
+          `No personal settings found in NoSQL for owner: ${ownerDiscordId}`,
         );
       }
     } catch (error) {
-      console.error("[SettingsCache] Failed to hydrate cache:", error);
+      logger.error("Failed to hydrate cache:", error);
     }
   }
 
@@ -127,33 +132,30 @@ class SettingsCache {
   startWatching(): void {
     const dataDir = dirname(this.triggerFilePath);
     if (!existsSync(dataDir)) {
-      console.warn(
-        `[SettingsCache] Data directory missing: ${dataDir}. Skipping watcher.`,
-      );
+      logger.warn(`Data directory missing: ${dataDir}. Skipping watcher.`);
       return;
     }
 
     if (!existsSync(this.triggerFilePath)) {
       try {
         writeFileSync(this.triggerFilePath, "", "utf-8");
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (err) {
-        console.warn(
-          `[SettingsCache] Could not create trigger file: ${this.triggerFilePath}`,
-        );
+        logger.warn(`Could not create trigger file: ${this.triggerFilePath}`);
       }
     }
 
     try {
       watch(this.triggerFilePath, async (event) => {
         if (event === "change") {
-          console.log(
-            "[SettingsCache] Settings change detected via file! Re-hydrating cache...",
+          logger.info(
+            "Settings change detected via file! Re-hydrating cache...",
           );
           settingsEmitter.emit("settings-changed");
         }
       });
     } catch (err) {
-      console.warn("[SettingsCache] Failed to start file watcher:", err);
+      logger.warn("Failed to start file watcher:", err);
     }
 
     settingsEmitter.on("settings-changed", async () => {

@@ -28,7 +28,7 @@ export function checkTerritoryBurn(
   territoryId: string,
   factionId: number,
   wars: WarRecord[],
-  currentTerritoryCount: number,
+  _currentTerritoryCount: number,
 ): BurnCheckResult {
   const result: BurnCheckResult = {
     territoryId: territoryId.toUpperCase(),

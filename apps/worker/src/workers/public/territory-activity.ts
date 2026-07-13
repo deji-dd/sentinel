@@ -28,7 +28,7 @@ let keyIndex = 0;
 // ==========================================
 
 type ApiOwnership = TornSchema<"FactionTerritoryOwnership">;
-type TTInitState = Extract<SystemStateDocument, { init: boolean }>;
+type InitState = Extract<SystemStateDocument, { init: boolean }>;
 
 // ==========================================
 // UTILITIES
@@ -67,10 +67,10 @@ async function executeActivityEngine(): Promise<void> {
     const keys = getSystemKeyPool();
     const getKey = () => keys[keyIndex++ % keys.length];
 
-    const isWarsInit = SystemState.find<TTInitState>({
+    const isWarsInit = SystemState.find<InitState>({
       id: "war_ledger_init_state",
     })[0]?.init;
-    const isStatesInit = SystemState.find<TTInitState>({
+    const isStatesInit = SystemState.find<InitState>({
       id: "tt_init_state",
     })[0]?.init;
 

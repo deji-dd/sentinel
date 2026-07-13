@@ -43,12 +43,12 @@ async function fetchAndDumpItems(): Promise<void> {
   const finishSync = logger.time();
 
   try {
-    const isCrimesInit = SystemState.find<ItemsInitState>({
+    const isInit = SystemState.find<ItemsInitState>({
       id: "items_init_state",
     })[0]?.init;
 
-    if (!isCrimesInit) {
-      logger.info("Crimes not initialized. Clearing table...");
+    if (!isInit) {
+      logger.info("Items not initialized. Clearing table...");
       TornItems.deleteManyBy({});
     }
 
@@ -79,6 +79,8 @@ async function fetchAndDumpItems(): Promise<void> {
     if (docsToUpsert.length > 0) {
       TornItems.insertMany(docsToUpsert);
     }
+
+    SystemState.insertOne({ id: "items_init_state", init: true });
 
     finishSync();
 

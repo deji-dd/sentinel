@@ -41,6 +41,7 @@ export interface VerificationCache {
 
 export async function runVerificationJob(
   job: VerificationRequest,
+  apiKeyOverride?: string,
 ): Promise<void> {
   // Use the logger to clear the ESLint error and add execution observability
   const finishSync = logger.time();
@@ -111,12 +112,14 @@ export async function runVerificationJob(
   // ==========================================
   // 3. FETCH USER FROM TORN API
   // ==========================================
-  const activeKey = getNextApiKey(
-    job.guild_id,
-    apiKeys.map((k) =>
-      decryptApiKey(k.api_key_encrypted, process.env.ENCRYPTION_KEY!),
-    ),
-  );
+  const activeKey =
+    apiKeyOverride ||
+    getNextApiKey(
+      job.guild_id,
+      apiKeys.map((k) =>
+        decryptApiKey(k.api_key_encrypted, process.env.ENCRYPTION_KEY!),
+      ),
+    );
 
   let response: UserGenericResponse;
   try {
