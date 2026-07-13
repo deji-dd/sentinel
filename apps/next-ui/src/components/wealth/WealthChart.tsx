@@ -3,8 +3,11 @@
 import React from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { HistoricalPoint } from "@/hooks/use-wealth-ledger";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export function WealthChart({ data }: { data: HistoricalPoint[] }) {
+  const isMobile = useIsMobile();
+
   if (!data || data.length === 0) {
     return (
       <div className="h-[300px] w-full mt-6 relative flex items-center justify-center border border-dashed border-zinc-200 dark:border-white/5 rounded-xl bg-white/5">
@@ -52,6 +55,7 @@ export function WealthChart({ data }: { data: HistoricalPoint[] }) {
           />
           <YAxis
             yAxisId="left"
+            hide={isMobile}
             stroke="rgba(255,255,255,0.2)"
             tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }}
             tickLine={false}
@@ -62,6 +66,7 @@ export function WealthChart({ data }: { data: HistoricalPoint[] }) {
           />
           <YAxis
             yAxisId="right"
+            hide={isMobile}
             orientation="right"
             stroke="rgba(255,255,255,0.2)"
             tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }}

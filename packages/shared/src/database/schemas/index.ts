@@ -3,3 +3,4 @@ export * from "./torn/index.js";
 export * from "./bot/index.js";
 export * from "./system-state.js";
 export * from "./ipc/index.js";
+export * from "./user/index.js";

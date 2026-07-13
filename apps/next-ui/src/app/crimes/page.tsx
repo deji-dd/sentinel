@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { useSync } from "@/hooks/use-sync";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { GlassCard } from "@/components/dashboard/GlassCard";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -146,7 +146,7 @@ export default function CrimesDashboard() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6 pt-15">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-3">
             <Target className="text-emerald-500" /> Crime Ledger
@@ -163,11 +163,13 @@ export default function CrimesDashboard() {
           </>
         )}
 
-        <GlassCard className="glass-widget overflow-hidden" tiltIntensity={0}>
-          <div className="p-6">
-            <h2 className="text-xl font-bold flex items-center gap-2 mb-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               <Activity className="text-indigo-400" /> ROI Analysis
-            </h2>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
 
             {data.length === 0 ? (
               <div className="flex justify-center p-8 text-zinc-500">No crime data available yet. Run the baseline seeder.</div>
@@ -203,8 +205,8 @@ export default function CrimesDashboard() {
                 </Table>
               </div>
             )}
-          </div>
-        </GlassCard>
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );

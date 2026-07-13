@@ -94,10 +94,13 @@ export async function handleVerificationEvent(
         const channel = (await client.channels
           .fetch(data.channel_id)
           .catch(() => null)) as TextChannel;
-        if (
-          channel &&
-          (data.roles_to_add.length > 0 || data.roles_to_remove.length > 0)
-        ) {
+          
+        const hasChanges = 
+          (data.roles_to_add?.length ?? 0) > 0 || 
+          (data.roles_to_remove?.length ?? 0) > 0 || 
+          data.new_nickname !== null;
+
+        if (channel && hasChanges) {
           await channel.send({ embeds: [embed] }).catch(() => null);
         }
       } else if (action === "verification_fail") {

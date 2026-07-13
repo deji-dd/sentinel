@@ -4,8 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import gsap from "gsap";
-import { useGSAP } from "@gsap/react";
 import { cn } from "@/lib/utils";
 import {
   Home,
@@ -45,25 +43,6 @@ export function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { subscribed, toggle: togglePush, loading: pushLoading } = usePush();
-
-  useGSAP(
-    () => {
-      gsap.fromTo(
-        ".nav-item",
-        { opacity: 0, x: -15, rotateX: -10 },
-        {
-          opacity: 1,
-          x: 0,
-          rotateX: 0,
-          stagger: 0.05,
-          duration: 0.6,
-          ease: "back.out(1.5)",
-          clearProps: "transform",
-        }
-      );
-    },
-    { dependencies: [] }
-  );
 
   // Only render theme-dependent UI after mount to prevent SSR hydration mismatch
   useEffect(() => {

@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -133,5 +132,8 @@
     min-height: 100vh;
     min-height: -webkit-fill-available;
     overscroll-behavior-y: none;
+  }
+  .recharts-wrapper * {
+    outline: none !important;
   }
 }
