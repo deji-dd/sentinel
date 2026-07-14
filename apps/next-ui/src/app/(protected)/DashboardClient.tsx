@@ -61,13 +61,17 @@ export function DashboardClient({ initialData }: { initialData: any }) {
 
     const connectWs = () => {
       // Resolve proper WS URL dynamically for network dev
-      let apiUrl = process.env.BOT_ORIGIN || process.env.NEXT_PUBLIC_API_URL;
+      let apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
       if (!apiUrl && typeof window !== "undefined") {
         apiUrl = `${window.location.protocol}//${window.location.hostname}:3001`;
       } else if (!apiUrl) {
         apiUrl = "http://127.0.0.1:3001";
       }
-      const wsUrl = apiUrl.replace(/^http/, "ws") + "/api/status/stream";
+
+      const cleanApiUrl = apiUrl.replace(/\/$/, "");
+      const token = process.env.NEXT_PUBLIC_WS_TOKEN;
+      const wsUrl = cleanApiUrl.replace(/^http/, "ws") + `/api/status/stream?token=${token}`;
 
       ws = new WebSocket(wsUrl);
 
