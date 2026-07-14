@@ -41,6 +41,8 @@ export function setupIpcServer() {
           }
         } else if (packet.action === "reinit_ledger") {
           workerEvents.emit("reinit_ledger", packet.data.ledger);
+        } else if (packet.action === "settings_updated") {
+          workerEvents.emit("settings_updated");
         } else if (packet.action === "verify") {
           await runVerificationJob(packet.data);
         } else if (packet.action === "verify_bulk") {

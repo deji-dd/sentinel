@@ -14,6 +14,10 @@ type InitState =
       id: "crimes_ledger_init_state" | "items_ledger_init_state" | "gym_ledger_init_state";
       init: boolean;
       timestamp: number;
+    }
+  | {
+      id: "log_manager_last_checked";
+      timestamp: number;
     };
 
 // type UserState = {

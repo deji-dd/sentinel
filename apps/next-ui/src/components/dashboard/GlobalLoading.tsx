@@ -1,16 +1,27 @@
 "use client";
 
-import React from 'react';
-import { Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 
 export default function GlobalLoading() {
+  const [dots, setDots] = useState('');
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots(prev => prev.length >= 3 ? '' : prev + '.');
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="flex items-center justify-center min-h-[60vh] w-full animate-in fade-in duration-500">
-      <div className="flex flex-col items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-zinc-500 dark:text-zinc-400 mb-4" />
-        <p className="text-xs font-medium tracking-widest text-zinc-500 dark:text-zinc-400 uppercase">
-          Syncing
-        </p>
+    <div className="flex flex-col items-center justify-center min-h-[60vh] w-full animate-in fade-in duration-500">
+      <div className="font-mono text-[10px] tracking-[0.3em] text-neutral-500 flex items-center gap-2 uppercase">
+        <span>SYNCHRONIZING_DATA</span>
+        <span className="w-4 text-left">{dots}</span>
+      </div>
+      <div className="mt-6 flex gap-1.5">
+        <div className="w-2 h-4 bg-white animate-pulse" style={{ animationDuration: '1s' }} />
+        <div className="w-2 h-4 bg-white/50 animate-pulse" style={{ animationDuration: '1s', animationDelay: '200ms' }} />
+        <div className="w-2 h-4 bg-white/20 animate-pulse" style={{ animationDuration: '1s', animationDelay: '400ms' }} />
       </div>
     </div>
   );

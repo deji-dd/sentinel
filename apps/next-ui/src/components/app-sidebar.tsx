@@ -1,18 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import {
   Home,
-  Sun,
-  Moon,
-  Palette,
   Bell,
   BellOff,
-  Settings,
   Landmark,
   Target,
   Activity,
@@ -29,68 +25,63 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { usePush } from "@/hooks/use-push";
+import { useSettings } from "@/components/settings-provider";
 
 const navItems = [
-  { name: "Overview", href: "/", icon: Home },
-  { name: "Wealth Matrix", href: "/wealth", icon: Landmark },
-  { name: "Crime Ledger", href: "/crimes", icon: Target },
-  { name: "Gym", href: "/gym", icon: Activity },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "OVERVIEW", href: "/", icon: Home },
+  { name: "WEALTH_MATRIX", href: "/wealth", icon: Landmark },
+  { name: "CRIME_LEDGER", href: "/crimes", icon: Target },
+  { name: "GYM_LOGS", href: "/gym", icon: Activity },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
   const { subscribed, toggle: togglePush, loading: pushLoading } = usePush();
 
-  // Only render theme-dependent UI after mount to prevent SSR hydration mismatch
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMounted(true);
-  }, []);
+  const { settings } = useSettings();
+  const logManagerEnabled = settings.log_manager_enabled;
 
   return (
-    <Sidebar variant="floating" className="z-30" collapsible="icon">
-      <SidebarHeader className="p-0 group-data-[collapsible=icon]:hidden border-b border-zinc-200/50 dark:border-white/5 shrink-0 flex flex-col bg-transparent">
-        <div className="w-full h-[env(safe-area-inset-top)] shrink-0" />
-
-        <div className="flex h-16 items-center justify-center px-4 w-full">
-          <Link href="/" prefetch={false} className="flex items-center gap-3 overflow-hidden select-none w-full">
-            <Avatar className="size-10 rounded-full after:rounded-full shrink-0">
-              <AvatarImage src="/logo.png" className="object-cover rounded-full" alt="Sentinel Logo" />
-              <AvatarFallback className="rounded-full">S</AvatarFallback>
-            </Avatar>
-          </Link>
-        </div>
+    <Sidebar variant="sidebar" className="z-30 border-r border-neutral-900 bg-black text-white" collapsible="icon">
+      <SidebarHeader className="p-0 border-b border-neutral-900 shrink-0 flex flex-col bg-black h-12 justify-center">
+        <Link href="/" prefetch={false} className="flex items-center gap-3 overflow-hidden select-none px-4 group-data-[collapsible=icon]:justify-center">
+          <div className="size-8 bg-black shrink-0 relative flex items-center justify-center overflow-hidden rounded-sm">
+            <Image src="/logo.png" alt="Sentinel Logo" fill sizes="32px" className="object-contain" unoptimized />
+          </div>
+          <span className="font-mono tracking-[0.3em] text-[10px] font-bold group-data-[collapsible=icon]:hidden">SENTINEL</span>
+        </Link>
       </SidebarHeader>
 
-      {/* Navigation */}
-      <SidebarContent>
+      <SidebarContent className="bg-black">
         <SidebarGroup>
-          <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden text-[9px] tracking-[0.4em] font-mono text-neutral-600 mt-4 mb-2">MODULES</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
+                const isOverview = item.href === "/";
+                const isDisabled = !isOverview && !logManagerEnabled;
+
                 const Icon = item.icon;
                 return (
-                  <SidebarMenuItem key={item.href} className="nav-item [perspective:1000px]">
+                  <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.name}
+                      disabled={isDisabled}
                       className={cn(
-                        "transition-all duration-300 ease-out hover:-translate-y-[1px] hover:shadow-lg",
-                        isActive
-                          ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 shadow-[0_8px_16px_rgba(245,158,11,0.1)]"
-                          : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-500/10 dark:hover:bg-zinc-800/50 hover:border-zinc-200 dark:hover:border-zinc-700/50 border border-transparent backdrop-blur-sm"
+                        "rounded-none h-10 transition-colors",
+                        isDisabled
+                          ? "opacity-50 cursor-not-allowed pointer-events-none text-neutral-600"
+                          : isActive
+                            ? "bg-white text-black hover:bg-neutral-200 hover:text-black"
+                            : "text-neutral-500 hover:bg-neutral-900 hover:text-white"
                       )}
-                      render={<Link href={item.href} prefetch={false} />}
+                      render={isDisabled ? <div /> : <Link href={item.href} prefetch={false} />}
                     >
-                      <Icon className="h-5 w-5" />
-                      <span>{item.name}</span>
+                      <Icon className="size-4" />
+                      <span className="font-mono text-[10px] tracking-[0.2em]">{item.name}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -100,67 +91,34 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* Footer */}
-      <SidebarFooter className="border-t border-zinc-200/50 dark:border-white/5 space-y-1 bg-transparent">
+      <SidebarFooter className="border-t border-neutral-900 bg-black p-2 space-y-1">
         <SidebarMenu>
-          {/* Push Notifications Toggle */}
-          <SidebarMenuItem className="nav-item">
+          <SidebarMenuItem>
             <SidebarMenuButton
               onClick={togglePush}
               disabled={pushLoading}
-              tooltip={subscribed ? "Disable Alerts" : "Enable Alerts"}
+              tooltip={subscribed ? "DISABLE_ALERTS" : "ENABLE_ALERTS"}
               className={cn(
-                "transition-all duration-300 ease-out hover:-translate-y-[1px] hover:shadow-lg",
+                "rounded-none h-10 transition-colors",
                 subscribed
-                  ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 shadow-[0_8px_16px_rgba(245,158,11,0.1)]"
-                  : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-500/10 dark:hover:bg-zinc-800/50 hover:border-zinc-200 dark:hover:border-zinc-700/50 border border-transparent backdrop-blur-sm"
+                  ? "text-white hover:bg-neutral-900"
+                  : "text-neutral-500 hover:bg-neutral-900 hover:text-white"
               )}
             >
               {subscribed ? (
                 <>
-                  <Bell className="h-5 w-5 shrink-0" />
-                  <span className="group-data-[collapsible=icon]:hidden">Alerts On</span>
+                  <Bell className="size-4 shrink-0" />
+                  <span className="font-mono text-[10px] tracking-[0.2em] group-data-[collapsible=icon]:hidden">ALERTS_ON</span>
                 </>
               ) : (
                 <>
-                  <BellOff className="h-5 w-5 shrink-0" />
-                  <span className="group-data-[collapsible=icon]:hidden">Alerts Off</span>
+                  <BellOff className="size-4 shrink-0" />
+                  <span className="font-mono text-[10px] tracking-[0.2em] group-data-[collapsible=icon]:hidden">ALERTS_OFF</span>
                 </>
               )}
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          {/* Theme Switcher */}
-          <SidebarMenuItem className="nav-item">
-            {mounted ? (
-              <SidebarMenuButton
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                tooltip={theme === "dark" ? "Light Mode" : "Dark Mode"}
-                className="transition-all duration-300 ease-out hover:-translate-y-[1px] hover:shadow-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-500/10 dark:hover:bg-zinc-800/50 hover:border-zinc-200 dark:hover:border-zinc-700/50 border border-transparent backdrop-blur-sm"
-              >
-                {theme === "dark" ? (
-                  <>
-                    <Sun className="h-5 w-5 text-amber-500 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">Light Mode</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="h-5 w-5 text-indigo-500 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">Dark Mode</span>
-                  </>
-                )}
-              </SidebarMenuButton>
-            ) : (
-              // Stable placeholder prevents SSR mismatch
-              <SidebarMenuButton
-                tooltip="Theme"
-                className="text-zinc-400 opacity-50 pointer-events-none"
-              >
-                <Palette className="h-5 w-5 shrink-0" />
-                <span className="group-data-[collapsible=icon]:hidden">Theme</span>
-              </SidebarMenuButton>
-            )}
-          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>

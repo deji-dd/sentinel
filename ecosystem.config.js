@@ -80,13 +80,13 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       // Fastify/Express are tiny. Kept very lean.
-      node_args: ["--max-old-space-size=64"],
+      node_args: ["--max-old-space-size=75"],
       env: { NODE_ENV: "development", ...apiEnv },
       env_production: { NODE_ENV: "production", ...apiEnv },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      max_memory_restart: "100M", // Hard cap
+      max_memory_restart: "125M", // Hard cap
       error_file: "./logs/api-error.log",
       out_file: "./logs/api-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",

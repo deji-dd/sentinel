@@ -1,81 +1,63 @@
-// import { FastifyPluginAsync } from "fastify";
-// import { SystemState } from "@sentinel/shared";
+import { FastifyInstance } from "fastify";
+import { UserConfig, Logger, constants, IpcClient } from "@sentinel/shared";
+import { z } from "zod";
 
-// export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
-//   fastify.get("/preferences", async (request, reply) => {
-//     try {
-//       const doc = SystemState.get("alert_preferences");
-//       if (doc) {
-//         return reply.send({ preferences: doc.preferences || {} });
-//       } else {
-//         // Return default preferences
-//         return reply.send({
-//           preferences: {
-//             energy_full: false,
-//             nerve_full: false,
-//             bazaar_sales: false,
-//             territory_changes: false,
-//           },
-//         });
-//       }
-//     } catch (error: any) {
-//       fastify.log.error(error);
-//       return reply.status(500).send({ error: "Failed to fetch preferences" });
-//     }
-//   });
+const logger = new Logger("api_settings");
 
-//   fastify.post("/preferences", async (request, reply) => {
-//     try {
-//       const body = request.body as Record<string, boolean>;
-//       if (!body) {
-//         return reply.status(400).send({ error: "Missing body" });
-//       }
+// Instantiate IPC Client to talk to the Worker process
+const workerIpcClient = new IpcClient(constants.worker_ipc_path);
 
-//       SystemState.upsert({
-//         id: "alert_preferences",
-//         last_updated: Math.floor(Date.now() / 1000),
-//         preferences: body,
-//       });
+const settingsSchema = z.object({
+  log_manager_enabled: z.boolean().optional(),
+  log_manager_cadence: z.number().min(5).max(3600).optional(),
+  crimes_module_enabled: z.boolean().optional(),
+});
 
-//       return reply.send({ success: true });
-//     } catch (error: any) {
-//       fastify.log.error(error);
-//       return reply.status(500).send({ error: "Failed to update preferences" });
-//     }
-//   });
+export async function settingsRoutes(fastify: FastifyInstance) {
+  fastify.get("/", async (request, reply) => {
+    try {
+      const config = UserConfig.findOne("global");
+      if (!config) return reply.send({});
+      return reply.send({
+        log_manager_enabled: config.log_manager_enabled ?? false,
+        log_manager_cadence: config.log_manager_cadence ?? 60,
+        crimes_module_enabled: config.crimes_module_enabled ?? false,
+      });
+    } catch (err) {
+      logger.error("Error fetching settings:", err);
+      return reply.status(500).send({ error: "Internal server error" });
+    }
+  });
 
-//   fastify.post("/push", async (request, reply) => {
-//     try {
-//       const body = request.body;
-//       if (!body) {
-//         return reply.status(400).send({ error: "Missing subscription object" });
-//       }
+  fastify.post("/", async (request, reply) => {
+    try {
+      const parsed = settingsSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "Invalid input",
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+      
+      let config = UserConfig.findOne("global");
+      if (!config) {
+        return reply.status(404).send({ error: "System uninitialized. Please setup API key first." });
+      }
 
-//       SystemState.upsert({
-//         id: "push_subscription",
-//         last_updated: Math.floor(Date.now() / 1000),
-//         subscription: body,
-//       });
+      config = { ...config, ...parsed.data, updated_at: Date.now() };
+      UserConfig.insertOne(config);
 
-//       return reply.send({ success: true });
-//     } catch (error: any) {
-//       fastify.log.error(error);
-//       return reply.status(500).send({ error: "Failed to save push subscription" });
-//     }
-//   });
+      // Notify the worker to update its internal schedules
+      try {
+        await workerIpcClient.send({ action: "settings_updated", data: {} });
+      } catch (e) {
+        logger.warn("Worker IPC not connected, worker might not be running.");
+      }
 
-//   fastify.delete("/push", async (request, reply) => {
-//     try {
-//       SystemState.upsert({
-//         id: "push_subscription",
-//         last_updated: Math.floor(Date.now() / 1000),
-//         subscription: null,
-//       });
-
-//       return reply.send({ success: true });
-//     } catch (error: any) {
-//       fastify.log.error(error);
-//       return reply.status(500).send({ error: "Failed to remove push subscription" });
-//     }
-//   });
-// };
+      return reply.send({ success: true });
+    } catch (err) {
+      logger.error("Error updating settings:", err);
+      return reply.status(500).send({ error: "Internal server error" });
+    }
+  });
+}

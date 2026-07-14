@@ -5,6 +5,7 @@ import type { TornSchema } from "@sentinel/shared";
 interface WorkerEvents {
   new_log: (log: TornSchema<"UserLog">) => void;
   reinit_ledger: (ledger: string) => void;
+  settings_updated: () => void;
 }
 
 class TypedEventEmitter extends EventEmitter {
