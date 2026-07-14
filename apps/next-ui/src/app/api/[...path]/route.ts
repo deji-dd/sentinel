@@ -13,9 +13,9 @@ async function handleProxy(req: NextRequest) {
 
     const env = getServerEnv();
     const apiUrl =
+      env.BOT_ORIGIN ||
       env.API_URL ||
       env.NEXT_PUBLIC_API_URL ||
-      env.BOT_ORIGIN ||
       "http://127.0.0.1:3001";
 
     const targetUrl = `${apiUrl.replace(/\/$/, "")}${backendPath}${searchParams}`;

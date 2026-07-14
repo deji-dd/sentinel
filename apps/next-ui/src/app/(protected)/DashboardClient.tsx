@@ -61,7 +61,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
 
     const connectWs = () => {
       // Resolve proper WS URL dynamically for network dev
-      let apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      let apiUrl = process.env.BOT_ORIGIN || process.env.NEXT_PUBLIC_API_URL;
       if (!apiUrl && typeof window !== "undefined") {
         apiUrl = `${window.location.protocol}//${window.location.hostname}:3001`;
       } else if (!apiUrl) {
@@ -235,7 +235,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
 
         {/* Settings Modal */}
         {isSettingsOpen && (
-          <SettingsModal 
+          <SettingsModal
             initialSettings={settings}
             onClose={() => setIsSettingsOpen(false)}
             onSave={async (newSettings) => {
@@ -253,14 +253,16 @@ export function DashboardClient({ initialData }: { initialData: any }) {
   );
 }
 
-function SettingsModal({ 
-  initialSettings, 
-  onClose, 
-  onSave 
-}: { 
-  initialSettings: any; 
-  onClose: () => void; 
-  onSave: (settings: any) => Promise<void>; 
+function SettingsModal({
+  initialSettings,
+  onClose,
+  onSave
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  initialSettings: any;
+  onClose: () => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onSave: (settings: any) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<{ log_manager_enabled: boolean; log_manager_cadence: number | string; crimes_module_enabled: boolean }>(initialSettings);
   const [isSaving, setIsSaving] = useState(false);
@@ -272,7 +274,7 @@ function SettingsModal({
       setError("Cadence must be a valid number of at least 5 seconds.");
       return;
     }
-    
+
     setIsSaving(true);
     setError(null);
     try {
@@ -282,6 +284,7 @@ function SettingsModal({
         crimes_module_enabled: draft.crimes_module_enabled,
       });
       onClose();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
       setError(e.message || "Failed to save settings");
       setIsSaving(false);
@@ -352,13 +355,13 @@ function SettingsModal({
           </div>
 
           <div className="pt-4 border-t border-neutral-900 flex justify-end gap-3">
-            <button 
+            <button
               onClick={onClose}
               className="px-4 py-2 text-xs font-mono tracking-widest text-neutral-500 hover:text-white transition-colors"
             >
               CANCEL
             </button>
-            <button 
+            <button
               onClick={handleSave}
               disabled={isSaving}
               className="px-4 py-2 bg-white text-black text-xs font-mono tracking-widest hover:bg-neutral-200 transition-colors disabled:opacity-50"
