@@ -11,6 +11,7 @@ import {
   ApiKeyRotator,
 } from "@sentinel/shared";
 import { runVerificationJob } from "../../job-runners/verification_engine.js";
+import { workerEvents } from "../event-bus.js";
 
 const logger = new Logger("worker_ipc");
 
@@ -38,8 +39,9 @@ export function setupIpcServer() {
             WorkerSchedules.insertOne(schedule);
             logger.info(`Force running worker: ${packet.data.worker_name}`);
           }
-        }
-        if (packet.action === "verify") {
+        } else if (packet.action === "reinit_ledger") {
+          workerEvents.emit("reinit_ledger", packet.data.ledger);
+        } else if (packet.action === "verify") {
           await runVerificationJob(packet.data);
         } else if (packet.action === "verify_bulk") {
           // Group jobs by guild_id

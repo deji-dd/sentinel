@@ -95,8 +95,7 @@ export async function handleVerificationEvent(
 
         const hasChanges =
           (data.roles_to_add?.length ?? 0) > 0 ||
-          (data.roles_to_remove?.length ?? 0) > 0 ||
-          data.new_nickname !== null;
+          (data.roles_to_remove?.length ?? 0) > 0;
 
         if (channel && hasChanges) {
           await channel.send({ embeds: [embed] }).catch(() => null);

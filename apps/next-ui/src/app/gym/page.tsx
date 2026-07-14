@@ -87,12 +87,16 @@ export default function GymDashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Gym Dashboard</h1>
         </div>
 
-        {gymState && gymState.gym_build_preference && (
+        {gymState && gymState.gym_build_preference && gymState.battlestats ? (
           <div className="grid grid-cols-1 gap-6 items-start">
             <EfficiencyTable state={gymState} onPreferenceChanged={fetchGymData} />
             <BoosterEfficiencyTable gymState={gymState} historyData={data} />
           </div>
-        )}
+        ) : gymState ? (
+          <div className="bg-muted/50 border rounded-lg p-8 text-center text-muted-foreground">
+            Please make sure you have shared your battlestats with Sentinel to view gym efficiency.
+          </div>
+        ) : null}
 
         <GymHistoryChart data={data} />
       </div>

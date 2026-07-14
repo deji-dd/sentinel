@@ -132,6 +132,28 @@ export async function runVerificationJob(
     });
   } catch (error) {
     if (error instanceof TornError) {
+      if (error.code === 6) {
+        // User is not linked to Torn. Strip their roles and reset nickname.
+        const rolesToRemove = Array.from(managedRoles).filter((roleId) =>
+          job.current_role_ids.includes(roleId)
+        );
+        const packet: VerificationSuccessResponse = {
+          guild_id: job.guild_id,
+          channel_id: job.channel_id,
+          discord_id: job.discord_id,
+          roles_to_add: null,
+          roles_to_remove: rolesToRemove.length > 0 ? rolesToRemove : null,
+          new_nickname: "", // Empty string removes the nickname
+        };
+        dispatchToBot({ action: "verification_success", data: packet });
+        
+        // Remove them from verified users db
+        VerifiedUsers.delete(job.discord_id);
+        
+        finishSync();
+        return;
+      }
+
       const packet: VerificationFailureResponse = {
         guild_id: job.guild_id,
         channel_id: job.channel_id,

@@ -176,6 +176,22 @@ export function startLogManager(): void {
     defaultCadenceSeconds: BACKWARD_CADENCE_SEC,
   });
 
+  workerEvents.on("reinit_ledger", (ledger: string) => {
+    const logger = new Logger(WORKER_NAME);
+    logger.info(`Explicit reinit requested for ${ledger} ledger`);
+    
+    if (ledger === "gym" && !isGymLedgerInitializing) {
+      isGymLedgerInitializing = true;
+      runGymLedgerInit().finally(() => { isGymLedgerInitializing = false; });
+    } else if (ledger === "items" && !isItemsLedgerInitializing) {
+      isItemsLedgerInitializing = true;
+      runItemsLedgerInit().finally(() => { isItemsLedgerInitializing = false; });
+    } else if (ledger === "crimes" && !isCrimesLedgerInitializing) {
+      isCrimesLedgerInitializing = true;
+      runCrimesLedgerInit().finally(() => { isCrimesLedgerInitializing = false; });
+    }
+  });
+
   workerEvents.on("new_log", async (log: TornSchema<"UserLog">) => {
     const logger = new Logger(WORKER_NAME);
     logger.info("Processing log: ", log.details.title);

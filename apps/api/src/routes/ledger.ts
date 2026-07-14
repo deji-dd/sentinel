@@ -169,7 +169,7 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
         JSON.stringify({
           action: "RECALCULATE_MAC",
           payload: { transactionId: transaction_id },
-        }),
+        }) + "\n"
       ).catch((err) => {
         logger.error("Failed to send RECALCULATE_MAC to worker:", err);
       });
@@ -201,6 +201,15 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
       } else {
         return reply.status(400).send({ error: "Invalid ledger type" });
       }
+
+      sendToWorker(
+        JSON.stringify({
+          action: "reinit_ledger",
+          data: { ledger },
+        }) + "\n"
+      ).catch((err) => {
+        logger.error("Failed to send REINIT_LEDGER to worker:", err);
+      });
 
       logger.info(`Requested re-initialization of ${ledger} ledger`);
       return reply.send({ success: true });

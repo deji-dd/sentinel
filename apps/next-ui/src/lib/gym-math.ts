@@ -165,6 +165,8 @@ export function getTargetRatios(buildType: BuildType, highStat: StatType): Recor
 }
 
 export function calculateEfficiencyData(state: GymStateData) {
+  if (!state.battlestats) return [];
+
   const stats: StatType[] = ["strength", "defense", "speed", "dexterity"];
   
   const totalStats = 
@@ -283,7 +285,7 @@ export function calculateBoosterEfficiency(
     dexterity: [],
   };
 
-  if (!state.items) return result;
+  if (!state.items || !state.battlestats) return result;
 
   const stats: StatType[] = ["strength", "defense", "speed", "dexterity"];
   const efficiencyData = calculateEfficiencyData(state);
