@@ -55,7 +55,7 @@ export default function SettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-8 max-w-4xl mx-auto min-h-screen pt-20">
+      <div className="md:p-8 p-0 max-w-4xl mx-auto min-h-screen pt-15">
         <div className="flex items-center gap-4 mb-12">
           <div className="dashboard-title">
             <h1 className="text-4xl font-black tracking-tighter text-zinc-900 dark:text-zinc-50 flex items-center gap-3">
@@ -110,7 +110,7 @@ export default function SettingsPage() {
 
           {/* Ledger Re-Initialization */}
           <Card>
-            <CardContent className="p-6">
+            <CardContent className="md:p-6 p-2">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-red-500/20 text-red-400 rounded-lg">
                   <Database size={24} />

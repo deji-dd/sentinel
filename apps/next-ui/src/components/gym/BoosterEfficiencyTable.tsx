@@ -10,6 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -47,11 +53,11 @@ export function BoosterEfficiencyTable({ gymState, historyData }: BoosterEfficie
   const [now] = useState(() => Date.now() / 1000);
   const efficiencies = useMemo(() => {
     const data = calculateBoosterEfficiency(gymState);
-    
+
     // 1. Calculate historical daily gain for each stat
     const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
     const recentHistory = historyData.filter(entry => entry.timestamp >= thirtyDaysAgo);
-    
+
     const gainsByStat: Record<string, number> = { strength: 0, defense: 0, speed: 0, dexterity: 0 };
     recentHistory.forEach(entry => {
       const stat = entry.stat_type.toLowerCase();
@@ -67,13 +73,13 @@ export function BoosterEfficiencyTable({ gymState, historyData }: BoosterEfficie
 
     // 2. Calculate Personal Value of Time (PVT) for each stat
     const pvtByStat: Record<string, number> = { strength: 0, defense: 0, speed: 0, dexterity: 0 };
-    
+
     // Create a new sorted copy based on the selected metric
     const sortedData = { ...data };
-    
+
     Object.keys(sortedData).forEach((statKey) => {
       const stat = statKey as StatType;
-      
+
       const dailyGain = gainsByStat[stat] / actualDaysPassed;
       if (dailyGain > 0) {
         // Find the SE for this stat to use as baseline
@@ -86,7 +92,7 @@ export function BoosterEfficiencyTable({ gymState, historyData }: BoosterEfficie
       }
 
       const pvtPerHour = pvtByStat[stat] || 0; // Fallback to 0 if no history
-      
+
       const dataWithTrueCost = sortedData[stat].map(item => ({
         ...item,
         trueCostToTarget: item.costToTarget + (item.cdToTarget * pvtPerHour)
@@ -102,7 +108,7 @@ export function BoosterEfficiencyTable({ gymState, historyData }: BoosterEfficie
         }
       });
     });
-    
+
     return {
       sortedData: sortedData as Record<StatType, (BoosterEfficiency & { trueCostToTarget: number })[]>,
       pvtByStat
@@ -133,7 +139,7 @@ export function BoosterEfficiencyTable({ gymState, historyData }: BoosterEfficie
             <TabsContent key={`pvt-${stat.value}`} value={stat.value} className="mt-0">
               {pvtByStat[stat.value] > 0 ? (
                 <div className="mb-4 text-sm text-muted-foreground bg-primary/5 p-3 rounded-md border border-primary/20">
-                  Based on your historical growth, an SE saves you enough time to price 1 hour of Booster CD at 
+                  Based on your historical growth, an SE saves you enough time to price 1 hour of Booster CD at
                   <span className="font-semibold text-primary ml-1">{formatCurrency(Math.floor(pvtByStat[stat.value]))}</span>.
                 </div>
               ) : (
@@ -144,38 +150,52 @@ export function BoosterEfficiencyTable({ gymState, historyData }: BoosterEfficie
             </TabsContent>
           ))}
 
-          <div className="flex items-center justify-between mb-4">
-            <TabsList>
-              {stats.map((stat) => (
-                <TabsTrigger key={stat.value} value={stat.value}>
-                  {stat.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
+            <div className="flex flex-col gap-5">
+              <TabsList className={"self-center"}>
+                {stats.map((stat) => (
+                  <TabsTrigger key={stat.value} value={stat.value}>
+                    {stat.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
 
-            <div className="flex items-center gap-2 text-sm">
+              {/* Mobile Select Dropdown */}
+              <div className="sm:hidden block self-end">
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                <Select value={sortBy} onValueChange={(val: any) => setSortBy(val)}>
+                  <SelectTrigger className="w-[140px] h-9">
+                    {sortBy === "true_cost" ? "True Cost" : sortBy === "cost" ? "Cost per 1%" : "CD per 1%"}
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true_cost">True Cost</SelectItem>
+                    <SelectItem value="cost">Cost per 1%</SelectItem>
+                    <SelectItem value="time">CD per 1%</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Sort By:</span>
               <div className="flex bg-muted p-1 rounded-md overflow-x-auto whitespace-nowrap">
                 <button
-                  className={`px-3 py-1 rounded-sm transition-all ${
-                    sortBy === "true_cost" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`px-3 py-1 rounded-sm transition-all ${sortBy === "true_cost" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   onClick={() => setSortBy("true_cost")}
                 >
                   True Cost (Cost + PVT)
                 </button>
                 <button
-                  className={`px-3 py-1 rounded-sm transition-all ${
-                    sortBy === "cost" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`px-3 py-1 rounded-sm transition-all ${sortBy === "cost" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   onClick={() => setSortBy("cost")}
                 >
                   Cost per 1% Gain
                 </button>
                 <button
-                  className={`px-3 py-1 rounded-sm transition-all ${
-                    sortBy === "time" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`px-3 py-1 rounded-sm transition-all ${sortBy === "time" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   onClick={() => setSortBy("time")}
                 >
                   CD per 1% Gain

@@ -160,10 +160,6 @@ export function DashboardClient({ initialData }: { initialData: any }) {
                   {Math.floor(data.uptime / 3600)}<span className="text-zinc-500 text-xl font-sans">h</span> {" "}
                   {Math.floor((data.uptime % 3600) / 60)}<span className="text-zinc-500 text-xl font-sans">m</span>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b border-white/5">
-                  <span className="text-zinc-500">Events Processed</span>
-                  <span className="font-mono text-white">{data.ledger.events_processed_today.toLocaleString()}</span>
-                </div>
               </CardContent>
             </Card>
 
@@ -173,7 +169,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
                   <Database size={16} className="text-blue-500" />
                   <h3 className="font-semibold text-sm">Ledger Backfill Status</h3>
                 </div>
-                
+
                 {syncData ? (
                   <div className="space-y-4">
                     {syncData.is_historical_sync_complete ? (

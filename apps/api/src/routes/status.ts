@@ -127,7 +127,7 @@ export default async function statusRoutes(fastify: FastifyInstance) {
     try {
       const stateId = "personal_log_sync_state_singleton";
       const state = LogSyncStates.findOne(stateId);
-      
+
       if (!state) {
         return reply.status(404).send({ error: "Sync state not found" });
       }

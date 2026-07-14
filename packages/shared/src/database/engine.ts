@@ -98,7 +98,7 @@ export class SentinelDatabase {
 
     // Default to -25000 (25MB) for dev, -100000 (100MB) for prod, or custom env value
     const cacheSize =
-      process.env.SQLITE_CACHE_SIZE || (isProd ? "-50000" : "-250000");
+      process.env.SQLITE_CACHE_SIZE || (isProd ? "-750000" : "-250000");
     // Default to 256MB for dev, 1GB for prod, or custom env value
     const mmapSize =
       process.env.SQLITE_MMAP_SIZE || (isProd ? "1073741824" : "1073741824");
