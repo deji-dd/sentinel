@@ -1,68 +1,47 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { usePush } from "@/hooks/use-push";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Bell, BellOff, Settings, Zap, Target, Activity } from "lucide-react";
+import { Bell, BellOff, Settings, Database } from "lucide-react";
 import { toast } from "sonner";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 
 export default function SettingsPage() {
   const { subscribed, loading, toggle } = usePush();
-  const [preferences, setPreferences] = useState({
-    energy_full: false,
-    nerve_full: false,
-    bazaar_sales: false,
-    territory_changes: false,
-  });
 
-  const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
-  const showLoader = useMinimumLoading(loading || isLoadingPreferences, 2000);
+  const showLoader = useMinimumLoading(loading, 2000);
 
-  // Fetch initial preferences from backend
-  useEffect(() => {
-    const fetchPreferences = async () => {
-      try {
-        const res = await fetch("/api/settings/preferences");
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.preferences) {
-            setPreferences(data.preferences);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch preferences:", err);
-      } finally {
-        setIsLoadingPreferences(false);
-      }
-    };
-    fetchPreferences();
-  }, []);
-
-  const handlePreferenceChange = async (key: keyof typeof preferences, checked: boolean) => {
-    const newPreferences = { ...preferences, [key]: checked };
-    setPreferences(newPreferences);
-
+  const handleReinitLedger = async (ledger: "gym" | "items" | "crimes" | "war") => {
     try {
-      const res = await fetch("/api/settings/preferences", {
+      const res = await fetch("/api/ledger/reinit", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(newPreferences),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ledger }),
       });
-
-      if (!res.ok) throw new Error("Failed to save preferences");
-      toast.success("Preferences updated");
+      if (res.ok) {
+        toast.success(`Successfully requested ${ledger} ledger re-initialization`);
+      } else {
+        toast.error(`Failed to re-initialize ${ledger} ledger`);
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to update preferences");
-      // Revert on failure
-      setPreferences(preferences);
+      toast.error(`An error occurred while re-initializing ${ledger} ledger`);
     }
   };
 
@@ -129,68 +108,56 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Preferences Card */}
+          {/* Ledger Re-Initialization */}
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg">
-                  <Target size={24} />
+                <div className="p-2 bg-red-500/20 text-red-400 rounded-lg">
+                  <Database size={24} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">Alert Preferences</h2>
-                  <p className="text-sm text-zinc-400">Select which events you want to be notified about.</p>
+                  <h2 className="text-xl font-bold">Ledger Re-Initialization</h2>
+                  <p className="text-sm text-zinc-500">Recalculate historical data</p>
                 </div>
               </div>
-
               <div className="space-y-4">
                 {[
-                  {
-                    id: "energy_full",
-                    title: "Energy Full",
-                    description: "Get notified when your energy reaches maximum capacity.",
-                    icon: <Zap className="w-5 h-5 text-amber-500" />
-                  },
-                  {
-                    id: "nerve_full",
-                    title: "Nerve Full",
-                    description: "Get notified when your nerve reaches maximum capacity.",
-                    icon: <Activity className="w-5 h-5 text-rose-500" />
-                  },
-                  {
-                    id: "bazaar_sales",
-                    title: "Bazaar Sales",
-                    description: "Get notified immediately when an item sells in your bazaar.",
-                    icon: <span className="text-xl">🏪</span>
-                  },
-                  {
-                    id: "territory_changes",
-                    title: "Territory Changes",
-                    description: "Get notified about relevant faction territory events.",
-                    icon: <span className="text-xl">🗺️</span>
-                  }
-                ].map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-4 bg-white/5 dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5 transition-colors hover:bg-white/10 dark:hover:bg-white/5">
-                    <div className="flex items-center gap-4">
-                      <div className="p-2 bg-white/10 dark:bg-white/5 rounded-lg shadow-sm">
-                        {item.icon}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{item.title}</h3>
-                        <p className="text-sm text-zinc-500">{item.description}</p>
-                      </div>
+                  { id: "gym", title: "Gym Ledger" },
+                  { id: "items", title: "Items Ledger" },
+                  { id: "crimes", title: "Crimes Ledger" },
+                  { id: "war", title: "Territory War Ledger" },
+                ].map((ledger) => (
+                  <div key={ledger.id} className="flex items-center justify-between p-4 bg-white/5 dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5 transition-colors">
+                    <div>
+                      <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{ledger.title}</h3>
+                      <p className="text-sm text-zinc-500">Delete all existing records and rebuild from raw logs</p>
                     </div>
-                    <Switch
-                      checked={preferences[item.id as keyof typeof preferences]}
-                      onCheckedChange={(checked) => handlePreferenceChange(item.id as keyof typeof preferences, checked)}
-                      disabled={isLoadingPreferences || !subscribed}
-                    />
+                    <AlertDialog>
+                      <AlertDialogTrigger className={buttonVariants({ variant: "destructive", size: "sm" })}>
+                        Re-Initialize
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will delete the current {ledger.title} state and recalculate it from all logs.
+                            The dashboard may be inaccurate while the ledger backfills.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-red-500 hover:bg-red-600"
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            onClick={() => handleReinitLedger(ledger.id as any)}
+                          >
+                            Continue
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 ))}
-                {!subscribed && (
-                  <p className="text-sm text-amber-500/80 mt-4 px-2">
-                    * You must enable Push Notifications above before toggling these preferences.
-                  </p>
-                )}
               </div>
             </CardContent>
           </Card>

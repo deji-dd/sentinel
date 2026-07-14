@@ -12,6 +12,8 @@ import {
 import { workerEvents } from "../../lib/event-bus.js";
 import { runCrimesLedgerInit } from "./inits/crimes-ledger.js";
 import { parseCrimes } from "./parsers/crimes.js";
+import { runGymLedgerInit } from "./inits/gym-ledger.js";
+import { parseGym } from "./parsers/gym.js";
 import { parseCompanyProfit } from "./parsers/company-profit.js";
 import { runItemsLedgerInit } from "./inits/items-ledger.js";
 import { parseStandardCash } from "./parsers/standard-cash.js";
@@ -32,6 +34,7 @@ const WORKER_NAME = "log_manager";
 
 let isCrimesLedgerInitializing = false;
 let isItemsLedgerInitializing = false;
+let isGymLedgerInitializing = false;
 
 // Polling interval for new logs
 const FORWARD_CADENCE_SEC = 60; // 60 seconds
@@ -206,7 +209,7 @@ export function startLogManager(): void {
 
       if (!isCrimesLedgerInit && !isCrimesLedgerInitializing) {
         isCrimesLedgerInitializing = true;
-        runCrimesLedgerInit().catch(() => {
+        runCrimesLedgerInit().finally(() => {
           isCrimesLedgerInitializing = false;
         });
       }
@@ -219,9 +222,34 @@ export function startLogManager(): void {
         isCrimesLedgerInit = crimesLedgerInitState?.init || false;
       }
 
+      let gymLedgerInitState = SystemState.find<CrimesInitState>({
+        id: "gym_ledger_init_state",
+      })[0];
+      let isGymLedgerInit = gymLedgerInitState?.init || false;
+
+      if (!isGymLedgerInit && !isGymLedgerInitializing) {
+        isGymLedgerInitializing = true;
+        runGymLedgerInit().finally(() => {
+          isGymLedgerInitializing = false;
+        });
+      }
+
+      while (!isGymLedgerInit) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        gymLedgerInitState = SystemState.find<CrimesInitState>({
+          id: "gym_ledger_init_state",
+        })[0];
+        isGymLedgerInit = gymLedgerInitState?.init || false;
+      }
+
+      itemsLedgerInitState = SystemState.find<CrimesInitState>({
+        id: "items_ledger_init_state",
+      })[0];
+      isItemsLedgerInit = itemsLedgerInitState?.init || false;
+
       if (!isItemsLedgerInit && !isItemsLedgerInitializing) {
         isItemsLedgerInitializing = true;
-        runItemsLedgerInit().catch(() => {
+        runItemsLedgerInit().finally(() => {
           isItemsLedgerInitializing = false;
         });
       }
@@ -236,6 +264,16 @@ export function startLogManager(): void {
 
       const logType = log.details.id;
       const logCategory = log.details.category;
+
+      if ([5300, 5301, 5302, 5303, 5310].includes(logType)) {
+        if (
+          !gymLedgerInitState?.timestamp ||
+          log.timestamp > gymLedgerInitState.timestamp
+        ) {
+          parseGym(log);
+          logger.info("Parsed gym log.");
+        }
+      }
 
       if (logCategory === "Crimes") {
         if (
@@ -294,10 +332,18 @@ export function startLogManager(): void {
 
           logger.info("Parsed zero cost injection log.");
         } else if (
-          [1104, 1107, 1109, 1111, 1162, 2212, 4800, 5202, 5205].includes(
-            logType,
-          ) ||
-          ["Museum", "Refills", "Church", "Item use"].includes(logCategory)
+          [
+            1104, 1107, 1109, 1111, 1162, 2212, 4800, 5202, 5205, 4900, 4905,
+            4910, 4915, 4920, 4925, 4926, 4927, 4930, 4935, 4940, 4945, 4950,
+            4955, 4960, 4965, 4970, 4975, 4976, 4977, 4978,
+          ].includes(logType) ||
+          [
+            "Museum",
+            "Refills",
+            "Church",
+            "Item use",
+            "Points building",
+          ].includes(logCategory)
         ) {
           parseTransformationSink(log);
 

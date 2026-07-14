@@ -15,6 +15,7 @@ import {
   Settings,
   Landmark,
   Target,
+  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,6 +36,7 @@ const navItems = [
   { name: "Overview", href: "/", icon: Home },
   { name: "Wealth Matrix", href: "/wealth", icon: Landmark },
   { name: "Crime Ledger", href: "/crimes", icon: Target },
+  { name: "Gym", href: "/gym", icon: Activity },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

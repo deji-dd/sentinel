@@ -10,6 +10,7 @@ import {
   SystemState,
   ApiKeyRotator,
   LedgerEvents,
+  CashHistory,
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 
@@ -56,6 +57,7 @@ export async function runItemsLedgerInit(): Promise<void> {
 
     Assets.deleteManyBy({});
     LedgerEvents.deleteManyBy({});
+    CashHistory.deleteManyBy({});
 
     // Fetch Bazaar, Display, and Points (money selection)
     const userRes = (await tornApi.get("/user", {

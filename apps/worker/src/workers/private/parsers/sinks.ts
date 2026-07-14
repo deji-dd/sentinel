@@ -171,6 +171,7 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
   // 3. Consumption & Loss (Medical, Drugs, Boosters, Crime Losses)
   else if (
     category?.startsWith("Item use") ||
+    category === "Points building" ||
     data.items_lost ||
     logId === 6726 ||
     logId === 6727 ||
@@ -201,10 +202,14 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     }
 
     // Cash / Point Sinks
-    if (data.points_lost || data.points) {
-      // points_lost = crime/church/faction
-      const points = data.points_lost || data.points;
-      totalLoss += burnAsset("points", points);
+    if (data.points_lost || data.points || data.points_used) {
+      const usedFromFaction = typeof data.faction === "string" && data.faction.trim() !== "";
+      
+      if (!usedFromFaction) {
+        // points_lost = crime/church/faction
+        const points = data.points_lost || data.points || data.points_used;
+        totalLoss += burnAsset("points", points);
+      }
     }
     if (data.money_lost || data.money) {
       const money = data.money_lost || data.money;

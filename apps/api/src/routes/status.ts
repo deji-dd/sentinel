@@ -4,6 +4,7 @@ import {
   WorkerSchedules,
   sentinelDbEngine,
   SystemState,
+  LogSyncStates,
 } from "@sentinel/shared";
 import net from "net";
 
@@ -120,5 +121,24 @@ export default async function statusRoutes(fastify: FastifyInstance) {
     };
 
     return response;
+  });
+
+  fastify.get("/api/status/sync", async (request, reply) => {
+    try {
+      const stateId = "personal_log_sync_state_singleton";
+      const state = LogSyncStates.findOne(stateId);
+      
+      if (!state) {
+        return reply.status(404).send({ error: "Sync state not found" });
+      }
+
+      return reply.send({
+        is_historical_sync_complete: state.is_historical_sync_complete,
+        earliest_timestamp: state.earliest_timestamp,
+        latest_timestamp: state.latest_timestamp,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ error: "Internal Server Error" });
+    }
   });
 }

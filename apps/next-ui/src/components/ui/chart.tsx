@@ -202,7 +202,7 @@ function ChartTooltipContent({
           .map((item, index) => {
             const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`
             const itemConfig = getPayloadConfigFromPayload(config, item, key)
-            const indicatorColor = color ?? item.payload?.fill ?? item.color
+            const indicatorColor = color ?? itemConfig?.color ?? itemConfig?.theme?.light ?? item.payload?.fill ?? item.color
 
             return (
               <div
@@ -315,7 +315,7 @@ function ChartLegendContent({
                 <div
                   className="h-2 w-2 shrink-0 rounded-[2px]"
                   style={{
-                    backgroundColor: item.color,
+                    backgroundColor: itemConfig?.color || itemConfig?.theme?.light || item.color,
                   }}
                 />
               )}

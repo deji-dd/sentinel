@@ -10,6 +10,7 @@ import healthRoutes from "./routes/health.js";
 import statusRoutes from "./routes/status.js";
 import ledgerRoutes from "./routes/ledger.js";
 import { crimesRoutes } from "./routes/crimes.js";
+import { gymRoutes } from "./routes/gym.js";
 // import { settingsRoutes } from "./routes/settings.js";
 import cors from "@fastify/cors";
 
@@ -29,6 +30,7 @@ fastify.register(healthRoutes);
 fastify.register(statusRoutes);
 fastify.register(ledgerRoutes);
 fastify.register(crimesRoutes, { prefix: "/api/crimes" });
+fastify.register(gymRoutes, { prefix: "/api/gym" });
 // fastify.register(settingsRoutes, { prefix: "/api/settings" });
 
 async function start() {

@@ -29,7 +29,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import Select from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 // import { Separator } from "@/components/ui/separator";
 import { ErrorState } from "@/components/error-state";
 import {
@@ -288,7 +294,9 @@ export default function FinanceLedgerPage() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData(false, timeframe);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
 
   const runSyncAction = async (target: "logs" | "portfolio") => {
@@ -370,6 +378,7 @@ export default function FinanceLedgerPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading && !data) {
@@ -661,11 +670,20 @@ export default function FinanceLedgerPage() {
         <div className="mb-6">
           <div className="sm:hidden">
             <Select
-              id="finance-tab-select"
               value={activeTab}
-              onChange={(v) => setActiveTab(v as typeof activeTab)}
-              options={tabOptions.map((o) => ({ value: o.value, label: o.label }))}
-            />
+              onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+            >
+              <SelectTrigger id="finance-tab-select">
+                <SelectValue placeholder="Select tab" />
+              </SelectTrigger>
+              <SelectContent>
+                {tabOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <Tabs
@@ -721,11 +739,10 @@ export default function FinanceLedgerPage() {
                         <button
                           key={tf}
                           onClick={() => setTimeframe(tf)}
-                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                            timeframe === tf
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${timeframe === tf
                               ? "bg-white dark:bg-zinc-950 text-zinc-950 dark:text-zinc-50 shadow-sm"
                               : "text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-200"
-                          }`}
+                            }`}
                         >
                           {tf.toUpperCase()}
                         </button>

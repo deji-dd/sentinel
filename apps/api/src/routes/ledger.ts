@@ -183,4 +183,30 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: "Internal Server Error" });
     }
   });
+
+  fastify.post("/api/ledger/reinit", async (request, reply) => {
+    try {
+      const { ledger } = request.body as { ledger: "gym" | "items" | "crimes" | "war" };
+      
+      const { SystemState } = await import("@sentinel/shared");
+      
+      if (ledger === "gym") {
+        SystemState.delete("gym_ledger_init_state");
+      } else if (ledger === "items") {
+        SystemState.delete("items_ledger_init_state");
+      } else if (ledger === "crimes") {
+        SystemState.delete("crimes_ledger_init_state");
+      } else if (ledger === "war") {
+        SystemState.delete("war_ledger_init_state");
+      } else {
+        return reply.status(400).send({ error: "Invalid ledger type" });
+      }
+
+      logger.info(`Requested re-initialization of ${ledger} ledger`);
+      return reply.send({ success: true });
+    } catch (err: any) {
+      logger.error("Failed to re-initialize ledger:", err);
+      return reply.status(500).send({ error: "Internal Server Error" });
+    }
+  });
 }

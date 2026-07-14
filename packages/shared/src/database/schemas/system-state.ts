@@ -11,7 +11,7 @@ type InitState =
       init: boolean;
     }
   | {
-      id: "crimes_ledger_init_state" | "items_ledger_init_state";
+      id: "crimes_ledger_init_state" | "items_ledger_init_state" | "gym_ledger_init_state";
       init: boolean;
       timestamp: number;
     };

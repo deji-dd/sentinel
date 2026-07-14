@@ -20,6 +20,12 @@ export function DashboardClient({ initialData }: { initialData: any }) {
     ledger: { active_parsers: 0, events_processed_today: 0 }
   });
 
+  const [syncData, setSyncData] = useState<{
+    is_historical_sync_complete: boolean;
+    earliest_timestamp: number;
+    latest_timestamp: number;
+  } | null>(null);
+
   const { setSyncOptions, setLastSyncedText } = useSync();
 
   const fetchStatus = async () => {
@@ -39,6 +45,16 @@ export function DashboardClient({ initialData }: { initialData: any }) {
     } catch (err) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setData((prev: any) => ({ ...prev, status: "offline" }));
+    }
+
+    try {
+      const syncRes = await fetch("/api/status/sync", { cache: "no-store" });
+      if (syncRes.ok) {
+        const syncJson = await syncRes.json();
+        setSyncData(syncJson);
+      }
+    } catch (err) {
+      console.error("Failed to fetch sync status", err);
     }
   };
 
@@ -140,10 +156,49 @@ export function DashboardClient({ initialData }: { initialData: any }) {
                   </div>
                   <h2 className="text-xl font-bold">Gateway Uptime</h2>
                 </div>
-                <div className="text-4xl font-black font-mono tracking-tighter">
+                <div className="text-4xl font-black font-mono tracking-tighter mb-4">
                   {Math.floor(data.uptime / 3600)}<span className="text-zinc-500 text-xl font-sans">h</span> {" "}
                   {Math.floor((data.uptime % 3600) / 60)}<span className="text-zinc-500 text-xl font-sans">m</span>
                 </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-zinc-500">Events Processed</span>
+                  <span className="font-mono text-white">{data.ledger.events_processed_today.toLocaleString()}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6 flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-4">
+                  <Database size={16} className="text-blue-500" />
+                  <h3 className="font-semibold text-sm">Ledger Backfill Status</h3>
+                </div>
+                
+                {syncData ? (
+                  <div className="space-y-4">
+                    {syncData.is_historical_sync_complete ? (
+                      <div className="flex items-center gap-2 text-emerald-400 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20">
+                        <Activity size={16} />
+                        <span className="font-medium text-sm">100% Complete</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-amber-400 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">
+                          <Clock size={16} className="animate-pulse" />
+                          <span className="font-medium text-sm">Backfilling in progress...</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground flex justify-between">
+                          <span>Reached Date:</span>
+                          <span className="font-mono text-foreground">
+                            {new Date(syncData.earliest_timestamp * 1000).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">Status unknown</div>
+                )}
               </CardContent>
             </Card>
           </div>
