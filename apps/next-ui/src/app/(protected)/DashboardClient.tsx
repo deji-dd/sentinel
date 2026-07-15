@@ -268,7 +268,10 @@ function SettingsModal({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onSave: (settings: any) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<{ log_manager_enabled: boolean; log_manager_cadence: number | string; crimes_module_enabled: boolean }>(initialSettings);
+  const [draft, setDraft] = useState<{ log_manager_enabled: boolean; log_manager_cadence: number | string }>({
+    log_manager_enabled: initialSettings.log_manager_enabled,
+    log_manager_cadence: initialSettings.log_manager_cadence,
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -285,7 +288,6 @@ function SettingsModal({
       await onSave({
         log_manager_enabled: draft.log_manager_enabled,
         log_manager_cadence: cadence,
-        crimes_module_enabled: draft.crimes_module_enabled,
       });
       onClose();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -323,19 +325,6 @@ function SettingsModal({
               className={`w-12 h-6 rounded-none transition-colors relative ${draft.log_manager_enabled ? 'bg-white' : 'bg-neutral-800'}`}
             >
               <div className={`absolute top-1 left-1 size-4 bg-black rounded-none transition-transform ${draft.log_manager_enabled ? 'translate-x-6' : ''}`} />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-mono text-sm text-white">CRIMES_MODULE</div>
-              <div className="text-xs text-neutral-500 mt-1">Enable crime ledger tracking and analysis.</div>
-            </div>
-            <button
-              onClick={() => setDraft(s => ({ ...s, crimes_module_enabled: !s.crimes_module_enabled }))}
-              className={`w-12 h-6 rounded-none transition-colors relative ${draft.crimes_module_enabled ? 'bg-white' : 'bg-neutral-800'}`}
-            >
-              <div className={`absolute top-1 left-1 size-4 bg-black rounded-none transition-transform ${draft.crimes_module_enabled ? 'translate-x-6' : ''}`} />
             </button>
           </div>
 

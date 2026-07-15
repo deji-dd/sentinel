@@ -101,12 +101,12 @@ export function CrimeBarChart({ data }: CrimeBarChartProps) {
       <div className="flex items-center gap-2 font-mono text-white text-[10px] uppercase tracking-[0.2em] mb-6">
         <BarChart3 size={16} /> VALUE_DISTRIBUTION
       </div>
-      <div className="w-full h-[400px]">
+      <div className="-mx-6 md:mx-0 w-[calc(100%+3rem)] md:w-full h-[400px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
             layout="vertical"
-            margin={{ top: 0, right: 30, left: 40, bottom: 0 }}
+            margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
           >
             <XAxis type="number" hide />
             <YAxis

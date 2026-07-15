@@ -19,7 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Activity, Target } from "lucide-react";
+import { motion } from "framer-motion";
+import { Activity, Settings, Target } from "lucide-react";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 import { CrimeKPICards } from "@/components/crimes/CrimeKPICards";
@@ -41,6 +42,8 @@ export default function CrimesDashboard() {
   const [recentLogs, setRecentLogs] = useState<RecentCrimeLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
+  const [moduleDisabled, setModuleDisabled] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([{ id: "profit_per_nerve", desc: true }]);
   const showLoader = useMinimumLoading(loading, 2000);
 
@@ -52,13 +55,18 @@ export default function CrimesDashboard() {
       const res = await fetch("/api/crimes");
       if (!res.ok) throw new Error("Failed to fetch crime ROI");
       const json = await res.json();
-      
-      if (json.initializing) {
+
+      if (json.module_disabled) {
+        setModuleDisabled(true);
+        setIsPolling(false);
+      } else if (json.initializing) {
+        setModuleDisabled(false);
         setIsPolling(true);
       } else {
+        setModuleDisabled(false);
         setIsPolling(false);
         setData(json.data || []);
-        
+
         // Fetch recent logs once we have data
         const recentRes = await fetch("/api/crimes/recent");
         if (recentRes.ok) {
@@ -174,14 +182,13 @@ export default function CrimesDashboard() {
 
   const handleInitialize = async () => {
     try {
-      const newSettings = { ...settings, crimes_module_enabled: true };
-      setSettings(newSettings);
+      // Wait for the settings to be persisted before polling
       await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ crimes_module_enabled: true })
       });
-      // Also fetch baseline if needed, but for now just enabling the module allows data viewing.
+      setSettings({ ...settings, crimes_module_enabled: true });
       fetchCrimes();
     } catch (e) {
       console.error(e);
@@ -191,7 +198,7 @@ export default function CrimesDashboard() {
   return (
     <DashboardLayout>
       <ModuleGuard>
-        {!settings.crimes_module_enabled ? (
+        {moduleDisabled ? (
           <div className="flex-1 flex flex-col items-center justify-center h-[80vh] text-center p-8">
             <Target size={32} className="text-white mb-6" />
             <div className="text-white font-mono tracking-widest text-sm mb-4 uppercase">
@@ -209,13 +216,21 @@ export default function CrimesDashboard() {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto flex flex-col gap-6 pt-15">
-          <header className="mb-2 border-b border-neutral-900 pb-4">
-            <h1 className="text-xl font-mono text-white flex items-center gap-3 uppercase tracking-[0.2em]">
-              <Target size={20} className="text-white" /> CRIME_LEDGER
-            </h1>
-            <p className="text-neutral-500 font-mono text-[10px] mt-2 uppercase tracking-[0.2em]">
-              True Return on Investment for crimes, factoring in failure rates and critical fails.
-            </p>
+          <header className="mb-2 border-b border-neutral-900 pb-4 flex items-start justify-between">
+            <div>
+              <h1 className="text-xl font-mono text-white flex items-center gap-3 uppercase tracking-[0.2em]">
+                <Target size={20} className="text-white" /> CRIME_LEDGER
+              </h1>
+              <p className="text-neutral-500 font-mono text-[10px] mt-2 uppercase tracking-[0.2em]">
+                True Return on Investment for crimes, factoring in failure rates and critical fails.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 text-neutral-500 hover:text-white hover:bg-neutral-900 transition-colors rounded-sm shrink-0"
+            >
+              <Settings size={16} />
+            </button>
           </header>
 
           {data.length > 0 && (
@@ -270,7 +285,103 @@ export default function CrimesDashboard() {
           <RecentCrimesTable data={recentLogs} />
         </div>
         )}
+
+        {isSettingsOpen && (
+          <CrimesSettingsModal
+            enabled={!moduleDisabled}
+            onClose={() => setIsSettingsOpen(false)}
+            onSave={async (enabled) => {
+              await fetch("/api/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ crimes_module_enabled: enabled }),
+              });
+              setSettings({ ...settings, crimes_module_enabled: enabled });
+              fetchCrimes();
+            }}
+          />
+        )}
       </ModuleGuard>
     </DashboardLayout>
+  );
+}
+
+function CrimesSettingsModal({
+  enabled,
+  onClose,
+  onSave,
+}: {
+  enabled: boolean;
+  onClose: () => void;
+  onSave: (enabled: boolean) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(enabled);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSave(draft);
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-md bg-black border border-neutral-800 p-6 shadow-2xl relative"
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-neutral-500 hover:text-white"
+        >
+          ✕
+        </button>
+        <h2 className="text-xl font-mono text-white mb-6 uppercase tracking-widest border-b border-neutral-900 pb-4">
+          CRIMES_SETTINGS
+        </h2>
+
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-mono text-sm text-white">CRIMES_MODULE</div>
+              <div className="text-xs text-neutral-500 mt-1">Enable crime ledger tracking and analysis.</div>
+            </div>
+            <button
+              onClick={() => setDraft((d) => !d)}
+              className={`w-12 h-6 rounded-none transition-colors relative ${
+                draft ? "bg-white" : "bg-neutral-800"
+              }`}
+            >
+              <div
+                className={`absolute top-1 left-1 size-4 bg-black rounded-none transition-transform ${
+                  draft ? "translate-x-6" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="pt-4 border-t border-neutral-900 flex justify-end gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-mono tracking-widest text-neutral-500 hover:text-white transition-colors"
+            >
+              CANCEL
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-4 py-2 bg-white text-black text-xs font-mono tracking-widest hover:bg-neutral-200 transition-colors disabled:opacity-50"
+            >
+              {isSaving ? "SAVING..." : "SAVE"}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }

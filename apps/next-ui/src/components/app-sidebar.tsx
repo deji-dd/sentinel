@@ -9,9 +9,7 @@ import {
   Home,
   Bell,
   BellOff,
-  Landmark,
   Target,
-  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,9 +28,7 @@ import { useSettings } from "@/components/settings-provider";
 
 const navItems = [
   { name: "OVERVIEW", href: "/", icon: Home },
-  { name: "WEALTH_MATRIX", href: "/wealth", icon: Landmark },
   { name: "CRIME_LEDGER", href: "/crimes", icon: Target },
-  { name: "GYM_LOGS", href: "/gym", icon: Activity },
 ];
 
 export function AppSidebar() {

@@ -21,7 +21,12 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
-      const startTimestamp = Math.floor(todayStart.getTime() / 1000);
+      const todayStartTimestamp = Math.floor(todayStart.getTime() / 1000);
+
+      // If crimes was initialized mid-day, only return logs from that point onwards
+      const initState = SystemState.findOne<InitState>("crimes_ledger_init_state");
+      const initTimestamp = initState?.timestamp ?? 0;
+      const startTimestamp = Math.max(todayStartTimestamp, initTimestamp);
 
       const logs = sentinelDbEngine.db.prepare(
         `SELECT data FROM nosql_personal_logs 
@@ -62,13 +67,16 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/", async (request, reply) => {
     try {
       const config = UserConfig.findOne("global");
-      if (config?.crimes_module_enabled) {
-        const initState = SystemState.findOne<InitState>(
-          "crimes_ledger_init_state",
-        );
-        if (!initState || !initState.init) {
-          return reply.send({ data: [], initializing: true });
-        }
+
+      if (!config?.crimes_module_enabled) {
+        return reply.send({ data: [], module_disabled: true });
+      }
+
+      const initState = SystemState.findOne<InitState>(
+        "crimes_ledger_init_state",
+      );
+      if (!initState || !initState.init) {
+        return reply.send({ data: [], initializing: true });
       }
 
       const ledgers = CrimeLedger.findAll();

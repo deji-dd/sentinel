@@ -259,7 +259,7 @@ export function getWorkerApiKey(
     try {
       const config = UserConfig.findOne("global");
       if (config?.api_key) {
-        return config.api_key;
+        return decryptApiKey(config.api_key, ENCRYPTION_KEY);
       }
     } catch {
       // DB may not be ready yet during early boot — fall through to env

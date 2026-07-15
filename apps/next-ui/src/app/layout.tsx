@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   description: "Sentinel Torn City Dashboard",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black",
     title: "Sentinel",
   },
   icons: {
