@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   description: "Sentinel Torn City Dashboard",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
     title: "Sentinel",
   },
   icons: {
@@ -59,7 +59,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} min-h-dvh antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-dvh bg-background text-foreground flex flex-col font-sans pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <body className="min-h-dvh bg-background text-foreground flex flex-col font-sans">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
