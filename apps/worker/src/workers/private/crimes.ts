@@ -26,6 +26,7 @@ type CrimeData = {
   nerve: number;
   money_gained?: number;
   items_gained?: Record<string, number>;
+  unique?: string;
 };
 
 async function runCrimesLedgerInit() {
@@ -106,7 +107,7 @@ async function runCrimesLedgerInit() {
   }
 }
 
-function parseCrimes(log: TornSchema<"UserLog">): void {
+async function parseCrimes(log: TornSchema<"UserLog">): Promise<void> {
   try {
     const data = log.data as unknown as CrimeData;
     if (!data.crime_action) return;
@@ -122,9 +123,61 @@ function parseCrimes(log: TornSchema<"UserLog">): void {
 
     const oldNerve = base.nerve_spent;
     const oldTotalValue = base.total_value;
-
     const currentNerveSpent = data.nerve;
-    let currentTotalValue = calculateCrimeLogValue(data);
+    const currentTotalValue = calculateCrimeLogValue(data);
+
+    // If a unique reward fired, the live log doesn't include payout details.
+    // Re-fetch the full crime aggregate from the API so we capture the unique value.
+    if (data.unique && data.unique !== "") {
+      try {
+        const apiKey = getWorkerApiKey("personal");
+        const res = (await tornApi.get("/user/{crimeId}/crimes", {
+          apiKey,
+          pathParams: { crimeId: crimeId.toString() },
+        })) as TornSchema<"UserCrimesResponse">;
+
+        const stats = res.crimes;
+        let uniqueValue = stats.rewards.money;
+
+        if (stats.rewards.items) {
+          for (const item of stats.rewards.items) {
+            uniqueValue += getItemValue(item.id.toString()) * item.amount;
+          }
+        }
+
+        if (stats.uniques) {
+          for (const unique of stats.uniques) {
+            if (unique.rewards.money) {
+              const m = unique.rewards.money;
+              if (typeof m === "number") {
+                uniqueValue += m;
+              } else if (m.min && m.max) {
+                uniqueValue += Math.floor((m.min + m.max) / 2);
+              }
+            }
+            if (unique.rewards.items) {
+              for (const item of unique.rewards.items) {
+                uniqueValue += getItemValue(item.id.toString()) * item.amount;
+              }
+            }
+          }
+        }
+
+        // Replace the ledger entry with fresh API data (nerve from API is cumulative)
+        CrimeLedger.update({
+          id: crimeId.toString(),
+          crime_name: crimeData.data.name,
+          nerve_spent: stats.nerve_spent,
+          total_value: uniqueValue,
+        });
+
+        logger.info(`Unique fired for crime ${crimeId} — ledger refreshed from API.`);
+        return;
+      } catch (e) {
+        logger.error(`Failed to re-fetch crime ${crimeId} after unique:`, e);
+        // Fall through to the normal incremental update below
+      }
+    }
 
     CrimeLedger.update({
       id: crimeId.toString(),
@@ -159,7 +212,9 @@ export function startCrimesModule(): void {
         if (initState?.timestamp && log.timestamp <= initState.timestamp) {
           return;
         }
-        parseCrimes(log);
+        parseCrimes(log).catch((e) =>
+          logger.error("Unhandled error in parseCrimes:", e),
+        );
       }
     }
   });

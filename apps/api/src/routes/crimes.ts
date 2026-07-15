@@ -16,6 +16,13 @@ type InitState = Extract<
   { timestamp: number; init: boolean }
 >;
 
+type CrimeData = {
+  crime_action: string;
+  nerve: number;
+  money_gained?: number;
+  items_gained?: Record<string, number>;
+};
+
 export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/recent", async (request, reply) => {
     try {
@@ -24,21 +31,25 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
       const todayStartTimestamp = Math.floor(todayStart.getTime() / 1000);
 
       // If crimes was initialized mid-day, only return logs from that point onwards
-      const initState = SystemState.findOne<InitState>("crimes_ledger_init_state");
+      const initState = SystemState.findOne<InitState>(
+        "crimes_ledger_init_state",
+      );
       const initTimestamp = initState?.timestamp ?? 0;
       const startTimestamp = Math.max(todayStartTimestamp, initTimestamp);
 
-      const logs = sentinelDbEngine.db.prepare(
-        `SELECT data FROM nosql_personal_logs 
+      const logs = sentinelDbEngine.db
+        .prepare(
+          `SELECT data FROM nosql_personal_logs 
          WHERE json_extract(data, '$.details.category') = 'Crimes' 
          AND json_extract(data, '$.timestamp') >= ? 
-         ORDER BY json_extract(data, '$.timestamp') DESC`
-      ).all(startTimestamp) as { data: string }[];
+         ORDER BY json_extract(data, '$.timestamp') DESC`,
+        )
+        .all(startTimestamp) as { data: string }[];
 
       const results = [];
       for (const row of logs) {
         const log = JSON.parse(row.data) as TornSchema<"UserLog">;
-        const data = log.data as any;
+        const data = log.data as unknown as CrimeData;
         if (!data || !data.crime_action) continue;
 
         const crimeId = getCrimeIdFromAction(data.crime_action);

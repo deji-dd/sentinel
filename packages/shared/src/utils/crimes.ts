@@ -36,7 +36,10 @@ export function getCrimeIdFromAction(action: string): number {
     return 6;
   if (
     lower.includes("burgle") ||
+    lower.includes("burgling") ||
     lower.includes("burglary") ||
+    lower.includes("casing") ||
+    lower.includes("scouting for an industrial burglary") ||
     lower.includes("brewery") ||
     lower.includes("truckyard") ||
     lower.includes("foundry")
