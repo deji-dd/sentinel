@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Next.js 16 proxy (replaces middleware.ts).
+ * Next.js 16 middleware due to Cloudflare hosting.
  * Runs on every matched request before the app renders.
  *
  * - Checks `/api/config` to determine if the system is configured.
@@ -10,7 +10,7 @@ import type { NextRequest } from "next/server";
  * - Redirects configured users away from `/onboarding` to `/`.
  * - Redirects to `/error-offline` if the API is unreachable.
  */
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Skip API routes, static assets, Next.js internals, and the error page itself
