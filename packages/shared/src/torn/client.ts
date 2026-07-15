@@ -5,7 +5,7 @@ import { Logger } from "../utils/logger.js";
 
 // Note: Adjust these relative imports based on exactly where your NoSQL schema
 // instances (SystemApiKeys, etc.) are located inside your shared package.
-import { SystemApiKeys, ApiKeyMappings, RateLimits } from "../index.js";
+import { SystemApiKeys, ApiKeyMappings, RateLimits, UserConfig } from "../index.js";
 
 const logger = new Logger("Torn_Unified_Client");
 
@@ -247,19 +247,32 @@ export function getSystemKeyPool(): string[] {
 
 /**
  * Retrieves a single plaintext API key for standard worker operations.
+ *
+ * For "personal" keys: checks the UserConfig DB record first (set during
+ * onboarding), then falls back to environment variables.
  */
 export function getWorkerApiKey(
   type: "personal" | "system" = "personal",
 ): string {
   if (type === "personal") {
-    const personalKey =
-      process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
-    if (!personalKey) {
+    // Primary source: DB (set via onboarding, always in sync)
+    try {
+      const config = UserConfig.findOne("global");
+      if (config?.api_key) {
+        return config.api_key;
+      }
+    } catch {
+      // DB may not be ready yet during early boot — fall through to env
+    }
+
+    // Fallback: environment variables (pre-onboarding or legacy setups)
+    const envKey = process.env.TORN_API_KEY || process.env.SENTINEL_API_KEY;
+    if (!envKey) {
       throw new Error(
-        "[CRITICAL] No personal API key found in environment variables.",
+        "[CRITICAL] No personal API key found in database or environment variables.",
       );
     }
-    return personalKey;
+    return envKey;
   }
 
   const pool = getSystemKeyPool();

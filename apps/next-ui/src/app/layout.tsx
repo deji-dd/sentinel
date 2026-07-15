@@ -38,10 +38,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
-  ],
+  themeColor: "#000000",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -62,7 +59,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} min-h-dvh antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-dvh bg-background text-foreground flex flex-col font-sans pb-[env(safe-area-inset-bottom)]">
+      <body className="min-h-dvh bg-background text-foreground flex flex-col font-sans pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
