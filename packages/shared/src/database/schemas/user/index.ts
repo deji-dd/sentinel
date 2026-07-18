@@ -7,3 +7,4 @@ export * from "./gym-ledger.js";
 export * from "./user-config.js";
 export * from "./stocks.js";
 export * from "./stock-ledger.js";
+export * from "./travel-ledger.js";

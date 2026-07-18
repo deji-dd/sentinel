@@ -43,6 +43,24 @@ export type UserStateDocument = BaseDocument &
         energy_drink_modifier: number;
         timestamp: number;
       }
+    | {
+        id: "live_state";
+        bars: {
+          energy: { current: number; maximum: number; increment: number; interval: number; full_time: number };
+          nerve: { current: number; maximum: number; increment: number; interval: number; full_time: number };
+          happy: { current: number; maximum: number; increment: number; interval: number; full_time: number };
+          life: { current: number; maximum: number; increment: number; interval: number; full_time: number };
+        };
+        cooldowns: {
+          drug: number;
+          medical: number;
+          booster: number;
+        };
+        money: {
+          wallet: number;
+        };
+        timestamp: number;
+      }
   );
 
 // Automatically creates the `nosql_user_state` table if it does not exist

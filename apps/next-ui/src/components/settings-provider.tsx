@@ -8,6 +8,9 @@ type Settings = {
   crimes_module_enabled: boolean;
   gym_module_enabled: boolean;
   stocks_module_enabled: boolean;
+  travel_module_enabled: boolean;
+  travel_capacity: number;
+  travel_method: string;
 };
 
 const defaultSettings: Settings = {
@@ -16,6 +19,9 @@ const defaultSettings: Settings = {
   crimes_module_enabled: false,
   gym_module_enabled: false,
   stocks_module_enabled: false,
+  travel_module_enabled: false,
+  travel_capacity: 15,
+  travel_method: "1.0", // Standard
 };
 
 type SettingsContextType = {
@@ -45,6 +51,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             crimes_module_enabled: data.crimes_module_enabled ?? false,
             gym_module_enabled: data.gym_module_enabled ?? false,
             stocks_module_enabled: data.stocks_module_enabled ?? false,
+            travel_module_enabled: data.travel_module_enabled ?? false,
+            travel_capacity: data.travel_capacity ?? 15,
+            travel_method: data.travel_method ?? "1.0",
           });
         }
       })

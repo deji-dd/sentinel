@@ -12,6 +12,7 @@ import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { workerEvents } from "../../lib/event-bus.js";
 import { parseStatGainLog } from "./gym.js";
 import { parseStockGainLog, parseStockActivityLog } from "./stocks.js";
+import { parseTravelActivityLog } from "./travel.js";
 
 const WORKER_NAME = "log_manager";
 
@@ -118,5 +119,6 @@ export function startLogManager(): void {
     parseStatGainLog(log);
     parseStockGainLog(log);
     parseStockActivityLog(log);
+    parseTravelActivityLog(log);
   });
 }

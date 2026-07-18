@@ -10,6 +10,8 @@ const PRIVATE_WORKERS: Starter[] = [
   privateWorkers.startCrimesModule,
   privateWorkers.startGymModule,
   privateWorkers.startStocksModule,
+  privateWorkers.startDailySync,
+  privateWorkers.startLiveStateSync,
 ];
 
 const PUBLIC_WORKERS: Starter[] = [
@@ -17,6 +19,7 @@ const PUBLIC_WORKERS: Starter[] = [
   publicWorkers.startTerritoryActivitySync,
   publicWorkers.startFactionSync,
   publicWorkers.startTornReferenceSync,
+  publicWorkers.startTravelSync,
 ];
 
 const BOT_WORKERS: Starter[] = [

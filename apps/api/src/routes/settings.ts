@@ -13,6 +13,9 @@ const settingsSchema = z.object({
   crimes_module_enabled: z.boolean().optional(),
   gym_module_enabled: z.boolean().optional(),
   stocks_module_enabled: z.boolean().optional(),
+  travel_module_enabled: z.boolean().optional(),
+  travel_capacity: z.number().min(1).max(200).optional(),
+  travel_method: z.string().optional(),
 });
 
 export async function settingsRoutes(fastify: FastifyInstance) {
@@ -26,6 +29,9 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         crimes_module_enabled: config.crimes_module_enabled ?? false,
         gym_module_enabled: config.gym_module_enabled ?? false,
         stocks_module_enabled: config.stocks_module_enabled ?? false,
+        travel_module_enabled: config.travel_module_enabled ?? false,
+        travel_capacity: config.travel_capacity ?? 15,
+        travel_method: config.travel_method ?? "1.0",
       });
     } catch (err) {
       logger.error("Error fetching settings:", err);
