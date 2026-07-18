@@ -44,7 +44,11 @@ export function setupIpcServer(client: Client): void {
         return;
       }
 
-      if (action === "verification_fail" || action === "verification_success") {
+      if (
+        action === "verification_fail" ||
+        action === "verification_success" ||
+        action === "verification_bulk_complete"
+      ) {
         await handleVerificationEvent(client, packet, logger);
         return;
       }
