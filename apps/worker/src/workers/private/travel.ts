@@ -47,17 +47,17 @@ export function parseTravelActivityLog(log: any) {
     const realizedValue = marketPrice * quantity;
     const profit = realizedValue - costTotal;
 
-    const areaStr = String(areaId);
-    const existing = TravelLedger.findOne(areaStr);
+    const itemStr = String(itemId);
+    const existing = TravelLedger.findOne(itemStr);
     
     if (existing) {
       TravelLedger.update({
-        id: areaStr,
+        id: itemStr,
         tracked_profit: existing.tracked_profit + profit
       });
     } else {
       TravelLedger.insertOne({
-        id: areaStr,
+        id: itemStr,
         tracked_profit: profit
       });
     }

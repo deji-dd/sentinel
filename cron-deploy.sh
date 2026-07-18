@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+FORCE_DEPLOY=false
+for arg in "$@"; do
+  if [[ "$arg" == "--force" || "$arg" == "-f" ]]; then
+    FORCE_DEPLOY=true
+  fi
+done
+
 # Simple lock to prevent overlapping cron runs
 LOCKFILE="/tmp/sentinel-cron-deploy.lock"
 exec 9>"${LOCKFILE}"
@@ -14,16 +21,19 @@ trap 'flock -u 9' EXIT
 REPO_DIR="${SENTINEL_REPO_DIR:-/home/deji/repos/sentinel}"
 
 # Load NVM to ensure the updated Node.js version is used in non-interactive shells (like cron)
-export NVM_DIR="${HOME}/.nvm"
+export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
 if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
   # Sourcing nvm.sh defines the `nvm` bash function
-  . "${NVM_DIR}/nvm.sh"
+  \. "${NVM_DIR}/nvm.sh"
   # Use the default NVM node version, fall back to "node" (latest version) if default is missing
   nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
 fi
 
-PNPM_HOME="${HOME}/.local/share/pnpm"
-PATH="${PNPM_HOME}:${PATH}"
+# Try to find pnpm. If not in PATH after NVM load, fallback to standalone PNPM_HOME
+if ! command -v pnpm &> /dev/null; then
+  export PNPM_HOME="${HOME}/.local/share/pnpm"
+  export PATH="${PNPM_HOME}:${PATH}"
+fi
 
 # Verify repo directory exists
 if [[ ! -d "${REPO_DIR}" ]]; then
@@ -51,8 +61,12 @@ PRE_PULL_SHA=$(git rev-parse HEAD)
 REMOTE_SHA=$(git rev-parse "origin/${BRANCH}")
 
 if [[ "${PRE_PULL_SHA}" == "${REMOTE_SHA}" ]]; then
-  echo "No updates on ${BRANCH}; exiting."
-  exit 0
+  if [[ "${FORCE_DEPLOY}" == "true" ]]; then
+    echo "No updates on ${BRANCH}, but --force flag is set. Proceeding with deploy."
+  else
+    echo "No updates on ${BRANCH}; exiting."
+    exit 0
+  fi
 fi
 
 echo "Pulling latest changes on ${BRANCH}..."
@@ -62,8 +76,8 @@ echo "Installing dependencies..."
 pnpm install --frozen-lockfile --child-concurrency 1
 
 # Check if build-relevant folders have changes; skip build if none changed
-if ! git diff "${PRE_PULL_SHA}" HEAD --quiet -- apps/api apps/bot apps/worker packages/shared; then
-  echo "Changes detected in build-relevant folders; proceeding with build..."
+if [[ "${FORCE_DEPLOY}" == "true" ]] || ! git diff "${PRE_PULL_SHA}" HEAD --quiet -- apps/api apps/bot apps/worker packages/shared; then
+  echo "Changes detected in build-relevant folders (or forced); proceeding with build..."
 else
   echo "No changes in build-relevant folders; skipping build."
   echo "Deploy complete."

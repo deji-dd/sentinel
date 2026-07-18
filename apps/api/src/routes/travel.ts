@@ -16,6 +16,7 @@ export const travelRoutes: FastifyPluginAsync = async (fastify) => {
         const stocks = dest.stocks.map((stock) => {
           const item = TornItems.findOne(String(stock.id));
           const market_price = item?.data.value.market_price || 0;
+          const tracked_profit = TravelLedger.findOne(String(stock.id))?.tracked_profit || 0;
 
           let depletion_rate = 0;
           if (stock.history && stock.history.length >= 2) {
@@ -35,16 +36,13 @@ export const travelRoutes: FastifyPluginAsync = async (fastify) => {
             market_price,
             depletion_rate,
             data_points: stock.history?.length || 0,
+            tracked_profit,
           };
         });
 
-        const mappedArea = TravelAreaMap.findAll().find(m => m.yataCode === dest.id);
-        const tracked_profit = mappedArea ? (TravelLedger.findOne(mappedArea.id)?.tracked_profit || 0) : 0;
-
         return {
           ...dest,
-          stocks,
-          tracked_profit
+          stocks
         };
       });
 

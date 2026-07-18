@@ -31,7 +31,7 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/recent", async (request, reply) => {
     try {
       const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      todayStart.setUTCHours(0, 0, 0, 0);
       const todayStartTimestamp = Math.floor(todayStart.getTime() / 1000);
 
       // If crimes was initialized mid-day, only return logs from that point onwards
@@ -188,6 +188,18 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error: any) {
       fastify.log.error(error);
       return reply.status(500).send({ error: "Failed to fetch crime ROI" });
+    }
+  });
+
+  fastify.post("/reset-ledger", async (request, reply) => {
+    try {
+      SystemState.delete("crimes_ledger_init_state");
+      CrimeLedger.deleteManyBy({});
+      CrimeLogs.deleteManyBy({});
+      return reply.send({ success: true });
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({ error: "Failed to reset crimes ledger" });
     }
   });
 };

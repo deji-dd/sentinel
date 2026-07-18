@@ -19,8 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { motion } from "framer-motion";
-import { Activity, Settings, Target } from "lucide-react";
+import { Activity, Target } from "lucide-react";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 import { CrimeKPICards } from "@/components/crimes/CrimeKPICards";
@@ -46,7 +45,7 @@ export default function CrimesDashboard() {
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
   const [moduleDisabled, setModuleDisabled] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const [sorting, setSorting] = useState<SortingState>([{ id: "profit_per_nerve", desc: true }]);
   const showLoader = useMinimumLoading(loading, 2000);
 
@@ -241,17 +240,20 @@ export default function CrimesDashboard() {
                 </p>
               </div>
               <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors rounded-sm shrink-0"
+                className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                onClick={async () => {
+                  await fetch("/api/crimes/reset-ledger", { method: "POST" });
+                  fetchCrimes();
+                }}
               >
-                <Settings size={16} />
+                Reset Ledger
               </button>
             </header>
 
-            <UnmappedCrimes 
-              unmappedActions={unmapped} 
-              allCrimes={allCrimes} 
-              onMapped={fetchCrimes} 
+            <UnmappedCrimes
+              unmappedActions={unmapped}
+              allCrimes={allCrimes}
+              onMapped={fetchCrimes}
             />
 
             {data.length > 0 && (
@@ -306,101 +308,7 @@ export default function CrimesDashboard() {
             <RecentCrimesTable data={recentLogs} />
           </div>
         )}
-
-        {isSettingsOpen && (
-          <CrimesSettingsModal
-            enabled={!moduleDisabled}
-            onClose={() => setIsSettingsOpen(false)}
-            onSave={async (enabled) => {
-              await fetch("/api/settings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ crimes_module_enabled: enabled }),
-              });
-              setSettings({ ...settings, crimes_module_enabled: enabled });
-              fetchCrimes();
-            }}
-          />
-        )}
       </ModuleGuard>
     </DashboardLayout>
-  );
-}
-
-function CrimesSettingsModal({
-  enabled,
-  onClose,
-  onSave,
-}: {
-  enabled: boolean;
-  onClose: () => void;
-  onSave: (enabled: boolean) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState(enabled);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await onSave(draft);
-      onClose();
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md bg-card border border-border p-6 shadow-2xl relative"
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
-        >
-          ✕
-        </button>
-        <h2 className="text-xl font-mono text-foreground mb-6 uppercase tracking-widest border-b border-border pb-4">
-          CRIMES_SETTINGS
-        </h2>
-
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-mono text-sm text-foreground">CRIMES_MODULE</div>
-              <div className="text-xs text-muted-foreground mt-1">Enable crime ledger tracking and analysis.</div>
-            </div>
-            <button
-              onClick={() => setDraft((d) => !d)}
-              className={`w-12 h-6 rounded-none transition-colors relative ${draft ? "bg-foreground" : "bg-muted"
-                }`}
-            >
-              <div
-                className={`absolute top-1 left-1 size-4 bg-background rounded-none transition-transform ${draft ? "translate-x-6" : ""
-                  }`}
-              />
-            </button>
-          </div>
-
-          <div className="pt-4 border-t border-border flex justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-mono tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-            >
-              CANCEL
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 bg-foreground text-background text-xs font-mono tracking-widest hover:opacity-90 transition-colors disabled:opacity-50"
-            >
-              {isSaving ? "SAVING..." : "SAVE"}
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
   );
 }

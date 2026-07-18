@@ -25,7 +25,7 @@ interface RecentGainsTableProps {
 export function RecentGainsTable({ data, initTimestamp }: RecentGainsTableProps) {
   const todayData = useMemo(() => {
     const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    todayStart.setUTCHours(0, 0, 0, 0);
     const cutoffTime = Math.max(todayStart.getTime(), (initTimestamp || 0) * 1000);
     return data
       .filter((entry) => new Date(entry.timestamp * 1000).getTime() >= cutoffTime)
@@ -74,7 +74,7 @@ export function RecentGainsTable({ data, initTimestamp }: RecentGainsTableProps)
         accessorKey: "energy_used",
         header: () => (
           <div className="text-right font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            ENERGY / TRAINS
+            ENERGY
           </div>
         ),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,7 +82,7 @@ export function RecentGainsTable({ data, initTimestamp }: RecentGainsTableProps)
           const entry = info.row.original as GymLedgerEntry;
           return (
             <div className="text-right font-mono text-sm text-foreground">
-              {entry.energy_used ? `${entry.energy_used}E` : "-"} 
+              {entry.energy_used ? `${entry.energy_used}E` : "-"}
             </div>
           );
         },

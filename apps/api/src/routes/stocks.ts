@@ -125,4 +125,16 @@ export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
   });
+
+  fastify.post("/reset-ledger", async (request, reply) => {
+    try {
+      SystemState.delete("stock_ledger_init_state");
+      SystemState.delete("stock_ledger_backfill_progress");
+      StockLedger.deleteManyBy({});
+      return reply.send({ success: true });
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({ error: "Failed to reset stocks ledger" });
+    }
+  });
 };

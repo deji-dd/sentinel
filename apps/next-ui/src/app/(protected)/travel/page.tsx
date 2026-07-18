@@ -48,6 +48,7 @@ interface TravelItem {
   depletion_rate: number;
   data_points: number;
   type?: string;
+  tracked_profit: number;
 }
 
 interface Destination {
@@ -86,12 +87,12 @@ interface LiveState {
 }
 
 export default function TravelDashboard() {
-  const { settings, setSettings } = useSettings();
+  const { settings, setSettings, isLoading: isSettingsLoading } = useSettings();
   const [data, setData] = useState<Destination[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [unmapped, setUnmapped] = useState([]);
   const [loading, setLoading] = useState(true);
-  const showLoader = useMinimumLoading(loading, 1500);
+  const showLoader = useMinimumLoading(loading || isSettingsLoading, 1500);
 
   // Settings State
   const [capacity, setCapacity] = useState<number | string>(settings.travel_capacity);
@@ -128,6 +129,8 @@ export default function TravelDashboard() {
   };
 
   useEffect(() => {
+    if (isSettingsLoading) return;
+
     if (!settings.travel_module_enabled) {
       // Use setTimeout to avoid synchronous setState warning
       setTimeout(() => setLoading(false), 0);
@@ -156,7 +159,7 @@ export default function TravelDashboard() {
     fetchData();
     const timer = setInterval(fetchData, 60000); // poll every 60s
     return () => clearInterval(timer);
-  }, [settings.travel_module_enabled]);
+  }, [settings.travel_module_enabled, isSettingsLoading]);
 
   const processedRoutes = useMemo(() => {
     const routes: ProcessedRoute[] = [];
@@ -183,7 +186,17 @@ export default function TravelDashboard() {
         const totalProfit = profitPerItem * settings.travel_capacity;
         const ppm = totalFlightTime > 0 ? totalProfit / totalFlightTime : 0;
 
+        // Hide if projected stock when landing is less than capacity
+        if (item.data_points >= 2 && item.depletion_rate > 0) {
+          const projectedStock = item.quantity - (item.depletion_rate * flightTimeOneWay);
+          if (projectedStock < settings.travel_capacity) {
+            continue;
+          }
+        }
+
         const warnings: string[] = [];
+        let shouldHide = false;
+
         if (liveState) {
           const e = liveState.bars.energy;
           const n = liveState.bars.nerve;
@@ -193,13 +206,13 @@ export default function TravelDashboard() {
           const eMaxTime = (e.maximum / e.increment) * (e.interval / 60);
           const nMaxTime = (n.maximum / n.increment) * (n.interval / 60);
 
-          if (totalFlightTime > eMaxTime) warnings.push("Wasteful (Energy Caps)");
+          if (totalFlightTime > eMaxTime) shouldHide = true;
           else if (e.full_time > 0 && totalFlightTime > e.full_time / 60) warnings.push("Spend Energy");
 
-          if (totalFlightTime > nMaxTime) warnings.push("Wasteful (Nerve Caps)");
+          if (totalFlightTime > nMaxTime) shouldHide = true;
           else if (n.full_time > 0 && totalFlightTime > n.full_time / 60) warnings.push("Spend Nerve");
 
-          if (c.drug > 0 && totalFlightTime > c.drug / 60) warnings.push("Wastes Drug CD");
+          if (c.drug > 0 && totalFlightTime > c.drug / 60) shouldHide = true;
           if (c.booster > 0 && totalFlightTime > c.booster / 60) warnings.push("Use Booster");
 
           const costTotal = item.cost * settings.travel_capacity;
@@ -208,6 +221,8 @@ export default function TravelDashboard() {
             warnings.push(`Carry $${short.toLocaleString()} more`);
           }
         }
+
+        if (shouldHide) continue;
 
         routes.push({
           destination: COUNTRY_NAMES[dest.id] || dest.id,
@@ -221,13 +236,7 @@ export default function TravelDashboard() {
       }
     }
 
-    return routes.sort((a, b) => {
-      const aWastesDrug = a.warnings.includes("Wastes Drug CD");
-      const bWastesDrug = b.warnings.includes("Wastes Drug CD");
-      if (aWastesDrug && !bWastesDrug) return 1;
-      if (!aWastesDrug && bWastesDrug) return -1;
-      return b.ppm - a.ppm;
-    });
+    return routes.sort((a, b) => b.ppm - a.ppm);
   }, [data, settings.travel_capacity, settings.travel_method, categoryFilter, liveState]);
 
   if (showLoader) {
@@ -284,7 +293,7 @@ export default function TravelDashboard() {
             <p className="text-muted-foreground mt-1">Live profitability routes calculated automatically.</p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" className="gap-2" onClick={async () => {
               await fetch("/api/travel/reset-ledger", { method: "POST" });
               // trigger refresh
@@ -294,17 +303,7 @@ export default function TravelDashboard() {
             }}>
               Reset Ledger
             </Button>
-            <Select value={categoryFilter} onValueChange={(val) => setCategoryFilter(val as string)}>
-              <SelectTrigger className="w-[180px] bg-card h-10">
-                <SelectValue>
-                  {categoryFilter === "profit" ? "Plushies & Flowers" : "All Items"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="profit">Plushies & Flowers</SelectItem>
-                <SelectItem value="all">All Items</SelectItem>
-              </SelectContent>
-            </Select>
+
             <Button variant="outline" className="gap-2" onClick={() => setIsSettingsOpen(true)}>
               <Settings className="size-4" />
               Flight Config
@@ -336,6 +335,20 @@ export default function TravelDashboard() {
                       <SelectItem value="1.0">Standard (1.0x)</SelectItem>
                       <SelectItem value="0.7">Airstrip / PI (0.7x)</SelectItem>
                       <SelectItem value="0.5">WLT / Business Class (0.5x)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Item Filtering</label>
+                  <Select value={categoryFilter} onValueChange={(val) => setCategoryFilter(val as string)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {categoryFilter === "profit" ? "Plushies & Flowers" : "All Items"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="profit">Plushies & Flowers</SelectItem>
+                      <SelectItem value="all">All Items</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -465,7 +478,7 @@ export default function TravelDashboard() {
                   <TableCell className="text-right font-mono text-emerald-500">${route.totalProfit.toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono font-bold">${Math.floor(route.ppm).toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono text-emerald-500 font-bold border-l border-border pl-4">
-                    ${(data.find(d => COUNTRY_NAMES[d.id] === route.destination || d.id === route.destination)?.tracked_profit || 0).toLocaleString()}
+                    ${(route.item.tracked_profit || 0).toLocaleString()}
                   </TableCell>
                 </TableRow>
               ))}

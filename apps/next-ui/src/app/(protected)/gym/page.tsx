@@ -10,11 +10,10 @@ import { RecentGainsTable } from "@/components/gym/RecentGainsTable";
 import { EfficiencyTable } from "@/components/gym/EfficiencyTable";
 import { BoosterEfficiencyTable } from "@/components/gym/BoosterEfficiencyTable";
 import { GymStateData } from "@/lib/gym-math";
-import { Activity, RefreshCw, AlertTriangle, Target, Settings } from "lucide-react";
+import { Activity, RefreshCw, AlertTriangle, Target } from "lucide-react";
 import { ModuleGuard } from "@/components/module-guard";
 import { useSettings } from "@/components/settings-provider";
-import { motion } from "framer-motion";
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -29,7 +28,7 @@ export default function GymDashboard() {
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
   const [moduleDisabled, setModuleDisabled] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
   const showLoader = useMinimumLoading(loading, 1000);
   const { settings, setSettings } = useSettings();
@@ -221,12 +220,6 @@ export default function GymDashboard() {
                   Track gym efficiency, booster usage, and historical stat gains.
                 </p>
               </div>
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors rounded-sm shrink-0"
-              >
-                <Settings size={16} />
-              </button>
             </header>
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
@@ -260,142 +253,48 @@ export default function GymDashboard() {
               </div>
             </div>
 
-          {gymState?.backfill_progress && gymState.backfill_progress.status === "in_progress" && (
-            <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-4 flex items-center gap-4">
-              <RefreshCw className="size-5 text-indigo-400 animate-spin" />
-              <div className="flex-1">
-                <h3 className="font-semibold text-indigo-400">Historical Backfill in Progress</h3>
-                <p className="text-sm text-indigo-300/80">
-                  Parsing past stat gains... {gymState.backfill_progress.logs_parsed || 0} logs processed.
-                  {gymState.backfill_progress.oldest_timestamp_reached && (
-                    <span> Earliest log reached: {new Date(gymState.backfill_progress.oldest_timestamp_reached * 1000).toLocaleDateString()}</span>
-                  )}
-                </p>
+            {gymState?.backfill_progress && gymState.backfill_progress.status === "in_progress" && (
+              <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-4 flex items-center gap-4">
+                <RefreshCw className="size-5 text-indigo-400 animate-spin" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-indigo-400">Historical Backfill in Progress</h3>
+                  <p className="text-sm text-indigo-300/80">
+                    Parsing past stat gains... {gymState.backfill_progress.logs_parsed || 0} logs processed.
+                    {gymState.backfill_progress.oldest_timestamp_reached && (
+                      <span> Earliest log reached: {new Date(gymState.backfill_progress.oldest_timestamp_reached * 1000).toLocaleDateString()}</span>
+                    )}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {gymState?.backfill_progress && gymState.backfill_progress.status === "error" && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-4">
-              <AlertTriangle className="size-5 text-red-400" />
-              <div className="flex-1">
-                <h3 className="font-semibold text-red-400">Historical Backfill Failed</h3>
-                <p className="text-sm text-red-300/80">{gymState.backfill_progress.error}</p>
+            {gymState?.backfill_progress && gymState.backfill_progress.status === "error" && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-4">
+                <AlertTriangle className="size-5 text-red-400" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-red-400">Historical Backfill Failed</h3>
+                  <p className="text-sm text-red-300/80">{gymState.backfill_progress.error}</p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {gymState && gymState.gym_build_preference && gymState.battlestats ? (
-            <div className="grid grid-cols-1 gap-6 items-start">
-              <EfficiencyTable state={gymState} onPreferenceChanged={fetchGymData} />
-              <BoosterEfficiencyTable gymState={gymState} historyData={data} />
-            </div>
-          ) : gymState ? (
-            <div className="bg-muted/50 border rounded-lg p-8 text-center text-muted-foreground">
-              Please make sure you have shared your battlestats with Sentinel to view gym efficiency.
-            </div>
-          ) : null}
+            {gymState && gymState.gym_build_preference && gymState.battlestats ? (
+              <div className="grid grid-cols-1 gap-6 items-start">
+                <EfficiencyTable state={gymState} onPreferenceChanged={fetchGymData} />
+                <BoosterEfficiencyTable gymState={gymState} historyData={data} />
+              </div>
+            ) : gymState ? (
+              <div className="bg-muted/50 border rounded-lg p-8 text-center text-muted-foreground">
+                Please make sure you have shared your battlestats with Sentinel to view gym efficiency.
+              </div>
+            ) : null}
 
-          <GymHistoryChart data={data} timeRange={timeRange} />
-          
-          <RecentGainsTable data={data} initTimestamp={initTimestamp} />
+            <GymHistoryChart data={data} timeRange={timeRange} />
+
+            <RecentGainsTable data={data} initTimestamp={initTimestamp} />
           </div>
-        )}
-
-        {isSettingsOpen && (
-          <GymSettingsModal
-            enabled={!moduleDisabled}
-            onClose={() => setIsSettingsOpen(false)}
-            onSave={async (enabled) => {
-              await fetch("/api/settings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ gym_module_enabled: enabled }),
-              });
-              setSettings({ ...settings, gym_module_enabled: enabled });
-              fetchGymData();
-            }}
-          />
         )}
       </ModuleGuard>
     </DashboardLayout>
-  );
-}
-
-function GymSettingsModal({
-  enabled,
-  onClose,
-  onSave,
-}: {
-  enabled: boolean;
-  onClose: () => void;
-  onSave: (enabled: boolean) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState(enabled);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await onSave(draft);
-      onClose();
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md bg-card border border-border p-6 shadow-2xl relative"
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
-        >
-          ✕
-        </button>
-        <h2 className="text-xl font-mono text-foreground mb-6 uppercase tracking-widest border-b border-border pb-4">
-          GYM_SETTINGS
-        </h2>
-
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-mono text-sm text-foreground">GYM_MODULE</div>
-              <div className="text-xs text-muted-foreground mt-1">Enable gym ledger tracking and analysis.</div>
-            </div>
-            <button
-              onClick={() => setDraft((d) => !d)}
-              className={`w-12 h-6 rounded-none transition-colors relative ${draft ? "bg-foreground" : "bg-muted"
-                }`}
-            >
-              <div
-                className={`absolute top-1 left-1 size-4 bg-background rounded-none transition-transform ${draft ? "translate-x-6" : ""
-                  }`}
-              />
-            </button>
-          </div>
-
-          <div className="pt-4 border-t border-border flex justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-mono tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-            >
-              CANCEL
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 bg-foreground text-background text-xs font-mono tracking-widest hover:opacity-90 transition-colors disabled:opacity-50"
-            >
-              {isSaving ? "SAVING..." : "SAVE"}
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
   );
 }

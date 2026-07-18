@@ -5,10 +5,9 @@ import { useSync } from "@/hooks/use-sync";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
-import { RefreshCw, Target, Settings, TrendingUp, DollarSign, Activity } from "lucide-react";
+import { RefreshCw, Target, TrendingUp, DollarSign, Activity } from "lucide-react";
 import { ModuleGuard } from "@/components/module-guard";
 import { useSettings } from "@/components/settings-provider";
-import { motion } from "framer-motion";
 import { TornStockDocument, UserStockDocument, StockLedgerDocument } from "@sentinel/shared";
 import Image from "next/image";
 
@@ -34,7 +33,7 @@ export default function StocksDashboard() {
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
   const [moduleDisabled, setModuleDisabled] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const showLoader = useMinimumLoading(loading, 1000);
   const { settings, setSettings } = useSettings();
   const { setSyncOptions, setLastSyncedText } = useSync();
@@ -209,10 +208,13 @@ export default function StocksDashboard() {
                 </p>
               </div>
               <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors rounded-sm shrink-0"
+                className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                onClick={async () => {
+                  await fetch("/api/stocks/reset-ledger", { method: "POST" });
+                  fetchStocksData(true);
+                }}
               >
-                <Settings size={16} />
+                Reset Ledger
               </button>
             </header>
 
@@ -260,295 +262,207 @@ export default function StocksDashboard() {
 
             {/* TODO: Add Owned Stocks List */}
             <div className="border border-border bg-card p-6">
-               <h2 className="text-sm font-mono text-foreground mb-4 uppercase tracking-widest flex items-center gap-2">
-                  <Target size={14} /> My Portfolio
-               </h2>
-               {stocksState && stocksState.user_stocks.length > 0 ? (
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-left font-mono text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground">
-                          <th className="py-3 px-4 font-normal tracking-wider">STOCK</th>
-                          <th className="py-3 px-4 font-normal tracking-wider text-right">INVESTED</th>
-                          <th className="py-3 px-4 font-normal tracking-wider text-right">ROI</th>
-                          <th className="py-3 px-4 font-normal tracking-wider text-right">APR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {stocksState.user_stocks.map(userStock => {
-                          const tStock = stocksState.torn_stocks.find(t => String(t.id) === String(userStock.id));
-                          if (!tStock) return null;
-                          
-                          let invested = 0;
-                          userStock.transactions.forEach((t: { shares: number, price: number }) => invested += (t.shares * t.price));
-                          
-                          // Calculate ROI
-                          let totalReturned = 0;
-                          const stockHistory = history.filter(h => String(h.stock_id) === String(userStock.id));
-                          stockHistory.forEach(h => totalReturned += (h.value || 0));
-                          const roi = invested > 0 ? (totalReturned / invested) * 100 : 0;
+              <h2 className="text-sm font-mono text-foreground mb-4 uppercase tracking-widest flex items-center gap-2">
+                <Target size={14} /> My Portfolio
+              </h2>
+              {stocksState && stocksState.user_stocks.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left font-mono text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/50 text-muted-foreground">
+                        <th className="py-3 px-4 font-normal tracking-wider">STOCK</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">INCREMENT</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">INVESTED</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">ROI</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">APR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stocksState.user_stocks.map(userStock => {
+                        const tStock = stocksState.torn_stocks.find(t => String(t.id) === String(userStock.id));
+                        if (!tStock) return null;
 
-                          // Calculate APR
-                          const n = userStock.shares > 0 ? Math.floor(Math.log2((userStock.shares / tStock.bonus.requirement) + 1)) : 0;
-                          let apr = 0;
-                          if (n > 0 && tStock.calculated_dividend_value) {
-                            const annualReturn = n * (365 / tStock.bonus.frequency) * tStock.calculated_dividend_value;
-                            const sharesUsed = tStock.bonus.requirement * (Math.pow(2, n) - 1);
-                            const costForActiveShares = sharesUsed * tStock.market.price;
-                            apr = costForActiveShares > 0 ? (annualReturn / costForActiveShares) * 100 : 0;
-                          }
-                          
-                          const isPassive = tStock.bonus.passive;
-                          
-                          let incrementBadge = null;
-                          if (!isPassive) {
-                            const baseReq = tStock.bonus.requirement;
-                            const currentShares = userStock.shares;
-                            const currentInc = currentShares > 0 ? Math.floor(Math.log2((currentShares / baseReq) + 1)) : 0;
-                            const sharesForCurrent = baseReq * (Math.pow(2, currentInc) - 1);
-                            const sharesForNext = baseReq * (Math.pow(2, currentInc + 1) - 1);
-                            const progressToNext = ((currentShares - sharesForCurrent) / (sharesForNext - sharesForCurrent)) * 100;
-                            
-                            incrementBadge = (
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <span className="text-[9px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-foreground/10 text-foreground">
-                                  {currentInc > 0 ? `INC ${currentInc}` : 'INC 0'}
+                        let invested = 0;
+                        userStock.transactions.forEach((t: { shares: number, price: number }) => invested += (t.shares * t.price));
+
+                        // Calculate ROI
+                        let totalReturned = 0;
+                        const stockHistory = history.filter(h => String(h.stock_id) === String(userStock.id));
+                        stockHistory.forEach(h => totalReturned += (h.value || 0));
+                        const roi = invested > 0 ? (totalReturned / invested) * 100 : 0;
+
+                        // Calculate APR
+                        const n = userStock.shares > 0 ? Math.floor(Math.log2((userStock.shares / tStock.bonus.requirement) + 1)) : 0;
+                        let apr = 0;
+                        if (n > 0 && tStock.calculated_dividend_value) {
+                          const annualReturn = n * (365 / tStock.bonus.frequency) * tStock.calculated_dividend_value;
+                          const sharesUsed = tStock.bonus.requirement * (Math.pow(2, n) - 1);
+                          const costForActiveShares = sharesUsed * tStock.market.price;
+                          apr = costForActiveShares > 0 ? (annualReturn / costForActiveShares) * 100 : 0;
+                        }
+
+                        const isPassive = tStock.bonus.passive;
+
+                        let incrementBadge = null;
+                        if (!isPassive) {
+                          const baseReq = tStock.bonus.requirement;
+                          const currentShares = userStock.shares;
+                          const currentInc = currentShares > 0 ? Math.floor(Math.log2((currentShares / baseReq) + 1)) : 0;
+                          const sharesForCurrent = baseReq * (Math.pow(2, currentInc) - 1);
+                          const sharesForNext = baseReq * (Math.pow(2, currentInc + 1) - 1);
+                          const progressToNext = ((currentShares - sharesForCurrent) / (sharesForNext - sharesForCurrent)) * 100;
+
+                          incrementBadge = (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className="text-[9px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-foreground/10 text-foreground">
+                                {currentInc > 0 ? `INC ${currentInc}` : 'INC 0'}
+                              </span>
+                              {progressToNext > 0 && (
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  {progressToNext.toFixed(0)}% TO NEXT
                                 </span>
-                                {progressToNext > 0 && (
-                                  <span className="text-[10px] text-muted-foreground font-mono">
-                                    {progressToNext.toFixed(0)}% TO NEXT
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          }
-                          
-                          return (
-                            <tr key={userStock.id} className="border-b border-border/10 hover:bg-muted/20 transition-colors">
-                               <td className="py-3 px-4 flex items-center gap-3">
-                                 {tStock.images?.logo && (
-                                   <Image src={tStock.images.logo} alt={tStock.acronym} width={24} height={24} className="rounded-sm" />
-                                 )}
-                                 <div className="flex flex-col">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-medium text-foreground">{tStock.acronym}</span>
-                                      <span className="text-muted-foreground text-[10px] hidden sm:block">- {tStock.name}</span>
-                                    </div>
-                                    {incrementBadge}
-                                 </div>
-                               </td>
-                               <td className="py-3 px-4 text-right text-muted-foreground">{formatStatNumber(invested)}</td>
-                               <td className="py-3 px-4 text-right text-foreground">
-                                 {isPassive ? "-" : `${roi.toFixed(2)}%`}
-                               </td>
-                               <td className="py-3 px-4 text-right text-foreground">
-                                 {isPassive ? "-" : `${apr.toFixed(2)}%`}
-                               </td>
-                            </tr>
+                              )}
+                            </div>
                           );
-                        })}
-                      </tbody>
-                    </table>
-                 </div>
-               ) : (
-                 <div className="text-center py-8 text-muted-foreground text-xs font-mono uppercase tracking-widest">
-                   No active investments found
-                 </div>
-               )}
+                        }
+
+                        return (
+                          <tr key={userStock.id} className="border-b border-border/10 hover:bg-muted/20 transition-colors">
+                            <td className="py-3 px-4 flex items-center gap-3">
+                              {tStock.images?.logo && (
+                                <Image src={tStock.images.logo} alt={tStock.acronym} width={24} height={24} className="rounded-sm" />
+                              )}
+                              <div className="flex flex-col">
+                                <span className="font-medium text-foreground leading-tight">{tStock.acronym}</span>
+                                <span className="text-muted-foreground text-[10px] leading-tight">{tStock.name}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {incrementBadge ? incrementBadge : <span className="text-muted-foreground">-</span>}
+                            </td>
+                            <td className="py-3 px-4 text-right text-muted-foreground">{formatStatNumber(invested)}</td>
+                            <td className="py-3 px-4 text-right text-foreground">
+                              {isPassive ? "-" : `${roi.toFixed(2)}%`}
+                            </td>
+                            <td className="py-3 px-4 text-right text-foreground">
+                              {isPassive ? "-" : `${apr.toFixed(2)}%`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-xs font-mono uppercase tracking-widest">
+                  No active investments found
+                </div>
+              )}
             </div>
 
             <div className="border border-border bg-card p-6">
-               <h2 className="text-sm font-mono text-foreground mb-4 uppercase tracking-widest flex items-center gap-2">
-                  <Activity size={14} /> Torn Stocks Directory
-               </h2>
-               {stocksState && stocksState.torn_stocks.length > 0 ? (
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-left font-mono text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground">
-                          <th className="py-3 px-4 font-normal tracking-wider">STOCK</th>
-                          <th className="py-3 px-4 font-normal tracking-wider text-right">NEXT BB COST</th>
-                          <th className="py-3 px-4 font-normal tracking-wider text-right">DIVIDEND</th>
-                          <th className="py-3 px-4 font-normal tracking-wider text-right">APR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const personalizedStocks = stocksState.torn_stocks.map(s => {
-                            const u = stocksState.user_stocks.find(u => String(u.id) === String(s.id));
-                            const userShares = u ? u.shares : 0;
-                            const increments = userShares > 0 ? Math.floor(Math.log2((userShares / s.bonus.requirement) + 1)) : 0;
-                            
-                            const nextInc = increments + 1;
-                            const targetShares = s.bonus.requirement * (Math.pow(2, nextInc) - 1);
-                            const sharesRemaining = targetShares - userShares;
-                            
-                            const personalizedCost = sharesRemaining * s.market.price;
-                            const personalizedApr = (s.calculated_apr || 0) / Math.pow(2, increments);
-                            
-                            const score = personalizedApr > 0 && personalizedCost > 1 ? personalizedApr / Math.log10(personalizedCost) : -1;
-                            
-                            return { ...s, personalizedCost, personalizedApr, score, nextInc };
-                          });
+              <h2 className="text-sm font-mono text-foreground mb-4 uppercase tracking-widest flex items-center gap-2">
+                <Activity size={14} /> Torn Stocks Directory
+              </h2>
+              {stocksState && stocksState.torn_stocks.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left font-mono text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/50 text-muted-foreground">
+                        <th className="py-3 px-4 font-normal tracking-wider">STOCK</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">NEXT BB COST</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">DIVIDEND</th>
+                        <th className="py-3 px-4 font-normal tracking-wider text-right">APR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const personalizedStocks = stocksState.torn_stocks.map(s => {
+                          const u = stocksState.user_stocks.find(u => String(u.id) === String(s.id));
+                          const userShares = u ? u.shares : 0;
+                          const increments = userShares > 0 ? Math.floor(Math.log2((userShares / s.bonus.requirement) + 1)) : 0;
 
-                          let bestScore = -1;
-                          let recommendedStockId: string | number | null = null;
-                          personalizedStocks.forEach(s => {
-                            if (s.score > bestScore) {
-                              bestScore = s.score;
-                              recommendedStockId = s.id;
-                            }
-                          });
+                          const nextInc = increments + 1;
+                          const targetShares = s.bonus.requirement * (Math.pow(2, nextInc) - 1);
+                          const sharesRemaining = targetShares - userShares;
 
-                          return personalizedStocks
-                            .sort((a, b) => b.score - a.score)
-                            .map(stock => {
-                              const blockCost = stock.personalizedCost;
-                              const isRecommended = stock.id === recommendedStockId;
-                          
-                          return (
-                            <tr key={stock.id} className="border-b border-border/10 hover:bg-muted/20 transition-colors">
-                               <td className="py-3 px-4 flex items-center gap-3">
-                                 {stock.images?.logo && (
-                                   <Image src={stock.images.logo} alt={stock.acronym} width={24} height={24} className="rounded-sm" />
-                                 )}
-                                 <div className="flex flex-col">
-                                   <div className="flex items-center gap-2">
-                                     <span className="font-medium text-foreground">{stock.acronym}</span>
-                                     {isRecommended && (
-                                       <span className="px-1.5 py-0.5 rounded-sm bg-foreground text-background text-[8px] font-bold tracking-widest uppercase">
-                                         Recommended
-                                       </span>
-                                     )}
-                                   </div>
-                                   <span className="text-muted-foreground text-[10px] hidden sm:block">{stock.name}</span>
-                                 </div>
-                               </td>
-                               <td className="py-3 px-4 text-right text-foreground">{formatStatNumber(blockCost)}</td>
-                               <td className="py-3 px-4 text-right">
-                                 <div className="flex flex-col items-end">
-                                   <span className="text-foreground truncate max-w-[150px] sm:max-w-xs">{stock.bonus.description}</span>
-                                   {!stock.bonus.passive && (
-                                     <span className="text-muted-foreground text-[10px]">{stock.bonus.frequency} days</span>
-                                   )}
-                                 </div>
-                               </td>
-                               <td className="py-3 px-4 text-right">
-                                 {stock.personalizedApr !== undefined && stock.personalizedApr > 0 ? (
-                                   <div className="flex flex-col items-end">
-                                     <span className="text-green-500 font-medium">{stock.personalizedApr.toFixed(2)}%</span>
-                                     <span className="text-[10px] text-muted-foreground font-mono">INC {stock.nextInc}</span>
-                                   </div>
-                                 ) : (
-                                   <span className="text-muted-foreground">-</span>
-                                 )}
-                               </td>
-                            </tr>
-                          );
-                        })})()}
-                      </tbody>
-                    </table>
-                 </div>
-               ) : (
-                 <div className="text-center py-8 text-muted-foreground text-xs font-mono uppercase tracking-widest">
-                   No stock data available
-                 </div>
-               )}
+                          const personalizedCost = sharesRemaining * s.market.price;
+                          const personalizedApr = (s.calculated_apr || 0) / Math.pow(2, increments);
+
+                          const score = personalizedApr > 0 && personalizedCost > 1 ? personalizedApr / Math.log10(personalizedCost) : -1;
+
+                          return { ...s, personalizedCost, personalizedApr, score, nextInc };
+                        });
+
+                        let bestScore = -1;
+                        let recommendedStockId: string | number | null = null;
+                        personalizedStocks.forEach(s => {
+                          if (s.score > bestScore) {
+                            bestScore = s.score;
+                            recommendedStockId = s.id;
+                          }
+                        });
+
+                        return personalizedStocks
+                          .sort((a, b) => b.score - a.score)
+                          .map(stock => {
+                            const blockCost = stock.personalizedCost;
+                            const isRecommended = stock.id === recommendedStockId;
+
+                            return (
+                              <tr key={stock.id} className="border-b border-border/10 hover:bg-muted/20 transition-colors">
+                                <td className="py-3 px-4 flex items-center gap-3">
+                                  {stock.images?.logo && (
+                                    <Image src={stock.images.logo} alt={stock.acronym} width={24} height={24} className="rounded-sm" />
+                                  )}
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium text-foreground leading-tight">{stock.acronym}</span>
+                                      {isRecommended && (
+                                        <span className="px-1.5 py-0.5 rounded-sm bg-foreground text-background text-[8px] font-bold tracking-widest uppercase">
+                                          Recommended
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-muted-foreground text-[10px] leading-tight">{stock.name}</span>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-right text-foreground">{formatStatNumber(blockCost)}</td>
+                                <td className="py-3 px-4 text-right">
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-foreground truncate max-w-[150px] sm:max-w-xs">{stock.bonus.description}</span>
+                                    {!stock.bonus.passive && (
+                                      <span className="text-muted-foreground text-[10px]">{stock.bonus.frequency} days</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  {stock.personalizedApr !== undefined && stock.personalizedApr > 0 ? (
+                                    <div className="flex flex-col items-end">
+                                      <span className="text-green-500 font-medium">{stock.personalizedApr.toFixed(2)}%</span>
+                                      <span className="text-[10px] text-muted-foreground font-mono">INC {stock.nextInc}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-xs font-mono uppercase tracking-widest">
+                  No stock data available
+                </div>
+              )}
             </div>
 
           </div>
-        )}
-
-        {isSettingsOpen && (
-          <StocksSettingsModal
-            enabled={!moduleDisabled}
-            onClose={() => setIsSettingsOpen(false)}
-            onSave={async (enabled) => {
-              await fetch("/api/settings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ stocks_module_enabled: enabled }),
-              });
-              setSettings({ ...settings, stocks_module_enabled: enabled });
-              fetchStocksData();
-            }}
-          />
         )}
       </ModuleGuard>
     </DashboardLayout>
-  );
-}
-
-function StocksSettingsModal({
-  enabled,
-  onClose,
-  onSave,
-}: {
-  enabled: boolean;
-  onClose: () => void;
-  onSave: (enabled: boolean) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState(enabled);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await onSave(draft);
-      onClose();
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md bg-card border border-border p-6 shadow-2xl relative"
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
-        >
-          ✕
-        </button>
-        <h2 className="text-xl font-mono text-foreground mb-6 uppercase tracking-widest border-b border-border pb-4">
-          STOCKS_SETTINGS
-        </h2>
-
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-mono text-sm text-foreground">STOCKS_MODULE</div>
-              <div className="text-xs text-muted-foreground mt-1">Enable stock dividend tracking and analysis.</div>
-            </div>
-            <button
-              onClick={() => setDraft((d) => !d)}
-              className={`w-12 h-6 rounded-none transition-colors relative ${draft ? "bg-foreground" : "bg-muted"}`}
-            >
-              <div className={`absolute top-1 left-1 size-4 bg-background rounded-none transition-transform ${draft ? "translate-x-6" : ""}`} />
-            </button>
-          </div>
-
-          <div className="pt-4 border-t border-border flex justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-mono tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-            >
-              CANCEL
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 bg-foreground text-background text-xs font-mono tracking-widest hover:opacity-90 transition-colors disabled:opacity-50"
-            >
-              {isSaving ? "SAVING..." : "SAVE"}
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
   );
 }

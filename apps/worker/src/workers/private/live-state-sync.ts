@@ -19,7 +19,9 @@ export async function runLiveStateSync() {
     if (!apiKey) throw new Error("No personal API key found");
 
     const res = await tornApi.get<
-      TornSchema<"UserBarsResponse"> & TornSchema<"UserCooldownsResponse"> & TornSchema<"UserMoneyResponse">
+      TornSchema<"UserBarsResponse"> &
+        TornSchema<"UserCooldownsResponse"> &
+        TornSchema<"UserMoneyResponse">
     >("/user", {
       apiKey,
       queryParams: { selections: "bars,cooldowns,money" },
@@ -72,9 +74,6 @@ export async function runLiveStateSync() {
       timestamp: Math.floor(Date.now() / 1000),
     });
 
-    logger.info(
-      `Live state synced. E:${res.bars.energy.current} N:${res.bars.nerve.current}`,
-    );
     finishSync();
   } catch (error) {
     logger.error("Live state sync failed", error);
