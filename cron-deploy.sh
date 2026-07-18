@@ -103,6 +103,9 @@ echo "Starting processes from ecosystem.config.js..."
 if timeout 30 pm2 start "${REPO_DIR}/ecosystem.config.js" --env production 2>&1; then
   echo "PM2 processes started successfully"
   
+  echo "Starting CPE 532 RSA App..."
+  pm2 start "/home/deji/repos/cpe532-group1-rsa/ecosystem.config.js" >/dev/null 2>&1 || true
+  
   # Save PM2 process list with timeout
   timeout 10 pm2 save >/dev/null 2>&1 || echo "Warning: PM2 save timed out"
   

@@ -41,7 +41,7 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
       {
         accessorKey: "timestamp",
         header: () => (
-          <div className="text-left font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
+          <div className="text-left font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             TIME
           </div>
         ),
@@ -49,7 +49,7 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
         cell: (info: any) => {
           const date = new Date(info.getValue() * 1000);
           return (
-            <span className="font-mono text-sm text-neutral-400">
+            <span className="font-mono text-sm text-muted-foreground">
               {date.toLocaleTimeString("en-US", {
                 hour12: false,
                 hour: "2-digit",
@@ -63,13 +63,13 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
       {
         accessorKey: "crime_name",
         header: () => (
-          <div className="text-left font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
+          <div className="text-left font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             CRIME_NAME
           </div>
         ),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cell: (info: any) => (
-          <span className="font-mono text-sm text-white">
+          <span className="font-mono text-sm text-foreground">
             {info.getValue()}
           </span>
         ),
@@ -77,13 +77,13 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
       {
         accessorKey: "nerve_spent",
         header: () => (
-          <div className="text-right font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
+          <div className="text-right font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             NERVE
           </div>
         ),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cell: (info: any) => (
-          <div className="text-right font-mono text-sm text-white">
+          <div className="text-right font-mono text-sm text-foreground">
             {info.getValue().toLocaleString()}
           </div>
         ),
@@ -91,13 +91,13 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
       {
         accessorKey: "total_value",
         header: () => (
-          <div className="text-right font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
+          <div className="text-right font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             PROFIT
           </div>
         ),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cell: (info: any) => (
-          <div className="text-right font-mono text-sm text-white">
+          <div className="text-right font-mono text-sm text-foreground">
             {formatCurrency(info.getValue())}
           </div>
         ),
@@ -114,23 +114,23 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
   });
 
   return (
-    <div className="border border-neutral-900 bg-black p-6 mt-8">
-      <div className="flex items-center gap-2 font-mono text-white text-[10px] uppercase tracking-[0.2em] mb-6">
+    <div className="border border-border bg-card p-6 mt-8">
+      <div className="flex items-center gap-2 font-mono text-foreground text-[10px] uppercase tracking-[0.2em] mb-6">
         <Clock size={16} /> TODAY&apos;S_CRIMES
       </div>
       <div>
         {data.length === 0 ? (
-          <div className="flex justify-center p-8 text-neutral-500 font-mono text-[10px] uppercase tracking-widest">
+          <div className="flex justify-center p-8 text-muted-foreground font-mono text-[10px] uppercase tracking-widest">
             No crimes logged today.
           </div>
         ) : (
-          <div className="border border-neutral-900 overflow-y-auto max-h-[400px]">
+          <div className="border border-border overflow-y-auto max-h-[400px]">
             <Table>
-              <TableHeader className="sticky top-0 bg-black z-10 border-b border-neutral-900">
+              <TableHeader className="sticky top-0 bg-card z-10 border-b border-border">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow
                     key={headerGroup.id}
-                    className="border-neutral-900 hover:bg-transparent"
+                    className="border-border hover:bg-transparent"
                   >
                     {headerGroup.headers.map((header) => (
                       <TableHead key={header.id} className="h-10 px-4">
@@ -147,7 +147,7 @@ export function RecentCrimesTable({ data }: RecentCrimesTableProps) {
                 {table.getRowModel().rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    className="border-neutral-900 hover:bg-neutral-900/50"
+                    className="border-border hover:bg-accent/50"
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className="px-4 py-2">

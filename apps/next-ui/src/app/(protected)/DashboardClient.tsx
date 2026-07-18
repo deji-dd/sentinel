@@ -124,28 +124,28 @@ export function DashboardClient({ initialData }: { initialData: any }) {
 
   return (
     <DashboardLayout>
-      <div className="p-4 md:p-8 max-w-7xl mx-auto min-h-screen pt-12 md:pt-16">
+      <div className="p-2 md:p-8 max-w-7xl mx-auto min-h-screen pt-12 md:pt-16">
 
         {/* Header Block */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col md:flex-row items-start md:items-end justify-between mb-12 border-b border-neutral-900 pb-8"
+          className="flex flex-col md:flex-row items-start md:items-end justify-between mb-12 border-b border-border pb-8"
         >
           <div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white mb-4">
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-foreground mb-4">
               SYSTEM_OVERVIEW
             </h1>
             <div className="flex items-center gap-4 text-xs font-mono tracking-[0.2em] uppercase">
-              <span className={isOnline ? "text-white" : "text-red-500"}>
+              <span className={isOnline ? "text-foreground" : "text-red-500"}>
                 [ STATUS: {isOnline ? "ONLINE" : "OFFLINE"} ]
               </span>
-              <span className="text-neutral-500">
+              <span className="text-muted-foreground">
                 {"//"} ACTIVE NODES: {data.services.length}
               </span>
               <button
                 onClick={() => setIsSettingsOpen(true)}
-                className="ml-4 p-2 text-neutral-500 hover:text-white hover:bg-neutral-900 transition-colors rounded-sm"
+                className="ml-4 p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors rounded-sm"
               >
                 <Settings size={16} />
               </button>
@@ -154,19 +154,19 @@ export function DashboardClient({ initialData }: { initialData: any }) {
         </motion.div>
 
         {/* Matrix Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-neutral-900 border border-neutral-900">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-border border border-border">
 
           {/* Left Column (2 spans on desktop) */}
-          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-px bg-neutral-900">
+          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-px bg-border">
             {/* CPU */}
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
-              className="bg-black p-8 flex flex-col justify-between min-h-[200px]"
+              className="bg-card p-8 flex flex-col justify-between min-h-[200px]"
             >
-              <div className="text-[10px] text-neutral-500 tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
+              <div className="text-[10px] text-muted-foreground tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
                 <Cpu size={12} /> PROCESSOR_LOAD
               </div>
-              <div className="text-5xl font-mono text-white tracking-tighter">
+              <div className="text-5xl font-mono text-foreground tracking-tighter">
                 <AnimatedNumber value={data.system.cpu.load} suffix="%" />
               </div>
             </motion.div>
@@ -174,12 +174,12 @@ export function DashboardClient({ initialData }: { initialData: any }) {
             {/* MEMORY */}
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
-              className="bg-black p-8 flex flex-col justify-between min-h-[200px]"
+              className="bg-card p-8 flex flex-col justify-between min-h-[200px]"
             >
-              <div className="text-[10px] text-neutral-500 tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
+              <div className="text-[10px] text-muted-foreground tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
                 <Database size={12} /> MEMORY_ALLOCATION
               </div>
-              <div className="text-5xl font-mono text-white tracking-tighter">
+              <div className="text-5xl font-mono text-foreground tracking-tighter">
                 <AnimatedNumber value={data.system.memory.percent} suffix="%" />
               </div>
             </motion.div>
@@ -187,21 +187,21 @@ export function DashboardClient({ initialData }: { initialData: any }) {
             {/* SERVICES MATRIX */}
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-              className="md:col-span-2 bg-black p-8"
+              className="md:col-span-2 bg-card p-8"
             >
-              <div className="text-[10px] text-neutral-500 tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
+              <div className="text-[10px] text-muted-foreground tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
                 <Network size={12} /> ROUTING_MANIFEST
               </div>
               <div className="space-y-4">
                 {data.services.length > 0 ? (
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   data.services.map((service: any, idx: number) => (
-                    <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-900 pb-4 last:border-0 last:pb-0">
+                    <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border pb-4 last:border-0 last:pb-0">
                       <div className="flex items-center gap-4 mb-2 sm:mb-0">
-                        <span className={`h-2 w-2 ${service.status === 'healthy' || service.status === 'connected' ? 'bg-white' : 'bg-red-500'}`} />
-                        <span className="font-mono text-sm text-white tracking-widest uppercase">{service.name}</span>
+                        <span className={`h-2 w-2 ${service.status === 'healthy' || service.status === 'connected' ? 'bg-foreground' : 'bg-red-500'}`} />
+                        <span className="font-mono text-sm text-foreground tracking-widest uppercase">{service.name}</span>
                       </div>
-                      <div className="flex items-center gap-6 text-[10px] font-mono tracking-widest text-neutral-500">
+                      <div className="flex items-center gap-6 text-[10px] font-mono tracking-widest text-muted-foreground">
                         <span>LAT:{service.latency}MS</span>
                         {service.cpu !== undefined && <span>CPU:{service.cpu}%</span>}
                         {service.memory !== undefined && <span>MEM:{service.memory}MB</span>}
@@ -209,7 +209,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
                     </div>
                   ))
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-12 text-neutral-600 font-mono text-sm tracking-[0.2em]">
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground font-mono text-sm tracking-[0.2em]">
                     <ServerCrash size={32} className="mb-4" />
                     [ NO SERVICES RESPONDING ]
                   </div>
@@ -219,18 +219,18 @@ export function DashboardClient({ initialData }: { initialData: any }) {
           </div>
 
           {/* Right Column */}
-          <div className="grid grid-cols-1 gap-px bg-neutral-900">
+          <div className="grid grid-cols-1 gap-px bg-border">
             {/* UPTIME */}
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
-              className="bg-black p-8 flex flex-col min-h-[200px]"
+              className="bg-card p-8 flex flex-col min-h-[200px]"
             >
-              <div className="text-[10px] text-neutral-500 tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
+              <div className="text-[10px] text-muted-foreground tracking-[0.3em] uppercase mb-8 flex items-center gap-2">
                 <Clock size={12} /> SYSTEM_UPTIME
               </div>
-              <div className="text-4xl font-mono text-white tracking-tighter mt-auto">
-                {Math.floor(data.uptime / 3600)}<span className="text-neutral-600 text-lg ml-1 mr-2">H</span>
-                {Math.floor((data.uptime % 3600) / 60)}<span className="text-neutral-600 text-lg ml-1">M</span>
+              <div className="text-4xl font-mono text-foreground tracking-tighter mt-auto">
+                {Math.floor(data.uptime / 3600)}<span className="text-muted-foreground text-lg ml-1 mr-2">H</span>
+                {Math.floor((data.uptime % 3600) / 60)}<span className="text-muted-foreground text-lg ml-1">M</span>
               </div>
             </motion.div>
 
@@ -302,37 +302,37 @@ function SettingsModal({
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md bg-black border border-neutral-800 p-6 shadow-2xl relative"
+        className="w-full max-w-md bg-card border border-border p-6 shadow-2xl relative"
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-neutral-500 hover:text-white"
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
         >
           ✕
         </button>
-        <h2 className="text-xl font-mono text-white mb-6 uppercase tracking-widest border-b border-neutral-900 pb-4">
+        <h2 className="text-xl font-mono text-foreground mb-6 uppercase tracking-widest border-b border-border pb-4">
           SYSTEM_SETTINGS
         </h2>
 
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-mono text-sm text-white">LOG_MANAGER</div>
-              <div className="text-xs text-neutral-500 mt-1">Intercept and persist event logs.</div>
+              <div className="font-mono text-sm text-foreground">LOG_MANAGER</div>
+              <div className="text-xs text-muted-foreground mt-1">Intercept and persist event logs.</div>
             </div>
             <button
               onClick={() => setDraft(s => ({ ...s, log_manager_enabled: !s.log_manager_enabled }))}
-              className={`w-12 h-6 rounded-none transition-colors relative ${draft.log_manager_enabled ? 'bg-white' : 'bg-neutral-800'}`}
+              className={`w-12 h-6 rounded-none transition-colors relative ${draft.log_manager_enabled ? 'bg-foreground' : 'bg-muted'}`}
             >
-              <div className={`absolute top-1 left-1 size-4 bg-black rounded-none transition-transform ${draft.log_manager_enabled ? 'translate-x-6' : ''}`} />
+              <div className={`absolute top-1 left-1 size-4 bg-background rounded-none transition-transform ${draft.log_manager_enabled ? 'translate-x-6' : ''}`} />
             </button>
           </div>
 
-          <div className="pt-4 border-t border-neutral-900" />
+          <div className="pt-4 border-t border-border" />
 
           <div>
-            <label className="font-mono text-sm text-white block mb-2">POLLING_CADENCE (SEC)</label>
-            <div className="text-xs text-neutral-500 mb-2">Interval between API requests (Min: 5).</div>
+            <label className="font-mono text-sm text-foreground block mb-2">POLLING_CADENCE (SEC)</label>
+            <div className="text-xs text-muted-foreground mb-2">Interval between API requests (Min: 5).</div>
             <input
               type="number"
               min="5"
@@ -342,22 +342,22 @@ function SettingsModal({
                 const val = e.target.value;
                 setDraft(s => ({ ...s, log_manager_cadence: val === "" ? "" : parseInt(val) }));
               }}
-              className="w-full bg-neutral-900 border border-neutral-800 text-white font-mono p-2 focus:outline-none focus:border-neutral-600"
+              className="w-full bg-muted border border-border text-foreground font-mono p-2 focus:outline-none focus:border-muted-foreground"
             />
             {error && <div className="text-red-500 text-xs font-mono mt-2">{error}</div>}
           </div>
 
-          <div className="pt-4 border-t border-neutral-900 flex justify-end gap-3">
+          <div className="pt-4 border-t border-border flex justify-end gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-xs font-mono tracking-widest text-neutral-500 hover:text-white transition-colors"
+              className="px-4 py-2 text-xs font-mono tracking-widest text-muted-foreground hover:text-foreground transition-colors"
             >
               CANCEL
             </button>
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-4 py-2 bg-white text-black text-xs font-mono tracking-widest hover:bg-neutral-200 transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-foreground text-background text-xs font-mono tracking-widest hover:opacity-90 transition-colors disabled:opacity-50"
             >
               {isSaving ? "SAVING..." : "SAVE"}
             </button>

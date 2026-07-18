@@ -1,5 +1,6 @@
 import {
   CrimeLedger,
+  CrimeLogs,
   getItemValue,
   getWorkerApiKey,
   Logger,
@@ -113,22 +114,19 @@ async function parseCrimes(log: TornSchema<"UserLog">): Promise<void> {
     if (!data.crime_action) return;
 
     const crimeId = getCrimeIdFromAction(data.crime_action);
-    if (crimeId === 0) return;
+    // Even if crimeId is 0 (unmapped), we still log it so the user can map it later.
+    const base = crimeId !== 0 ? CrimeLedger.findOne(crimeId.toString()) : null;
+    if (crimeId !== 0 && !base) return;
 
-    const base = CrimeLedger.findOne(crimeId.toString());
-    if (!base) return;
 
-    const crimeData = TornCrimes.findOne(crimeId.toString());
-    if (!crimeData) return;
 
-    const oldNerve = base.nerve_spent;
-    const oldTotalValue = base.total_value;
-    const currentNerveSpent = data.nerve;
     const currentTotalValue = calculateCrimeLogValue(data);
 
+    let logValue = currentTotalValue;
+
     // If a unique reward fired, the live log doesn't include payout details.
-    // Re-fetch the full crime aggregate from the API so we capture the unique value.
-    if (data.unique && data.unique !== "") {
+    // Re-fetch the full crime aggregate from the API and diff against baseline + logs.
+    if (data.unique && data.unique !== "" && crimeId !== 0 && base) {
       try {
         const apiKey = getWorkerApiKey("personal");
         const res = (await tornApi.get("/user/{crimeId}/crimes", {
@@ -163,27 +161,34 @@ async function parseCrimes(log: TornSchema<"UserLog">): Promise<void> {
           }
         }
 
-        // Replace the ledger entry with fresh API data (nerve from API is cumulative)
-        CrimeLedger.update({
-          id: crimeId.toString(),
-          crime_name: crimeData.data.name,
-          nerve_spent: stats.nerve_spent,
-          total_value: uniqueValue,
-        });
+        // Calculate sum of existing logs for this crime
+        const existingLogs = CrimeLogs.find({ crime_id: crimeId });
+        let loggedValue = 0;
+        for (const l of existingLogs) {
+          loggedValue += l.value;
+        }
 
-        logger.info(`Unique fired for crime ${crimeId} — ledger refreshed from API.`);
-        return;
+        // The unique value is the new aggregate minus the baseline minus already logged value
+        const calculatedUniqueValue =
+          uniqueValue - base.total_value - loggedValue;
+        // Floor to prevent float precision issues, ensure it doesn't go below 0 if API is weird
+        logValue = Math.max(0, Math.floor(calculatedUniqueValue));
+
+        logger.info(
+          `Unique fired for crime ${crimeId} — computed unique value: ${logValue}`,
+        );
       } catch (e) {
         logger.error(`Failed to re-fetch crime ${crimeId} after unique:`, e);
-        // Fall through to the normal incremental update below
       }
     }
 
-    CrimeLedger.update({
-      id: crimeId.toString(),
-      crime_name: crimeData.data.name,
-      nerve_spent: currentNerveSpent + oldNerve,
-      total_value: currentTotalValue + oldTotalValue,
+    CrimeLogs.insertOne({
+      id: log.id.toString(),
+      crime_id: crimeId,
+      action: data.crime_action,
+      nerve: data.nerve || 0,
+      value: logValue,
+      timestamp: log.timestamp,
     });
 
     logger.info("Processed crime log.");

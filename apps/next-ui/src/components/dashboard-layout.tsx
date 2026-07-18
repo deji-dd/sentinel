@@ -3,13 +3,15 @@
 import React, { useEffect, useState } from "react";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { RefreshCw, ChevronDown } from "lucide-react";
+import { RefreshCw, ChevronDown, Sun, Moon } from "lucide-react";
 import { useSync } from "@/hooks/use-sync";
+import { useTheme } from "next-themes";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const { syncOptions, lastSyncedText, isSyncing, setIsSyncing } = useSync();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -19,10 +21,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="bg-black text-white">
-        {/* Dynamic Island Header - Restyled for Data Terminal */}
+      <SidebarInset className="bg-background text-foreground">
         <div className="sticky top-0 z-30 flex justify-center w-full pointer-events-none">
-          <header className="pointer-events-auto flex w-full shrink-0 items-center justify-between h-12 px-4 md:px-8 border-b border-neutral-900 bg-black/80 backdrop-blur-md">
+          <header className="pointer-events-auto flex w-full shrink-0 items-center justify-between pt-[env(safe-area-inset-top)] px-4 pb-3 sm:pb-4 md:px-8 border-b border-border bg-background/80 backdrop-blur-md">
             <div className="flex gap-4 items-center">
               <SidebarTrigger className="text-neutral-500 hover:text-white transition-colors" />
               <div className="w-px h-4 bg-neutral-900" />
@@ -49,27 +50,27 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                           setIsSyncing(false);
                         }
                       }}
-                      className="text-[10px] font-mono tracking-[0.2em] uppercase text-neutral-500 hover:text-white transition-colors flex items-center gap-2"
+                      className="text-[10px] font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
                       disabled={isSyncing}
                     >
-                      <RefreshCw className={`size-3 ${isSyncing ? "animate-spin text-white" : ""}`} />
+                      <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-white" : ""}`} />
                       <span className="hidden sm:inline">SYNC</span>
                     </button>
                   ) : (
                     <>
                       <button
                         onClick={() => setDropdownOpen(!dropdownOpen)}
-                        className="text-[10px] font-mono tracking-[0.2em] uppercase text-neutral-500 hover:text-white transition-colors flex items-center gap-2"
+                        className="text-[10px] font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
                         disabled={isSyncing}
                       >
-                        <RefreshCw className={`size-3 ${isSyncing ? "animate-spin text-white" : ""}`} />
+                        <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-white" : ""}`} />
                         <span className="hidden sm:inline">SYNC</span>
-                        <ChevronDown className="size-3 opacity-50" />
+                        <ChevronDown className="size-4 opacity-50" />
                       </button>
                       {dropdownOpen && (
                         <>
                           <div className="fixed inset-0 z-30" onClick={() => setDropdownOpen(false)} />
-                          <div className="absolute right-0 mt-4 w-48 border border-neutral-900 bg-black z-40 flex flex-col">
+                          <div className="absolute right-0 mt-4 w-48 border border-border bg-background z-40 flex flex-col">
                             {syncOptions.map((opt) => (
                               <button
                                 key={opt.label}
@@ -84,12 +85,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                                     setIsSyncing(false);
                                   }
                                 }}
-                                className="w-full text-left px-4 py-3 text-[10px] font-mono tracking-[0.2em] uppercase text-neutral-400 hover:text-white hover:bg-neutral-900 transition-colors"
+                                className="w-full text-left px-4 py-3 text-[10px] font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                               >
                                 {opt.label}
                               </button>
                             ))}
-                            <div className="h-px bg-neutral-900" />
+                            <div className="h-px bg-border" />
                             <button
                               onClick={async () => {
                                 setDropdownOpen(false);
@@ -102,7 +103,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                                   setIsSyncing(false);
                                 }
                               }}
-                              className="w-full text-left px-4 py-3 text-[10px] font-mono tracking-[0.2em] uppercase text-white hover:bg-neutral-900 transition-colors"
+                              className="w-full text-left px-4 py-3 text-[10px] font-mono tracking-[0.2em] uppercase text-foreground hover:bg-accent transition-colors"
                             >
                               SYNC_ALL
                             </button>
@@ -114,6 +115,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </div>
               )}
             </div>
+
+            {/* Theme toggle — far right */}
+            {mounted && (
+              <button
+                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                {resolvedTheme === "dark"
+                  ? <Sun className="size-4" />
+                  : <Moon className="size-4" />}
+              </button>
+            )}
           </header>
 
         </div>

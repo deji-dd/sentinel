@@ -14,15 +14,16 @@ export default function GlobalLoading() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] w-full animate-in fade-in duration-500">
-      <div className="font-mono text-[10px] tracking-[0.3em] text-neutral-500 flex items-center gap-2 uppercase">
+      <div className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground flex items-center gap-2 uppercase">
         <span>SYNCHRONIZING_DATA</span>
         <span className="w-4 text-left">{dots}</span>
       </div>
       <div className="mt-6 flex gap-1.5">
-        <div className="w-2 h-4 bg-white animate-pulse" style={{ animationDuration: '1s' }} />
-        <div className="w-2 h-4 bg-white/50 animate-pulse" style={{ animationDuration: '1s', animationDelay: '200ms' }} />
-        <div className="w-2 h-4 bg-white/20 animate-pulse" style={{ animationDuration: '1s', animationDelay: '400ms' }} />
+        <div className="w-2 h-4 bg-foreground animate-pulse" style={{ animationDuration: '1s' }} />
+        <div className="w-2 h-4 bg-foreground/50 animate-pulse" style={{ animationDuration: '1s', animationDelay: '200ms' }} />
+        <div className="w-2 h-4 bg-foreground/20 animate-pulse" style={{ animationDuration: '1s', animationDelay: '400ms' }} />
       </div>
     </div>
   );
 }
+

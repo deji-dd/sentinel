@@ -11,6 +11,7 @@ import {
   Cell,
 } from "recharts";
 import { BarChart3 } from "lucide-react";
+import { useTheme } from "next-themes";
 
 interface CrimeROI {
   crime_name: string;
@@ -23,14 +24,29 @@ interface CrimeBarChartProps {
   data: CrimeROI[];
 }
 
-const COLORS = [
+/**
+ * Bar colour palettes for each theme.
+ * Dark: white → dark grey (bars pop against black card background)
+ * Light: dark → mid grey (bars are visible against white/near-white card)
+ */
+const DARK_COLORS = [
   "#ffffff",
-  "#e5e5e5",
+  "#d4d4d4",
   "#a3a3a3",
   "#737373",
   "#525252",
   "#404040",
   "#262626",
+];
+
+const LIGHT_COLORS = [
+  "#171717",
+  "#404040",
+  "#525252",
+  "#737373",
+  "#a3a3a3",
+  "#d4d4d4",
+  "#e5e5e5",
 ];
 
 const formatCurrency = (value: number) => {
@@ -45,11 +61,11 @@ const formatCurrency = (value: number) => {
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-black border border-neutral-900 p-4 shadow-2xl">
-        <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-white mb-1">
+      <div className="bg-card border border-border p-4 shadow-2xl">
+        <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-foreground mb-1">
           {payload[0].payload.name}
         </p>
-        <p className="text-xs font-mono text-neutral-400">
+        <p className="text-xs font-mono text-muted-foreground">
           {formatCurrency(payload[0].value)}
         </p>
       </div>
@@ -59,6 +75,17 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 export function CrimeBarChart({ data }: CrimeBarChartProps) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
+  const COLORS = isDark ? DARK_COLORS : LIGHT_COLORS;
+
+  /** Hover cursor colour — a subtle tint that works on both backgrounds */
+  const cursorFill = isDark ? "#262626" : "#f5f5f5";
+
+  /** Y-axis tick colour */
+  const tickFill = isDark ? "#737373" : "#a3a3a3";
+
   const chartData = useMemo(() => {
     // Filter out crimes with zero value
     const filtered = data.filter((item) => item.total_value > 0);
@@ -97,8 +124,8 @@ export function CrimeBarChart({ data }: CrimeBarChartProps) {
   }
 
   return (
-    <div className="border border-neutral-900 bg-black p-6 mb-8">
-      <div className="flex items-center gap-2 font-mono text-white text-[10px] uppercase tracking-[0.2em] mb-6">
+    <div className="border border-border bg-card p-6 mb-8">
+      <div className="flex items-center gap-2 font-mono text-foreground text-[10px] uppercase tracking-[0.2em] mb-6">
         <BarChart3 size={16} /> VALUE_DISTRIBUTION
       </div>
       <div className="-mx-6 md:mx-0 w-[calc(100%+3rem)] md:w-full h-[400px]">
@@ -115,13 +142,16 @@ export function CrimeBarChart({ data }: CrimeBarChartProps) {
               axisLine={false}
               tickLine={false}
               tick={{
-                fill: "#737373",
+                fill: tickFill,
                 fontSize: 10,
                 fontFamily: "monospace",
               }}
               width={120}
             />
-            <RechartsTooltip cursor={{ fill: "#171717" }} content={<CustomTooltip />} />
+            <RechartsTooltip
+              cursor={{ fill: cursorFill }}
+              content={<CustomTooltip />}
+            />
             <Bar dataKey="value" radius={[0, 2, 2, 0]} barSize={24}>
               {chartData.map((entry, index) => (
                 <Cell
