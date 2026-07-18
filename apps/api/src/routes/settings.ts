@@ -12,6 +12,7 @@ const settingsSchema = z.object({
   log_manager_cadence: z.number().min(5).max(3600).optional(),
   crimes_module_enabled: z.boolean().optional(),
   gym_module_enabled: z.boolean().optional(),
+  stocks_module_enabled: z.boolean().optional(),
 });
 
 export async function settingsRoutes(fastify: FastifyInstance) {
@@ -24,6 +25,7 @@ export async function settingsRoutes(fastify: FastifyInstance) {
         log_manager_cadence: config.log_manager_cadence ?? 60,
         crimes_module_enabled: config.crimes_module_enabled ?? false,
         gym_module_enabled: config.gym_module_enabled ?? false,
+        stocks_module_enabled: config.stocks_module_enabled ?? false,
       });
     } catch (err) {
       logger.error("Error fetching settings:", err);

@@ -59,7 +59,7 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       // Severely restricted RAM, it just forwards commands and listens to IPC
-      node_args: ["--max-old-space-size=75"],
+      node_args: ["--max-old-space-size=100"],
       env: { NODE_ENV: "development", ...botEnv },
       env_production: { NODE_ENV: "production", ...botEnv },
       instances: 1,
@@ -80,7 +80,7 @@ module.exports = {
       script: "dist/index.js",
       interpreter: "node",
       // Fastify/Express are tiny. Kept very lean.
-      node_args: ["--max-old-space-size=75"],
+      node_args: ["--max-old-space-size=100"],
       env: { NODE_ENV: "development", ...apiEnv },
       env_production: { NODE_ENV: "production", ...apiEnv },
       instances: 1,

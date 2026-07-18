@@ -12,6 +12,7 @@
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload"
   },
   "dependencies": {
+    "@sentinel/shared": "workspace:*",
     "@base-ui/react": "^1.6.0",
     "@hookform/resolvers": "^3.9.1",
     "@tanstack/react-table": "^8.21.3",

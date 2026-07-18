@@ -11,6 +11,7 @@ import {
   BellOff,
   Target,
   Dumbbell,
+  TrendingUp,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,6 +33,7 @@ const navItems = [
   { name: "OVERVIEW", href: "/", icon: Home },
   { name: "CRIME_LEDGER", href: "/crimes", icon: Target },
   { name: "GYM_LEDGER", href: "/gym", icon: Dumbbell },
+  { name: "STOCK_PORTFOLIO", href: "/stocks", icon: TrendingUp },
 ];
 
 export function AppSidebar() {

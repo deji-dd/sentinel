@@ -87,7 +87,8 @@ export function parseStatGainLog(log: TornSchema<"UserLog">) {
   if (cat === "Gym" || title.includes("gym train")) source = "gym";
   else if (cat === "Item use" || title.includes("item use")) source = "item";
   else if (cat === "Books" || title.includes("book")) source = "book";
-  else if (cat === "Company" || title.includes("company special")) source = "company";
+  else if (cat === "Company" || title.includes("company special"))
+    source = "company";
   else if (cat === "Job" || title.includes("job special")) source = "job";
 
   GymLedger.insertOne({
@@ -117,8 +118,16 @@ export async function runGymLedgerInit() {
     const apiKey = getWorkerApiKey("personal");
     if (!apiKey) throw new Error("No personal API key found");
 
-    const existingProgress = SystemState.findOne("gym_ledger_backfill_progress") as Extract<SystemStateDocument, { id: "gym_ledger_backfill_progress" }> | undefined;
-    const isResuming = existingProgress && existingProgress.status === "in_progress" && existingProgress.active_chunks && existingProgress.active_chunks.length > 0;
+    const existingProgress = SystemState.findOne(
+      "gym_ledger_backfill_progress",
+    ) as
+      | Extract<SystemStateDocument, { id: "gym_ledger_backfill_progress" }>
+      | undefined;
+    const isResuming =
+      existingProgress &&
+      existingProgress.status === "in_progress" &&
+      existingProgress.active_chunks &&
+      existingProgress.active_chunks.length > 0;
 
     if (!isResuming) {
       // 1. Clear Ledgers
@@ -136,7 +145,6 @@ export async function runGymLedgerInit() {
           TornGyms.deleteManyBy({});
           const gymsToInsert = [];
           for (const [id, gym] of Object.entries(res.gyms)) {
-            // @ts-ignore
             const gymData = gym as {
               name: string;
               stage: number;
@@ -202,7 +210,10 @@ export async function runGymLedgerInit() {
     }
 
     // 4. Background History Backfill
-    runBackgroundLogBackfill(apiKey, isResuming ? existingProgress : undefined).catch((e) => {
+    runBackgroundLogBackfill(
+      apiKey,
+      isResuming ? existingProgress : undefined,
+    ).catch((e) => {
       logger.error("Background backfill failed", e);
       SystemState.update({
         id: "gym_ledger_backfill_progress",
@@ -218,18 +229,28 @@ export async function runGymLedgerInit() {
   }
 }
 
-async function runBackgroundLogBackfill(apiKey: string, resumeData?: Extract<SystemStateDocument, { id: "gym_ledger_backfill_progress" }>) {
+async function runBackgroundLogBackfill(
+  apiKey: string,
+  resumeData?: Extract<
+    SystemStateDocument,
+    { id: "gym_ledger_backfill_progress" }
+  >,
+) {
   if (resumeData) {
-    logger.info(`Resuming background historical backfill. Already parsed: ${resumeData.logs_parsed}`);
+    logger.info(
+      `Resuming background historical backfill. Already parsed: ${resumeData.logs_parsed}`,
+    );
   } else {
     logger.info("Starting background historical backfill for Gym Ledger");
   }
 
   let totalParsed = resumeData?.logs_parsed || 0;
-  let overallOldestTimestamp: number | undefined = resumeData?.oldest_timestamp_reached ?? undefined;
+  let overallOldestTimestamp: number | undefined =
+    resumeData?.oldest_timestamp_reached ?? undefined;
 
-  let activeChunks: { logSelection: string; currentTo: number | undefined }[] = [];
-  
+  let activeChunks: { logSelection: string; currentTo: number | undefined }[] =
+    [];
+
   if (resumeData?.active_chunks) {
     activeChunks = resumeData.active_chunks;
   } else {
@@ -321,7 +342,9 @@ async function runBackgroundLogBackfill(apiKey: string, resumeData?: Extract<Sys
       active_chunks: activeChunks,
     });
 
-    logger.info(`Backfill progress: Parsed ${totalParsed} logs, reached timestamp ${overallOldestTimestamp}, ${activeChunks.length} active chunks remaining.`);
+    logger.info(
+      `Backfill progress: Parsed ${totalParsed} logs, reached timestamp ${overallOldestTimestamp}, ${activeChunks.length} active chunks remaining.`,
+    );
   }
 
   SystemState.update({
@@ -363,10 +386,7 @@ function checkSettingsAndInit() {
       runGymLedgerInit().catch((e) => logger.error("Gym Init Failed", e));
     }
   } else {
-    // If explicitly disabled, wipe the data and initialization state
-    GymLedger.deleteManyBy({});
-    GymBaseline.deleteManyBy({});
-    SystemState.delete("gym_ledger_init_state");
-    SystemState.delete("gym_ledger_backfill_progress");
+    // If explicitly disabled, we no longer wipe the data and initialization state.
+    // This allows the ledger to seamlessly resume if the user re-enables the module later.
   }
 }

@@ -11,12 +11,21 @@ type InitState =
       init: boolean;
     }
   | {
-      id: "crimes_ledger_init_state" | "items_ledger_init_state" | "gym_ledger_init_state";
+      id: "crimes_ledger_init_state" | "items_ledger_init_state" | "gym_ledger_init_state" | "stock_ledger_init_state";
       init: boolean;
       timestamp: number;
     }
   | {
       id: "gym_ledger_backfill_progress";
+      timestamp: number;
+      status: "in_progress" | "completed" | "error";
+      logs_parsed?: number;
+      oldest_timestamp_reached?: number | null;
+      error?: string;
+      active_chunks?: { logSelection: string; currentTo: number | undefined }[] | null;
+    }
+  | {
+      id: "stock_ledger_backfill_progress";
       timestamp: number;
       status: "in_progress" | "completed" | "error";
       logs_parsed?: number;

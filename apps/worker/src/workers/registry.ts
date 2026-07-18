@@ -9,14 +9,14 @@ const PRIVATE_WORKERS: Starter[] = [
   privateWorkers.startLogManager,
   privateWorkers.startCrimesModule,
   privateWorkers.startGymModule,
+  privateWorkers.startStocksModule,
 ];
 
 const PUBLIC_WORKERS: Starter[] = [
   publicWorkers.startTerritoryBlueprintSync,
   publicWorkers.startTerritoryActivitySync,
   publicWorkers.startFactionSync,
-  publicWorkers.startCrimeReferenceSync,
-  publicWorkers.startItemSyncWorker,
+  publicWorkers.startTornReferenceSync,
 ];
 
 const BOT_WORKERS: Starter[] = [

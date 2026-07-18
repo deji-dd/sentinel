@@ -12,8 +12,8 @@ export interface EventRunnerConfig {
   worker: string;
   /** The default sleep interval between executions, in seconds */
   defaultCadenceSeconds: number;
-  /** The async function containing the core logic to execute when the timer fires */
-  handler: () => Promise<boolean | void>;
+  /** The async function containing the core logic to execute when the timer fires. Can return a timestamp (number) for the next execution time */
+  handler: () => Promise<number | boolean | void>;
 }
 
 /**
@@ -45,9 +45,12 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
     if (isExecuting) return; // Prevent overlap if forced while currently running
     isExecuting = true;
 
+    let customNextRunMs: number | undefined;
+
     try {
       if (schedule!.enabled) {
-        await config.handler();
+        const result = await config.handler();
+        if (typeof result === "number") customNextRunMs = result;
       }
     } catch (err) {
       logger.error("Worker execution failed", err);
@@ -55,7 +58,7 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
       isExecuting = false;
 
       // Calculate the next run time and update the NoSQL document
-      const nextRunMs = Date.now() + schedule!.cadence_seconds * 1000;
+      const nextRunMs = customNextRunMs ?? Date.now() + schedule!.cadence_seconds * 1000;
       schedule = WorkerSchedules.insertOne({
         ...schedule!,
         last_run_at: Date.now(),

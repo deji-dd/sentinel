@@ -7,6 +7,7 @@ type Settings = {
   log_manager_cadence: number;
   crimes_module_enabled: boolean;
   gym_module_enabled: boolean;
+  stocks_module_enabled: boolean;
 };
 
 const defaultSettings: Settings = {
@@ -14,6 +15,7 @@ const defaultSettings: Settings = {
   log_manager_cadence: 60,
   crimes_module_enabled: false,
   gym_module_enabled: false,
+  stocks_module_enabled: false,
 };
 
 type SettingsContextType = {
@@ -42,6 +44,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             log_manager_cadence: data.log_manager_cadence ?? 60,
             crimes_module_enabled: data.crimes_module_enabled ?? false,
             gym_module_enabled: data.gym_module_enabled ?? false,
+            stocks_module_enabled: data.stocks_module_enabled ?? false,
           });
         }
       })

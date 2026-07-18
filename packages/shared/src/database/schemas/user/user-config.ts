@@ -9,6 +9,7 @@ export type UserConfigDocument = BaseDocument & {
   log_manager_cadence?: number;
   crimes_module_enabled?: boolean;
   gym_module_enabled?: boolean;
+  stocks_module_enabled?: boolean;
 };
 
 // Automatically creates the `nosql_user_config` table if it does not exist

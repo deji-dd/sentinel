@@ -11,6 +11,7 @@ import {
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { workerEvents } from "../../lib/event-bus.js";
 import { parseStatGainLog } from "./gym.js";
+import { parseStockGainLog, parseStockActivityLog } from "./stocks.js";
 
 const WORKER_NAME = "log_manager";
 
@@ -115,5 +116,7 @@ export function startLogManager(): void {
     const logger = new Logger("log_manager_events");
     logger.info("Intercepted new log: " + log.details.title);
     parseStatGainLog(log);
+    parseStockGainLog(log);
+    parseStockActivityLog(log);
   });
 }
