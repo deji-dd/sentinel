@@ -1,5 +1,5 @@
 import { Logger, toBotPacket } from "@sentinel/shared";
-import { Client, EmbedBuilder, Guild, TextChannel } from "discord.js";
+import { Client, EmbedBuilder, Guild, TextChannel, AttachmentBuilder } from "discord.js";
 import { logGuildError } from "../guild-logger.js";
 
 export async function handleVerificationEvent(
@@ -10,11 +10,16 @@ export async function handleVerificationEvent(
   const { action, data } = packet;
   let guild: Guild | null = null;
 
-  if (action === "verification_success" || action === "verification_fail") {
+  if (
+    action === "verification_success" ||
+    action === "verification_fail" ||
+    action === "verification_bulk_complete"
+  ) {
     guild = await client.guilds.fetch(data.guild_id).catch(() => null);
     if (!guild) {
+      const targetId = "discord_id" in data ? data.discord_id : "BulkJob";
       logger.debug(
-        `Failed to fetch guild for ${data.discord_id}: ${data.guild_id}`,
+        `Failed to fetch guild for ${targetId}: ${data.guild_id}`,
       );
       return;
     }
@@ -123,15 +128,40 @@ export async function handleVerificationEvent(
         if (channel) {
           await channel.send({ embeds: [embed] }).catch(() => null);
         }
+      } else if (action === "verification_bulk_complete") {
+        const channel = (await client.channels
+          .fetch(data.channel_id)
+          .catch(() => null)) as TextChannel;
+        
+        if (channel) {
+          const embed = new EmbedBuilder()
+            .setTitle("Bulk Verification Complete")
+            .setColor(data.fail_count > 0 ? 0xf59e0b : 0x22c55e) // Yellow if any failures, green otherwise
+            .setDescription(`A bulk verification job for the server has finished processing.`)
+            .setFields(
+              { name: "Successful", value: `${data.success_count}`, inline: true },
+              { name: "Failed", value: `${data.fail_count}`, inline: true },
+            )
+            .setFooter({ text: "Sentinel Verification" })
+            .setTimestamp();
+
+          const attachment = new AttachmentBuilder(
+            Buffer.from(data.summary_text, "utf-8"),
+            { name: "verification_summary.txt" }
+          );
+
+          await channel.send({ embeds: [embed], files: [attachment] }).catch(() => null);
+        }
       }
     } catch (error) {
       logger.error("Failed to handle verification event", error);
+      const targetId = "discord_id" in data ? `<@${data.discord_id}>` : "Bulk Verification Job";
       await logGuildError(
         data.guild_id,
         client,
         "Verification Failed",
         error instanceof Error ? error.message : String(error),
-        `Failed to apply roles to <@${data.discord_id}>.`,
+        `Failed to apply roles for ${targetId}.`,
       );
     }
   }

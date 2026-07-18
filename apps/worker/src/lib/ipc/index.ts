@@ -10,7 +10,7 @@ import {
   decryptApiKey,
   ApiKeyRotator,
 } from "@sentinel/shared";
-import { runVerificationJob } from "../../job-runners/verification_engine.js";
+import { runVerificationJob, VerificationCache } from "../../job-runners/verification_engine.js";
 import { workerEvents } from "../event-bus.js";
 
 const logger = new Logger("worker_ipc");
@@ -44,7 +44,14 @@ export function setupIpcServer() {
         } else if (packet.action === "settings_updated") {
           workerEvents.emit("settings_updated");
         } else if (packet.action === "verify") {
-          await runVerificationJob(packet.data);
+          const result = await runVerificationJob(packet.data);
+          if (result) {
+            if ("error" in result) {
+              dispatchToBot({ action: "verification_fail", data: result });
+            } else {
+              dispatchToBot({ action: "verification_success", data: result });
+            }
+          }
         } else if (packet.action === "verify_bulk") {
           // Group jobs by guild_id
           const guildJobs = new Map<string, typeof packet.data>();
@@ -59,14 +66,63 @@ export function setupIpcServer() {
             );
             if (apiKeys.length === 0) continue;
 
+            const cache: VerificationCache = {
+              factionLeaders: new Map(),
+              factionMembers: new Map(),
+            };
+
+            let successCount = 0;
+            let failCount = 0;
+            const successDetails: string[] = [];
+            const failDetails: string[] = [];
+
             const rotator = new ApiKeyRotator(apiKeys);
             await rotator.processSequential(
               jobs,
               async (job, key) => {
-                await runVerificationJob(job, key);
+                const res = await runVerificationJob(job, key, cache);
+                if (res) {
+                  if ("error" in res) {
+                    failCount++;
+                    failDetails.push(`User ${job.discord_id}: ${res.error.message}`);
+                  } else {
+                    successCount++;
+                    let roleStr = "No changes";
+                    if (res.roles_to_add?.length || res.roles_to_remove?.length) {
+                      const added = res.roles_to_add?.length ? `+${res.roles_to_add.length}` : "";
+                      const removed = res.roles_to_remove?.length ? `-${res.roles_to_remove.length}` : "";
+                      roleStr = [added, removed].filter(Boolean).join(", ");
+                    }
+                    successDetails.push(`User ${job.discord_id}: ${roleStr}`);
+                  }
+                }
               },
               5000,
-            ); // 1s delay between verifications per guild
+            ); // 5s delay between verifications per guild
+
+            const summaryLines = [
+              `Verification Bulk Run Summary for Guild ${guildId}`,
+              `Total Processed: ${jobs.length}`,
+              `Successes: ${successCount}`,
+              `Failures: ${failCount}`,
+              ``,
+              `--- FAILURES ---`,
+              failDetails.length > 0 ? failDetails.join("\n") : "None",
+              ``,
+              `--- SUCCESSES ---`,
+              successDetails.length > 0 ? successDetails.join("\n") : "None",
+            ];
+
+            dispatchToBot({
+              action: "verification_bulk_complete",
+              data: {
+                guild_id: guildId,
+                channel_id: jobs[0].channel_id,
+                success_count: successCount,
+                fail_count: failCount,
+                summary_text: summaryLines.join("\n"),
+              },
+            });
           }
         }
       } catch (error) {

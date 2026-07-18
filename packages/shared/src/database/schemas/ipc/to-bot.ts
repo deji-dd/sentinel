@@ -30,4 +30,14 @@ export type toBotPacket =
       action: "verification_success";
       data: VerificationSuccessResponse;
     }
-  | { action: "verification_fail"; data: VerificationFailureResponse };
+  | { action: "verification_fail"; data: VerificationFailureResponse }
+  | {
+      action: "verification_bulk_complete";
+      data: {
+        guild_id: string;
+        channel_id: string;
+        success_count: number;
+        fail_count: number;
+        summary_text: string;
+      };
+    };

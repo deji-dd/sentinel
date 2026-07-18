@@ -20,9 +20,14 @@ import {
 
   // Explicitly importing all document types to fix the implicit 'any' errors
   type VerifiedUserDocument,
+  type GuildConfigDocument,
+  type GuildApiKeyDocument,
+  type FactionRoleMappingDocument,
+  type MercenaryConfigDocument,
+  type ReactionRoleMessageDocument,
+  type ReactionRoleMappingDocument,
 } from "@sentinel/shared";
 import { tornApi } from "@sentinel/shared";
-import { dispatchToBot } from "../lib/ipc/index.js";
 
 const logger = new Logger("verification_job");
 
@@ -37,50 +42,74 @@ type UserGenericResponse = TornSchema<"UserDiscordResponse"> &
 export interface VerificationCache {
   factionLeaders: Map<number, Set<number>>;
   factionMembers: Map<number, Set<number>>;
+  // Guild configurations
+  config?: GuildConfigDocument;
+  apiKeys?: GuildApiKeyDocument[];
+  factionMappings?: FactionRoleMappingDocument[];
+  mercConfig?: MercenaryConfigDocument;
+  strictReactionMsgs?: ReactionRoleMessageDocument[];
+  managedRoles?: Set<string>;
 }
 
 export async function runVerificationJob(
   job: VerificationRequest,
   apiKeyOverride?: string,
-): Promise<void> {
+  cache?: VerificationCache,
+): Promise<VerificationSuccessResponse | VerificationFailureResponse | null> {
   // Use the logger to clear the ESLint error and add execution observability
   const finishSync = logger.time();
 
   // ==========================================
-  // 1. FAST SYNCHRONOUS CONFIG LOOKUPS
+  // 1. FAST SYNCHRONOUS CONFIG LOOKUPS (CACHED)
   // ==========================================
-  // Replaced findOne with find()[0] and added strict type annotations
-  const config = GuildConfigs.find({ guild_id: job.guild_id })[0];
+  const config =
+    cache?.config ?? GuildConfigs.find({ guild_id: job.guild_id })[0];
   if (!config) throw new Error("Guild not configured.");
+  if (cache && !cache.config) cache.config = config;
 
-  const apiKeys = GuildApiKeys.find({ guild_id: job.guild_id });
+  const apiKeys =
+    cache?.apiKeys ?? GuildApiKeys.find({ guild_id: job.guild_id });
   if (apiKeys.length === 0) throw new Error("No API keys found for guild.");
+  if (cache && !cache.apiKeys) cache.apiKeys = apiKeys;
 
-  const factionMappings = FactionRoles.find({
-    guild_id: job.guild_id,
-    enabled: true,
-  });
-  const mercConfig = MercenaryConfigs.find({
-    guild_id: job.guild_id,
-  })[0];
+  const factionMappings =
+    cache?.factionMappings ??
+    FactionRoles.find({
+      guild_id: job.guild_id,
+      enabled: true,
+    });
+  if (cache && !cache.factionMappings) cache.factionMappings = factionMappings;
+
+  const mercConfig =
+    cache?.mercConfig !== undefined
+      ? cache.mercConfig
+      : MercenaryConfigs.find({
+          guild_id: job.guild_id,
+        })[0];
+  if (cache && cache.mercConfig === undefined) cache.mercConfig = mercConfig;
+
   const isMerc = MercenaryRegisteredMercs.find({
     guild_id: job.guild_id,
     discord_id: job.discord_id,
     is_active: true,
   })[0];
-  const strictReactionMsgs = ReactionRoleMessages.find({
-    guild_id: job.guild_id,
-    sync_roles: true,
-  });
+
+  const strictReactionMsgs =
+    cache?.strictReactionMsgs ??
+    ReactionRoleMessages.find({
+      guild_id: job.guild_id,
+      sync_roles: true,
+    });
+  if (cache && !cache.strictReactionMsgs)
+    cache.strictReactionMsgs = strictReactionMsgs;
 
   // ==========================================
-  // 2. COMPILE THE MANAGED ROLE BOUNDARY
+  // 2. COMPILE THE MANAGED ROLE BOUNDARY (CACHED)
   // ==========================================
-  const managedRoles = new Set<string>();
+  const managedRoles = cache?.managedRoles ?? new Set<string>();
 
   // Helper to handle legacy double-encoded JSON arrays (e.g. "[\"role1\"]" instead of ["role1"])
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const parseArray = (val: any): string[] => {
+  const parseArray = (val: unknown): string[] => {
     if (Array.isArray(val)) return val;
     if (typeof val === "string") {
       try {
@@ -93,21 +122,28 @@ export async function runVerificationJob(
     return [];
   };
 
-  if (config.verified_role_id) managedRoles.add(config.verified_role_id);
-  parseArray(config.verified_role_ids).forEach((id) => managedRoles.add(id));
-
-  factionMappings.forEach((mapping) => {
-    parseArray(mapping.member_role_ids).forEach((id) => managedRoles.add(id));
-    parseArray(mapping.leader_role_ids).forEach((id) => managedRoles.add(id));
-  });
-
   const mercRoleIds = mercConfig?.merc_role_ids || [];
-  mercRoleIds.forEach((id) => managedRoles.add(id));
 
-  strictReactionMsgs.forEach((msg) => {
-    const mappings = ReactionRoleMappings.find({ message_id: msg.message_id });
-    mappings.forEach((m) => managedRoles.add(m.role_id));
-  });
+  if (!cache?.managedRoles) {
+    if (config.verified_role_id) managedRoles.add(config.verified_role_id);
+    parseArray(config.verified_role_ids).forEach((id) => managedRoles.add(id));
+
+    factionMappings.forEach((mapping: FactionRoleMappingDocument) => {
+      parseArray(mapping.member_role_ids).forEach((id) => managedRoles.add(id));
+      parseArray(mapping.leader_role_ids).forEach((id) => managedRoles.add(id));
+    });
+
+    mercRoleIds.forEach((id: string) => managedRoles.add(id));
+
+    strictReactionMsgs.forEach((msg: ReactionRoleMessageDocument) => {
+      const mappings = ReactionRoleMappings.find({
+        message_id: msg.message_id,
+      });
+      mappings.forEach((m: ReactionRoleMappingDocument) => managedRoles.add(m.role_id));
+    });
+
+    if (cache) cache.managedRoles = managedRoles;
+  }
 
   // ==========================================
   // 3. FETCH USER FROM TORN API
@@ -135,7 +171,7 @@ export async function runVerificationJob(
       if (error.code === 6) {
         // User is not linked to Torn. Strip their roles and reset nickname.
         const rolesToRemove = Array.from(managedRoles).filter((roleId) =>
-          job.current_role_ids.includes(roleId)
+          job.current_role_ids.includes(roleId),
         );
         const packet: VerificationSuccessResponse = {
           guild_id: job.guild_id,
@@ -145,13 +181,12 @@ export async function runVerificationJob(
           roles_to_remove: rolesToRemove.length > 0 ? rolesToRemove : null,
           new_nickname: "", // Empty string removes the nickname
         };
-        dispatchToBot({ action: "verification_success", data: packet });
-        
+
         // Remove them from verified users db
         VerifiedUsers.delete(job.discord_id);
-        
+
         finishSync();
-        return;
+        return packet;
       }
 
       const packet: VerificationFailureResponse = {
@@ -162,8 +197,8 @@ export async function runVerificationJob(
       };
 
       logger.error("Torn Error: ", error.message);
-      dispatchToBot({ action: "verification_fail", data: packet });
-      return;
+      finishSync();
+      return packet;
     }
 
     logger.error("Unknown error", error);
@@ -174,8 +209,8 @@ export async function runVerificationJob(
       discord_id: job.discord_id,
       error: { message: "Unknown error" },
     };
-    dispatchToBot({ action: "verification_fail", data: packet });
-    return;
+    finishSync();
+    return packet;
   }
 
   if (!response.discord || !response.profile?.id) {
@@ -186,8 +221,8 @@ export async function runVerificationJob(
       error: { message: "Not verified on Torn Discord." },
     };
 
-    dispatchToBot({ action: "verification_fail", data: packet });
-    return;
+    finishSync();
+    return packet;
   }
 
   // ==========================================
@@ -203,7 +238,9 @@ export async function runVerificationJob(
   parseArray(config.verified_role_ids).forEach((id) => targetRoles.add(id));
 
   if (factionId) {
-    const mapping = factionMappings.find((m) => m.faction_id === factionId);
+    const mapping = factionMappings.find(
+      (m: FactionRoleMappingDocument) => m.faction_id === factionId,
+    );
     if (mapping) {
       parseArray(mapping.member_role_ids).forEach((id) => targetRoles.add(id));
 
@@ -220,10 +257,10 @@ export async function runVerificationJob(
   }
 
   if (isMerc) {
-    mercRoleIds.forEach((id) => targetRoles.add(id));
+    mercRoleIds.forEach((id: string) => targetRoles.add(id));
   }
 
-  strictReactionMsgs.forEach((msg) => {
+  strictReactionMsgs.forEach((msg: ReactionRoleMessageDocument) => {
     if (msg.required_role_id && !targetRoles.has(msg.required_role_id)) {
       const mappings = ReactionRoleMappings.find({
         message_id: msg.message_id,
@@ -278,6 +315,6 @@ export async function runVerificationJob(
     new_nickname: newNickname,
   };
 
-  dispatchToBot({ action: "verification_success", data: packet });
   finishSync();
+  return packet;
 }
