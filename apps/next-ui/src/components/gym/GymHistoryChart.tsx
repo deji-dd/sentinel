@@ -13,13 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { 
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   ChartConfig,
   ChartContainer,
@@ -40,6 +33,7 @@ export interface GymLedgerEntry {
 
 interface GymHistoryChartProps {
   data: GymLedgerEntry[];
+  timeRange: "7d" | "30d" | "90d" | "all";
 }
 
 const chartConfig = {
@@ -61,8 +55,7 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export function GymHistoryChart({ data }: GymHistoryChartProps) {
-  const [timeRange, setTimeRange] = useState("30d");
+export function GymHistoryChart({ data, timeRange }: GymHistoryChartProps) {
   const [isMobile, setIsMobile] = useState(false);
 
   React.useEffect(() => {
@@ -123,7 +116,7 @@ export function GymHistoryChart({ data }: GymHistoryChartProps) {
       const paddedResult = [];
       const startDate = new Date(result[0].date);
       const endDate = new Date(result[result.length - 1].date);
-      
+
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split("T")[0];
         const existing = result.find(r => r.date === dateStr);
@@ -167,20 +160,6 @@ export function GymHistoryChart({ data }: GymHistoryChartProps) {
             Showing total stats gained in the selected time range
           </CardDescription>
         </div>
-        <Select
-          value={timeRange}
-          onValueChange={(val) => setTimeRange(val as "7d" | "30d" | "90d" | "all")}
-        >
-          <SelectTrigger className="w-[160px] sm:ml-auto">
-            <SelectValue placeholder="Select time range" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7d">Last 7 Days</SelectItem>
-            <SelectItem value="30d">Last 30 Days</SelectItem>
-            <SelectItem value="90d">Last 3 Months</SelectItem>
-            <SelectItem value="all">All Time</SelectItem>
-          </SelectContent>
-        </Select>
       </CardHeader>
       <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
         <ChartContainer

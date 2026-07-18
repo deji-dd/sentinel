@@ -8,9 +8,9 @@ type Starter = () => void;
 const PRIVATE_WORKERS: Starter[] = [
   privateWorkers.startLogManager,
   privateWorkers.startCrimesModule,
+  privateWorkers.startGymModule,
 ];
 
-// TODO: COMMENT IN DEV, UNCOMMENT BEFORE PUSH
 const PUBLIC_WORKERS: Starter[] = [
   publicWorkers.startTerritoryBlueprintSync,
   publicWorkers.startTerritoryActivitySync,

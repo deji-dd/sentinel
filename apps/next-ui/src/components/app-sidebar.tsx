@@ -10,6 +10,7 @@ import {
   Bell,
   BellOff,
   Target,
+  Dumbbell,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,6 +31,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const navItems = [
   { name: "OVERVIEW", href: "/", icon: Home },
   { name: "CRIME_LEDGER", href: "/crimes", icon: Target },
+  { name: "GYM_LEDGER", href: "/gym", icon: Dumbbell },
 ];
 
 export function AppSidebar() {

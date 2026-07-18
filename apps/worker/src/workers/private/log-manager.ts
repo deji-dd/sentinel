@@ -10,6 +10,7 @@ import {
 } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { workerEvents } from "../../lib/event-bus.js";
+import { parseStatGainLog } from "./gym.js";
 
 const WORKER_NAME = "log_manager";
 
@@ -113,6 +114,6 @@ export function startLogManager(): void {
   workerEvents.on("new_log", async (log: any) => {
     const logger = new Logger("log_manager_events");
     logger.info("Intercepted new log: " + log.details.title);
-    // Note: Event-driven parsers have been deliberately removed as we are starting afresh.
+    parseStatGainLog(log);
   });
 }

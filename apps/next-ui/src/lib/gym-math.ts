@@ -52,6 +52,12 @@ export interface GymStateData {
       market_price: number;
     };
   }>;
+  backfill_progress?: {
+    status: "in_progress" | "completed" | "error";
+    logs_parsed?: number;
+    oldest_timestamp_reached?: number | null;
+    error?: string;
+  };
 }
 
 const STAT_CONSTANTS = {

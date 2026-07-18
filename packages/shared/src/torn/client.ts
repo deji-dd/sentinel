@@ -5,7 +5,12 @@ import { Logger } from "../utils/logger.js";
 
 // Note: Adjust these relative imports based on exactly where your NoSQL schema
 // instances (SystemApiKeys, etc.) are located inside your shared package.
-import { SystemApiKeys, ApiKeyMappings, RateLimits, UserConfig } from "../index.js";
+import {
+  SystemApiKeys,
+  ApiKeyMappings,
+  RateLimits,
+  UserConfig,
+} from "../index.js";
 
 const logger = new Logger("Torn_Unified_Client");
 

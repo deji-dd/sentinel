@@ -16,6 +16,15 @@ type InitState =
       timestamp: number;
     }
   | {
+      id: "gym_ledger_backfill_progress";
+      timestamp: number;
+      status: "in_progress" | "completed" | "error";
+      logs_parsed?: number;
+      oldest_timestamp_reached?: number | null;
+      error?: string;
+      active_chunks?: { logSelection: string; currentTo: number | undefined }[] | null;
+    }
+  | {
       id: "log_manager_last_checked";
       timestamp: number;
     };
