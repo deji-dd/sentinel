@@ -14,6 +14,7 @@ import {
   type SystemStateDocument,
 } from "@sentinel/shared";
 import { workerEvents } from "../../lib/event-bus.js";
+import { syncGymUnlocks } from "./daily-sync.js";
 
 const logger = new Logger("gym_worker");
 
@@ -160,7 +161,10 @@ export async function runGymLedgerInit() {
               note: gymData.note,
             });
           }
-          if (gymsToInsert.length > 0) TornGyms.insertMany(gymsToInsert);
+          if (gymsToInsert.length > 0) {
+            TornGyms.insertMany(gymsToInsert);
+            await syncGymUnlocks(apiKey);
+          }
         }
       } catch (e) {
         logger.error("Failed to fetch static gyms data:", e);

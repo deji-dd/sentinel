@@ -62,7 +62,7 @@ echo "Installing dependencies..."
 pnpm install --frozen-lockfile --child-concurrency 1
 
 # Check if build-relevant folders have changes; skip build if none changed
-if ! git diff "${PRE_PULL_SHA}" HEAD --quiet -- apps/bot apps/worker packages/shared sqlite/migrations; then
+if ! git diff "${PRE_PULL_SHA}" HEAD --quiet -- apps/api apps/bot apps/worker packages/shared; then
   echo "Changes detected in build-relevant folders; proceeding with build..."
 else
   echo "No changes in build-relevant folders; skipping build."
@@ -102,9 +102,6 @@ rm -f "${REPO_DIR}/.pm2/dump.pm2" "${REPO_DIR}/.pm2/module_conf.js" >/dev/null 2
 echo "Starting processes from ecosystem.config.js..."
 if timeout 30 pm2 start "${REPO_DIR}/ecosystem.config.js" --env production 2>&1; then
   echo "PM2 processes started successfully"
-  
-  echo "Starting CPE 532 RSA App..."
-  pm2 start "/home/deji/repos/cpe532-group1-rsa/ecosystem.config.js" >/dev/null 2>&1 || true
   
   # Save PM2 process list with timeout
   timeout 10 pm2 save >/dev/null 2>&1 || echo "Warning: PM2 save timed out"

@@ -95,77 +95,80 @@ export async function runDailySync() {
       });
     }
 
-    // --- GYM UNLOCKS ---
-    let logs = PersonalLogs.findAll((l) => l.details?.id === 5320);
-    const existingGymState = UserState.findOne("gym_unlocks");
-
-    // Guard: Only hit the API if we have no local logs AND we haven't built the state yet
-    if (logs.length === 0 && !existingGymState) {
-      const logRes = await tornApi.get("/user/log", {
-        apiKey,
-        queryParams: { log: [5320] },
-      });
-      if (logRes.log) {
-        logs = logRes.log;
-      }
-    }
-
-    const gyms = TornGyms.findAll();
-
-    if (logs.length > 0 && gyms.length > 0) {
-      // Find all gym IDs unlocked. (Add 1 by default since everyone has the first gym)
-      const unlockedGymIds = new Set<number>([1]);
-      for (const log of logs) {
-        if (log.data && typeof log.data.gym === "number") {
-          unlockedGymIds.add(log.data.gym);
-        }
-      }
-
-      let bestStrengthGym = 0;
-      let bestDefenseGym = 0;
-      let bestSpeedGym = 0;
-      let bestDexterityGym = 0;
-
-      let maxStrength = 0;
-      let maxDefense = 0;
-      let maxSpeed = 0;
-      let maxDexterity = 0;
-
-      for (const gymId of unlockedGymIds) {
-        const gym = gyms.find((g) => Number(g.id) === gymId);
-        if (!gym) continue;
-
-        if (gym.strength > maxStrength) {
-          maxStrength = gym.strength;
-          bestStrengthGym = gymId;
-        }
-        if (gym.defense > maxDefense) {
-          maxDefense = gym.defense;
-          bestDefenseGym = gymId;
-        }
-        if (gym.speed > maxSpeed) {
-          maxSpeed = gym.speed;
-          bestSpeedGym = gymId;
-        }
-        if (gym.dexterity > maxDexterity) {
-          maxDexterity = gym.dexterity;
-          bestDexterityGym = gymId;
-        }
-      }
-
-      UserState.insertOne({
-        id: "gym_unlocks",
-        strength_gym: bestStrengthGym,
-        defense_gym: bestDefenseGym,
-        speed_gym: bestSpeedGym,
-        dexterity_gym: bestDexterityGym,
-        timestamp: Math.floor(Date.now() / 1000),
-      });
-    }
+    await syncGymUnlocks(apiKey);
 
     finishSync();
   } catch (error) {
     logger.error("Failed to execute daily sync", error);
+  }
+}
+
+export async function syncGymUnlocks(apiKey: string) {
+  let logs = PersonalLogs.findAll((l) => l.details?.id === 5320);
+  const existingGymState = UserState.findOne("gym_unlocks");
+
+  // Guard: Only hit the API if we have no local logs AND we haven't built the state yet
+  if (logs.length === 0 && !existingGymState) {
+    const logRes = await tornApi.get("/user/log", {
+      apiKey,
+      queryParams: { log: [5320] },
+    });
+    if (logRes.log) {
+      logs = logRes.log;
+    }
+  }
+
+  const gyms = TornGyms.findAll();
+
+  if (logs.length > 0 && gyms.length > 0) {
+    // Find all gym IDs unlocked. (Add 1 by default since everyone has the first gym)
+    const unlockedGymIds = new Set<number>([1]);
+    for (const log of logs) {
+      if (log.data && typeof log.data.gym === "number") {
+        unlockedGymIds.add(log.data.gym);
+      }
+    }
+
+    let bestStrengthGym = 0;
+    let bestDefenseGym = 0;
+    let bestSpeedGym = 0;
+    let bestDexterityGym = 0;
+
+    let maxStrength = 0;
+    let maxDefense = 0;
+    let maxSpeed = 0;
+    let maxDexterity = 0;
+
+    for (const gymId of unlockedGymIds) {
+      const gym = gyms.find((g) => Number(g.id) === gymId);
+      if (!gym) continue;
+
+      if (gym.strength > maxStrength) {
+        maxStrength = gym.strength;
+        bestStrengthGym = gymId;
+      }
+      if (gym.defense > maxDefense) {
+        maxDefense = gym.defense;
+        bestDefenseGym = gymId;
+      }
+      if (gym.speed > maxSpeed) {
+        maxSpeed = gym.speed;
+        bestSpeedGym = gymId;
+      }
+      if (gym.dexterity > maxDexterity) {
+        maxDexterity = gym.dexterity;
+        bestDexterityGym = gymId;
+      }
+    }
+
+    UserState.insertOne({
+      id: "gym_unlocks",
+      strength_gym: bestStrengthGym,
+      defense_gym: bestDefenseGym,
+      speed_gym: bestSpeedGym,
+      dexterity_gym: bestDexterityGym,
+      timestamp: Math.floor(Date.now() / 1000),
+    });
   }
 }
 
