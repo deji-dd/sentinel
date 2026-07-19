@@ -13,6 +13,7 @@ import { workerEvents } from "../../lib/event-bus.js";
 import { parseStatGainLog } from "./gym.js";
 import { parseStockGainLog, parseStockActivityLog } from "./stocks.js";
 import { parseTravelActivityLog } from "./travel.js";
+import { parseWealthActivityLog } from "./wealth.js";
 
 const WORKER_NAME = "log_manager";
 
@@ -120,5 +121,6 @@ export function startLogManager(): void {
     parseStockGainLog(log);
     parseStockActivityLog(log);
     parseTravelActivityLog(log);
+    parseWealthActivityLog(log);
   });
 }

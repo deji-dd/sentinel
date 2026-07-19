@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { sentinelDbEngine, Logger, getItemValue } from "@sentinel/shared";
+import { sentinelDbEngine, Logger, getItemValue, UserConfig, SystemState } from "@sentinel/shared";
 import { sendToWorker } from "../lib/ipc.js";
 
 const logger = new Logger("api_ledger_routes");
@@ -8,6 +8,16 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
   fastify.get("/api/ledger/wealth-state", async (request, reply) => {
     try {
       const db = sentinelDbEngine.db;
+
+      const config = UserConfig.findOne("global");
+      if (config && !(config as any).wealth_module_enabled) {
+        return reply.send({ module_disabled: true });
+      }
+
+      const initState = SystemState.findOne("wealth_init") as any;
+      if (initState?.data?.status === "in_progress") {
+        return reply.send({ module_disabled: false, initializing: true });
+      }
 
       // 1. Get Action Queue
       const queueStmt = db.prepare(`

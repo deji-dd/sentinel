@@ -6,11 +6,7 @@ import {
   UserConfig,
   SystemState,
   SystemStateDocument,
-  sentinelDbEngine,
-  getCrimeIdFromAction,
-  calculateCrimeLogValue,
   TornCrimes,
-  TornSchema,
   CrimeLogDocument,
   CrimeActionMappingDocument,
 } from "@sentinel/shared";
@@ -44,10 +40,13 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
       // Fetch from the new CrimeLogs collection
       const logs = CrimeLogs.find({});
       const filtered = logs.filter(
-        (l: CrimeLogDocument) => l.timestamp >= startTimestamp && l.crime_id !== 0,
+        (l: CrimeLogDocument) =>
+          l.timestamp >= startTimestamp && l.crime_id !== 0,
       );
       // Sort descending
-      filtered.sort((a: CrimeLogDocument, b: CrimeLogDocument) => b.timestamp - a.timestamp);
+      filtered.sort(
+        (a: CrimeLogDocument, b: CrimeLogDocument) => b.timestamp - a.timestamp,
+      );
 
       const results = [];
       for (const log of filtered) {
@@ -73,18 +72,27 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       // Get all unmapped actions (where crime_id is 0)
       const unmapped = CrimeActionMappings.find({ crime_id: 0 });
-      return reply.send({ data: unmapped.map((u: CrimeActionMappingDocument) => u.action) });
+      return reply.send({
+        data: unmapped.map((u: CrimeActionMappingDocument) => u.action),
+      });
     } catch (error: any) {
       fastify.log.error(error);
-      return reply.status(500).send({ error: "Failed to fetch unmapped actions" });
+      return reply
+        .status(500)
+        .send({ error: "Failed to fetch unmapped actions" });
     }
   });
 
   fastify.post("/map", async (request, reply) => {
     try {
-      const { action, crime_id } = request.body as { action: string; crime_id: number };
+      const { action, crime_id } = request.body as {
+        action: string;
+        crime_id: number;
+      };
       if (!action || !crime_id) {
-        return reply.status(400).send({ error: "action and crime_id are required" });
+        return reply
+          .status(400)
+          .send({ error: "action and crime_id are required" });
       }
 
       const lowerAction = action.toLowerCase().trim();
@@ -115,12 +123,42 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/all", async (request, reply) => {
     try {
       const crimes = TornCrimes.findAll();
-      const mapped = crimes.map((c) => ({ id: parseInt(c.id), name: c.data.name }));
+      const mapped = crimes.map((c) => ({
+        id: parseInt(c.id),
+        name: c.data.name,
+      }));
       mapped.sort((a, b) => a.id - b.id);
       return reply.send({ data: mapped });
     } catch (error: any) {
       fastify.log.error(error);
       return reply.status(500).send({ error: "Failed to fetch all crimes" });
+    }
+  });
+
+  fastify.get("/historical", async (request, reply) => {
+    try {
+      const logs = CrimeLogs.find({});
+      const filtered = logs.filter((l: CrimeLogDocument) => l.crime_id !== 0);
+
+      // Group by UTC day start
+      const dailyProfits: Record<number, number> = {};
+      for (const log of filtered) {
+        const d = new Date(log.timestamp * 1000);
+        d.setUTCHours(0, 0, 0, 0);
+        const dayStart = Math.floor(d.getTime() / 1000);
+        dailyProfits[dayStart] = (dailyProfits[dayStart] || 0) + log.value;
+      }
+
+      const results = Object.keys(dailyProfits).map((ts) => ({
+        timestamp: parseInt(ts),
+        daily_profit: dailyProfits[parseInt(ts)],
+      }));
+      results.sort((a, b) => a.timestamp - b.timestamp);
+
+      return reply.send({ data: results });
+    } catch (error: any) {
+      fastify.log.error(error);
+      return reply.status(500).send({ error: "Failed to fetch historical crime data" });
     }
   });
 
@@ -143,7 +181,10 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
       const logs = CrimeLogs.find({});
 
       // Aggregate baseline + logs
-      const aggregated = new Map<number, { name: string; nerve: number; value: number }>();
+      const aggregated = new Map<
+        number,
+        { name: string; nerve: number; value: number }
+      >();
 
       for (const base of ledgers) {
         const cid = parseInt(base.id);
@@ -177,8 +218,7 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
         crime_name: item.name,
         total_value: item.value,
         nerve_spent: item.nerve,
-        profit_per_nerve:
-          item.nerve > 0 ? item.value / item.nerve : 0,
+        profit_per_nerve: item.nerve > 0 ? item.value / item.nerve : 0,
       }));
 
       // Sort by highest profit per nerve

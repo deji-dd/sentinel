@@ -25,8 +25,9 @@ export const TravelUnmappedAreas = new Collection<TravelUnmappedAreaDocument>(
 
 // Travel Ledger for Profit Tracking
 export interface TravelLedgerDocument {
-  id: string; // Area ID
+  id: string; // Item ID
   tracked_profit: number;
+  history?: { timestamp: number; profit: number }[];
 }
 
 export const TravelLedger = new Collection<TravelLedgerDocument>(

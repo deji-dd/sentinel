@@ -36,6 +36,11 @@ type InitState =
   | {
       id: "log_manager_last_checked";
       timestamp: number;
+    }
+  | {
+      id: "wealth_init";
+      data: { status: "in_progress" | "completed" | "error" };
+      updated_at: number;
     };
 
 // type UserState = {

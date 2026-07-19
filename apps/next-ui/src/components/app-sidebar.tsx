@@ -13,6 +13,7 @@ import {
   Dumbbell,
   TrendingUp,
   Plane,
+  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,6 +33,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 const navItems = [
   { name: "OVERVIEW", href: "/", icon: Home },
+  { name: "WEALTH_PORTFOLIO", href: "/wealth", icon: Activity },
   { name: "CRIME_LEDGER", href: "/crimes", icon: Target },
   { name: "GYM_LEDGER", href: "/gym", icon: Dumbbell },
   { name: "STOCK_PORTFOLIO", href: "/stocks", icon: TrendingUp },
@@ -102,7 +104,7 @@ export function AppSidebar() {
               disabled={pushLoading}
               tooltip={subscribed ? "DISABLE_ALERTS" : "ENABLE_ALERTS"}
               className={cn(
-                "rounded-none h-10 transition-colors",
+                "rounded-none h-10 transition-colors cursor-pointer",
                 subscribed
                   ? "text-sidebar-foreground hover:bg-sidebar-accent"
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"

@@ -3,11 +3,21 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useSync } from "@/hooks/use-sync";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { Activity, DollarSign, Target, TrendingUp, RefreshCw } from "lucide-react";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
-import { RefreshCw, Target, TrendingUp, DollarSign, Activity } from "lucide-react";
 import { ModuleGuard } from "@/components/module-guard";
 import { useSettings } from "@/components/settings-provider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { TornStockDocument, UserStockDocument, StockLedgerDocument } from "@sentinel/shared";
 import Image from "next/image";
 
@@ -207,15 +217,27 @@ export default function StocksDashboard() {
                   Track stock dividends, calculate return on investment, and view market metrics.
                 </p>
               </div>
-              <button
-                className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                onClick={async () => {
-                  await fetch("/api/stocks/reset-ledger", { method: "POST" });
-                  fetchStocksData(true);
-                }}
-              >
-                Reset Ledger
-              </button>
+              <Dialog>
+                <DialogTrigger className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-destructive hover:border-destructive/50 transition-colors">
+                  Reset Ledger
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Reset Stocks Ledger?</DialogTitle>
+                    <DialogDescription>
+                      This action will permanently delete all tracked stock dividends, portfolio data, and ROI history. This cannot be undone. Are you sure you want to proceed?
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="destructive" onClick={async () => {
+                      await fetch("/api/stocks/reset-ledger", { method: "POST" });
+                      fetchStocksData(true);
+                    }}>
+                      Yes, reset ledger
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </header>
 
             <div className="flex gap-4 mb-2 flex-wrap">

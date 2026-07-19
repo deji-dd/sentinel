@@ -43,6 +43,8 @@ export function setupIpcServer() {
           workerEvents.emit("reinit_ledger", packet.data.ledger);
         } else if (packet.action === "settings_updated") {
           workerEvents.emit("settings_updated");
+        } else if (packet.action === "wealth_init") {
+          workerEvents.emit("wealth_init");
         } else if (packet.action === "verify") {
           const result = await runVerificationJob(packet.data);
           if (result) {

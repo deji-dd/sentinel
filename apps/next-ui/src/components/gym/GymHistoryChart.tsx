@@ -39,19 +39,19 @@ interface GymHistoryChartProps {
 const chartConfig = {
   strength: {
     label: "Strength",
-    color: "var(--chart-1)",
+    color: "#22c55e", // green
   },
   defense: {
     label: "Defense",
-    color: "var(--chart-2)",
+    color: "#3b82f6", // blue
   },
   speed: {
     label: "Speed",
-    color: "var(--chart-3)",
+    color: "#eab308", // yellow
   },
   dexterity: {
     label: "Dexterity",
-    color: "var(--chart-4)",
+    color: "#ec4899", // pink
   },
 } satisfies ChartConfig;
 

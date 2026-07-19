@@ -19,15 +19,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Activity, Target } from "lucide-react";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 import { CrimeKPICards } from "@/components/crimes/CrimeKPICards";
 import { CrimeBarChart } from "@/components/crimes/CrimeBarChart";
+import { CrimeHistoricalChart, CrimeHistoricalPoint } from "@/components/crimes/CrimeHistoricalChart";
 import { UnmappedCrimes } from "@/components/crimes/UnmappedCrimes";
 import { RecentCrimesTable, RecentCrimeLog } from "@/components/crimes/RecentCrimesTable";
 import { ModuleGuard } from "@/components/module-guard";
 import { useSettings } from "@/components/settings-provider";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 interface CrimeROI {
   crime_name: string;
@@ -42,9 +54,11 @@ export default function CrimesDashboard() {
   const [recentLogs, setRecentLogs] = useState<RecentCrimeLog[]>([]);
   const [unmapped, setUnmapped] = useState<string[]>([]);
   const [allCrimes, setAllCrimes] = useState<{ id: number; name: string }[]>([]);
+  const [historicalData, setHistoricalData] = useState<CrimeHistoricalPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
   const [moduleDisabled, setModuleDisabled] = useState(false);
+  const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d" | "all">("30d");
 
   const [sorting, setSorting] = useState<SortingState>([{ id: "profit_per_nerve", desc: true }]);
   const showLoader = useMinimumLoading(loading, 2000);
@@ -86,6 +100,12 @@ export default function CrimesDashboard() {
         if (allRes.ok) {
           const aJson = await allRes.json();
           setAllCrimes(aJson.data || []);
+        }
+
+        const histRes = await fetch("/api/crimes/historical");
+        if (histRes.ok) {
+          const hJson = await histRes.json();
+          setHistoricalData(hJson.data || []);
         }
 
         setLastSyncedText(`Last synced at ${new Date().toLocaleTimeString()}`);
@@ -174,6 +194,19 @@ export default function CrimesDashboard() {
     []
   );
 
+  const [now, setNow] = React.useState<number>(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+  }, [timeframe]);
+
+  const filteredHistorical = useMemo(() => {
+    return historicalData.filter((item) => {
+      if (timeframe === "all") return true;
+      const days = timeframe === "7d" ? 7 : timeframe === "30d" ? 30 : 90;
+      return item.timestamp * 1000 >= now - (days * 86400 * 1000);
+    });
+  }, [historicalData, timeframe, now]);
+
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
@@ -239,15 +272,27 @@ export default function CrimesDashboard() {
                   True Return on Investment for crimes, factoring in failure rates and critical fails.
                 </p>
               </div>
-              <button
-                className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                onClick={async () => {
-                  await fetch("/api/crimes/reset-ledger", { method: "POST" });
-                  fetchCrimes();
-                }}
-              >
-                Reset Ledger
-              </button>
+              <Dialog>
+                <DialogTrigger className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-destructive hover:border-destructive/50 transition-colors">
+                  Reset Ledger
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Reset Crime Ledger?</DialogTitle>
+                    <DialogDescription>
+                      This action will permanently delete all tracked crime history and ROI data. This cannot be undone. Are you sure you want to proceed?
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="destructive" onClick={async () => {
+                      await fetch("/api/crimes/reset-ledger", { method: "POST" });
+                      fetchCrimes();
+                    }}>
+                      Yes, reset ledger
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </header>
 
             <UnmappedCrimes
@@ -260,6 +305,30 @@ export default function CrimesDashboard() {
               <>
                 <CrimeKPICards data={data} />
                 <CrimeBarChart data={data} />
+                <div className="mb-8">
+                  <Card className="rounded-none border-border bg-card">
+                    <CardHeader className="flex flex-row items-center justify-between border-b border-border mb-6 p-4">
+                      <CardTitle className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-foreground">
+                        <Activity className="w-4 h-4" />
+                        <span>Historical Profit</span>
+                      </CardTitle>
+                      <div className="flex bg-muted rounded-none p-1">
+                        {["7d", "30d", "90d", "all"].map((t) => (
+                          <button
+                            key={t}
+                            onClick={() => setTimeframe(t as "7d" | "30d" | "90d" | "all")}
+                            className={`px-3 py-1 text-[10px] font-mono tracking-widest uppercase transition-colors ${timeframe === t ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      <CrimeHistoricalChart data={filteredHistorical} />
+                    </CardContent>
+                  </Card>
+                </div>
               </>
             )}
 

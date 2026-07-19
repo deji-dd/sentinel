@@ -11,6 +11,7 @@ export type UserConfigDocument = BaseDocument & {
   gym_module_enabled?: boolean;
   stocks_module_enabled?: boolean;
   travel_module_enabled?: boolean;
+  wealth_module_enabled?: boolean;
   travel_capacity?: number;
   travel_method?: string;
 };

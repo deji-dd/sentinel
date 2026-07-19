@@ -5,4 +5,6 @@ export type toWorkerPacket =
   | { action: "verify_bulk"; data: VerificationRequest[] }
   | { action: "force_run_worker"; data: { worker_name: string } }
   | { action: "settings_updated" }
-  | { action: "reinit_ledger"; data: { ledger: "gym" | "items" | "crimes" | "war" } };
+  | { action: "reinit_ledger"; data: { ledger: "gym" | "items" | "crimes" | "war" } }
+  | { action: "wealth_init" }
+  | { action: "wealth_heal" };

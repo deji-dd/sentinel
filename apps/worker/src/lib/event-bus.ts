@@ -6,6 +6,8 @@ interface WorkerEvents {
   new_log: (log: TornSchema<"UserLog">) => void;
   reinit_ledger: (ledger: string) => void;
   settings_updated: () => void;
+  wealth_init: () => void;
+  wealth_heal: () => void;
 }
 
 class TypedEventEmitter extends EventEmitter {

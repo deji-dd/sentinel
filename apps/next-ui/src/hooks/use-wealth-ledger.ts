@@ -32,6 +32,8 @@ export function useWealthLedger() {
     actionQueue: ActionItem[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [moduleDisabled, setModuleDisabled] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refetch = useCallback(() => {
@@ -52,7 +54,18 @@ export function useWealthLedger() {
         }
 
         if (liveData && mounted) {
-          setData(liveData);
+          if (liveData.module_disabled) {
+            setModuleDisabled(true);
+            setIsPolling(false);
+            setData(null);
+          } else if (liveData.initializing) {
+            setModuleDisabled(false);
+            setIsPolling(true);
+          } else {
+            setModuleDisabled(false);
+            setIsPolling(false);
+            setData(liveData.data || liveData);
+          }
         }
       } catch (err) {
         console.error("Failed to load wealth ledger:", err);
@@ -62,10 +75,17 @@ export function useWealthLedger() {
     }
 
     fetchData();
+    
+    let interval: NodeJS.Timeout;
+    if (isPolling && mounted) {
+      interval = setInterval(fetchData, 2000);
+    }
+    
     return () => {
       mounted = false;
+      if (interval) clearInterval(interval);
     };
-  }, [refreshKey]);
+  }, [refreshKey, isPolling]);
 
-  return { data, loading, refetch };
+  return { data, loading, moduleDisabled, isPolling, refetch };
 }

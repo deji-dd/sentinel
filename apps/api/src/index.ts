@@ -15,6 +15,7 @@ import { stocksRoutes } from "./routes/stocks.js";
 import { configRoutes } from "./routes/config.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { travelRoutes } from "./routes/travel.js";
+import { wealthRoutes } from "./routes/wealth.js";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 
@@ -40,6 +41,7 @@ fastify.register(stocksRoutes, { prefix: "/api/stocks" });
 fastify.register(configRoutes, { prefix: "/api/config" });
 fastify.register(settingsRoutes, { prefix: "/api/settings" });
 fastify.register(travelRoutes, { prefix: "/api/travel" });
+fastify.register(wealthRoutes, { prefix: "/api/wealth" });
 
 async function start() {
   try {

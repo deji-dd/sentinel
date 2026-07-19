@@ -53,12 +53,14 @@ export function parseTravelActivityLog(log: any) {
     if (existing) {
       TravelLedger.update({
         id: itemStr,
-        tracked_profit: existing.tracked_profit + profit
+        tracked_profit: existing.tracked_profit + profit,
+        history: [...(existing.history || []), { timestamp: log.timestamp, profit }]
       });
     } else {
       TravelLedger.insertOne({
         id: itemStr,
-        tracked_profit: profit
+        tracked_profit: profit,
+        history: [{ timestamp: log.timestamp, profit }]
       });
     }
     

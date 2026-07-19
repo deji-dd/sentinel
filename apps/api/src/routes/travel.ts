@@ -46,11 +46,32 @@ export const travelRoutes: FastifyPluginAsync = async (fastify) => {
         };
       });
 
+      const ledgerEntries = TravelLedger.findAll();
+      const rawHistory: { timestamp: number; profit: number }[] = [];
+      ledgerEntries.forEach(entry => {
+        if (entry.history) {
+          rawHistory.push(...entry.history);
+        }
+      });
+
+      const historicalDataMap = new Map<number, number>();
+      rawHistory.forEach(entry => {
+        const d = new Date(entry.timestamp * 1000);
+        d.setUTCHours(0, 0, 0, 0);
+        const dayTime = d.getTime();
+        historicalDataMap.set(dayTime, (historicalDataMap.get(dayTime) || 0) + entry.profit);
+      });
+
+      const historicalData = Array.from(historicalDataMap.entries())
+        .map(([timestamp, dailyYield]) => ({ timestamp, dailyYield }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+
       const liveState = UserState.findOne("live_state");
 
       return reply.send({
         module_disabled: false,
         data: enhancedDestinations,
+        historicalData,
         live_state: liveState || null
       });
     } catch (error: any) {

@@ -23,7 +23,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <AppSidebar />
       <SidebarInset className="bg-background text-foreground">
         <div className="sticky top-0 z-30 flex justify-center w-full pointer-events-none">
-          <header className="pointer-events-auto flex w-full shrink-0 items-center justify-between pt-[env(safe-area-inset-top)] px-4 pb-3 sm:pb-4 md:px-8 border-b border-border bg-background/80 backdrop-blur-md">
+          <header className="pointer-events-auto flex w-full shrink-0 items-center justify-between pt-[env(safe-area-inset-top)] px-4 pb-3 sm:py-2 md:px-8 border-b border-border bg-background/80 backdrop-blur-md">
             <div className="flex gap-4 items-center">
               <SidebarTrigger className="text-neutral-500 hover:text-white transition-colors" />
               <div className="w-px h-4 bg-neutral-900" />
@@ -50,7 +50,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                           setIsSyncing(false);
                         }
                       }}
-                      className="text-[10px] font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
+                      className="text-[10px] cursor-pointer font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
                       disabled={isSyncing}
                     >
                       <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-white" : ""}`} />
@@ -60,7 +60,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                     <>
                       <button
                         onClick={() => setDropdownOpen(!dropdownOpen)}
-                        className="text-[10px] font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
+                        className="text-[10px] cursor-pointer font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
                         disabled={isSyncing}
                       >
                         <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-white" : ""}`} />
@@ -121,7 +121,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <button
                 onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
                 title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                className="ml-2 p-2 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                className="ml-2 p-2 cursor-pointer text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 {resolvedTheme === "dark"
                   ? <Sun className="size-4" />

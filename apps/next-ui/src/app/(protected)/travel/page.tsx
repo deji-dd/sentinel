@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { UnmappedAreas } from "./unmapped-areas";
+import { TravelChart } from "@/components/travel/TravelChart";
 
 const FLIGHT_TIMES: Record<string, number> = {
   mex: 18, cay: 25, can: 29, haw: 94, uni: 111,
@@ -89,6 +90,7 @@ interface LiveState {
 export default function TravelDashboard() {
   const { settings, setSettings, isLoading: isSettingsLoading } = useSettings();
   const [data, setData] = useState<Destination[]>([]);
+  const [historicalData, setHistoricalData] = useState<{timestamp: number, dailyYield: number}[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [unmapped, setUnmapped] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -100,6 +102,7 @@ export default function TravelDashboard() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [categoryFilter, setCategoryFilter] = useState("profit"); // "all" | "profit"
+  const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d" | "all">("30d");
 
   useEffect(() => {
     if (isSettingsOpen) {
@@ -146,6 +149,7 @@ export default function TravelDashboard() {
 
         const travelJson = await travelRes.json();
         if (travelJson.data) setData(travelJson.data);
+        if (travelJson.historicalData) setHistoricalData(travelJson.historicalData);
         if (travelJson.live_state) setLiveState(travelJson.live_state);
 
         const unmappedJson = await unmappedRes.json();
@@ -369,10 +373,38 @@ export default function TravelDashboard() {
             ]);
             const travelJson = await travelRes.json();
             if (travelJson.data) setData(travelJson.data);
+            if (travelJson.historicalData) setHistoricalData(travelJson.historicalData);
             const unmappedJson = await unmappedRes.json();
             setUnmapped(unmappedJson);
           }}
         />
+
+        <div className="mb-8 mt-8">
+          <div className="bg-card border border-border p-6 rounded-none shadow-sm">
+            <div className="flex flex-row items-center justify-between mb-4">
+              <h3 className="text-foreground font-mono uppercase tracking-[0.2em] flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-emerald-500" />
+                <span>Historical Daily Profit</span>
+              </h3>
+              <div className="flex bg-muted p-1">
+                {(["7d", "30d", "90d", "all"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTimeframe(t)}
+                    className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest cursor-pointer transition-colors ${
+                      timeframe === t
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <TravelChart data={historicalData} timeframe={timeframe} />
+          </div>
+        </div>
 
         {bestRoute && (
           <motion.div

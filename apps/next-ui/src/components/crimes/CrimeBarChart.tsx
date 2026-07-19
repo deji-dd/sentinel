@@ -29,24 +29,15 @@ interface CrimeBarChartProps {
  * Dark: white → dark grey (bars pop against black card background)
  * Light: dark → mid grey (bars are visible against white/near-white card)
  */
-const DARK_COLORS = [
-  "#ffffff",
-  "#d4d4d4",
-  "#a3a3a3",
-  "#737373",
-  "#525252",
-  "#404040",
-  "#262626",
-];
-
-const LIGHT_COLORS = [
-  "#171717",
-  "#404040",
-  "#525252",
-  "#737373",
-  "#a3a3a3",
-  "#d4d4d4",
-  "#e5e5e5",
+const COLORS = [
+  "#3b82f6", // blue
+  "#8b5cf6", // purple
+  "#ec4899", // pink
+  "#ef4444", // red
+  "#f97316", // orange
+  "#eab308", // yellow
+  "#22c55e", // green
+  "#14b8a6", // teal
 ];
 
 const formatCurrency = (value: number) => {
@@ -78,7 +69,8 @@ export function CrimeBarChart({ data }: CrimeBarChartProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const COLORS = isDark ? DARK_COLORS : LIGHT_COLORS;
+  // Use the same vibrant colors for both themes
+  const currentColors = COLORS;
 
   /** Hover cursor colour — a subtle tint that works on both backgrounds */
   const cursorFill = isDark ? "#262626" : "#f5f5f5";
@@ -154,10 +146,7 @@ export function CrimeBarChart({ data }: CrimeBarChartProps) {
             />
             <Bar dataKey="value" radius={[0, 2, 2, 0]} barSize={24}>
               {chartData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={COLORS[index % COLORS.length]}
-                />
+                <Cell key={`cell-${index}`} fill={currentColors[index % currentColors.length]} />
               ))}
             </Bar>
           </BarChart>

@@ -9,6 +9,7 @@ type Settings = {
   gym_module_enabled: boolean;
   stocks_module_enabled: boolean;
   travel_module_enabled: boolean;
+  wealth_module_enabled: boolean;
   travel_capacity: number;
   travel_method: string;
 };
@@ -20,6 +21,7 @@ const defaultSettings: Settings = {
   gym_module_enabled: false,
   stocks_module_enabled: false,
   travel_module_enabled: false,
+  wealth_module_enabled: false,
   travel_capacity: 15,
   travel_method: "1.0", // Standard
 };
@@ -41,10 +43,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/settings", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data) {
+    let isMounted = true;
+
+    const fetchSettings = async (retries = 5, delay = 500) => {
+      try {
+        const res = await fetch("/api/settings", { cache: "no-store" });
+        if (!res.ok) throw new Error("Failed to fetch settings");
+        const data = await res.json();
+        
+        if (data && isMounted) {
           setSettings({
             log_manager_enabled: data.log_manager_enabled ?? false,
             log_manager_cadence: data.log_manager_cadence ?? 60,
@@ -52,13 +59,27 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             gym_module_enabled: data.gym_module_enabled ?? false,
             stocks_module_enabled: data.stocks_module_enabled ?? false,
             travel_module_enabled: data.travel_module_enabled ?? false,
+            wealth_module_enabled: data.wealth_module_enabled ?? false,
             travel_capacity: data.travel_capacity ?? 15,
             travel_method: data.travel_method ?? "1.0",
           });
+          setIsLoading(false);
         }
-      })
-      .catch(console.error)
-      .finally(() => setIsLoading(false));
+      } catch (err) {
+        if (retries > 0 && isMounted) {
+          setTimeout(() => fetchSettings(retries - 1, delay * 1.5), delay);
+        } else if (isMounted) {
+          console.error("Exhausted retries fetching settings:", err);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchSettings();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (

@@ -7,20 +7,22 @@ import {
   SystemState,
   SystemStateDocument,
 } from "@sentinel/shared";
-import { parseStandardCash } from "../workers/private/parsers/standard-cash.js";
-import { parseEquityProperty } from "../workers/private/parsers/equities.js";
-import { parseStorageTransfer } from "../workers/private/parsers/storage-transfer.js";
-import { parseZeroCostInjection } from "../workers/private/parsers/zero-cost.js";
-import { parseTransformationSink } from "../workers/private/parsers/sinks.js";
-import { parseBarterTrade } from "../workers/private/parsers/barter.js";
-import { parseFactionLiability } from "../workers/private/parsers/faction.js";
-import { parseCompanyProfit } from "../workers/private/parsers/company-profit.js";
+import {
+  parseStandardCash,
+  parseEquityProperty,
+  parseStorageTransfer,
+  parseZeroCostInjection,
+  parseTransformationSink,
+  parseBarterTrade,
+  parseFactionLiability,
+  parseCompanyProfit,
+} from "../workers/private/wealth.js";
 
 const logger = new Logger("ledger_healer");
 
 type InitState = Extract<SystemStateDocument, { timestamp: number }>;
 
-async function healLedger() {
+export async function healLedger() {
   logger.info("Starting Ledger Self-Healing Script...");
 
   // 1. Get Ledger Initialization Timestamps
@@ -206,10 +208,14 @@ async function healLedger() {
   logger.info(
     `Ledger Self-Healing Complete! Recovered ${healedCount} past logs that now have parser support.`,
   );
-  process.exit(0);
 }
 
-healLedger().catch((err) => {
-  logger.error("Fatal error during ledger healing:", err);
-  process.exit(1);
-});
+// Only auto-run if executed directly
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.includes("heal-ledger")) {
+  healLedger()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      logger.error("Fatal error during ledger healing:", err);
+      process.exit(1);
+    });
+}
