@@ -90,10 +90,21 @@ interface LiveState {
 export default function TravelDashboard() {
   const { settings, setSettings, isLoading: isSettingsLoading } = useSettings();
   const [data, setData] = useState<Destination[]>([]);
-  const [historicalData, setHistoricalData] = useState<{timestamp: number, dailyYield: number}[]>([]);
+  const [historicalData, setHistoricalData] = useState<{ timestamp: number, dailyYield: number }[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [unmapped, setUnmapped] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [nowSeconds, setNowSeconds] = useState(0);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNowSeconds(Math.floor(Date.now() / 1000));
+    const timer = setInterval(() => {
+      setNowSeconds(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const showLoader = useMinimumLoading(loading || isSettingsLoading, 1500);
 
   // Settings State
@@ -202,22 +213,29 @@ export default function TravelDashboard() {
         let shouldHide = false;
 
         if (liveState) {
+          const elapsedSeconds = Math.max(
+            0,
+            nowSeconds - (liveState.timestamp || 0)
+          );
           const e = liveState.bars.energy;
           const n = liveState.bars.nerve;
-          const c = liveState.cooldowns;
+          const drugCd = Math.max(0, (liveState.cooldowns?.drug || 0) - elapsedSeconds);
+          const boosterCd = Math.max(0, (liveState.cooldowns?.booster || 0) - elapsedSeconds);
+          const eFullTime = Math.max(0, (e.full_time || 0) - elapsedSeconds);
+          const nFullTime = Math.max(0, (n.full_time || 0) - elapsedSeconds);
 
           // Max fill times
           const eMaxTime = (e.maximum / e.increment) * (e.interval / 60);
           const nMaxTime = (n.maximum / n.increment) * (n.interval / 60);
 
           if (totalFlightTime > eMaxTime) shouldHide = true;
-          else if (e.full_time > 0 && totalFlightTime > e.full_time / 60) warnings.push("Spend Energy");
+          else if (eFullTime > 0 && totalFlightTime > eFullTime / 60) warnings.push("Spend Energy");
 
           if (totalFlightTime > nMaxTime) shouldHide = true;
-          else if (n.full_time > 0 && totalFlightTime > n.full_time / 60) warnings.push("Spend Nerve");
+          else if (nFullTime > 0 && totalFlightTime > nFullTime / 60) warnings.push("Spend Nerve");
 
-          if (c.drug > 0 && totalFlightTime > c.drug / 60) shouldHide = true;
-          if (c.booster > 0 && totalFlightTime > c.booster / 60) warnings.push("Use Booster");
+          if (drugCd > 0 && totalFlightTime > drugCd / 60) shouldHide = true;
+          if (boosterCd > 0 && totalFlightTime > boosterCd / 60) warnings.push("Use Booster");
 
           const costTotal = item.cost * settings.travel_capacity;
           if (liveState.money && liveState.money.wallet < costTotal) {
@@ -241,7 +259,7 @@ export default function TravelDashboard() {
     }
 
     return routes.sort((a, b) => b.ppm - a.ppm);
-  }, [data, settings.travel_capacity, settings.travel_method, categoryFilter, liveState]);
+  }, [data, settings.travel_capacity, settings.travel_method, categoryFilter, liveState, nowSeconds]);
 
   if (showLoader) {
     return (
@@ -391,11 +409,10 @@ export default function TravelDashboard() {
                   <button
                     key={t}
                     onClick={() => setTimeframe(t)}
-                    className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest cursor-pointer transition-colors ${
-                      timeframe === t
+                    className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest cursor-pointer transition-colors ${timeframe === t
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     {t}
                   </button>

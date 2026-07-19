@@ -942,7 +942,10 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
-  const items = data.items || [];
+  let items = data.items || [];
+  if (items.length === 0 && data.item) {
+    items = [{ id: data.item, qty: data.quantity || 1 }];
+  }
 
   // If the log is for points, the API structure might vary (e.g. data.points, data.cost_total)
   // We'll handle items first.
@@ -1166,6 +1169,9 @@ export function parseStorageTransfer(log: TornSchema<"UserLog">) {
 
   const title = log.details.title.toLowerCase();
   if (
+    logId === 1224 ||
+    title.includes("edit") ||
+    title.includes("change") ||
     title.includes("buy") ||
     title.includes("sell") ||
     title.includes("bought") ||
@@ -1714,6 +1720,7 @@ export async function parseWealthActivityLog(log: TornSchema<"UserLog">) {
       category === "company" ||
       category === "faction" ||
       category === "property" ||
+      category === "travel" ||
       category.includes("item use") ||
       category.includes("crime")
     ) {
