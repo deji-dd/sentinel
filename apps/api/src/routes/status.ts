@@ -26,6 +26,13 @@ function generateSettingsPayload() {
   return {
     log_manager_enabled: config?.log_manager_enabled ?? false,
     log_manager_cadence: config?.log_manager_cadence ?? 60,
+    crimes_module_enabled: config?.crimes_module_enabled ?? false,
+    gym_module_enabled: config?.gym_module_enabled ?? false,
+    stocks_module_enabled: config?.stocks_module_enabled ?? false,
+    travel_module_enabled: config?.travel_module_enabled ?? false,
+    wealth_module_enabled: config?.wealth_module_enabled ?? false,
+    travel_capacity: config?.travel_capacity ?? 15,
+    travel_method: config?.travel_method ?? "1.0",
   };
 }
 
