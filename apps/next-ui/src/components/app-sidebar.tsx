@@ -52,7 +52,7 @@ export function AppSidebar() {
       <SidebarHeader className="p-0 border-b border-sidebar-border shrink-0 flex flex-col bg-sidebar h-12 justify-center">
         <Link href="/" prefetch={false} className="flex items-center gap-3 overflow-hidden select-none px-4 group-data-[collapsible=icon]:justify-center">
           <div className="size-8 bg-sidebar shrink-0 relative flex items-center justify-center overflow-hidden rounded-sm">
-            <Image src="/logo.png" alt="Sentinel Logo" fill sizes="32px" className="object-contain" />
+            <Image src="/logo.png" alt="Sentinel Logo" fill sizes="32px" className="object-contain rounded-full" />
           </div>
           <span className="font-mono tracking-[0.3em] text-[10px] font-bold group-data-[collapsible=icon]:hidden">SENTINEL</span>
         </Link>

@@ -130,7 +130,7 @@ export default function WealthPage() {
           </div>
         ) : data ? (
           <div className="max-w-7xl p-2 md:p-8 mx-auto flex flex-col gap-6 pt-15">
-            <header className="mb-2 border-b border-border pb-4 flex items-start justify-between">
+            <header className="mb-2 border-b border-border pb-4 flex items-start md:justify-between flex-col md:flex-row gap-4">
               <div>
                 <h1 className="text-xl font-mono text-foreground flex items-center gap-3 uppercase tracking-[0.2em]">
                   <Activity size={20} className="text-foreground" /> WEALTH_PORTFOLIO

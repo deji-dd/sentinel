@@ -45,6 +45,7 @@ async function handleProxy(req: NextRequest) {
       method: req.method,
       headers,
       body: body || undefined,
+      cache: "no-store",
     });
 
     const responseText = await response.text();

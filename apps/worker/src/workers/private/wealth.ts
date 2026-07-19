@@ -798,56 +798,25 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     }
   }
 
-  // 2. Opening Caches (Log Category: Item use special - maybe 69 or 75?)
-  // It gives items and consumes the cache. We can use extractItemsFromLogData for gains,
-  // but we need to know what was burned. Often 'item' is the cache ID burned?
-  else if (
-    category === "Item use special" ||
-    category === "Item use supply pack"
-  ) {
-    // If it's a supply pack, it gives items and burns the pack.
-    // E.g. {"item": 123} was consumed. And {"items_gained": {...}}
-    let burnedCost = 0;
-    if (data.item && typeof data.item === "number") {
-      burnedCost = burnAsset(data.item, 1);
-    }
-
-    // Inject the gained items, dividing the burnedCost equally or assigning it entirely to the first?
-    // Let's divide equally among quantity of items gained for simplicity.
-    const gained = [];
-    if (data.items_gained && typeof data.items_gained === "object") {
-      for (const [k, v] of Object.entries(data.items_gained)) {
-        gained.push({
-          id: parseInt(k, 10),
-          qty: typeof v === "number" ? v : 1,
-        });
-      }
-    }
-
-    if (gained.length > 0) {
-      const costPerGain = burnedCost / gained.length;
-      for (const item of gained) {
-        injectAssetWithCost(item.id, item.qty, costPerGain);
-      }
-    } else {
-      // No items gained? It's a pure loss.
-      realizedPnl -= burnedCost;
-    }
-  }
-
-  // 3. Consumption & Loss (Medical, Drugs, Boosters, Crime Losses)
+  // 2. Item Use and Crimes
   else if (
     category?.startsWith("Item use") ||
+    category === "Crimes" ||
     category === "Points building" ||
     data.items_lost ||
+    data.money_lost ||
+    data.items_gained ||
+    data.money_gained ||
     logId === 6726 ||
     logId === 6727 ||
     logId === 5970
   ) {
+    // Some logs represent Faction item use via `data.faction`
+    const fromFaction = typeof data.faction === "number" ? data.faction > 0 : !!data.faction;
     let totalLoss = 0;
 
     // Direct items burned
-    if (data.item && typeof data.item === "number") {
+    if (!fromFaction && data.item && typeof data.item === "number") {
       totalLoss += burnAsset(data.item, 1);
     }
 
@@ -858,34 +827,61 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
       }
     }
 
-    // array of items (like faction donate)
-    if (Array.isArray(data.items) || Array.isArray(data.item)) {
-      const arr = Array.isArray(data.items) ? data.items : data.item;
-      for (const it of arr) {
+    // Cash / Point Sinks (losses)
+    if (data.points_lost || data.points_used || (data.points && !category?.startsWith("Item use") && !category?.startsWith("Crimes"))) {
+      if (!fromFaction) {
+        const points = data.points_lost || data.points_used || data.points;
+        totalLoss += burnAsset("points", points);
+      }
+    }
+    
+    if (data.money_lost) {
+      cashFlow -= data.money_lost;
+      realizedPnl -= data.money_lost;
+    } else if (data.money && category !== "Item use" && category !== "Crimes") {
+      // Sometimes money is just `money` and implies loss if it's not a gain log.
+      cashFlow -= data.money;
+      realizedPnl -= data.money;
+    }
+
+    // Now handle GAINS (Item use wallets, Crime successes)
+    const gained = [];
+    if (data.items_gained && typeof data.items_gained === "object") {
+      for (const [k, v] of Object.entries(data.items_gained)) {
+        gained.push({ id: parseInt(k, 10), qty: typeof v === "number" ? v : 1 });
+      }
+    } else if (data.items && Array.isArray(data.items)) {
+      // Item use sometimes puts gained items in data.items array
+      for (const it of data.items) {
         if (it && it.id) {
-          totalLoss += burnAsset(it.id, it.qty || 1, it.uid);
+          gained.push({ id: it.id, qty: it.qty || 1, uid: it.uid });
         }
       }
     }
 
-    // Cash / Point Sinks
-    if (data.points_lost || data.points || data.points_used) {
-      const usedFromFaction =
-        typeof data.faction === "string" && data.faction.trim() !== "";
-
-      if (!usedFromFaction) {
-        // points_lost = crime/church/faction
-        const points = data.points_lost || data.points || data.points_used;
-        totalLoss += burnAsset("points", points);
+    if (gained.length > 0) {
+      // Distribute the cost of the burned items (if any) across the gained items
+      const costPerGain = totalLoss / gained.length;
+      for (const item of gained) {
+        injectAssetWithCost(item.id, item.qty, costPerGain, item.uid);
       }
-    }
-    if (data.money_lost || data.money) {
-      const money = data.money_lost || data.money;
-      cashFlow -= money;
-      realizedPnl -= money;
+    } else {
+      // Pure loss
+      realizedPnl -= totalLoss;
     }
 
-    realizedPnl -= totalLoss;
+    // Cash Gains
+    if (data.money_gained) {
+      cashFlow += data.money_gained;
+      realizedPnl += data.money_gained;
+    } else if (data.money && (category?.startsWith("Item use") || category === "Crimes")) {
+      // For Item use and Crimes, if `money` is present alongside `items_gained` or inside the same log, it's typically a gain!
+      cashFlow += data.money;
+      realizedPnl += data.money;
+    }
+
+    // If no assets affected and no cash flow and no pnl, return early (e.g. Faction item use with no gains)
+    if (assetsAffected.length === 0 && cashFlow === 0 && realizedPnl === 0) return;
   }
 
   if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
@@ -945,17 +941,55 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
     // Find asset
     // We assume purchases go to inventory, sales come from bazaar/market.
     // For exact tracking, we query by asset_id and personal owner. If multiple exist, we just merge or pick the primary pool.
-    const existingAssets = Assets.find({ asset_id: id, owner: "personal" });
-    const matchedAsset = existingAssets.find(
-      (a: AssetDocument) => !a.id.startsWith("uid_"),
-    );
-    let assetDoc: AssetDocument;
+    let assetDoc: AssetDocument | undefined;
 
-    if (matchedAsset) {
-      assetDoc = matchedAsset;
-    } else {
+    let isUid = false;
+    if (item.uid && typeof item.uid !== "boolean") {
+      isUid = true;
+      const existingAsset = Assets.findOne(`uid_${item.uid}`) as AssetDocument | null;
+      if (existingAsset && existingAsset.owner === "personal") {
+        assetDoc = existingAsset;
+      }
+    }
+
+    const existingAssets = Assets.find({ asset_id: id, owner: "personal" });
+
+    if (!isUid || !assetDoc) {
+      const fungibles = existingAssets.filter((a: AssetDocument) => !a.id.startsWith("uid_"));
+
+      fungibles.sort((a, b) => {
+        const locationPriority = {
+          bazaar: 1,
+          escrow: 2,
+          display: 3,
+          inventory: 4,
+          portfolio: 5,
+          equipped: 6,
+          vault: 7
+        };
+        const pA = locationPriority[a.location as keyof typeof locationPriority] || 99;
+        const pB = locationPriority[b.location as keyof typeof locationPriority] || 99;
+
+        if (pA !== pB) {
+          if (sale) {
+            return pA - pB;
+          } else {
+            const invA = a.location === "inventory" ? 1 : 2;
+            const invB = b.location === "inventory" ? 1 : 2;
+            return invA - invB;
+          }
+        }
+        return b.quantity - a.quantity;
+      });
+
+      if (fungibles.length > 0) {
+        assetDoc = fungibles[0];
+      }
+    }
+
+    if (!assetDoc) {
       assetDoc = {
-        id: `item_${id}_inventory_${randomUUID()}`,
+        id: isUid ? `uid_${item.uid}` : `item_${id}_inventory_${randomUUID()}`,
         type: "item",
         asset_id: id,
         quantity: 0,
@@ -1001,7 +1035,9 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
       });
     }
 
-    if (matchedAsset) {
+    // Check if the asset already exists in the database to know whether to update or insert
+    const exists = existingAssets && existingAssets.some((a: AssetDocument) => a.id === assetDoc!.id);
+    if (exists) {
       Assets.update(assetDoc);
     } else {
       Assets.insertOne(assetDoc);
@@ -1095,6 +1131,9 @@ export function parseStorageTransfer(log: TornSchema<"UserLog">) {
   const logId = log.details.id;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
+
+  const title = log.details.title.toLowerCase();
+  if (title.includes("buy") || title.includes("sell") || title.includes("bought") || title.includes("sold")) return;
 
   let targetLocation: AssetLocation = "escrow";
   let sourceLocation: AssetLocation = "inventory";
@@ -1361,6 +1400,13 @@ export function extractItemsFromLogData(
 // --- FROM zero-cost.ts ---
 
 export function parseZeroCostInjection(log: TornSchema<"UserLog">) {
+  const category = log.details.category?.toLowerCase() || "";
+  const excludeCategories = ["bazaars", "market", "trade", "company", "property", "crimes"];
+  if (excludeCategories.includes(category) || category.startsWith("item use")) return;
+
+  const title = log.details.title?.toLowerCase() || "";
+  if (title.includes("buy") || title.includes("sell") || title.includes("bought") || title.includes("sold")) return;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
 
@@ -1615,7 +1661,9 @@ export async function parseWealthActivityLog(log: TornSchema<"UserLog">) {
       category === "bazaars" ||
       category === "company" ||
       category === "faction" ||
-      category === "property"
+      category === "property" ||
+      category.includes("item use") ||
+      category.includes("crime")
     ) {
       isWealthLog = true;
     }
