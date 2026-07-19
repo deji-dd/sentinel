@@ -161,10 +161,8 @@ export default function GymDashboard() {
     return () => {
       isMounted = false;
       clearInterval(intervalId);
-      setTimeout(() => {
-        setSyncOptions(null);
-        setLastSyncedText("");
-      }, 0);
+      setSyncOptions(null);
+      setLastSyncedText("");
     };
   }, [setSyncOptions, fetchGymData, setLastSyncedText, gymState?.backfill_progress?.status, isPolling]);
 

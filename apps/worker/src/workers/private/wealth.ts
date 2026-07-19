@@ -901,8 +901,7 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
   if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
     let type: "injection" | "sink" | "barter" = "sink";
     if (realizedPnl > 0) type = "injection";
-    else if (realizedPnl === 0 && assetsAffected.length > 0)
-      type = "barter";
+    else if (realizedPnl === 0 && assetsAffected.length > 0) type = "barter";
 
     const logCategory = log.details.category || "";
 
@@ -1175,7 +1174,8 @@ export function parseStorageTransfer(log: TornSchema<"UserLog">) {
     title.includes("buy") ||
     title.includes("sell") ||
     title.includes("bought") ||
-    title.includes("sold")
+    title.includes("sold") ||
+    log.details.category?.startsWith("Item use")
   )
     return;
 

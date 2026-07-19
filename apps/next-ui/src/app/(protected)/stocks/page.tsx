@@ -112,10 +112,8 @@ export default function StocksDashboard() {
 
     return () => {
       isMounted = false;
-      setTimeout(() => {
-        setSyncOptions(null);
-        setLastSyncedText("");
-      }, 0);
+      setSyncOptions(null);
+      setLastSyncedText("");
     };
   }, [setSyncOptions, fetchStocksData, setLastSyncedText, stocksState?.backfill_progress?.status, isPolling]);
 

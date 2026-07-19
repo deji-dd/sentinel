@@ -114,9 +114,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
         ws.onclose = null; // Prevent reconnect logic on unmount
         ws.close();
       }
-      setTimeout(() => {
-        setLastSyncedText("");
-      }, 0);
+      setLastSyncedText("");
     };
   }, [setSyncOptions, setLastSyncedText, setSettings]);
 

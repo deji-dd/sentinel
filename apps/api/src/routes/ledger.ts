@@ -67,7 +67,8 @@ export default async function ledgerRoutes(fastify: FastifyInstance) {
           },
           0
         );
-        const netImpact = (doc.cash_flow || 0) + marketValueImpact;
+        const hasAssets = doc.assets_affected && doc.assets_affected.length > 0;
+        const netImpact = (doc.cash_flow || 0) + marketValueImpact + (!hasAssets && (doc.cash_flow || 0) === 0 ? (doc.realized_pnl || 0) : 0);
 
         return {
           id: doc.id || doc.log_id || Math.random().toString(),

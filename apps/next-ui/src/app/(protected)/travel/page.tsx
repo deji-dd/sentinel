@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Image from "next/image";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { useSettings } from "@/components/settings-provider";
@@ -16,6 +16,7 @@ import { motion } from "framer-motion";
 import { Plane, TrendingUp, Settings, MapPin, Package, AlertTriangle } from "lucide-react";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
+import { useSync } from "@/hooks/use-sync";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,14 @@ const COUNTRY_NAMES: Record<string, string> = {
   uni: "United Kingdom", arg: "Argentina", swi: "Switzerland",
   jap: "Japan", chi: "China", uae: "UAE", sou: "South Africa"
 };
+
+function formatMins(m: number) {
+  const rounded = Math.round(m);
+  if (rounded < 60) return `${rounded}m`;
+  const hrs = Math.floor(rounded / 60);
+  const mins = rounded % 60;
+  return `${hrs}h ${mins}m`;
+}
 
 interface TravelItem {
   id: number;
@@ -89,6 +98,7 @@ interface LiveState {
 
 export default function TravelDashboard() {
   const { settings, setSettings, isLoading: isSettingsLoading } = useSettings();
+  const { setSyncOptions, setLastSyncedText } = useSync();
   const [data, setData] = useState<Destination[]>([]);
   const [historicalData, setHistoricalData] = useState<{ timestamp: number, dailyYield: number }[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
@@ -142,39 +152,62 @@ export default function TravelDashboard() {
     }
   };
 
+  const fetchTravelData = useCallback(async (isBackground: boolean = false) => {
+    if (!isBackground) {
+      setLoading(true);
+    }
+    try {
+      const [travelRes, unmappedRes] = await Promise.all([
+        fetch("/api/travel"),
+        fetch("/api/travel/unmapped")
+      ]);
+
+      const travelJson = await travelRes.json();
+      if (travelJson.data) setData(travelJson.data);
+      if (travelJson.historicalData) setHistoricalData(travelJson.historicalData);
+      if (travelJson.live_state) setLiveState(travelJson.live_state);
+
+      const unmappedJson = await unmappedRes.json();
+      setUnmapped(unmappedJson);
+      setLastSyncedText(`Last synced at ${new Date().toLocaleTimeString()}`);
+    } catch (e) {
+      console.error("Failed to fetch travel data", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [setLastSyncedText]);
+
   useEffect(() => {
     if (isSettingsLoading) return;
 
     if (!settings.travel_module_enabled) {
-      // Use setTimeout to avoid synchronous setState warning
       setTimeout(() => setLoading(false), 0);
       return;
     }
 
-    const fetchData = async () => {
-      try {
-        const [travelRes, unmappedRes] = await Promise.all([
-          fetch("/api/travel"),
-          fetch("/api/travel/unmapped")
-        ]);
-
-        const travelJson = await travelRes.json();
-        if (travelJson.data) setData(travelJson.data);
-        if (travelJson.historicalData) setHistoricalData(travelJson.historicalData);
-        if (travelJson.live_state) setLiveState(travelJson.live_state);
-
-        const unmappedJson = await unmappedRes.json();
-        setUnmapped(unmappedJson);
-      } catch (e) {
-        console.error("Failed to fetch travel data", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-    const timer = setInterval(fetchData, 60000); // poll every 60s
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchTravelData(false);
+    const timer = setInterval(() => fetchTravelData(true), 60000); // poll every 60s
     return () => clearInterval(timer);
-  }, [settings.travel_module_enabled, isSettingsLoading]);
+  }, [settings.travel_module_enabled, isSettingsLoading, fetchTravelData]);
+
+  useEffect(() => {
+    const isMounted = true;
+    setTimeout(() => {
+      if (!isMounted) return;
+      setSyncOptions([
+        {
+          label: "Sync Travel Data",
+          action: () => fetchTravelData(false),
+        },
+      ]);
+    }, 0);
+
+    return () => {
+      setSyncOptions(null);
+      setLastSyncedText("");
+    };
+  }, [setSyncOptions, setLastSyncedText, fetchTravelData]);
 
   const processedRoutes = useMemo(() => {
     const routes: ProcessedRoute[] = [];
@@ -410,8 +443,8 @@ export default function TravelDashboard() {
                     key={t}
                     onClick={() => setTimeframe(t)}
                     className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest cursor-pointer transition-colors ${timeframe === t
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-white/5"
                       }`}
                   >
                     {t}
@@ -476,6 +509,7 @@ export default function TravelDashboard() {
               <TableRow>
                 <TableHead>Item</TableHead>
                 <TableHead>Destination</TableHead>
+                <TableHead>Flight Time</TableHead>
                 <TableHead className="text-right">Stock</TableHead>
                 <TableHead className="text-right">Depletion (qty/min)</TableHead>
                 <TableHead className="text-right">Profit</TableHead>
@@ -510,6 +544,11 @@ export default function TravelDashboard() {
                       )}
                     </div>
                   </TableCell>
+                  <TableCell>
+                    <div className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
+                      {formatMins(route.flightTimeOneWay * 2)}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right font-mono">{route.item.quantity.toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono">
                     <div className="flex items-center justify-end gap-2">
@@ -533,7 +572,7 @@ export default function TravelDashboard() {
               ))}
               {processedRoutes.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                     No active travel routes found. Fetching from YATA...
                   </TableCell>
                 </TableRow>

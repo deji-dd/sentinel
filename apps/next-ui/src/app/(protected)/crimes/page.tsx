@@ -141,10 +141,8 @@ export default function CrimesDashboard() {
 
     return () => {
       isMounted = false;
-      setTimeout(() => {
-        setSyncOptions(null);
-        setLastSyncedText("");
-      }, 0);
+      setSyncOptions(null);
+      setLastSyncedText("");
     };
   }, [setSyncOptions, fetchCrimes, setLastSyncedText]);
 

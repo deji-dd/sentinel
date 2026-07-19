@@ -50,21 +50,21 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                           setIsSyncing(false);
                         }
                       }}
-                      className="text-[10px] cursor-pointer font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
+                      className="text-[10px] cursor-pointer font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                       disabled={isSyncing}
                     >
-                      <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-white" : ""}`} />
-                      <span className="hidden sm:inline">SYNC</span>
+                      <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-primary" : ""}`} />
+                      <span className="hidden sm:inline">{isSyncing ? "SYNCING..." : "SYNC"}</span>
                     </button>
                   ) : (
                     <>
                       <button
                         onClick={() => setDropdownOpen(!dropdownOpen)}
-                        className="text-[10px] cursor-pointer font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
+                        className="text-[10px] cursor-pointer font-mono tracking-[0.2em] uppercase text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                         disabled={isSyncing}
                       >
-                        <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-white" : ""}`} />
-                        <span className="hidden sm:inline">SYNC</span>
+                        <RefreshCw className={`size-4 ${isSyncing ? "animate-spin text-primary" : ""}`} />
+                        <span className="hidden sm:inline">{isSyncing ? "SYNCING..." : "SYNC"}</span>
                         <ChevronDown className="size-4 opacity-50" />
                       </button>
                       {dropdownOpen && (
