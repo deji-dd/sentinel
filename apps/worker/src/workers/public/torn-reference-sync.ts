@@ -11,6 +11,7 @@ import {
   TornCrimeDocument,
   TornPropertyDocument,
   TornStockDocument,
+  SystemState,
 } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 
@@ -36,11 +37,43 @@ export async function runTornReferenceSync() {
       TornSchema<"TornItemsResponse"> &
         TornSchema<"TornCrimesResponse"> &
         TornSchema<"TornStocksResponse"> &
-        TornSchema<"TornProperties">
+        TornSchema<"TornProperties"> & {
+          pointsmarket?: Record<string, { cost: number; quantity: number }>;
+        }
     >("/torn", {
       apiKey,
       queryParams: { selections: "items,crimes,stocks,properties" },
     });
+
+    const marketRes = await tornApi
+      .get<{
+        pointsmarket: Record<string, { cost: number; quantity: number }>;
+      }>("/market", {
+        apiKey,
+        queryParams: { selections: "pointsmarket" },
+      })
+      .catch((e) => {
+        logger.warn("Failed to fetch pointsmarket", e);
+        throw e;
+      });
+
+    if (marketRes.pointsmarket) {
+      let totalCost = 0;
+      let totalQty = 0;
+      for (const listing of Object.values(marketRes.pointsmarket)) {
+        totalQty += listing.quantity;
+        totalCost += listing.cost * listing.quantity;
+        if (totalQty >= 5000) break; // Average over first 5000 points
+      }
+      const avgPrice = totalQty > 0 ? Math.floor(totalCost / totalQty) : 0;
+      if (avgPrice > 0) {
+        SystemState.insertOne({
+          id: "points_price",
+          price: avgPrice,
+          last_updated: Date.now(),
+        } as any);
+      }
+    }
 
     const itemsToInsert: TornItemDocument[] = [];
     const crimesToInsert: TornCrimeDocument[] = [];

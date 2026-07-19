@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerEnv } from "@/lib/server-config";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 async function handleProxy(req: NextRequest) {
   try {
@@ -45,7 +46,6 @@ async function handleProxy(req: NextRequest) {
       method: req.method,
       headers,
       body: body || undefined,
-      cache: "no-store",
     });
 
     const responseText = await response.text();

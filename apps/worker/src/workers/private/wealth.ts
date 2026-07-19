@@ -812,7 +812,8 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     logId === 5970
   ) {
     // Some logs represent Faction item use via `data.faction`
-    const fromFaction = typeof data.faction === "number" ? data.faction > 0 : !!data.faction;
+    const fromFaction =
+      typeof data.faction === "number" ? data.faction > 0 : !!data.faction;
     let totalLoss = 0;
 
     // Direct items burned
@@ -828,13 +829,19 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     }
 
     // Cash / Point Sinks (losses)
-    if (data.points_lost || data.points_used || (data.points && !category?.startsWith("Item use") && !category?.startsWith("Crimes"))) {
+    if (
+      data.points_lost ||
+      data.points_used ||
+      (data.points &&
+        !category?.startsWith("Item use") &&
+        !category?.startsWith("Crimes"))
+    ) {
       if (!fromFaction) {
         const points = data.points_lost || data.points_used || data.points;
         totalLoss += burnAsset("points", points);
       }
     }
-    
+
     if (data.money_lost) {
       cashFlow -= data.money_lost;
       realizedPnl -= data.money_lost;
@@ -848,7 +855,10 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     const gained = [];
     if (data.items_gained && typeof data.items_gained === "object") {
       for (const [k, v] of Object.entries(data.items_gained)) {
-        gained.push({ id: parseInt(k, 10), qty: typeof v === "number" ? v : 1 });
+        gained.push({
+          id: parseInt(k, 10),
+          qty: typeof v === "number" ? v : 1,
+        });
       }
     } else if (data.items && Array.isArray(data.items)) {
       // Item use sometimes puts gained items in data.items array
@@ -874,24 +884,38 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     if (data.money_gained) {
       cashFlow += data.money_gained;
       realizedPnl += data.money_gained;
-    } else if (data.money && (category?.startsWith("Item use") || category === "Crimes")) {
+    } else if (
+      data.money &&
+      (category?.startsWith("Item use") || category === "Crimes")
+    ) {
       // For Item use and Crimes, if `money` is present alongside `items_gained` or inside the same log, it's typically a gain!
       cashFlow += data.money;
       realizedPnl += data.money;
     }
 
     // If no assets affected and no cash flow and no pnl, return early (e.g. Faction item use with no gains)
-    if (assetsAffected.length === 0 && cashFlow === 0 && realizedPnl === 0) return;
+    if (assetsAffected.length === 0 && cashFlow === 0 && realizedPnl === 0)
+      return;
   }
 
   if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
+    let type: "injection" | "sink" | "barter" = "sink";
+    if (realizedPnl > 0) type = "injection";
+    else if (realizedPnl === 0 && assetsAffected.length > 0)
+      type = "barter";
+
+    const logCategory = log.details.category || "";
+
     LedgerEvents.insertOne({
       id: `ledger_ev_${log.id}`,
       log_id: log.id,
       timestamp: log.timestamp,
-      type: "sink",
+      type,
       category_id: 5,
-      transaction_name: "Asset Transformation & Sink",
+      transaction_name:
+        logCategory === "Crimes"
+          ? "Crime Result"
+          : "Asset Transformation & Sink",
       assets_affected: assetsAffected,
       cash_flow: cashFlow,
       realized_pnl: realizedPnl,
@@ -946,7 +970,9 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
     let isUid = false;
     if (item.uid && typeof item.uid !== "boolean") {
       isUid = true;
-      const existingAsset = Assets.findOne(`uid_${item.uid}`) as AssetDocument | null;
+      const existingAsset = Assets.findOne(
+        `uid_${item.uid}`,
+      ) as AssetDocument | null;
       if (existingAsset && existingAsset.owner === "personal") {
         assetDoc = existingAsset;
       }
@@ -955,7 +981,9 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
     const existingAssets = Assets.find({ asset_id: id, owner: "personal" });
 
     if (!isUid || !assetDoc) {
-      const fungibles = existingAssets.filter((a: AssetDocument) => !a.id.startsWith("uid_"));
+      const fungibles = existingAssets.filter(
+        (a: AssetDocument) => !a.id.startsWith("uid_"),
+      );
 
       fungibles.sort((a, b) => {
         const locationPriority = {
@@ -965,10 +993,12 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
           inventory: 4,
           portfolio: 5,
           equipped: 6,
-          vault: 7
+          vault: 7,
         };
-        const pA = locationPriority[a.location as keyof typeof locationPriority] || 99;
-        const pB = locationPriority[b.location as keyof typeof locationPriority] || 99;
+        const pA =
+          locationPriority[a.location as keyof typeof locationPriority] || 99;
+        const pB =
+          locationPriority[b.location as keyof typeof locationPriority] || 99;
 
         if (pA !== pB) {
           if (sale) {
@@ -1036,7 +1066,9 @@ export function parseStandardCash(log: TornSchema<"UserLog">) {
     }
 
     // Check if the asset already exists in the database to know whether to update or insert
-    const exists = existingAssets && existingAssets.some((a: AssetDocument) => a.id === assetDoc!.id);
+    const exists =
+      existingAssets &&
+      existingAssets.some((a: AssetDocument) => a.id === assetDoc!.id);
     if (exists) {
       Assets.update(assetDoc);
     } else {
@@ -1133,7 +1165,13 @@ export function parseStorageTransfer(log: TornSchema<"UserLog">) {
   const data = log.data as any;
 
   const title = log.details.title.toLowerCase();
-  if (title.includes("buy") || title.includes("sell") || title.includes("bought") || title.includes("sold")) return;
+  if (
+    title.includes("buy") ||
+    title.includes("sell") ||
+    title.includes("bought") ||
+    title.includes("sold")
+  )
+    return;
 
   let targetLocation: AssetLocation = "escrow";
   let sourceLocation: AssetLocation = "inventory";
@@ -1401,11 +1439,25 @@ export function extractItemsFromLogData(
 
 export function parseZeroCostInjection(log: TornSchema<"UserLog">) {
   const category = log.details.category?.toLowerCase() || "";
-  const excludeCategories = ["bazaars", "market", "trade", "company", "property", "crimes"];
-  if (excludeCategories.includes(category) || category.startsWith("item use")) return;
+  const excludeCategories = [
+    "bazaars",
+    "market",
+    "trade",
+    "company",
+    "property",
+    "crimes",
+  ];
+  if (excludeCategories.includes(category) || category.startsWith("item use"))
+    return;
 
   const title = log.details.title?.toLowerCase() || "";
-  if (title.includes("buy") || title.includes("sell") || title.includes("bought") || title.includes("sold")) return;
+  if (
+    title.includes("buy") ||
+    title.includes("sell") ||
+    title.includes("bought") ||
+    title.includes("sold")
+  )
+    return;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = log.data as any;
@@ -1912,7 +1964,7 @@ export async function runItemsLedgerInit(): Promise<void> {
     await executeLiquidCashEngine();
 
     finishSync();
-    
+
     SystemState.update({
       id: "wealth_init",
       data: { status: "completed" },
@@ -1939,7 +1991,5 @@ workerEvents.on("wealth_init", () => {
 // Listen for the heal trigger from the API
 workerEvents.on("wealth_heal", () => {
   logger.info("Received wealth_heal event. Running healLedger().");
-  healLedger().catch((e) =>
-    logger.error("Failed to run ledger healer", e),
-  );
+  healLedger().catch((e) => logger.error("Failed to run ledger healer", e));
 });
