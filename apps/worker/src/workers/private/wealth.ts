@@ -256,11 +256,9 @@ export async function parseCompanyProfit(
       TornSchema<"CompanyEmployeesResponse">;
 
     const profile = res.profile as
-      | TornSchema<"CompanyProfileExtended">
-      | undefined;
+      TornSchema<"CompanyProfileExtended"> | undefined;
     const employees = res.employees as
-      | TornSchema<"CompanyEmployeeFull">[]
-      | undefined;
+      TornSchema<"CompanyEmployeeFull">[] | undefined;
 
     if (!profile || !employees) {
       logger.warn("Company sync response missing profile or employees data.");
@@ -809,7 +807,8 @@ export function parseTransformationSink(log: TornSchema<"UserLog">) {
     data.money_gained ||
     logId === 6726 ||
     logId === 6727 ||
-    logId === 5970
+    logId === 5970 ||
+    logId === 4800
   ) {
     // Some logs represent Faction item use via `data.faction`
     const fromFaction =
@@ -1444,6 +1443,8 @@ export function extractItemsFromLogData(
 // --- FROM zero-cost.ts ---
 
 export function parseZeroCostInjection(log: TornSchema<"UserLog">) {
+  const logId = log.details.id;
+  if (logId === 4800) return;
   const category = log.details.category?.toLowerCase() || "";
   const excludeCategories = [
     "bazaars",
@@ -1618,11 +1619,9 @@ export async function executeLiquidCashEngine(): Promise<void> {
           TornSchema<"CompanyEmployeesResponse">;
 
         const profile = res.profile as
-          | TornSchema<"CompanyProfileExtended">
-          | undefined;
+          TornSchema<"CompanyProfileExtended"> | undefined;
         const employees = res.employees as
-          | TornSchema<"CompanyEmployeeFull">[]
-          | undefined;
+          TornSchema<"CompanyEmployeeFull">[] | undefined;
 
         if (profile && employees) {
           const dailyAdCost = profile.advertisement_budget || 0;
@@ -1711,6 +1710,8 @@ export async function parseWealthActivityLog(log: TornSchema<"UserLog">) {
 
     if (
       category === "money" ||
+      category === "money sending" || // <-- ADD THIS
+      category === "stocks" ||
       category === "item" ||
       category === "items" ||
       category === "market" ||
