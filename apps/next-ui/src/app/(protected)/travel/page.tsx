@@ -17,13 +17,8 @@ import { Plane, TrendingUp, Settings, MapPin, Package, AlertTriangle } from "luc
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
 import { useSync } from "@/hooks/use-sync";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { TravelStateResponse, TravelUnmappedAreaDocument } from "@sentinel/shared";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -102,7 +97,7 @@ export default function TravelDashboard() {
   const [data, setData] = useState<Destination[]>([]);
   const [historicalData, setHistoricalData] = useState<{ timestamp: number, dailyYield: number }[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
-  const [unmapped, setUnmapped] = useState([]);
+  const [unmapped, setUnmapped] = useState<TravelUnmappedAreaDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [nowSeconds, setNowSeconds] = useState(0);
 
@@ -136,7 +131,6 @@ export default function TravelDashboard() {
   const saveSettings = async () => {
     try {
       const payload = {
-        travel_module_enabled: settings.travel_module_enabled,
         travel_capacity: Number(capacity) || 15,
         travel_method: method,
       };
@@ -148,7 +142,7 @@ export default function TravelDashboard() {
       setSettings({ ...settings, ...payload });
       setIsSettingsOpen(false);
     } catch (e) {
-      console.error("Failed to save settings", e);
+      console.error(e);
     }
   };
 
@@ -162,13 +156,13 @@ export default function TravelDashboard() {
         fetch("/api/travel/unmapped")
       ]);
 
-      const travelJson = await travelRes.json();
-      if (travelJson.data) setData(travelJson.data);
+      const travelJson: TravelStateResponse = await travelRes.json();
+      if (travelJson.data) setData(travelJson.data as unknown as Destination[]);
       if (travelJson.historicalData) setHistoricalData(travelJson.historicalData);
       if (travelJson.live_state) setLiveState(travelJson.live_state);
 
       const unmappedJson = await unmappedRes.json();
-      setUnmapped(unmappedJson);
+      setUnmapped(Array.isArray(unmappedJson) ? unmappedJson : unmappedJson.data || []);
       setLastSyncedText(`Last synced at ${new Date().toLocaleTimeString()}`);
     } catch (e) {
       console.error("Failed to fetch travel data", e);
@@ -180,16 +174,11 @@ export default function TravelDashboard() {
   useEffect(() => {
     if (isSettingsLoading) return;
 
-    if (!settings.travel_module_enabled) {
-      setTimeout(() => setLoading(false), 0);
-      return;
-    }
-
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTravelData(false);
     const timer = setInterval(() => fetchTravelData(true), 60000); // poll every 60s
     return () => clearInterval(timer);
-  }, [settings.travel_module_enabled, isSettingsLoading, fetchTravelData]);
+  }, [isSettingsLoading, fetchTravelData]);
 
   useEffect(() => {
     const isMounted = true;
@@ -302,37 +291,7 @@ export default function TravelDashboard() {
     );
   }
 
-  if (!settings.travel_module_enabled) {
-    return (
-      <DashboardLayout>
-        <div className="flex-1 flex flex-col items-center justify-center h-[80vh] text-center p-8">
-          <Plane size={32} className="text-muted-foreground mb-6" />
-          <div className="text-muted-foreground font-mono tracking-widest text-sm mb-4 uppercase">
-            [ TRAVEL_AGENCY_DISABLED ]
-          </div>
-          <div className="text-neutral-500 font-mono text-[10px] uppercase tracking-widest max-w-md leading-relaxed mb-8">
-            This module is currently disabled. Initializing this module will allow Sentinel to pull live YATA restock data and calculate maximum PPM routes based on your flight capacity.
-          </div>
-          <button
-            onClick={() => {
-              // Open settings dialog so they can configure their capacity/method
-              // or we can just enable it directly and then let them configure.
-              // Let's just enable it directly with defaults!
-              setSettings({ ...settings, travel_module_enabled: true });
-              fetch("/api/settings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ travel_module_enabled: true })
-              });
-            }}
-            className="px-6 py-3 bg-foreground text-background font-mono text-[10px] uppercase tracking-[0.2em] hover:opacity-90 transition-colors"
-          >
-            INITIALIZE_MODULE
-          </button>
-        </div>
-      </DashboardLayout>
-    );
-  }
+
 
   const bestRoute = processedRoutes.length > 0 ? processedRoutes[0] : null;
 

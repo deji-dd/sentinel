@@ -1,4 +1,5 @@
 import { getItemValue } from "../database/functions/get-item-value.js";
+import { CrimeActivity } from "../database/index.js";
 
 import { CrimeActionMappings } from "../database/schemas/user/crime-ledger.js";
 
@@ -119,23 +120,30 @@ export function getCrimeIdFromAction(action: string): number {
   return resolvedId;
 }
 
-export type CrimeLogData = {
-  crime_action: string;
-  nerve: number;
-  money_gained?: number;
-  items_gained?: Record<string, number>;
-};
-
 /**
- * Calculates the total monetary value from a real-time Crime log's data payload.
+ * Calculates the total net monetary value from a real-time Crime log's data payload.
+ * Accurately tracks both gains and critical failure losses.
  */
-export function calculateCrimeLogValue(data: CrimeLogData): number {
+export function calculateCrimeLogValue(data: CrimeActivity): number {
   let total = 0;
+
+  // 1. Process Fiat Additions and Deductions
   if (data.money_gained) {
     total += data.money_gained;
   }
+  if (data.money_lost) {
+    total -= data.money_lost;
+  }
+
+  // 2. Process Item Additions
   for (const [itemId, qty] of Object.entries(data.items_gained ?? {})) {
     total += qty * getItemValue(itemId);
   }
+
+  // 3. Process Item Deductions
+  for (const [itemId, qty] of Object.entries(data.items_lost ?? {})) {
+    total -= qty * getItemValue(itemId);
+  }
+
   return total;
 }

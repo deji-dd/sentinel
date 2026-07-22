@@ -22,14 +22,9 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart";
 
-export interface GymLedgerEntry {
-  id: string;
-  timestamp: number;
-  stat_type: "strength" | "defense" | "speed" | "dexterity";
-  trains: number;
-  energy_used: number;
-  stat_gained: number;
-}
+import { GymLedgerDocument } from "@sentinel/shared";
+
+export type GymLedgerEntry = GymLedgerDocument;
 
 interface GymHistoryChartProps {
   data: GymLedgerEntry[];

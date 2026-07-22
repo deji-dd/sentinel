@@ -32,7 +32,6 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
   if (!schedule) {
     schedule = WorkerSchedules.insertOne({
       id: config.worker,
-      enabled: true,
       cadence_seconds: config.defaultCadenceSeconds,
       next_run_at: Date.now(),
       last_run_at: null,
@@ -48,17 +47,16 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
     let customNextRunMs: number | undefined;
 
     try {
-      if (schedule!.enabled) {
-        const result = await config.handler();
-        if (typeof result === "number") customNextRunMs = result;
-      }
+      const result = await config.handler();
+      if (typeof result === "number") customNextRunMs = result;
     } catch (err) {
       logger.error("Worker execution failed", err);
     } finally {
       isExecuting = false;
 
       // Calculate the next run time and update the NoSQL document
-      const nextRunMs = customNextRunMs ?? Date.now() + schedule!.cadence_seconds * 1000;
+      const nextRunMs =
+        customNextRunMs ?? Date.now() + schedule!.cadence_seconds * 1000;
       schedule = WorkerSchedules.insertOne({
         ...schedule!,
         last_run_at: Date.now(),
@@ -73,11 +71,6 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
   // 3. The zero-I/O sleep calculator
   const queueNextRun = () => {
     if (activeTimer) clearTimeout(activeTimer);
-
-    if (!schedule!.enabled) {
-      logger.info("Worker is disabled. Sleeping indefinitely.");
-      return;
-    }
 
     let delayMs = schedule!.next_run_at - Date.now();
 
@@ -95,11 +88,10 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
       const forceTriggered = updatedDoc.force_run && !schedule!.force_run;
       const cadenceChanged =
         updatedDoc.cadence_seconds !== schedule!.cadence_seconds;
-      const toggled = updatedDoc.enabled !== schedule!.enabled;
 
       schedule = updatedDoc;
 
-      if (forceTriggered || cadenceChanged || toggled) {
+      if (forceTriggered || cadenceChanged) {
         queueNextRun();
       }
     }

@@ -296,7 +296,7 @@ export function startTerritoryActivitySync(): void {
     totalRequestsPerLoop,
   );
 
-  logger.info(
+  logger.warn(
     `Booting Activity Engine. Keys: ${availableKeys} • Cadence: ${calculatedCadence}s`,
   );
 
@@ -312,7 +312,6 @@ export function startTerritoryActivitySync(): void {
     // Brand new initialization
     WorkerSchedules.insertOne({
       id: WORKER_NAME,
-      enabled: true,
       cadence_seconds: calculatedCadence,
       next_run_at: Date.now(),
       last_run_at: null,

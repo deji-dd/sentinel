@@ -119,7 +119,6 @@ export function startTerritoryBlueprintSync(): void {
 
     WorkerSchedules.insertOne({
       id: WORKER_NAME,
-      enabled: true,
       cadence_seconds: 86400,
       next_run_at: nextRunMs,
       last_run_at: null,

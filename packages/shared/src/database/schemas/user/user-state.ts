@@ -1,3 +1,4 @@
+import { TornSchema } from "../../../torn/torn.js";
 import { BaseDocument, Collection } from "../../collection.js";
 import { sentinelDbEngine } from "../../engine.js";
 
@@ -35,7 +36,7 @@ export type UserStateDocument = BaseDocument &
       }
     | {
         id: "gym_build_preference";
-        build_type: "balanced" | "hanks" | "baldrs";
+        build_type: "balanced" | "one_stat" | "two_stats" | "hanks" | "baldrs";
         high_stat: "strength" | "defense" | "speed" | "dexterity";
       }
     | {
@@ -46,19 +47,41 @@ export type UserStateDocument = BaseDocument &
     | {
         id: "live_state";
         bars: {
-          energy: { current: number; maximum: number; increment: number; interval: number; full_time: number };
-          nerve: { current: number; maximum: number; increment: number; interval: number; full_time: number };
-          happy: { current: number; maximum: number; increment: number; interval: number; full_time: number };
-          life: { current: number; maximum: number; increment: number; interval: number; full_time: number };
+          energy: {
+            current: number;
+            maximum: number;
+            increment: number;
+            interval: number;
+            full_time: number;
+          };
+          nerve: {
+            current: number;
+            maximum: number;
+            increment: number;
+            interval: number;
+            full_time: number;
+          };
+          happy: {
+            current: number;
+            maximum: number;
+            increment: number;
+            interval: number;
+            full_time: number;
+          };
+          life: {
+            current: number;
+            maximum: number;
+            increment: number;
+            interval: number;
+            full_time: number;
+          };
         };
         cooldowns: {
           drug: number;
           medical: number;
           booster: number;
         };
-        money: {
-          wallet: number;
-        };
+        money: TornSchema<"UserMoneyResponse">["money"];
         timestamp: number;
       }
   );

@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import os from "os";
-import { SystemState, LogSyncStates, UserConfig } from "@sentinel/shared";
+import { SystemState, SystemStateDocument, UserConfig } from "@sentinel/shared";
 import net from "net";
 
 const probeSocket = (path: string): Promise<boolean> => {
@@ -24,13 +24,7 @@ const probeSocket = (path: string): Promise<boolean> => {
 function generateSettingsPayload() {
   const config = UserConfig.findOne("global");
   return {
-    log_manager_enabled: config?.log_manager_enabled ?? false,
     log_manager_cadence: config?.log_manager_cadence ?? 60,
-    crimes_module_enabled: config?.crimes_module_enabled ?? false,
-    gym_module_enabled: config?.gym_module_enabled ?? false,
-    stocks_module_enabled: config?.stocks_module_enabled ?? false,
-    travel_module_enabled: config?.travel_module_enabled ?? false,
-    wealth_module_enabled: config?.wealth_module_enabled ?? false,
     travel_capacity: config?.travel_capacity ?? 15,
     travel_method: config?.travel_method ?? "1.0",
   };
@@ -132,17 +126,21 @@ async function generateStatusPayload(fastify: FastifyInstance) {
 
 function generateSyncPayload() {
   try {
-    const stateId = "personal_log_sync_state_singleton";
-    const state = LogSyncStates.findOne(stateId);
-
-    if (!state) {
-      return null;
-    }
+    const backfillProgress = SystemState.findOne(
+      "log_manager_backfill_progress",
+    ) as
+      | Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>
+      | undefined;
 
     return {
-      is_historical_sync_complete: state.is_historical_sync_complete,
-      earliest_timestamp: state.earliest_timestamp,
-      latest_timestamp: state.latest_timestamp,
+      backfill: backfillProgress
+        ? {
+            status: backfillProgress.status,
+            logs_parsed: backfillProgress.logs_parsed ?? 0,
+            oldest_timestamp_reached:
+              backfillProgress.oldest_timestamp_reached ?? null,
+          }
+        : null,
     };
   } catch (err) {
     return null;

@@ -13,7 +13,7 @@ export function startMetricsReporter(
     clearInterval(metricsInterval);
   }
 
-  logger.info(`Starting System Metrics Reporter for ${id}`);
+  logger.warn(`Starting System Metrics Reporter for ${id} process`);
 
   // Mark as online immediately
   SystemState.update({

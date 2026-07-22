@@ -1,5 +1,20 @@
 import { FastifyPluginAsync } from "fastify";
-import { GymLedger, UserState, TornGyms, TornItems, SystemState, UserConfig, SystemStateDocument } from "@sentinel/shared";
+import {
+  GymLedger,
+  UserState,
+  TornGyms,
+  TornItems,
+  SystemState,
+  SystemStateDocument,
+  GymHistoryResponse,
+  GymStateResponse,
+  LogBackfillProgressPayload,
+  BattlestatsDoc,
+  GymUnlocksDoc,
+  GymPerksDoc,
+  BoosterPerksDoc,
+  BarsDoc,
+} from "@sentinel/shared";
 
 type InitState = Extract<
   SystemStateDocument,
@@ -9,11 +24,6 @@ type InitState = Extract<
 export const gymRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/history", async (request, reply) => {
     try {
-      const config = UserConfig.findOne("global");
-      if (!config?.gym_module_enabled) {
-        return reply.send({ data: [], module_disabled: true });
-      }
-
       const ledgers = GymLedger.findAll();
       ledgers.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -41,24 +51,20 @@ export const gymRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get("/state", async (request, reply) => {
     try {
-      const config = UserConfig.findOne("global");
-      if (!config?.gym_module_enabled) {
-        return reply.send({ data: null, module_disabled: true });
-      }
 
       const initState = SystemState.findOne("gym_ledger_init_state") as { init: boolean; timestamp: number } | undefined;
       const isInitializing = !initState || !initState.init;
-      const battlestats = UserState.findOne("battlestats");
-      const gym_unlocks = UserState.findOne("gym_unlocks");
-      const gym_perks = UserState.findOne("gym_perks");
-      const bars = UserState.findOne("bars");
+      const battlestats = UserState.findOne<BattlestatsDoc>("battlestats");
+      const gym_unlocks = UserState.findOne<GymUnlocksDoc>("gym_unlocks");
+      const gym_perks = UserState.findOne<GymPerksDoc>("gym_perks");
+      const bars = UserState.findOne<BarsDoc>("bars");
       const gym_build_preference = UserState.findOne(
         "gym_build_preference",
       ) || {
         build_type: "balanced",
         high_stat: "defense",
       };
-      const booster_perks = UserState.findOne("booster_perks");
+      const booster_perks = UserState.findOne<BoosterPerksDoc>("booster_perks");
       const gyms = TornGyms.findAll();
       const backfill_progress = SystemState.findOne("gym_ledger_backfill_progress");
 
@@ -73,20 +79,23 @@ export const gymRoutes: FastifyPluginAsync = async (fastify) => {
             )),
       );
 
-      return reply.send({
+      const response: GymStateResponse = {
         data: {
           battlestats,
           gym_unlocks,
           gym_perks,
           booster_perks,
           bars,
-          gym_build_preference,
+          gym_build_preference: gym_build_preference as {
+            build_type: "balanced" | "one_stat" | "two_stats";
+            high_stat: "strength" | "defense" | "speed" | "dexterity";
+          },
           gyms,
           items,
-          backfill_progress,
         },
         initializing: isInitializing,
-      });
+      };
+      return reply.send(response);
     } catch (error: any) {
       fastify.log.error(error);
       return reply.status(500).send({ error: "Failed to fetch gym state" });

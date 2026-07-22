@@ -1,187 +1,94 @@
 import {
   CrimeLedger,
   CrimeLogs,
-  getItemValue,
-  getWorkerApiKey,
   Logger,
   SystemState,
-  tornApi,
   TornCrimes,
-  TornSchema,
-  ApiKeyRotator,
-  UserConfig,
   SystemStateDocument,
   getCrimeIdFromAction,
   calculateCrimeLogValue,
+  LogRouteMap,
+  StrictUserLog,
+  PersonalLogs,
 } from "@sentinel/shared";
 import { workerEvents } from "../../lib/event-bus.js";
 
 const logger = new Logger("crimes_module");
 
-type InitState = Extract<
-  SystemStateDocument,
-  { timestamp: number; init: boolean }
->;
-type CrimeData = {
-  crime_action: string;
-  nerve: number;
-  money_gained?: number;
-  items_gained?: Record<string, number>;
-  unique?: string;
+type CrimeLogIds =
+  | 9010
+  | 9015
+  | 9020
+  | 9025
+  | 9027
+  | 9030
+  | 9050
+  | 9051
+  | 9052
+  | 9053
+  | 9055
+  | 9056
+  | 9060
+  | 9065
+  | 9070
+  | 9071
+  | 9072
+  | 9073
+  | 9150
+  | 9154
+  | 9155
+  | 9158
+  | 9160
+  | 9163
+  | 9165
+  | 9190
+  | 9191;
+
+// Define routes early so the init function can map the IDs
+export const CRIME_LOG_ROUTES: LogRouteMap = {
+  9010: [parseCrimes],
+  9015: [parseCrimes],
+  9020: [parseCrimes],
+  9025: [parseCrimes],
+  9027: [parseCrimes],
+  9030: [parseCrimes],
+  9050: [parseCrimes],
+  9051: [parseCrimes],
+  9052: [parseCrimes],
+  9053: [parseCrimes],
+  9055: [parseCrimes],
+  9056: [parseCrimes],
+  9060: [parseCrimes],
+  9065: [parseCrimes],
+  9070: [parseCrimes],
+  9071: [parseCrimes],
+  9072: [parseCrimes],
+  9073: [parseCrimes],
+  9150: [parseCrimes],
+  9154: [parseCrimes],
+  9155: [parseCrimes],
+  9158: [parseCrimes],
+  9160: [parseCrimes],
+  9163: [parseCrimes],
+  9165: [parseCrimes],
+  9190: [parseCrimes],
+  9191: [parseCrimes],
 };
 
-async function runCrimesLedgerInit() {
+const CRIME_LOG_IDS = Object.keys(CRIME_LOG_ROUTES).map(Number);
+
+async function parseCrimes(log: StrictUserLog<CrimeLogIds>): Promise<void> {
   try {
-    logger.info("Initializing Crimes Ledger...");
-    SystemState.update({
-      id: "crimes_ledger_init_state",
-      init: false,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
-
-    // Drop table prior to init as requested
-    CrimeLedger.deleteManyBy({});
-
-    const crimes = TornCrimes.findAll();
-    const apiKey = getWorkerApiKey("personal");
-    const rotator = new ApiKeyRotator([apiKey as string]);
-
-    await rotator.processSequential(
-      crimes,
-      async (crime, key) => {
-        try {
-          const res = (await tornApi.get("/user/{crimeId}/crimes", {
-            apiKey: key,
-            pathParams: { crimeId: crime.id.toString() },
-          })) as TornSchema<"UserCrimesResponse">;
-
-          const stats = res.crimes;
-          const nerveSpent = stats.nerve_spent;
-          let totalValue = stats.rewards.money;
-
-          if (stats.rewards.items) {
-            for (const item of stats.rewards.items) {
-              totalValue += getItemValue(item.id.toString()) * item.amount;
-            }
-          }
-
-          if (stats.uniques) {
-            for (const unique of stats.uniques) {
-              if (unique.rewards.money) {
-                const m = unique.rewards.money;
-                if (typeof m === "number") {
-                  totalValue += m;
-                } else if (m.min && m.max) {
-                  totalValue += Math.floor((m.min + m.max) / 2);
-                }
-              }
-              if (unique.rewards.items) {
-                for (const item of unique.rewards.items) {
-                  totalValue += getItemValue(item.id.toString()) * item.amount;
-                }
-              }
-            }
-          }
-
-          CrimeLedger.insertOne({
-            id: crime.id.toString(),
-            crime_name: crime.data.name,
-            nerve_spent: nerveSpent,
-            total_value: totalValue,
-          });
-        } catch (e) {
-          logger.error(`Error fetching crime ${crime.id}:`, e);
-        }
-      },
-      1000,
-    );
-
-    SystemState.update({
-      id: "crimes_ledger_init_state",
-      init: true,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
-
-    logger.info("Crimes Ledger initialized successfully.");
-  } catch (error) {
-    logger.error("Failed to initialize Crimes Ledger:", error);
-  }
-}
-
-async function parseCrimes(log: TornSchema<"UserLog">): Promise<void> {
-  try {
-    const data = log.data as unknown as CrimeData;
+    const data = log.data;
     if (!data.crime_action) return;
 
     const crimeId = getCrimeIdFromAction(data.crime_action);
-    // Even if crimeId is 0 (unmapped), we still log it so the user can map it later.
     const base = crimeId !== 0 ? CrimeLedger.findOne(crimeId.toString()) : null;
     if (crimeId !== 0 && !base) return;
 
+    const logValue = calculateCrimeLogValue(data);
 
-
-    const currentTotalValue = calculateCrimeLogValue(data);
-
-    let logValue = currentTotalValue;
-
-    // If a unique reward fired, the live log doesn't include payout details.
-    // Re-fetch the full crime aggregate from the API and diff against baseline + logs.
-    if (data.unique && data.unique !== "" && crimeId !== 0 && base) {
-      try {
-        const apiKey = getWorkerApiKey("personal");
-        const res = (await tornApi.get("/user/{crimeId}/crimes", {
-          apiKey,
-          pathParams: { crimeId: crimeId.toString() },
-        })) as TornSchema<"UserCrimesResponse">;
-
-        const stats = res.crimes;
-        let uniqueValue = stats.rewards.money;
-
-        if (stats.rewards.items) {
-          for (const item of stats.rewards.items) {
-            uniqueValue += getItemValue(item.id.toString()) * item.amount;
-          }
-        }
-
-        if (stats.uniques) {
-          for (const unique of stats.uniques) {
-            if (unique.rewards.money) {
-              const m = unique.rewards.money;
-              if (typeof m === "number") {
-                uniqueValue += m;
-              } else if (m.min && m.max) {
-                uniqueValue += Math.floor((m.min + m.max) / 2);
-              }
-            }
-            if (unique.rewards.items) {
-              for (const item of unique.rewards.items) {
-                uniqueValue += getItemValue(item.id.toString()) * item.amount;
-              }
-            }
-          }
-        }
-
-        // Calculate sum of existing logs for this crime
-        const existingLogs = CrimeLogs.find({ crime_id: crimeId });
-        let loggedValue = 0;
-        for (const l of existingLogs) {
-          loggedValue += l.value;
-        }
-
-        // The unique value is the new aggregate minus the baseline minus already logged value
-        const calculatedUniqueValue =
-          uniqueValue - base.total_value - loggedValue;
-        // Floor to prevent float precision issues, ensure it doesn't go below 0 if API is weird
-        logValue = Math.max(0, Math.floor(calculatedUniqueValue));
-
-        logger.info(
-          `Unique fired for crime ${crimeId} — computed unique value: ${logValue}`,
-        );
-      } catch (e) {
-        logger.error(`Failed to re-fetch crime ${crimeId} after unique:`, e);
-      }
-    }
-
+    // 1. Store the individual log event
     CrimeLogs.insertOne({
       id: log.id.toString(),
       crime_id: crimeId,
@@ -191,52 +98,137 @@ async function parseCrimes(log: TornSchema<"UserLog">): Promise<void> {
       timestamp: log.timestamp,
     });
 
-    logger.info("Processed crime log.");
+    // 2. Increment the aggregate ledger totals
+    if (base) {
+      CrimeLedger.update({
+        ...base,
+        nerve_spent: base.nerve_spent + (data.nerve || 0),
+        total_value: base.total_value + logValue,
+      });
+    }
   } catch (error) {
     logger.error("Error parsing crime log:", error);
   }
 }
 
-export function startCrimesModule(): void {
-  // Sync on boot
-  checkSettingsAndInit();
+async function runCrimesLedgerInit() {
+  try {
+    logger.warn("Initializing Crimes Ledger V2");
 
-  workerEvents.on("settings_updated", () => {
-    checkSettingsAndInit();
-  });
+    // 1. Wipe broken/legacy data from the previous architecture
+    CrimeLedger.deleteManyBy({});
+    CrimeLogs.deleteManyBy({});
 
-  workerEvents.on("new_log", (log) => {
-    const config = UserConfig.findOne("global");
-    if (config?.crimes_module_enabled) {
-      const logCategory = log.details?.category;
-      if (logCategory === "Crimes") {
-        const initState = SystemState.findOne<InitState>(
-          "crimes_ledger_init_state",
-        );
-        // Ensure we don't process logs that were already covered by the backfill
-        if (initState?.timestamp && log.timestamp <= initState.timestamp) {
-          return;
-        }
-        parseCrimes(log).catch((e) =>
-          logger.error("Unhandled error in parseCrimes:", e),
-        );
+    // 2. Prepare blank base CrimeLedger records
+    const crimes = TornCrimes.findAll();
+    const ledgerInserts = crimes.map((crime) => ({
+      id: crime.id.toString(),
+      crime_name: crime.data.name,
+      nerve_spent: 0,
+      total_value: 0,
+    }));
+
+    // 3. Query the local DB, filter for crime IDs, and sort chronologically
+    const allLogs = PersonalLogs.findAll();
+    const crimeLogs = allLogs
+      .filter((log) => CRIME_LOG_IDS.includes(log.details.id))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    logger.warn(`Found ${crimeLogs.length} historical crime logs. Parsing...`);
+
+    // 4. Replay through in-memory aggregator map
+    const crimeLogsToInsert = [];
+    const totalsMap = new Map<number, { nerve: number; value: number }>();
+
+    let parsed = 0;
+    for (const log of crimeLogs) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = log.data as any;
+      if (!data || !data.crime_action) continue;
+
+      const crimeId = getCrimeIdFromAction(data.crime_action);
+      const logValue = calculateCrimeLogValue(data);
+      const nerveSpent = data.nerve || 0;
+
+      crimeLogsToInsert.push({
+        id: log.id.toString(),
+        crime_id: crimeId,
+        action: data.crime_action,
+        nerve: nerveSpent,
+        value: logValue,
+        timestamp: log.timestamp,
+      });
+
+      if (crimeId !== 0) {
+        const current = totalsMap.get(crimeId) || { nerve: 0, value: 0 };
+        current.nerve += nerveSpent;
+        current.value += logValue;
+        totalsMap.set(crimeId, current);
       }
+
+      parsed++;
     }
-  });
+
+    if (crimeLogsToInsert.length > 0) {
+      CrimeLogs.insertMany(crimeLogsToInsert);
+    }
+
+    const updatedLedger = ledgerInserts.map((base) => {
+      const crimeId = Number(base.id);
+      const totals = totalsMap.get(crimeId);
+      if (!totals) return base;
+      return {
+        ...base,
+        nerve_spent: totals.nerve,
+        total_value: totals.value,
+      };
+    });
+
+    if (updatedLedger.length > 0) {
+      CrimeLedger.insertMany(updatedLedger);
+    }
+
+    // 5. Save the new V2 state
+    SystemState.update({
+      id: "crimes_ledger_v2_init",
+      init: true,
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+
+    logger.info(
+      `Crimes Ledger initialized successfully. Parsed ${parsed} logs.`,
+    );
+  } catch (error) {
+    logger.error("Failed to initialize Crimes Ledger:", error);
+  }
 }
 
-function checkSettingsAndInit() {
-  const config = UserConfig.findOne("global");
-  if (config?.crimes_module_enabled) {
-    const initState = SystemState.findOne<InitState>(
-      "crimes_ledger_init_state",
+function checkAndInit() {
+  // 1. Check if the master engine has completed historical log backfill
+  const backfillState = SystemState.findOne("log_manager_backfill_progress") as
+    | Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>
+    | undefined;
+
+  if (!backfillState || backfillState.status !== "completed") {
+    logger.warn(
+      "Log backfill is ongoing or incomplete. Postponing Crimes module initialization.",
     );
-    if (!initState || !initState.init) {
-      runCrimesLedgerInit();
-    }
-  } else {
-    // If explicitly disabled, wipe the data and initialization state
-    CrimeLedger.deleteManyBy({});
-    SystemState.delete("crimes_ledger_init_state");
+    return;
   }
+
+  // 2. Check if this specific module has completed its V2 initialization
+  const initState = SystemState.findOne("crimes_ledger_v2_init");
+  if (!initState) {
+    runCrimesLedgerInit();
+  }
+}
+
+export function startCrimesModule(): void {
+  // Attempt to boot immediately
+  checkAndInit();
+
+  // Listen for the master engine to broadcast completion, then attempt boot again
+  workerEvents.on("log_backfill_completed", () => {
+    checkAndInit();
+  });
 }

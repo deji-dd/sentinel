@@ -53,7 +53,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const { setSyncOptions, setLastSyncedText } = useSync();
+  const { setSyncOptions, setLastSyncedText, setBackfillStatus } = useSync();
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -80,7 +80,12 @@ export function DashboardClient({ initialData }: { initialData: any }) {
           const payload = JSON.parse(event.data);
           if (payload.type === "update") {
             if (payload.status) setData(payload.status);
-            if (payload.sync) setSyncData(payload.sync);
+            if (payload.sync) {
+              setSyncData(payload.sync);
+              if (payload.sync.backfill !== undefined) {
+                setBackfillStatus(payload.sync.backfill);
+              }
+            }
             if (payload.settings) setSettings(payload.settings);
             setLastSyncedText(`LIVE_STREAM_ACTIVE`);
           }
@@ -116,7 +121,7 @@ export function DashboardClient({ initialData }: { initialData: any }) {
       }
       setLastSyncedText("");
     };
-  }, [setSyncOptions, setLastSyncedText, setSettings]);
+  }, [setSyncOptions, setLastSyncedText, setSettings, setBackfillStatus]);
 
   const isOnline = data.status === "online";
 
@@ -147,21 +152,6 @@ export function DashboardClient({ initialData }: { initialData: any }) {
               >
                 <Settings size={16} />
               </button>
-              {settings && !settings.log_manager_enabled && (
-                <button
-                  onClick={async () => {
-                    await fetch("/api/settings", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ log_manager_enabled: true }),
-                    });
-                    setSettings({ ...settings, log_manager_enabled: true });
-                  }}
-                  className="ml-4 px-3 py-1.5 bg-foreground text-background text-[10px] font-mono tracking-widest uppercase hover:opacity-90 transition-colors"
-                >
-                  START LOG MANAGER
-                </button>
-              )}
             </div>
           </div>
         </motion.div>
@@ -298,7 +288,6 @@ function SettingsModal({
     setError(null);
     try {
       await onSave({
-        log_manager_enabled: initialSettings.log_manager_enabled,
         log_manager_cadence: cadence,
       });
       onClose();

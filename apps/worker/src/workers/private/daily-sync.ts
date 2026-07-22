@@ -39,7 +39,7 @@ export async function runDailySync() {
     let speed_gain_modifier = 1.0;
     let defense_gain_modifier = 1.0;
     let dexterity_gain_modifier = 1.0;
-    
+
     let energy_drink_modifier = 1.0;
 
     const regex =
@@ -65,7 +65,9 @@ export async function runDailySync() {
         }
       }
 
-      const drinkMatch = perk.match(/\+\s*(\d+(?:\.\d+)?)%\s*energy gain from energy drinks/i);
+      const drinkMatch = perk.match(
+        /\+\s*(\d+(?:\.\d+)?)%\s*energy gain from energy drinks/i,
+      );
       if (drinkMatch) {
         energy_drink_modifier += parseFloat(drinkMatch[1]) / 100;
       }
@@ -140,7 +142,7 @@ export async function syncGymUnlocks(apiKey: string) {
     let maxDexterity = 0;
 
     for (const gymId of unlockedGymIds) {
-      const gym = gyms.find((g) => Number(g.id) === gymId);
+      const gym = TornGyms.findOne(String(gymId));
       if (!gym) continue;
 
       if (gym.strength > maxStrength) {

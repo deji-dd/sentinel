@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { useWealthLedger } from "@/hooks/use-wealth-ledger";
 import { KPICards } from "@/components/wealth/KPICards";
@@ -12,9 +12,6 @@ import { Activity, List } from "lucide-react";
 import { useSync } from "@/hooks/use-sync";
 import GlobalLoading from "@/components/dashboard/GlobalLoading";
 import { useMinimumLoading } from "@/hooks/use-minimum-loading";
-import { ModuleGuard } from "@/components/module-guard";
-import { useSettings } from "@/components/settings-provider";
-import { Target } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,8 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 export default function WealthPage() {
-  const { data, loading, moduleDisabled, isPolling, refetch } = useWealthLedger();
-  const { settings, setSettings } = useSettings();
+  const { data, loading, isPolling, refetch } = useWealthLedger();
   const showLoader = useMinimumLoading(loading || isPolling, 2000);
   const { setSyncOptions, setLastSyncedText } = useSync();
   const [timeframe, setTimeframe] = React.useState<"7d" | "30d" | "90d" | "all">("30d");
@@ -70,7 +66,7 @@ export default function WealthPage() {
     return d;
   });
 
-  const [isInitializing, setIsInitializing] = useState(false);
+
 
   if (showLoader) {
     return (
@@ -79,23 +75,6 @@ export default function WealthPage() {
       </DashboardLayout>
     );
   }
-
-  const handleInitialize = async () => {
-    try {
-      setIsInitializing(true);
-      await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wealth_module_enabled: true })
-      });
-      await fetch("/api/wealth/init", { method: "POST" });
-      setSettings({ ...settings, wealth_module_enabled: true });
-      refetch();
-    } catch (e) {
-      console.error(e);
-      setIsInitializing(false);
-    }
-  };
 
   const filteredHistorical = data?.historical?.filter((item: { timestamp: number }) => {
     if (timeframe === "all") return true;
@@ -109,26 +88,7 @@ export default function WealthPage() {
 
   return (
     <DashboardLayout>
-      <ModuleGuard>
-        {moduleDisabled ? (
-          <div className="flex-1 flex flex-col items-center justify-center h-[80vh] text-center p-8">
-            <Target size={32} className="text-foreground mb-6" />
-            <div className="text-foreground font-mono tracking-widest text-sm mb-4 uppercase">
-              [ WEALTH_MODULE_OFFLINE ]
-            </div>
-            <div className="text-muted-foreground font-mono text-[10px] uppercase tracking-widest max-w-md leading-relaxed mb-8">
-              This module is currently disabled. Initializing this module will allow Sentinel to track and analyze your total net worth and liquid cash changes.
-            </div>
-            <button
-              onClick={handleInitialize}
-              disabled={isInitializing}
-              className="px-6 py-3 cursor-pointer bg-foreground text-background font-mono text-[10px] uppercase tracking-[0.2em] hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isInitializing && <Activity className="size-3 animate-spin" />}
-              {isInitializing ? "INITIALIZING..." : "INITIALIZE_MODULE"}
-            </button>
-          </div>
-        ) : data ? (
+      {data ? (
           <div className="max-w-7xl p-2 md:p-8 mx-auto flex flex-col gap-6 pt-15">
             <header className="mb-2 border-b border-border pb-4 flex items-start md:justify-between flex-col md:flex-row gap-4">
               <div>
@@ -238,14 +198,11 @@ export default function WealthPage() {
                     <span>Today&apos;s Transactions (UTC)</span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
                   <LedgerTable data={todaysTransactions} />
-                </CardContent>
               </Card>
             </div>
           </div>
         ) : null}
-      </ModuleGuard>
     </DashboardLayout>
   );
 }

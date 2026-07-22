@@ -8,11 +8,11 @@ const COLORS = [
   "\x1b[96m", // Bright Cyan
   "\x1b[94m", // Bright Blue
   "\x1b[95m", // Bright Magenta
-  "\x1b[38;5;39m",  // Deep Blue
-  "\x1b[38;5;45m",  // Light Blue
-  "\x1b[38;5;51m",  // Bright Cyan
-  "\x1b[38;5;75m",  // Soft Blue
-  "\x1b[38;5;87m",  // Soft Cyan
+  "\x1b[38;5;39m", // Deep Blue
+  "\x1b[38;5;45m", // Light Blue
+  "\x1b[38;5;51m", // Bright Cyan
+  "\x1b[38;5;75m", // Soft Blue
+  "\x1b[38;5;87m", // Soft Cyan
   "\x1b[38;5;111m", // Sky Blue
   "\x1b[38;5;117m", // Light Sky Blue
   "\x1b[38;5;141m", // Light Purple
@@ -75,7 +75,7 @@ export class Logger {
 
   // Timer utility for profiling slow API calls
   time() {
-    this.info("Started");
+    this.warn("Starting");
     const start = performance.now();
     return () => {
       const durationMs = performance.now() - start;

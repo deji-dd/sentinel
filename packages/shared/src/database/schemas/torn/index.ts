@@ -6,3 +6,4 @@ export * from "./stocks.js";
 export * from "./crime.js";
 export * from "./property.js";
 export * from "./travel.js";
+export * from "./log.js";

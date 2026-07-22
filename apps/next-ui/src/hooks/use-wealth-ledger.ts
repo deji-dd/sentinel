@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { WealthStateData, WealthStateResponse } from "@sentinel/shared";
 
 export interface TransactionItem {
   id: string;
@@ -24,15 +25,8 @@ export interface HistoricalPoint {
 }
 
 export function useWealthLedger() {
-  const [data, setData] = useState<{
-    liquidCash: number;
-    dailyYield: number;
-    recentTransactions: TransactionItem[];
-    historical: HistoricalPoint[];
-    actionQueue: ActionItem[];
-  } | null>(null);
+  const [data, setData] = useState<WealthStateData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [moduleDisabled, setModuleDisabled] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -45,26 +39,22 @@ export function useWealthLedger() {
 
     async function fetchData() {
       try {
-        let liveData = null;
+        let liveData: WealthStateResponse | null = null;
         try {
           const res = await fetch(`/api/ledger/wealth-state`);
-          if (res.ok) liveData = await res.json();
+          if (res.ok) liveData = (await res.json()) as WealthStateResponse;
         } catch {
           // Fallback
         }
 
         if (liveData && mounted) {
-          if (liveData.module_disabled) {
-            setModuleDisabled(true);
-            setIsPolling(false);
-            setData(null);
-          } else if (liveData.initializing) {
-            setModuleDisabled(false);
+          if (liveData.initializing) {
             setIsPolling(true);
           } else {
-            setModuleDisabled(false);
             setIsPolling(false);
-            setData(liveData.data || liveData);
+            if (liveData.data) {
+              setData(liveData.data);
+            }
           }
         }
       } catch (err) {
@@ -87,5 +77,5 @@ export function useWealthLedger() {
     };
   }, [refreshKey, isPolling]);
 
-  return { data, loading, moduleDisabled, isPolling, refetch };
+  return { data, loading, isPolling, refetch };
 }

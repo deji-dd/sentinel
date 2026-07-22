@@ -1,27 +1,16 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { UserSettingsResponse } from "@sentinel/shared";
 
 type Settings = {
-  log_manager_enabled: boolean;
   log_manager_cadence: number;
-  crimes_module_enabled: boolean;
-  gym_module_enabled: boolean;
-  stocks_module_enabled: boolean;
-  travel_module_enabled: boolean;
-  wealth_module_enabled: boolean;
   travel_capacity: number;
   travel_method: string;
 };
 
 const defaultSettings: Settings = {
-  log_manager_enabled: true, // Default true to prevent flash of disabled state if enabled
   log_manager_cadence: 60,
-  crimes_module_enabled: false,
-  gym_module_enabled: false,
-  stocks_module_enabled: false,
-  travel_module_enabled: false,
-  wealth_module_enabled: false,
   travel_capacity: 15,
   travel_method: "1.0", // Standard
 };
@@ -49,17 +38,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch settings");
-        const data = await res.json();
+        const data: UserSettingsResponse = await res.json();
         
         if (data && isMounted) {
           setSettings({
-            log_manager_enabled: data.log_manager_enabled ?? false,
             log_manager_cadence: data.log_manager_cadence ?? 60,
-            crimes_module_enabled: data.crimes_module_enabled ?? false,
-            gym_module_enabled: data.gym_module_enabled ?? false,
-            stocks_module_enabled: data.stocks_module_enabled ?? false,
-            travel_module_enabled: data.travel_module_enabled ?? false,
-            wealth_module_enabled: data.wealth_module_enabled ?? false,
             travel_capacity: data.travel_capacity ?? 15,
             travel_method: data.travel_method ?? "1.0",
           });

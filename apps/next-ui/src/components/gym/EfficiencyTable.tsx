@@ -34,6 +34,8 @@ interface EfficiencyTableProps {
 
 const buildTypeLabels: Record<BuildType, string> = {
   balanced: "Balanced",
+  one_stat: "One Stat Focus",
+  two_stats: "Two Stat Focus",
   hanks: "Hank's Ratio",
   baldrs: "Baldr's Ratio",
 };

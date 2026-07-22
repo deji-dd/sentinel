@@ -3,50 +3,30 @@ import { sentinelDbEngine } from "../engine.js";
 
 type InitState =
   | {
+      id: "war_ledger_init_state" | "tt_init_state";
+      init: boolean;
+    }
+  | {
       id:
-        | "war_ledger_init_state"
-        | "tt_init_state"
-        | "crimes_init_state"
-        | "items_init_state";
-      init: boolean;
-    }
-  | {
-      id: "crimes_ledger_init_state" | "items_ledger_init_state" | "gym_ledger_init_state" | "stock_ledger_init_state";
+        | "crimes_ledger_v2_init"
+        | "gym_ledger_v2_init"
+        | "stock_ledger_v2_init"
+        | "wealth_ledger_v2_init";
       init: boolean;
       timestamp: number;
     }
   | {
-      id: "gym_ledger_backfill_progress";
+      id: "log_manager_backfill_progress";
       timestamp: number;
       status: "in_progress" | "completed" | "error";
       logs_parsed?: number;
       oldest_timestamp_reached?: number | null;
       error?: string;
-      active_chunks?: { logSelection: string; currentTo: number | undefined }[] | null;
-    }
-  | {
-      id: "stock_ledger_backfill_progress";
-      timestamp: number;
-      status: "in_progress" | "completed" | "error";
-      logs_parsed?: number;
-      oldest_timestamp_reached?: number | null;
-      error?: string;
-      active_chunks?: { logSelection: string; currentTo: number | undefined }[] | null;
     }
   | {
       id: "log_manager_last_checked";
       timestamp: number;
-    }
-  | {
-      id: "wealth_init";
-      data: { status: "in_progress" | "completed" | "error" };
-      updated_at: number;
     };
-
-// type UserState = {
-//   id: "user_state";
-//   liquid_cash: number;
-// };
 
 export type SystemStateDocument = BaseDocument &
   (
@@ -64,6 +44,11 @@ export type SystemStateDocument = BaseDocument &
         message: string;
         timestamp: number;
         reported: boolean;
+      }
+    | {
+        id: "points_price";
+        price: number;
+        last_updated: number;
       }
   );
 

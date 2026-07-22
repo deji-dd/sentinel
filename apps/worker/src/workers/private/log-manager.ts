@@ -7,37 +7,48 @@ import {
   UserConfig,
   SystemState,
   SystemStateDocument,
+  TornSchema,
+  LogRouteMap,
+  LogDataRegistry,
 } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { workerEvents } from "../../lib/event-bus.js";
-import { parseStatGainLog } from "./gym.js";
-import { parseStockGainLog, parseStockActivityLog } from "./stocks.js";
-import { parseTravelActivityLog } from "./travel.js";
-import { parseWealthActivityLog } from "./wealth.js";
+import { STOCK_LOG_ROUTES } from "./stocks.js";
+import { WEALTH_LOG_ROUTES } from "./wealth.js";
+import { TRAVEL_LOG_ROUTES } from "./travel.js";
+import { GYM_LOG_ROUTES } from "./gym.js";
+import { CRIME_LOG_ROUTES } from "./crimes.js";
 
 const WORKER_NAME = "log_manager";
+const logger = new Logger(WORKER_NAME);
+
+const LOG_ROUTER: LogRouteMap = {
+  ...TRAVEL_LOG_ROUTES,
+  ...GYM_LOG_ROUTES,
+  ...CRIME_LOG_ROUTES,
+  ...STOCK_LOG_ROUTES,
+  ...WEALTH_LOG_ROUTES,
+};
+
+// Core router dispatcher
+function dispatchLog(log: TornSchema<"UserLog">) {
+  const logId = log.details.id as keyof LogDataRegistry;
+  const mappedParsers = LOG_ROUTER[logId];
+
+  if (mappedParsers) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mappedParsers.forEach((parse) => parse(log as any));
+  }
+}
 
 function syncSettingsToSchedule() {
-  const logger = new Logger("log_manager_settings");
   const config = UserConfig.findOne("global");
-  const enabled = config?.log_manager_enabled ?? false;
   const cadence = config?.log_manager_cadence ?? 60;
 
   const schedule = WorkerSchedules.findOne(WORKER_NAME);
 
-  if (!enabled) {
-    // If we're toggling OFF, reset cursor and clear the table as requested
-    if (schedule?.enabled !== false) {
-      logger.info(
-        "Log Manager disabled. Resetting cursor and clearing PersonalLogs table.",
-      );
-      PersonalLogs.deleteManyBy({});
-    }
-  }
-
   WorkerSchedules.insertOne({
     id: WORKER_NAME,
-    enabled,
     cadence_seconds: cadence,
     next_run_at: schedule?.next_run_at ?? Date.now(),
     last_run_at: schedule?.last_run_at ?? null,
@@ -45,13 +56,40 @@ function syncSettingsToSchedule() {
   });
 }
 
+/**
+ * Unified Sync Engine: Handles both live polling and historical pagination
+ */
 async function syncLogs(): Promise<void> {
-  const logger = new Logger(WORKER_NAME);
   try {
     const finishSync = logger.time();
     const apiKey = getWorkerApiKey("personal");
     if (!apiKey) throw new Error("No personal API key found");
 
+    // Check if we are running a historical backfill
+    let backfillState = SystemState.findOne("log_manager_backfill_progress") as
+      | Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>
+      | undefined;
+
+    // --- AUTO-START LOGIC ---
+    if (!backfillState) {
+      logger.info("Initializing user log backfill.");
+
+      backfillState = {
+        id: "log_manager_backfill_progress",
+        timestamp: Math.floor(Date.now() / 1000),
+        status: "in_progress",
+        logs_parsed: 0,
+        oldest_timestamp_reached: null,
+      };
+      SystemState.insertOne(backfillState);
+    }
+
+    if (backfillState.status === "in_progress") {
+      await runHistoricalBatch(apiKey, backfillState);
+      return;
+    }
+
+    // --- REAL-TIME POLLING MODE ---
     const state = SystemState.findOne<
       Extract<SystemStateDocument, { id: string; timestamp: number }>
     >("log_manager_last_checked");
@@ -63,9 +101,7 @@ async function syncLogs(): Promise<void> {
         id: "log_manager_last_checked",
         timestamp: lastCheckedTimestamp,
       });
-      logger.info(
-        `Log Manager initialized. Fetching logs strictly after ${lastCheckedTimestamp}`,
-      );
+
       return;
     }
 
@@ -81,25 +117,96 @@ async function syncLogs(): Promise<void> {
 
         PersonalLogs.insertOne(log);
         lastCheckedTimestamp = Math.max(lastCheckedTimestamp, log.timestamp);
-        workerEvents.emit("new_log", log);
+
+        dispatchLog(log);
         newLogsCount++;
       }
+
       if (newLogsCount > 0) {
         SystemState.update({
           id: "log_manager_last_checked",
           timestamp: lastCheckedTimestamp,
         });
-        logger.info(`Persisted ${newLogsCount} new logs.`);
+        logger.info(`Saved ${newLogsCount} new logs in ${finishSync()}`);
       }
     }
-    finishSync();
   } catch (error) {
     logger.error("Error during log sync:", error);
   }
 }
 
+/**
+ * Pages backward through history using the 'to' query parameter
+ */
+async function runHistoricalBatch(
+  apiKey: string,
+  state: Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>,
+) {
+  const currentTo = state.oldest_timestamp_reached ?? undefined;
+  logger.info(
+    `Running historical backfill batch with to=${currentTo ?? "latest"}`,
+  );
+
+  const queryParams: Record<string, number> = { limit: 100 };
+  if (currentTo) queryParams.to = currentTo;
+
+  const res = await tornApi.get<TornSchema<"UserLogsResponse">>("/user/log", {
+    apiKey,
+    queryParams,
+  });
+
+  if (!res.log || res.log.length === 0) {
+    // Reached the end of history
+    SystemState.update({
+      id: "log_manager_backfill_progress",
+      timestamp: Math.floor(Date.now() / 1000),
+      status: "completed",
+    });
+    workerEvents.emit("log_backfill_completed");
+    logger.info("Historical log backfill completed.");
+    return;
+  }
+
+  let oldestInBatch = Date.now() / 1000;
+  let parsedCount = state.logs_parsed ?? 0;
+
+  // Iterate directly over the array
+  for (const log of res.log) {
+    if (!PersonalLogs.findOne(String(log.id))) {
+      PersonalLogs.insertOne(log);
+      dispatchLog(log);
+    }
+    parsedCount++;
+    if (log.timestamp < oldestInBatch) {
+      oldestInBatch = log.timestamp;
+    }
+  }
+
+  // Update progress state and continue on the next runner tick
+  SystemState.update({
+    id: "log_manager_backfill_progress",
+    timestamp: Math.floor(Date.now() / 1000),
+    status: "in_progress",
+    logs_parsed: parsedCount,
+    oldest_timestamp_reached: oldestInBatch,
+  });
+
+  // Convert the epoch seconds to milliseconds for the JS Date object
+  const readableDate = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false, // Forces 24-hour time
+  }).format(new Date(oldestInBatch * 1000));
+
+  logger.info(
+    `Backfill progress: Total parsed ${parsedCount}, oldest reached: ${readableDate}`,
+  );
+}
+
 export function startLogManager(): void {
-  // Sync the initial configuration on boot
   syncSettingsToSchedule();
 
   startEventDrivenRunner({
@@ -108,19 +215,7 @@ export function startLogManager(): void {
     defaultCadenceSeconds: 60,
   });
 
-  // Hot-reload settings without process restart
   workerEvents.on("settings_updated", () => {
     syncSettingsToSchedule();
-  });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  workerEvents.on("new_log", async (log: any) => {
-    const logger = new Logger("log_manager_events");
-    logger.info("Intercepted new log: " + log.details.title);
-    parseStatGainLog(log);
-    parseStockGainLog(log);
-    parseStockActivityLog(log);
-    parseTravelActivityLog(log);
-    parseWealthActivityLog(log);
   });
 }

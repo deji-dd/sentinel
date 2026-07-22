@@ -218,7 +218,7 @@ export async function initializeApiKeyMappings(): Promise<number[]> {
   const uniqueKeys = Array.from(new Set(keysToMap));
   if (!uniqueKeys.length) throw new Error("[CRITICAL] No API keys available.");
 
-  logger.info(`Verifying mappings for ${uniqueKeys.length} API keys...`);
+  logger.warn(`Verifying mappings for ${uniqueKeys.length} API keys...`);
 
   const mappedIds: number[] = [];
   for (const key of uniqueKeys) {

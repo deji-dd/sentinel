@@ -106,6 +106,7 @@ export class SentinelDatabase {
     this.db.pragma(`cache_size = ${cacheSize}`);
     this.db.pragma(`mmap_size = ${mmapSize}`);
     this.db.pragma("temp_store = MEMORY");
+    this.db.pragma("busy_timeout = 7000");
   }
 
   /**

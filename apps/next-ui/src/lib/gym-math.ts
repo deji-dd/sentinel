@@ -1,64 +1,9 @@
-export type StatType = "strength" | "defense" | "speed" | "dexterity";
-export type BuildType = "balanced" | "hanks" | "baldrs";
+import { GymStateData as SharedGymStateData, GymUnlocksDoc, GymPerksDoc } from "@sentinel/shared";
 
-export interface GymStateData {
-  battlestats: {
-    strength: number;
-    defense: number;
-    speed: number;
-    dexterity: number;
-  };
-  gym_unlocks: {
-    strength_gym: number;
-    defense_gym: number;
-    speed_gym: number;
-    dexterity_gym: number;
-  };
-  gym_perks: {
-    strength_gain_modifier: number;
-    speed_gain_modifier: number;
-    defense_gain_modifier: number;
-    dexterity_gain_modifier: number;
-  };
-  booster_perks?: {
-    energy_drink_modifier: number;
-  };
-  bars: {
-    energy_maximum: number;
-    happy_maximum: number;
-  };
-  gym_build_preference: {
-    build_type: BuildType;
-    high_stat: StatType;
-  };
-  gyms: Array<{
-    id: string;
-    name: string;
-    energy: number;
-    strength: number;
-    defense: number;
-    speed: number;
-    dexterity: number;
-  }>;
-  items?: Array<{
-    id: number;
-    name: string;
-    effect: string;
-    type: string;
-    details: {
-      category: string;
-    };
-    value: {
-      market_price: number;
-    };
-  }>;
-  backfill_progress?: {
-    status: "in_progress" | "completed" | "error";
-    logs_parsed?: number;
-    oldest_timestamp_reached?: number | null;
-    error?: string;
-  };
-}
+export type StatType = "strength" | "defense" | "speed" | "dexterity";
+export type BuildType = "balanced" | "one_stat" | "two_stats" | "hanks" | "baldrs";
+
+export type GymStateData = SharedGymStateData;
 
 const STAT_CONSTANTS = {
   strength: { a: 1600, b: 1700 },
@@ -173,13 +118,16 @@ export function getTargetRatios(buildType: BuildType, highStat: StatType): Recor
 export function calculateEfficiencyData(state: GymStateData) {
   if (!state.battlestats) return [];
 
+  if (!state.battlestats) return [];
+
   const stats: StatType[] = ["strength", "defense", "speed", "dexterity"];
+  const battlestats = state.battlestats;
   
   const totalStats = 
-    state.battlestats.strength + 
-    state.battlestats.defense + 
-    state.battlestats.speed + 
-    state.battlestats.dexterity;
+    battlestats.strength + 
+    battlestats.defense + 
+    battlestats.speed + 
+    battlestats.dexterity;
     
   const targetRatios = getTargetRatios(
     state.gym_build_preference.build_type, 
@@ -187,7 +135,7 @@ export function calculateEfficiencyData(state: GymStateData) {
   );
 
   const results = stats.map(stat => {
-    const currentValue = state.battlestats[stat];
+    const currentValue = battlestats[stat];
     const currentPercentage = totalStats > 0 ? (currentValue / totalStats) * 100 : 25;
     const targetPercentage = targetRatios[stat];
     const targetValue = (targetPercentage / 100) * totalStats;
@@ -196,7 +144,7 @@ export function calculateEfficiencyData(state: GymStateData) {
     const deficitPercentage = targetPercentage - currentPercentage;
     
     // Gym Info
-    const gymIdKey = `${stat}_gym` as keyof typeof state.gym_unlocks;
+    const gymIdKey = `${stat}_gym` as keyof GymUnlocksDoc;
     const gymId = state.gym_unlocks ? state.gym_unlocks[gymIdKey] : null;
     const bestGym = state.gyms?.find(g => Number(g.id) === gymId);
     
@@ -205,7 +153,9 @@ export function calculateEfficiencyData(state: GymStateData) {
     
     // Estimated Gain (dS)
     const happyMax = state.bars?.happy_maximum || 4000; // sensible default if missing
-    const perkMultiplier = state.gym_perks ? state.gym_perks[`${stat}_gain_modifier` as keyof typeof state.gym_perks] || 0 : 0;
+    const perkKey = `${stat}_gain_modifier` as keyof GymPerksDoc;
+    const perkVal = state.gym_perks ? state.gym_perks[perkKey] : 0;
+    const perkMultiplier = typeof perkVal === "number" ? perkVal : 0;
 
     const estimatedGain = calculateGymGain(
       currentValue,
@@ -292,6 +242,7 @@ export function calculateBoosterEfficiency(
   };
 
   if (!state.items || !state.battlestats) return result;
+  const battlestats = state.battlestats;
 
   const stats: StatType[] = ["strength", "defense", "speed", "dexterity"];
   const efficiencyData = calculateEfficiencyData(state);
@@ -311,7 +262,7 @@ export function calculateBoosterEfficiency(
     1 + (state.booster_perks?.energy_drink_modifier || 0);
 
   state.items.forEach((item) => {
-    // Stat Enhancer
+    // 1. Stat Enhancers
     if (
       ["Skateboard", "Parachute", "Boxing Gloves", "Dumbbells"].includes(
         item.name
@@ -323,7 +274,7 @@ export function calculateBoosterEfficiency(
       if (item.name === "Boxing Gloves") stat = "defense";
       if (item.name === "Dumbbells") stat = "strength";
 
-      const currentStatValue = state.battlestats[stat];
+      const currentStatValue = battlestats[stat];
       const statGain = Math.floor(currentStatValue * 0.01);
       const targetGain = Math.max(1, Math.floor(currentStatValue * 0.01));
 
@@ -346,11 +297,11 @@ export function calculateBoosterEfficiency(
 
     // Feathery Hotel Coupon
     else if (item.name.includes("Feathery Hotel Coupon")) {
-      const energyGained = state.bars.energy_maximum;
+      const energyGained = state.bars?.energy_maximum || 150;
 
       stats.forEach((stat) => {
         const bg = bestGyms[stat];
-        const currentStatValue = state.battlestats[stat];
+        const currentStatValue = battlestats[stat];
         const targetGain = Math.max(1, Math.floor(currentStatValue * 0.01));
 
         if (bg.gainPerTrain > 0) {
@@ -400,7 +351,7 @@ export function calculateBoosterEfficiency(
     
     stats.forEach((stat) => {
       const bg = bestGyms[stat];
-      const currentStatValue = state.battlestats[stat];
+      const currentStatValue = battlestats[stat];
       const targetGain = Math.max(1, Math.floor(currentStatValue * 0.01));
 
       if (bg.gainPerTrain > 0) {

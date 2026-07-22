@@ -10,7 +10,10 @@ import {
   decryptApiKey,
   ApiKeyRotator,
 } from "@sentinel/shared";
-import { runVerificationJob, VerificationCache } from "../../job-runners/verification_engine.js";
+import {
+  runVerificationJob,
+  VerificationCache,
+} from "../../job-runners/verification_engine.js";
 import { workerEvents } from "../event-bus.js";
 
 const logger = new Logger("worker_ipc");
@@ -23,7 +26,7 @@ export function dispatchToBot(packet: toBotPacket) {
 }
 
 // Receive messages
-export function setupIpcServer() {
+export async function setupIpcServer() {
   const socketPath = constants.worker_ipc_path;
   const ipcServer = new IpcServer(
     socketPath,
@@ -86,13 +89,22 @@ export function setupIpcServer() {
                 if (res) {
                   if ("error" in res) {
                     failCount++;
-                    failDetails.push(`User ${job.discord_id}: ${res.error.message}`);
+                    failDetails.push(
+                      `User ${job.discord_id}: ${res.error.message}`,
+                    );
                   } else {
                     successCount++;
                     let roleStr = "No changes";
-                    if (res.roles_to_add?.length || res.roles_to_remove?.length) {
-                      const added = res.roles_to_add?.length ? `+${res.roles_to_add.length}` : "";
-                      const removed = res.roles_to_remove?.length ? `-${res.roles_to_remove.length}` : "";
+                    if (
+                      res.roles_to_add?.length ||
+                      res.roles_to_remove?.length
+                    ) {
+                      const added = res.roles_to_add?.length
+                        ? `+${res.roles_to_add.length}`
+                        : "";
+                      const removed = res.roles_to_remove?.length
+                        ? `-${res.roles_to_remove.length}`
+                        : "";
                       roleStr = [added, removed].filter(Boolean).join(", ");
                     }
                     successDetails.push(`User ${job.discord_id}: ${roleStr}`);

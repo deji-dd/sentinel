@@ -275,9 +275,7 @@ export async function handleReactionRoleAdd(
     const sourceChannelId = fullReaction.message.channelId;
 
     // Check if this message is registered as a reaction-role message
-    const message = ReactionRoleMessages.findFirst(
-      (m) => m.message_id === messageId,
-    );
+    const message = ReactionRoleMessages.findFirst({ message_id: messageId });
 
     // Silently ignore reactions on non-reaction-role messages
     if (!message) {
@@ -285,9 +283,10 @@ export async function handleReactionRoleAdd(
     }
 
     // Find the role mapping for this emoji+message combo
-    const mapping = ReactionRoleMappings.findFirst(
-      (m) => m.message_id === messageId && m.emoji === emoji,
-    );
+    const mapping = ReactionRoleMappings.findFirst({
+      message_id: messageId,
+      emoji: emoji,
+    });
 
     const removeUserReaction = async () => {
       await fullReaction.users.remove(user.id).catch(() => {
@@ -315,9 +314,7 @@ export async function handleReactionRoleAdd(
     const member = await fullReaction.message.guild?.members.fetch(user.id);
     if (!member) return;
 
-    const msgReq = ReactionRoleMessages.findFirst(
-      (m) => m.message_id === messageId,
-    );
+    const msgReq = ReactionRoleMessages.findFirst({ message_id: messageId });
 
     if (msgReq?.required_role_id) {
       const requiredRoleIds = msgReq.required_role_id.split(",");

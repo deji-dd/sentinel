@@ -28,7 +28,6 @@ import {
   SidebarGroupContent,
 } from "@/components/ui/sidebar";
 import { usePush } from "@/hooks/use-push";
-import { useSettings } from "@/components/settings-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const navItems = [
@@ -43,9 +42,6 @@ const navItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { subscribed, toggle: togglePush, loading: pushLoading } = usePush();
-
-  const { settings } = useSettings();
-  const logManagerEnabled = settings.log_manager_enabled;
 
   return (
     <Sidebar variant="sidebar" className="z-30 border-r border-sidebar-border bg-sidebar text-sidebar-foreground" collapsible="icon">
@@ -65,25 +61,19 @@ export function AppSidebar() {
             <SidebarMenu>
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
-                const isOverview = item.href === "/";
-                const isDisabled = !isOverview && !logManagerEnabled;
-
                 const Icon = item.icon;
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       isActive={isActive}
                       tooltip={item.name}
-                      disabled={isDisabled}
                       className={cn(
                         "rounded-none h-10 transition-colors",
-                        isDisabled
-                          ? "opacity-50 cursor-not-allowed pointer-events-none text-neutral-600"
-                          : isActive
-                            ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground"
-                            : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                        isActive
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
                       )}
-                      render={isDisabled ? <div /> : <Link href={item.href} prefetch={false} />}
+                      render={<Link href={item.href} prefetch={false} />}
                     >
                       <Icon className="size-4" />
                       <span className="font-mono text-[10px] tracking-[0.2em]">{item.name}</span>

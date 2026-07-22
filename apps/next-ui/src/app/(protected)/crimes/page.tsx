@@ -37,27 +37,25 @@ import { CrimeBarChart } from "@/components/crimes/CrimeBarChart";
 import { CrimeHistoricalChart, CrimeHistoricalPoint } from "@/components/crimes/CrimeHistoricalChart";
 import { UnmappedCrimes } from "@/components/crimes/UnmappedCrimes";
 import { RecentCrimesTable, RecentCrimeLog } from "@/components/crimes/RecentCrimesTable";
-import { ModuleGuard } from "@/components/module-guard";
-import { useSettings } from "@/components/settings-provider";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-
-interface CrimeROI {
-  crime_name: string;
-  total_value: number;
-  nerve_spent: number;
-  profit_per_nerve: number;
-}
+import {
+  CrimesRoiResponse,
+  CrimesRecentResponse,
+  CrimesUnmappedResponse,
+  CrimesAllResponse,
+  CrimesHistoricalResponse,
+  CrimeRoiItem,
+} from "@sentinel/shared";
 
 
 export default function CrimesDashboard() {
-  const [data, setData] = useState<CrimeROI[]>([]);
+  const [data, setData] = useState<CrimeRoiItem[]>([]);
   const [recentLogs, setRecentLogs] = useState<RecentCrimeLog[]>([]);
   const [unmapped, setUnmapped] = useState<string[]>([]);
   const [allCrimes, setAllCrimes] = useState<{ id: number; name: string }[]>([]);
   const [historicalData, setHistoricalData] = useState<CrimeHistoricalPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
-  const [moduleDisabled, setModuleDisabled] = useState(false);
   const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d" | "all">("30d");
 
   const [sorting, setSorting] = useState<SortingState>([{ id: "profit_per_nerve", desc: true }]);
@@ -70,41 +68,36 @@ export default function CrimesDashboard() {
     try {
       const res = await fetch("/api/crimes");
       if (!res.ok) throw new Error("Failed to fetch crime ROI");
-      const json = await res.json();
+      const json: CrimesRoiResponse = await res.json();
 
-      if (json.module_disabled) {
-        setModuleDisabled(true);
-        setIsPolling(false);
-      } else if (json.initializing) {
-        setModuleDisabled(false);
+      if (json.initializing) {
         setIsPolling(true);
       } else {
-        setModuleDisabled(false);
         setIsPolling(false);
         setData(json.data || []);
 
         // Fetch recent logs once we have data
         const recentRes = await fetch("/api/crimes/recent");
         if (recentRes.ok) {
-          const recentJson = await recentRes.json();
+          const recentJson: CrimesRecentResponse = await recentRes.json();
           setRecentLogs(recentJson.data || []);
         }
 
         const unmappedRes = await fetch("/api/crimes/unmapped");
         if (unmappedRes.ok) {
-          const uJson = await unmappedRes.json();
+          const uJson: CrimesUnmappedResponse = await unmappedRes.json();
           setUnmapped(uJson.data || []);
         }
 
         const allRes = await fetch("/api/crimes/all");
         if (allRes.ok) {
-          const aJson = await allRes.json();
+          const aJson: CrimesAllResponse = await allRes.json();
           setAllCrimes(aJson.data || []);
         }
 
         const histRes = await fetch("/api/crimes/historical");
         if (histRes.ok) {
-          const hJson = await histRes.json();
+          const hJson: CrimesHistoricalResponse = await histRes.json();
           setHistoricalData(hJson.data || []);
         }
 
@@ -215,7 +208,7 @@ export default function CrimesDashboard() {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const { settings, setSettings } = useSettings();
+
 
   if (showLoader || isPolling) {
     return (
@@ -225,157 +218,122 @@ export default function CrimesDashboard() {
     );
   }
 
-  const handleInitialize = async () => {
-    try {
-      // Wait for the settings to be persisted before polling
-      await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ crimes_module_enabled: true })
-      });
-      setSettings({ ...settings, crimes_module_enabled: true });
-      fetchCrimes();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   return (
     <DashboardLayout>
-      <ModuleGuard>
-        {moduleDisabled ? (
-          <div className="flex-1 flex flex-col items-center justify-center h-[80vh] text-center p-8">
-            <Target size={32} className="text-foreground mb-6" />
-            <div className="text-foreground font-mono tracking-widest text-sm mb-4 uppercase">
-              [ CRIMES_MODULE_OFFLINE ]
+      <div className="max-w-7xl p-2 md:p-8 mx-auto flex flex-col gap-6 pt-15">
+          <header className="mb-2 border-b border-border pb-4 flex items-start justify-between">
+            <div>
+              <h1 className="text-xl font-mono text-foreground flex items-center gap-3 uppercase tracking-[0.2em]">
+                <Target size={20} className="text-foreground" /> CRIME_LEDGER
+              </h1>
+              <p className="text-muted-foreground font-mono text-[10px] mt-2 uppercase tracking-[0.2em]">
+                True Return on Investment for crimes, factoring in failure rates and critical fails.
+              </p>
             </div>
-            <div className="text-muted-foreground font-mono text-[10px] uppercase tracking-widest max-w-md leading-relaxed mb-8">
-              This module is currently disabled. Initializing this module will allow Sentinel to track and analyze your crime ledger.
-            </div>
-            <button
-              onClick={handleInitialize}
-              className="px-6 py-3 bg-foreground text-background font-mono text-[10px] uppercase tracking-[0.2em] hover:opacity-90 transition-colors"
-            >
-              INITIALIZE_MODULE
-            </button>
-          </div>
-        ) : (
-          <div className="max-w-7xl p-2 md:p-8 mx-auto flex flex-col gap-6 pt-15">
-            <header className="mb-2 border-b border-border pb-4 flex items-start justify-between">
-              <div>
-                <h1 className="text-xl font-mono text-foreground flex items-center gap-3 uppercase tracking-[0.2em]">
-                  <Target size={20} className="text-foreground" /> CRIME_LEDGER
-                </h1>
-                <p className="text-muted-foreground font-mono text-[10px] mt-2 uppercase tracking-[0.2em]">
-                  True Return on Investment for crimes, factoring in failure rates and critical fails.
-                </p>
+            <Dialog>
+              <DialogTrigger className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-destructive hover:border-destructive/50 transition-colors">
+                Reset Ledger
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Reset Crime Ledger?</DialogTitle>
+                  <DialogDescription>
+                    This action will permanently delete all tracked crime history and ROI data. This cannot be undone. Are you sure you want to proceed?
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="destructive" onClick={async () => {
+                    await fetch("/api/crimes/reset-ledger", { method: "POST" });
+                    fetchCrimes();
+                  }}>
+                    Yes, reset ledger
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </header>
+
+          <UnmappedCrimes
+            unmappedActions={unmapped}
+            allCrimes={allCrimes}
+            onMapped={fetchCrimes}
+          />
+
+          {data.length > 0 && (
+            <>
+              <CrimeKPICards data={data} />
+              <CrimeBarChart data={data} />
+              <div className="mb-8">
+                <Card className="rounded-none border-border bg-card">
+                  <CardHeader className="flex flex-row items-center justify-between border-b border-border mb-6 p-4">
+                    <CardTitle className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-foreground">
+                      <Activity className="w-4 h-4" />
+                      <span>Historical Profit</span>
+                    </CardTitle>
+                    <div className="flex bg-muted rounded-none p-1">
+                      {["7d", "30d", "90d", "all"].map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setTimeframe(t as "7d" | "30d" | "90d" | "all")}
+                          className={`px-3 py-1 text-[10px] font-mono tracking-widest uppercase transition-colors ${timeframe === t ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <CrimeHistoricalChart data={filteredHistorical} />
+                  </CardContent>
+                </Card>
               </div>
-              <Dialog>
-                <DialogTrigger className="px-4 py-2 border border-border text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-destructive hover:border-destructive/50 transition-colors">
-                  Reset Ledger
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Reset Crime Ledger?</DialogTitle>
-                    <DialogDescription>
-                      This action will permanently delete all tracked crime history and ROI data. This cannot be undone. Are you sure you want to proceed?
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter>
-                    <Button variant="destructive" onClick={async () => {
-                      await fetch("/api/crimes/reset-ledger", { method: "POST" });
-                      fetchCrimes();
-                    }}>
-                      Yes, reset ledger
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </header>
+            </>
+          )}
 
-            <UnmappedCrimes
-              unmappedActions={unmapped}
-              allCrimes={allCrimes}
-              onMapped={fetchCrimes}
-            />
-
-            {data.length > 0 && (
-              <>
-                <CrimeKPICards data={data} />
-                <CrimeBarChart data={data} />
-                <div className="mb-8">
-                  <Card className="rounded-none border-border bg-card">
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-border mb-6 p-4">
-                      <CardTitle className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-foreground">
-                        <Activity className="w-4 h-4" />
-                        <span>Historical Profit</span>
-                      </CardTitle>
-                      <div className="flex bg-muted rounded-none p-1">
-                        {["7d", "30d", "90d", "all"].map((t) => (
-                          <button
-                            key={t}
-                            onClick={() => setTimeframe(t as "7d" | "30d" | "90d" | "all")}
-                            className={`px-3 py-1 text-[10px] font-mono tracking-widest uppercase transition-colors ${timeframe === t ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-4">
-                      <CrimeHistoricalChart data={filteredHistorical} />
-                    </CardContent>
-                  </Card>
+          <div className="border border-border bg-card p-6">
+            <div className="flex items-center gap-2 font-mono text-foreground text-[10px] uppercase tracking-[0.2em] mb-6">
+              <Activity size={16} /> ROI_ANALYSIS
+            </div>
+            <div>
+              {data.length === 0 ? (
+                <div className="flex justify-center p-8 text-muted-foreground font-mono text-[10px] uppercase tracking-widest">No crime data available yet.</div>
+              ) : (
+                <div className="border border-border">
+                  <Table>
+                    <TableHeader>
+                      {table.getHeaderGroups().map((headerGroup) => (
+                        <TableRow key={headerGroup.id} className="border-border hover:bg-transparent">
+                          {headerGroup.headers.map((header) => (
+                            <TableHead
+                              key={header.id}
+                              onClick={header.column.getToggleSortingHandler()}
+                              className={header.column.getCanSort() ? "cursor-pointer select-none h-10 px-4" : "h-10 px-4"}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableHeader>
+                    <TableBody>
+                      {table.getRowModel().rows.map((row) => (
+                        <TableRow key={row.id} className="border-border hover:bg-accent/50">
+                          {row.getVisibleCells().map((cell) => (
+                            <TableCell key={cell.id} className="px-4 py-3">
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
-              </>
-            )}
-
-            <div className="border border-border bg-card p-6">
-              <div className="flex items-center gap-2 font-mono text-foreground text-[10px] uppercase tracking-[0.2em] mb-6">
-                <Activity size={16} /> ROI_ANALYSIS
-              </div>
-              <div>
-                {data.length === 0 ? (
-                  <div className="flex justify-center p-8 text-muted-foreground font-mono text-[10px] uppercase tracking-widest">No crime data available yet.</div>
-                ) : (
-                  <div className="border border-border">
-                    <Table>
-                      <TableHeader>
-                        {table.getHeaderGroups().map((headerGroup) => (
-                          <TableRow key={headerGroup.id} className="border-border hover:bg-transparent">
-                            {headerGroup.headers.map((header) => (
-                              <TableHead
-                                key={header.id}
-                                onClick={header.column.getToggleSortingHandler()}
-                                className={header.column.getCanSort() ? "cursor-pointer select-none h-10 px-4" : "h-10 px-4"}
-                              >
-                                {flexRender(header.column.columnDef.header, header.getContext())}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableHeader>
-                      <TableBody>
-                        {table.getRowModel().rows.map((row) => (
-                          <TableRow key={row.id} className="border-border hover:bg-accent/50">
-                            {row.getVisibleCells().map((cell) => (
-                              <TableCell key={cell.id} className="px-4 py-3">
-                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-
-            <RecentCrimesTable data={recentLogs} />
           </div>
-        )}
-      </ModuleGuard>
+
+          <RecentCrimesTable data={recentLogs} />
+        </div>
     </DashboardLayout>
   );
 }

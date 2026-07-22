@@ -8,20 +8,18 @@ import {
   StockLedger,
   TornItems,
   TornProperties,
+  StocksHistoryResponse,
+  StocksStateResponse,
+  LogBackfillProgressPayload,
 } from "@sentinel/shared";
 
 export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/history", async (request, reply) => {
-    const config = UserConfig.findOne("global");
-    if (!config?.stocks_module_enabled) {
-      return reply.send({ module_disabled: true });
-    }
-
     const initState = SystemState.findOne("stock_ledger_init_state") as
       | { init: boolean }
       | undefined;
-    const progress = SystemState.findOne("stock_ledger_backfill_progress") as
-      | Extract<SystemStateDocument, { id: "stock_ledger_backfill_progress" }>
+    const progress = SystemState.findOne("log_manager_backfill_progress") as
+      | Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>
       | undefined;
 
     const isInitializing = !initState || !initState.init;
@@ -35,7 +33,6 @@ export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return reply.send({
-      module_disabled: false,
       initializing: isInitializing,
       initTimestamp,
       data,
@@ -43,16 +40,11 @@ export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.get("/state", async (request, reply) => {
-    const config = UserConfig.findOne("global");
-    if (!config?.stocks_module_enabled) {
-      return reply.send({ module_disabled: true });
-    }
-
     const tornStocks = TornStocks.findAll();
     const allItems = TornItems.findAll();
     const allProperties = TornProperties.findAll();
 
-    const enhancedTornStocks = tornStocks.map(s => {
+    const enhancedTornStocks = tornStocks.map((s) => {
       // deep clone so we don't mutate the db cache object
       const stock = JSON.parse(JSON.stringify(s));
       let apr = 0;
@@ -71,12 +63,15 @@ export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
           dividendValue = parseInt(cashMatch[1].replace(/,/g, ""), 10);
         } else if (pointMatch) {
           dividendType = "Points";
-          const pointItem = allItems.find(i => i.data.name === "Point");
+          const pointItem = allItems.find((i) => i.data.name === "Point");
           const qty = parseInt(pointMatch[1], 10);
-          dividendValue = qty * ((pointItem?.data as any)?.value?.market_price || 45000);
+          dividendValue =
+            qty * ((pointItem?.data as any)?.value?.market_price || 45000);
         } else if (randomPropertyMatch) {
           dividendType = "Property";
-          const targetProps = allProperties.filter(p => Number(p.id) >= 1 && Number(p.id) <= 13);
+          const targetProps = allProperties.filter(
+            (p) => Number(p.id) >= 1 && Number(p.id) <= 13,
+          );
           if (targetProps.length > 0) {
             const sum = targetProps.reduce((acc, p) => acc + p.data.cost, 0);
             dividendValue = sum / targetProps.length;
@@ -86,19 +81,30 @@ export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
         } else if (itemMatch) {
           const qty = parseInt(itemMatch[1], 10);
           const itemName = itemMatch[2].trim();
-          const item = allItems.find(i => i.data.name.toLowerCase() === itemName.toLowerCase());
-          
+          const item = allItems.find(
+            (i) => i.data.name.toLowerCase() === itemName.toLowerCase(),
+          );
+
           if (item) {
             dividendType = "Item";
             dividendValue = qty * ((item.data as any).value?.market_price || 0);
-          } else if (itemName.includes("energy") || itemName.includes("happiness") || itemName.includes("nerve")) {
+          } else if (
+            itemName.includes("energy") ||
+            itemName.includes("happiness") ||
+            itemName.includes("nerve")
+          ) {
             dividendType = "Resource";
           } else {
             dividendType = "Item";
           }
         }
 
-        if (dividendValue > 0 && stock.bonus.frequency > 0 && stock.bonus.requirement > 0 && stock.market?.price > 0) {
+        if (
+          dividendValue > 0 &&
+          stock.bonus.frequency > 0 &&
+          stock.bonus.requirement > 0 &&
+          stock.market?.price > 0
+        ) {
           const annualValue = (365 / stock.bonus.frequency) * dividendValue;
           const blockCost = stock.bonus.requirement * stock.market.price;
           apr = (annualValue / blockCost) * 100;
@@ -114,22 +120,20 @@ export const stocksRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     const userStocks = UserStocks.findAll();
-    const progress = SystemState.findOne("stock_ledger_backfill_progress");
 
-    return reply.send({
-      module_disabled: false,
+    const response: StocksStateResponse = {
       data: {
         torn_stocks: enhancedTornStocks,
         user_stocks: userStocks,
-        backfill_progress: progress,
       },
-    });
+    };
+
+    return reply.send(response);
   });
 
   fastify.post("/reset-ledger", async (request, reply) => {
     try {
       SystemState.delete("stock_ledger_init_state");
-      SystemState.delete("stock_ledger_backfill_progress");
       StockLedger.deleteManyBy({});
       return reply.send({ success: true });
     } catch (error) {

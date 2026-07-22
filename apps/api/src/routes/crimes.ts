@@ -9,6 +9,7 @@ import {
   TornCrimes,
   CrimeLogDocument,
   CrimeActionMappingDocument,
+  CrimesRoiResponse,
 } from "@sentinel/shared";
 
 type InitState = Extract<
@@ -158,17 +159,15 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send({ data: results });
     } catch (error: any) {
       fastify.log.error(error);
-      return reply.status(500).send({ error: "Failed to fetch historical crime data" });
+      return reply
+        .status(500)
+        .send({ error: "Failed to fetch historical crime data" });
     }
   });
 
   fastify.get("/", async (request, reply) => {
     try {
       const config = UserConfig.findOne("global");
-
-      if (!config?.crimes_module_enabled) {
-        return reply.send({ data: [], module_disabled: true });
-      }
 
       const initState = SystemState.findOne<InitState>(
         "crimes_ledger_init_state",
@@ -224,7 +223,8 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
       // Sort by highest profit per nerve
       results.sort((a, b) => b.profit_per_nerve - a.profit_per_nerve);
 
-      return reply.send({ data: results });
+      const response: CrimesRoiResponse = { data: results };
+      return reply.send(response);
     } catch (error: any) {
       fastify.log.error(error);
       return reply.status(500).send({ error: "Failed to fetch crime ROI" });

@@ -12,6 +12,7 @@ import {
   TornPropertyDocument,
   TornStockDocument,
   SystemState,
+  TornGyms,
 } from "@sentinel/shared";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 
@@ -38,24 +39,32 @@ export async function runTornReferenceSync() {
         TornSchema<"TornCrimesResponse"> &
         TornSchema<"TornStocksResponse"> &
         TornSchema<"TornProperties"> & {
-          pointsmarket?: Record<string, { cost: number; quantity: number }>;
+          gyms: Record<
+            string,
+            {
+              name: string;
+              stage: number;
+              cost: number;
+              energy: number;
+              strength: number;
+              speed: number;
+              defense: number;
+              dexterity: number;
+              note: string;
+            }
+          >;
         }
     >("/torn", {
       apiKey,
-      queryParams: { selections: "items,crimes,stocks,properties" },
+      queryParams: { selections: "items,crimes,stocks,properties,gyms" },
     });
 
-    const marketRes = await tornApi
-      .get<{
-        pointsmarket: Record<string, { cost: number; quantity: number }>;
-      }>("/market", {
-        apiKey,
-        queryParams: { selections: "pointsmarket" },
-      })
-      .catch((e) => {
-        logger.warn("Failed to fetch pointsmarket", e);
-        throw e;
-      });
+    const marketRes = await tornApi.get<{
+      pointsmarket: Record<string, { cost: number; quantity: number }>;
+    }>("/market", {
+      apiKey,
+      queryParams: { selections: "pointsmarket" },
+    });
 
     if (marketRes.pointsmarket) {
       let totalCost = 0;
@@ -71,7 +80,7 @@ export async function runTornReferenceSync() {
           id: "points_price",
           price: avgPrice,
           last_updated: Date.now(),
-        } as any);
+        });
       }
     }
 
@@ -113,7 +122,6 @@ export async function runTornReferenceSync() {
           bonus: stock.bonus,
         });
       }
-      // @ts-ignore
       TornStocks.insertMany(stocksToInsert);
       logger.info(`Synced ${stocksToInsert.length} Torn Stocks`);
     }
@@ -127,9 +135,31 @@ export async function runTornReferenceSync() {
           data: property,
         });
       }
-      // @ts-ignore
       TornProperties.insertMany(propertiesToInsert);
       logger.info(`Synced ${propertiesToInsert.length} Torn Properties`);
+    }
+
+    if (res.gyms) {
+      TornGyms.deleteManyBy({});
+      const gymsToInsert = [];
+      for (const [id, gym] of Object.entries(res.gyms)) {
+        gymsToInsert.push({
+          id,
+          name: gym.name,
+          stage: gym.stage,
+          cost: gym.cost,
+          energy: gym.energy,
+          strength: gym.strength,
+          speed: gym.speed,
+          defense: gym.defense,
+          dexterity: gym.dexterity,
+          note: gym.note,
+        });
+      }
+      if (gymsToInsert.length > 0) {
+        TornGyms.insertMany(gymsToInsert);
+        logger.info(`Synced ${gymsToInsert.length} Torn Gyms`);
+      }
     }
 
     finishSync();
@@ -137,7 +167,6 @@ export async function runTornReferenceSync() {
     return getNext0015UTC();
   } catch (error) {
     logger.error("Failed to execute Torn reference sync", error);
-    // On error, try again in 1 hour
     return Date.now() + 60 * 60 * 1000;
   }
 }

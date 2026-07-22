@@ -51,21 +51,15 @@ const logger = new Logger("worker_root");
  * * @returns {Promise<void>} Resolves when all scheduled runners are actively ticking.
  */
 async function startAllWorkers(): Promise<void> {
-  logger.info("Starting Sentinel workers");
+  logger.warn("Starting workers");
 
   try {
-    // 5. Start incoming UDS IPC Server
-    setupIpcServer();
+    await setupIpcServer();
 
     startMetricsReporter("worker");
     logger.info("Worker process initialized and running.");
     await initializeApiKeyMappings();
     initializeRateLimitCache();
-
-    logger.info("Initializing in-memory settings cache...");
-    const { settingsCache } = await import("./lib/settings-cache.js");
-    await settingsCache.hydrate();
-    settingsCache.startWatching();
 
     const startedCount = startWorkers();
     logger.info(`Started ${startedCount} worker runners`);
@@ -94,7 +88,7 @@ const handleShutdown = (signal: string) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  logger.info(`📛 Received ${signal}. Executing graceful shutdown...`);
+  logger.warn(`📛 Received ${signal}. Executing graceful shutdown...`);
 
   try {
     stopMetricsReporter("worker");

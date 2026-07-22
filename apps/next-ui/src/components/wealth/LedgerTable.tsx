@@ -21,11 +21,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { TransactionItem } from "@/hooks/use-wealth-ledger";
+import { WealthTransactionItem } from "@sentinel/shared";
 import { ArrowUpDown, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export const columns: ColumnDef<TransactionItem>[] = [
+export const columns: ColumnDef<WealthTransactionItem>[] = [
   {
     accessorKey: "timestamp",
     header: ({ column }) => {
@@ -154,7 +154,7 @@ export const columns: ColumnDef<TransactionItem>[] = [
   },
 ];
 
-export function LedgerTable({ data }: { data: TransactionItem[] }) {
+export function LedgerTable({ data }: { data: WealthTransactionItem[] }) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "timestamp", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);

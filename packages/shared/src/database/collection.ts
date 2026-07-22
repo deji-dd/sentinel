@@ -57,14 +57,46 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
     if (!this.indexedFields || this.indexedFields.length === 0) return;
 
     const columns = this.db.pragma(`table_info(${this.tableName})`) as any[];
-    const existingColumns = new Set(columns.map((c) => c.name));
+    const columnTypeMap = new Map<string, string>(
+      columns.map((c) => [c.name, (c.type || "").toUpperCase()]),
+    );
 
     for (const field of this.indexedFields) {
-      if (!existingColumns.has(field.key)) {
+      const safeSuffix = field.key
+        .replace(/[^a-zA-Z0-9]/g, "_")
+        .replace(/^_+/, "");
+      const indexName = `idx_${this.tableName}_${safeSuffix}`;
+      const expectedType = field.type.toUpperCase();
+      const existingType = columnTypeMap.get(field.key);
+
+      if (existingType && existingType !== expectedType) {
+        console.warn(
+          `\n================================================================================\n` +
+            `[SentinelDB Warning] Schema type mismatch for virtual column "${field.key}" in table "${this.tableName}".\n` +
+            `  Expected type in TS schema: ${expectedType}\n` +
+            `  Existing type in SQLite DB: ${existingType}\n` +
+            `Attempting to rebuild virtual column and index...\n` +
+            `================================================================================\n`,
+        );
+
+        try {
+          this.db.exec(`DROP INDEX IF EXISTS "${indexName}"`);
+          this.db.exec(
+            `ALTER TABLE ${this.tableName} DROP COLUMN "${field.key}"`,
+          );
+          columnTypeMap.delete(field.key);
+        } catch (dropErr: any) {
+          console.warn(
+            `[SentinelDB] Failed to drop outdated virtual column "${field.key}": ${dropErr.message}`,
+          );
+        }
+      }
+
+      if (!columnTypeMap.has(field.key)) {
         try {
           this.db.exec(`
             ALTER TABLE ${this.tableName} 
-            ADD COLUMN ${field.key} ${field.type} GENERATED ALWAYS AS (data ->> '$.${field.key}') VIRTUAL
+            ADD COLUMN "${field.key}" ${field.type} GENERATED ALWAYS AS (data ->> '$.${field.key}') VIRTUAL
           `);
         } catch (err: any) {
           // Ignore duplicate column errors caused by multiprocess startup race conditions
@@ -74,14 +106,9 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
         }
       }
 
-      const safeSuffix = field.key
-        .replace(/[^a-zA-Z0-9]/g, "_")
-        .replace(/^_+/, "");
-      const indexName = `idx_${this.tableName}_${safeSuffix}`;
-
       this.db.exec(`
-        CREATE INDEX IF NOT EXISTS ${indexName} 
-        ON ${this.tableName} (${field.key})
+        CREATE INDEX IF NOT EXISTS "${indexName}" 
+        ON ${this.tableName} ("${field.key}")
       `);
     }
   }
@@ -103,6 +130,9 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
   private getCachedStatement(query: string) {
     let stmt = this.dynamicStmtCache.get(query);
     if (!stmt) {
+      if (this.dynamicStmtCache.size >= 500) {
+        this.dynamicStmtCache.clear();
+      }
       stmt = this.db.prepare(query);
       this.dynamicStmtCache.set(query, stmt);
     }
@@ -307,13 +337,28 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
    * * @param predicate Callback to evaluate each document.
    * @returns The matching document, or null if not found.
    */
-  public findFirst(predicate: (doc: T) => boolean): T | null {
-    for (const row of this.stmtFindAll.iterate()) {
-      const doc = JSON.parse((row as any).data) as T;
-      if (predicate(doc)) {
-        return doc; // Short-circuit, don't parse the rest of the table
-      }
+  public findFirst<U extends T = T>(filter: Partial<U>): U | null {
+    const keys = Object.keys(filter);
+
+    if (keys.length === 0) {
+      const row = this.db
+        .prepare(`SELECT data FROM ${this.tableName} LIMIT 1`)
+        .get() as { data: string };
+      return row ? JSON.parse(row.data) : null;
     }
-    return null;
+
+    const whereClauses = keys
+      .map((key) => `json_extract(data, '$.${key}') = ?`)
+      .join(" AND ");
+    const values = keys.map((key) => {
+      const val = filter[key as keyof U];
+      return typeof val === "boolean" ? (val ? 1 : 0) : val;
+    });
+
+    const query = `SELECT data FROM ${this.tableName} WHERE ${whereClauses} LIMIT 1`;
+    const stmt = this.getCachedStatement(query);
+    const row = stmt.get(...values) as { data: string } | undefined;
+
+    return row ? JSON.parse(row.data) : null;
   }
 }

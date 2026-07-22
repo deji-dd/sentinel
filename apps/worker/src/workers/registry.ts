@@ -1,7 +1,6 @@
 import * as privateWorkers from "./private/index.js";
 import * as publicWorkers from "./public/index.js";
 import * as systemWorkers from "./system/index.js";
-// import * as botWorkers from "./bot/index.js";
 
 type Starter = () => void;
 
@@ -12,6 +11,8 @@ const PRIVATE_WORKERS: Starter[] = [
   privateWorkers.startStocksModule,
   privateWorkers.startDailySync,
   privateWorkers.startLiveStateSync,
+  privateWorkers.registerCompanyAlarmClock,
+  privateWorkers.startWealthModule,
 ];
 
 const PUBLIC_WORKERS: Starter[] = [
@@ -20,11 +21,6 @@ const PUBLIC_WORKERS: Starter[] = [
   publicWorkers.startFactionSync,
   publicWorkers.startTornReferenceSync,
   publicWorkers.startTravelSync,
-];
-
-const BOT_WORKERS: Starter[] = [
-  // botWorkers.startBazaarSeeder,
-  // botWorkers.startBazaarManager,
 ];
 
 const SYSTEM_WORKERS: Starter[] = [systemWorkers.startSystemMaintenance];
@@ -43,11 +39,6 @@ export function startWorkers(): number {
   }
 
   for (const start of PUBLIC_WORKERS) {
-    start();
-    started += 1;
-  }
-
-  for (const start of BOT_WORKERS) {
     start();
     started += 1;
   }

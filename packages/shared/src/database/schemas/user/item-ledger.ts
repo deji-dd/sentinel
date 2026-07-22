@@ -6,7 +6,8 @@ export type AssetCategory =
   | "point"
   | "equity"
   | "property"
-  | "company";
+  | "company"
+  | "stock";
 export type AssetLocation =
   | "inventory"
   | "bazaar"
@@ -47,6 +48,7 @@ export type LedgerEventDocument = BaseDocument & {
   // id: log_id or custom ID for initialization
   log_id: string; // Associated Torn log ID, if applicable
   timestamp: number;
+  log_type?: number;
   type: LedgerEventType;
   category_id: number; // The context.xml category (1-9)
   transaction_name: string; // e.g. "Asset Purchase", "Fiat Generation"
@@ -54,6 +56,7 @@ export type LedgerEventDocument = BaseDocument & {
   assets_affected:
     | {
         asset_id: string | number;
+        uid?: string | number;
         quantity_change: number; // Negative for loss/sale, positive for gain/purchase
         cost_basis_impact: number; // How much the cost basis changed for this specific movement
       }[]

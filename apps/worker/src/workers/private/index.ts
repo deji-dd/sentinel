@@ -5,3 +5,5 @@ export * from "./gym.js";
 export * from "./stocks.js";
 export * from "./live-state-sync.js";
 export * from "./wealth.js";
+export * from "./company.js";
+export * from "./travel.js";
