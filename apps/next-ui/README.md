@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# next-ui
 
-## Getting Started
+The Sentinel personal dashboard is a Next.js web application for browsing synced Torn City data — crimes, gym stats, stocks, travel logs, wealth history, and more. It is the owner-facing analytics interface that reads from the Sentinel API.
 
-First, run the development server:
+Deployed to **Cloudflare Pages** via OpenNext (`wrangler.jsonc`). Runs on port `3000` in development.
+
+## What's Inside
+
+| Route | Description |
+|-------|-------------|
+| `/` | Dashboard home (protected) |
+| `/crimes` | Crime log and analysis |
+| `/gym` | Gym training history |
+| `/stocks` | Stock portfolio and market data |
+| `/travel` | Travel log and abroad tracking |
+| `/wealth` | Wealth and financial history |
+| `/settings` | Personal settings |
+| `/onboarding` | First-time setup flow |
+| `/error-offline` | Offline / API unreachable error page |
+
+All routes under `/` are auth-protected via middleware.
+
+## Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **UI**: Shadcn UI, Base UI, Tailwind CSS v4, Framer Motion
+- **Charts**: Recharts
+- **Tables**: TanStack Table
+- **Forms**: React Hook Form + Zod
+- **Notifications**: Web Push (`web-push`)
+- **Data**: Fetched from `apps/api` (Fastify, port `3001`)
+- **Deploy**: Cloudflare Pages via OpenNext
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# From the monorepo root
+pnpm ui:dev                  # Starts on http://localhost:3000
+
+# Or from this directory
+pnpm dev --turbo
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ensure `apps/api` is running locally before starting the dashboard.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build & Deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# Build for production (Next.js only)
+pnpm ui:build
 
-## Learn More
+# Preview on Cloudflare locally
+pnpm preview
 
-To learn more about Next.js, take a look at the following resources:
+# Deploy to Cloudflare Pages
+pnpm deploy
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Configuration lives in `wrangler.jsonc` and `open-next.config.ts`. Environment variables are set in `.env.local` (dev) and `.env.production` (prod).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment Variables
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | Base URL for the Sentinel Fastify API |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web Push VAPID public key |
+| `VAPID_PRIVATE_KEY` | Web Push VAPID private key |

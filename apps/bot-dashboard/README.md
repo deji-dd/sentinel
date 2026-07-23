@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# bot-dashboard
 
-## Getting Started
+The Sentinel bot dashboard is a Next.js web application for managing Discord guild configurations, browsing territory maps, and performing guild-level administrative tasks. It is the operator-facing control panel for the Sentinel Discord bot.
 
-First, run the development server:
+Deployed to **Cloudflare Pages** via OpenNext (`wrangler.jsonc`). Runs on port `3002` in development.
+
+## What's Inside
+
+| Route | Description |
+|-------|-------------|
+| `/` | Root redirect / home |
+| `/login` | Discord OAuth login |
+| `/guilds` | Guild list and management |
+| `/tt-selector` | Territory selector / map view (Leaflet) |
+
+Authentication is handled by **NextAuth v5** (Discord OAuth provider).
+
+## Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **Auth**: NextAuth v5 (Discord OAuth)
+- **UI**: Shadcn UI, Base UI, Tailwind CSS v4
+- **Map**: Leaflet
+- **Data**: Fetched from `apps/api` (Fastify, port `3001`)
+- **Deploy**: Cloudflare Pages via OpenNext
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# From the monorepo root
+pnpm dashboard:dev           # Starts on http://localhost:3002
+
+# Or from this directory
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ensure `apps/api` is running locally before starting the dashboard — it is the data source for all routes.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build & Deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# Build for production
+pnpm dashboard:build
 
-## Learn More
+# Deploy to Cloudflare Pages (from this directory)
+pnpm wrangler pages deploy .next
+```
 
-To learn more about Next.js, take a look at the following resources:
+Configuration lives in `wrangler.jsonc`. Environment variables are set in `.env.local` (dev) and `.env.production` (prod).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Environment Variables
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Variable | Description |
+|----------|-------------|
+| `NEXTAUTH_URL` | Public base URL for the app |
+| `NEXTAUTH_SECRET` | NextAuth secret key |
+| `DISCORD_CLIENT_ID` | Discord OAuth app client ID |
+| `DISCORD_CLIENT_SECRET` | Discord OAuth app client secret |
+| `NEXT_PUBLIC_API_URL` | Base URL for the Sentinel Fastify API |
