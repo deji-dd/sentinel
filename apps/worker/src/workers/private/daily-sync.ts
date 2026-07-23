@@ -106,7 +106,7 @@ export async function runDailySync() {
 }
 
 export async function syncGymUnlocks(apiKey: string) {
-  let logs = PersonalLogs.findAll((l) => l.details?.id === 5320);
+  let logs = PersonalLogs.findIn("details.id", [5320]);
   const existingGymState = UserState.findOne("gym_unlocks");
 
   // Guard: Only hit the API if we have no local logs AND we haven't built the state yet
@@ -174,10 +174,13 @@ export async function syncGymUnlocks(apiKey: string) {
   }
 }
 
-export function startDailySync() {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startDailySync(options?: WorkerStartOptions) {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     handler: runDailySync,
     defaultCadenceSeconds: CADENCE_SEC,
+    initialDelayMs: options?.initialDelayMs,
   });
 }

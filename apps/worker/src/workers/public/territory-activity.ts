@@ -287,7 +287,9 @@ async function executeActivityEngine(): Promise<void> {
  * Initializes the territory activity engine, calculating the maximum safe cadence
  * based on the number of system keys and attaching it to the event-driven loop.
  */
-export function startTerritoryActivitySync(): void {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startTerritoryActivitySync(options?: WorkerStartOptions): void {
   // 1 Rackets + 1 Warfare + 9 Ownership = 11 Requests per loop
   const totalRequestsPerLoop = 11;
   const availableKeys = getSystemKeyPool().length;
@@ -322,6 +324,7 @@ export function startTerritoryActivitySync(): void {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     defaultCadenceSeconds: calculatedCadence,
+    initialDelayMs: options?.initialDelayMs,
     handler: async () =>
       await executeSync({
         name: WORKER_NAME,

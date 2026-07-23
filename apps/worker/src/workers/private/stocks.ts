@@ -13,6 +13,8 @@ import {
   PersonalLogs,
 } from "@sentinel/shared";
 import { workerEvents } from "../../lib/event-bus.js";
+import { runSequentialInit } from "../../lib/init-queue.js";
+import type { WorkerStartOptions } from "../registry.js";
 
 const logger = new Logger("stocks_module");
 
@@ -176,14 +178,12 @@ async function runStockLedgerInit() {
       return;
     }
 
-    // 4. Query the local DB and filter by gain IDs and the global oldest timestamp
-    const allLogs = PersonalLogs.findAll();
-    const stockLogs = allLogs
-      .filter(
-        (log) =>
-          STOCK_GAIN_LOG_IDS.includes(log.details.id) &&
-          log.timestamp >= globalOldestTimestamp,
-      )
+    // 4. Query the local DB via indexed findIn, filter by gain IDs and the global oldest timestamp
+    const stockLogs = PersonalLogs.findIn(
+      "details.id",
+      STOCK_GAIN_LOG_IDS,
+    )
+      .filter((log) => log.timestamp >= globalOldestTimestamp)
       .sort((a, b) => a.timestamp - b.timestamp);
 
     logger.info(
@@ -227,11 +227,11 @@ function checkAndInit() {
 
   const initState = SystemState.findOne("stock_ledger_v2_init");
   if (!initState) {
-    runStockLedgerInit();
+    runSequentialInit("stocks_init", runStockLedgerInit);
   }
 }
 
-export function startStocksModule(): void {
+export function startStocksModule(_options?: WorkerStartOptions): void {
   checkAndInit();
 
   workerEvents.on("log_backfill_completed", () => {

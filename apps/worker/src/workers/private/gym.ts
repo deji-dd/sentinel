@@ -14,6 +14,8 @@ import {
   UserStateDocument, // <-- Added for DB querying
 } from "@sentinel/shared";
 import { workerEvents } from "../../lib/event-bus.js";
+import { runSequentialInit } from "../../lib/init-queue.js";
+import type { WorkerStartOptions } from "../registry.js";
 
 const logger = new Logger("gym_module");
 
@@ -137,11 +139,11 @@ async function runGymLedgerInit() {
       );
     }
 
-    // 3. Query the local DB, filter for gym IDs, and sort chronologically
-    const allLogs = PersonalLogs.findAll();
-    const gymLogs = allLogs
-      .filter((log) => STAT_GAIN_LOG_IDS.includes(log.details.id))
-      .sort((a, b) => a.timestamp - b.timestamp);
+    // 3. Query the local DB via indexed findIn, filter for gym IDs, and sort chronologically
+    const gymLogs = PersonalLogs.findIn(
+      "details.id",
+      STAT_GAIN_LOG_IDS,
+    ).sort((a, b) => a.timestamp - b.timestamp);
 
     logger.warn(`Found ${gymLogs.length} historical gym logs. Parsing...`);
 
@@ -184,11 +186,11 @@ function checkAndInit() {
 
   const initState = SystemState.findOne("gym_ledger_v2_init");
   if (!initState) {
-    runGymLedgerInit();
+    runSequentialInit("gym_init", runGymLedgerInit);
   }
 }
 
-export function startGymModule(): void {
+export function startGymModule(_options?: WorkerStartOptions): void {
   checkAndInit();
 
   workerEvents.on("log_backfill_completed", () => {

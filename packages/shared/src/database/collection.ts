@@ -226,6 +226,34 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
   }
 
   /**
+   * Searches the collection for documents where a JSON property matches any value in an array.
+   * Leverages virtual column indexes if available.
+   * * @param jsonPath The JSON property path or key (e.g. 'details.id')
+   * @param values Array of matching scalar values (strings or numbers)
+   * @returns Array of matching documents.
+   */
+  public findIn<U extends T = T>(
+    jsonPath: string,
+    values: Array<string | number>,
+  ): U[] {
+    if (!values || values.length === 0) {
+      return [];
+    }
+
+    const placeholders = values.map(() => "?").join(", ");
+    const sqlExpression = jsonPath.includes(".")
+      ? `data ->> '$.${jsonPath}'`
+      : jsonPath;
+
+    const query = `SELECT data FROM ${this.tableName} WHERE ${sqlExpression} IN (${placeholders})`;
+    const stmt = this.getCachedStatement(query);
+    const rows = stmt.all(...values) as { data: string }[];
+
+    return rows.map((r) => JSON.parse(r.data));
+  }
+
+
+  /**
    * Creates a functional B-Tree index over a nested JSON property to optimize lookups.
    * * @param jsonPath The SQLite json_extract path (e.g., '$.metadata.lastSeen').
    * @param type The storage class to cast the value to for index sorting.

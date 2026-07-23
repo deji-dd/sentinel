@@ -18,10 +18,13 @@ import { ApiKeyRotator } from "@sentinel/shared";
 const WORKER_NAME = "faction_sync";
 const logger = new Logger(WORKER_NAME);
 
-export function startFactionSync() {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startFactionSync(options?: WorkerStartOptions) {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     defaultCadenceSeconds: 86400, // Run once daily
+    initialDelayMs: options?.initialDelayMs,
     handler: async () => {
       const finishLog = logger.time();
 

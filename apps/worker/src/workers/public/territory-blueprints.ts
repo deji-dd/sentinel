@@ -110,7 +110,9 @@ async function fetchAndDumpBlueprints(): Promise<void> {
  * the server was offline and missed a daily sync, it forces an immediate run.
  * Otherwise, it seamlessly attaches to the event-driven loop and sleeps until 03:00 UTC.
  */
-export function startTerritoryBlueprintSync(): void {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startTerritoryBlueprintSync(options?: WorkerStartOptions): void {
   // Pre-initialize the schedule if it doesn't exist to force the 03:00 UTC alignment
   let schedule = WorkerSchedules.findOne(WORKER_NAME);
 
@@ -136,6 +138,7 @@ export function startTerritoryBlueprintSync(): void {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     defaultCadenceSeconds: 86400,
+    initialDelayMs: options?.initialDelayMs,
     handler: async () =>
       await executeSync({
         name: WORKER_NAME,

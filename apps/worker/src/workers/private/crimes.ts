@@ -12,6 +12,8 @@ import {
   PersonalLogs,
 } from "@sentinel/shared";
 import { workerEvents } from "../../lib/event-bus.js";
+import { runSequentialInit } from "../../lib/init-queue.js";
+import type { WorkerStartOptions } from "../registry.js";
 
 const logger = new Logger("crimes_module");
 
@@ -128,11 +130,11 @@ async function runCrimesLedgerInit() {
       total_value: 0,
     }));
 
-    // 3. Query the local DB, filter for crime IDs, and sort chronologically
-    const allLogs = PersonalLogs.findAll();
-    const crimeLogs = allLogs
-      .filter((log) => CRIME_LOG_IDS.includes(log.details.id))
-      .sort((a, b) => a.timestamp - b.timestamp);
+    // 3. Query the local DB via indexed findIn, filter for crime IDs, and sort chronologically
+    const crimeLogs = PersonalLogs.findIn(
+      "details.id",
+      CRIME_LOG_IDS,
+    ).sort((a, b) => a.timestamp - b.timestamp);
 
     logger.warn(`Found ${crimeLogs.length} historical crime logs. Parsing...`);
 
@@ -219,11 +221,11 @@ function checkAndInit() {
   // 2. Check if this specific module has completed its V2 initialization
   const initState = SystemState.findOne("crimes_ledger_v2_init");
   if (!initState) {
-    runCrimesLedgerInit();
+    runSequentialInit("crimes_init", runCrimesLedgerInit);
   }
 }
 
-export function startCrimesModule(): void {
+export function startCrimesModule(_options?: WorkerStartOptions): void {
   // Attempt to boot immediately
   checkAndInit();
 

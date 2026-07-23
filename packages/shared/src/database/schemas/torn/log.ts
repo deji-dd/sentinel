@@ -289,6 +289,7 @@ export const PersonalLogs = new Collection<PersonalLogDocument>(
   [
     { key: "category", type: "TEXT" },
     { key: "timestamp", type: "INTEGER" },
+    { key: "details.id", type: "INTEGER" },
     { key: "data.parsed_trade_id", type: "TEXT" },
   ],
 );

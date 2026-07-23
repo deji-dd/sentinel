@@ -190,10 +190,13 @@ function getNext0015UTC(): number {
   return next.getTime();
 }
 
-export function startTornReferenceSync() {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startTornReferenceSync(options?: WorkerStartOptions) {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     handler: runTornReferenceSync,
     defaultCadenceSeconds: CADENCE_SEC,
+    initialDelayMs: options?.initialDelayMs,
   });
 }

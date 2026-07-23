@@ -107,10 +107,13 @@ export async function runTravelSync() {
   }
 }
 
-export function startTravelSync(): void {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startTravelSync(options?: WorkerStartOptions): void {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     handler: runTravelSync,
     defaultCadenceSeconds: CADENCE_SEC,
+    initialDelayMs: options?.initialDelayMs,
   });
 }

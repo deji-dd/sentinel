@@ -227,13 +227,16 @@ async function runHistoricalBatch(
   );
 }
 
-export function startLogManager(): void {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startLogManager(options?: WorkerStartOptions): void {
   syncSettingsToSchedule();
 
   startEventDrivenRunner({
     worker: WORKER_NAME,
     handler: syncLogs,
     defaultCadenceSeconds: 60,
+    initialDelayMs: options?.initialDelayMs,
   });
 
   workerEvents.on("settings_updated", () => {

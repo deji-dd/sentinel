@@ -27,15 +27,18 @@ export async function executeMaintenance(): Promise<void> {
   await runPruningJobs();
 }
 
+import type { WorkerStartOptions } from "../registry.js";
+
 /**
  * Initializes the automated daily data retention manager.
  */
-export function startSystemMaintenance(): void {
+export function startSystemMaintenance(options?: WorkerStartOptions): void {
   const ONE_DAY_SECONDS = 86400;
 
   startEventDrivenRunner({
     worker: WORKER_NAME,
     defaultCadenceSeconds: ONE_DAY_SECONDS,
+    initialDelayMs: options?.initialDelayMs,
     handler: async () => {
       await executeSync({
         name: WORKER_NAME,

@@ -1,8 +1,15 @@
+import { Logger } from "@sentinel/shared";
 import * as privateWorkers from "./private/index.js";
 import * as publicWorkers from "./public/index.js";
 import * as systemWorkers from "./system/index.js";
 
-type Starter = () => void;
+const logger = new Logger("worker_registry");
+
+export type WorkerStartOptions = {
+  initialDelayMs?: number;
+};
+
+type Starter = (options?: WorkerStartOptions) => void;
 
 const PRIVATE_WORKERS: Starter[] = [
   privateWorkers.startLogManager,
@@ -25,21 +32,27 @@ const PUBLIC_WORKERS: Starter[] = [
 
 const SYSTEM_WORKERS: Starter[] = [systemWorkers.startSystemMaintenance];
 
-export function startWorkers(): number {
+export function startWorkers(options?: { staggerMs?: number }): number {
+  const envStagger = process.env.WORKER_STAGGER_MS
+    ? parseInt(process.env.WORKER_STAGGER_MS, 10)
+    : NaN;
+  const staggerMs =
+    options?.staggerMs ?? (isNaN(envStagger) ? 2500 : envStagger);
+
   let started = 0;
+  const ALL_WORKERS = [
+    ...SYSTEM_WORKERS,
+    ...PRIVATE_WORKERS,
+    ...PUBLIC_WORKERS,
+  ];
 
-  for (const start of SYSTEM_WORKERS) {
-    start();
-    started += 1;
-  }
+  logger.info(
+    `Starting ${ALL_WORKERS.length} workers with ${staggerMs}ms stagger delay...`,
+  );
 
-  for (const start of PRIVATE_WORKERS) {
-    start();
-    started += 1;
-  }
-
-  for (const start of PUBLIC_WORKERS) {
-    start();
+  for (const start of ALL_WORKERS) {
+    const initialDelayMs = started * staggerMs;
+    start({ initialDelayMs });
     started += 1;
   }
 

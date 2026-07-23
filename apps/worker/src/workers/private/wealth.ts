@@ -26,6 +26,8 @@ import {
 } from "@sentinel/shared";
 import { randomUUID } from "crypto";
 import { workerEvents } from "../../lib/event-bus.js";
+import { runSequentialInit } from "../../lib/init-queue.js";
+import type { WorkerStartOptions } from "../registry.js";
 
 const WORKER_NAME = "wealth_module";
 const logger = new Logger(WORKER_NAME);
@@ -2016,11 +2018,11 @@ function checkAndInit() {
   // 2. Check if this specific module has completed its V2 initialization
   const initState = SystemState.findOne("wealth_ledger_v2_init");
   if (!initState) {
-    runWealthLedgerInit();
+    runSequentialInit("wealth_init", runWealthLedgerInit);
   }
 }
 
-export function startWealthModule(): void {
+export function startWealthModule(_options?: WorkerStartOptions): void {
   // Attempt to boot immediately
   checkAndInit();
 

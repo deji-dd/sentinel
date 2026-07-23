@@ -98,10 +98,13 @@ export async function runLiveStateSync() {
   }
 }
 
-export function startLiveStateSync() {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function startLiveStateSync(options?: WorkerStartOptions) {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     handler: runLiveStateSync,
     defaultCadenceSeconds: CADENCE_SEC,
+    initialDelayMs: options?.initialDelayMs,
   });
 }

@@ -75,7 +75,9 @@ async function syncCompanyDailyProfit(): Promise<void> {
   }
 }
 
-export function registerCompanyAlarmClock() {
+import type { WorkerStartOptions } from "../registry.js";
+
+export function registerCompanyAlarmClock(_options?: WorkerStartOptions) {
   workerEvents.on(
     "company_pay_received",
     async () => await syncCompanyDailyProfit(),

@@ -12,6 +12,8 @@ export interface EventRunnerConfig {
   worker: string;
   /** The default sleep interval between executions, in seconds */
   defaultCadenceSeconds: number;
+  /** Initial delay offset in milliseconds to stagger boot executions */
+  initialDelayMs?: number;
   /** The async function containing the core logic to execute when the timer fires. Can return a timestamp (number) for the next execution time */
   handler: () => Promise<number | boolean | void>;
 }
@@ -26,6 +28,7 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
   const logger = new Logger(config.worker);
   let activeTimer: ReturnType<typeof setTimeout> | null = null;
   let isExecuting = false;
+  let isInitialBoot = true;
 
   // 1. Initialize or fetch the schedule on boot
   let schedule = WorkerSchedules.findOne(config.worker);
@@ -77,6 +80,19 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
     // If force_run is true or we missed the scheduled window, run instantly
     if (schedule!.force_run || delayMs <= 0) {
       delayMs = 0;
+    }
+
+    if (
+      isInitialBoot &&
+      config.initialDelayMs &&
+      config.initialDelayMs > 0 &&
+      !schedule!.force_run
+    ) {
+      delayMs = Math.max(delayMs, config.initialDelayMs);
+      logger.info(
+        `Staggering initial boot execution by ${config.initialDelayMs}ms...`,
+      );
+      isInitialBoot = false;
     }
 
     activeTimer = setTimeout(executeAndReschedule, delayMs);
