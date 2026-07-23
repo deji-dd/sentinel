@@ -90,6 +90,27 @@ async function syncLogs(): Promise<void> {
     }
 
     // --- REAL-TIME POLLING MODE ---
+    const requiredInits = [
+      "crimes_ledger_v2_init",
+      "gym_ledger_v2_init",
+      "stock_ledger_v2_init",
+      "wealth_ledger_v2_init",
+    ] as const;
+
+    const pendingInits = requiredInits.filter((initId) => {
+      const initRecord = SystemState.findOne(initId) as
+        | Extract<SystemStateDocument, { id: typeof initId; init: boolean }>
+        | undefined;
+      return !initRecord || !initRecord.init;
+    });
+
+    if (pendingInits.length > 0) {
+      logger.warn(
+        `Postponing real-time log polling. Inits still ongoing: ${pendingInits.join(", ")}`,
+      );
+      return;
+    }
+
     const state = SystemState.findOne<
       Extract<SystemStateDocument, { id: string; timestamp: number }>
     >("log_manager_last_checked");
