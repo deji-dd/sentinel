@@ -31,3 +31,9 @@ export interface GymStateResponse {
   data: GymStateData | null;
   initializing: boolean;
 }
+
+export interface UpdateGymBuildPreferencePayload {
+  build_type: "balanced" | "one_stat" | "two_stats" | "hanks" | "baldrs";
+  high_stat: "strength" | "defense" | "speed" | "dexterity";
+}
+

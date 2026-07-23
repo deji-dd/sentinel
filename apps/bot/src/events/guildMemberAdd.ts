@@ -10,9 +10,9 @@ export async function execute(member: GuildMember) {
 
   const guildId = member.guild.id;
 
-  // 1. Check if the server actually wants Auto-Verify enabled
+  // 1. Check if the server wants verification on join enabled
   const config = GuildConfigs.find({ guild_id: guildId })[0];
-  if (!config || !config.auto_verify) return;
+  if (!config || !config.verify_on_join) return;
 
   const job: VerificationRequest = {
     guild_id: guildId,

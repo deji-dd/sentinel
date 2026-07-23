@@ -1,5 +1,17 @@
 import { FastifyPluginAsync } from "fastify";
-import { TravelDestinations, TornItems, UserConfig, TravelAreaMap, TravelUnmappedAreas, TravelLedger, PersonalLogs, UserState } from "@sentinel/shared";
+import {
+  TravelDestinations,
+  TornItems,
+  UserConfig,
+  TravelAreaMap,
+  TravelUnmappedAreas,
+  TravelLedger,
+  PersonalLogs,
+  UserState,
+  TravelStateResponse,
+  TravelUnmappedResponse,
+  MapTravelAreaPayload,
+} from "@sentinel/shared";
 
 export const travelRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/", async (request, reply) => {

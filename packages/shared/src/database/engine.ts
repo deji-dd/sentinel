@@ -62,11 +62,6 @@ export class SentinelDatabase {
 
     if (customPath) {
       this.dbPath = resolve(workspaceRoot, customPath);
-    } else if (environment === "development") {
-      this.dbPath = resolveDatabasePath(
-        process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db",
-        workspaceRoot,
-      );
     } else {
       this.dbPath = resolveDatabasePath(
         process.env.SQLITE_DB_PATH || "./data/sentinel.db",

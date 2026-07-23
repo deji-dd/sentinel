@@ -10,6 +10,11 @@ import {
   CrimeLogDocument,
   CrimeActionMappingDocument,
   CrimesRoiResponse,
+  CrimesRecentResponse,
+  CrimesUnmappedResponse,
+  CrimesAllResponse,
+  CrimesHistoricalResponse,
+  MapCrimeActionPayload,
 } from "@sentinel/shared";
 
 type InitState = Extract<

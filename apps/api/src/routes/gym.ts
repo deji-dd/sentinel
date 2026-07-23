@@ -14,6 +14,7 @@ import {
   GymPerksDoc,
   BoosterPerksDoc,
   BarsDoc,
+  UpdateGymBuildPreferencePayload,
 } from "@sentinel/shared";
 
 type InitState = Extract<

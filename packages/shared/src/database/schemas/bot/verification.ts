@@ -3,7 +3,10 @@ import { sentinelDbEngine } from "../../engine.js"; // Your DB Engine
 
 export type GuildConfigDocument = BaseDocument & {
   guild_id: string;
-  auto_verify: boolean;
+  verify_on_join?: boolean;
+  verify_cron?: boolean;
+  verify_cron_interval?: number;
+  last_verify_cron_at?: number;
   nickname_template: string;
   verified_role_id: string | null;
   verified_role_ids: string[];
@@ -133,3 +136,45 @@ export const VerifiedUsers = new Collection<VerifiedUserDocument>(
   sentinelDbEngine,
   "verified_users",
 );
+
+export type GuildInitRequestDocument = BaseDocument & {
+  guild_id: string;
+  requested_by: string;
+  requested_at: number;
+};
+
+export const GuildInitRequests = new Collection<GuildInitRequestDocument>(
+  sentinelDbEngine,
+  "guild_init_requests",
+);
+
+export type SystemModuleDocument = BaseDocument & {
+  module_id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+};
+
+export const SystemModules = new Collection<SystemModuleDocument>(
+  sentinelDbEngine,
+  "system_modules",
+);
+
+export function seedSystemModules() {
+  const defaultModules = [
+    { module_id: "verification", name: "Verification", description: "Verifies Torn users against Discord roles", enabled: true },
+    { module_id: "territories", name: "Territory", description: "Routes territory wall fill/clear alerts", enabled: true },
+    { module_id: "bazaar", name: "Bazaar Alerts", description: "Alerts on bazaar listings or muggings", enabled: true },
+    { module_id: "reactions", name: "Reaction Roles", description: "Manages server reaction roles", enabled: true },
+  ];
+
+  for (const m of defaultModules) {
+    const existing = SystemModules.find({ module_id: m.module_id })[0];
+    if (!existing) {
+      SystemModules.insertOne({
+        id: m.module_id,
+        ...m,
+      });
+    }
+  }
+}

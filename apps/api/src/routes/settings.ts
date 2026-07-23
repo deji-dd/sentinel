@@ -1,5 +1,13 @@
 import { FastifyInstance } from "fastify";
-import { UserConfig, Logger, constants, IpcClient } from "@sentinel/shared";
+import {
+  UserConfig,
+  Logger,
+  constants,
+  IpcClient,
+  UserSettingsResponse,
+  UpdateSettingsPayload,
+  GenericSuccessResponse,
+} from "@sentinel/shared";
 import { z } from "zod";
 
 const logger = new Logger("api_settings");

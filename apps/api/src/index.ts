@@ -5,6 +5,7 @@ import {
   startMetricsReporter,
   stopMetricsReporter,
   SystemState,
+  seedSystemModules,
 } from "@sentinel/shared";
 import healthRoutes from "./routes/health.js";
 import statusRoutes from "./routes/status.js";
@@ -16,6 +17,8 @@ import { configRoutes } from "./routes/config.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { travelRoutes } from "./routes/travel.js";
 import { wealthRoutes } from "./routes/wealth.js";
+import { ttRoutes } from "./routes/tt.js";
+import { guildsRoutes } from "./routes/guilds.js";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 
@@ -42,6 +45,8 @@ fastify.register(configRoutes, { prefix: "/api/config" });
 fastify.register(settingsRoutes, { prefix: "/api/settings" });
 fastify.register(travelRoutes, { prefix: "/api/travel" });
 fastify.register(wealthRoutes, { prefix: "/api/wealth" });
+fastify.register(ttRoutes, { prefix: "/api/tt" });
+fastify.register(guildsRoutes, { prefix: "/api/guilds" });
 
 async function start() {
   try {
@@ -49,6 +54,9 @@ async function start() {
     if (!sentinelDbEngine.db || !sentinelDbEngine.db.open) {
       throw new Error("Shared SQLite Database failed to open.");
     }
+
+    // Seed system modules
+    seedSystemModules();
 
     await fastify.listen({ port: PORT, host: HOST });
     logger.info(`Fastify API Gateway listening on http://${HOST}:${PORT}`);

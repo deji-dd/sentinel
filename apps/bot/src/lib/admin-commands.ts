@@ -5,7 +5,6 @@
  */
 
 import { ChatInputCommandInteraction, Client, EmbedBuilder } from "discord.js";
-import * as adminCommand from "../commands/general/admin/admin.js";
 import * as inviteCommand from "../commands/personal/admin/invite.js";
 
 /**
@@ -57,9 +56,6 @@ export async function handleAdminCommand(
 
   // Execute the appropriate admin command
   switch (commandName) {
-    case "admin":
-      await adminCommand.execute(interaction);
-      break;
     case "invite":
       await inviteCommand.execute(interaction);
       break;
@@ -73,7 +69,6 @@ export async function handleAdminCommand(
  */
 export function isAdminCommandName(commandName: string): boolean {
   return [
-    "admin",
     "invite",
   ].includes(commandName);
 }

@@ -4,20 +4,22 @@
  */
 
 import { ChatInputCommandInteraction } from "discord.js";
+import * as configCommand from "../commands/general/config.js";
 import * as verifyCommand from "../commands/general/verification/verify.js";
 import * as verifyallCommand from "../commands/general/verification/verifyall.js";
-import * as configCommand from "../commands/general/admin/config.js";
 import * as assaultCheckCommand from "../commands/general/territories/assault-check.js";
-import * as allianceMapCommand from "../commands/general/territories/alliance-map.js";import * as burnMapCommand from "../commands/general/territories/burn-map.js";
+import * as allianceMapCommand from "../commands/general/territories/alliance-map.js";
+import * as burnMapCommand from "../commands/general/territories/burn-map.js";
+import * as ttSelectorCommand from "../commands/general/territories/tt-selector.js";
+
 /**
  * List of all regular (non-admin) command names
  */
 const REGULAR_COMMAND_NAMES = [
-  "finance",
-  "finance-settings",
+  "config",
+  "tt-selector",
   "verify",
   "verifyall",
-  "config",
   "assault-check",
   "burn-map",
   "alliance-map",
@@ -43,6 +45,12 @@ export async function handleRegularCommand(
   }
 
   switch (commandName) {
+    case "config":
+      await configCommand.execute(interaction);
+      break;
+    case "tt-selector":
+      await ttSelectorCommand.execute(interaction);
+      break;
     case "finance":
       break;
     case "finance-settings":
@@ -52,9 +60,6 @@ export async function handleRegularCommand(
       break;
     case "verifyall":
       await verifyallCommand.execute(interaction);
-      break;
-    case "config":
-      await configCommand.execute(interaction);
       break;
     case "assault-check":
       await assaultCheckCommand.execute(interaction);

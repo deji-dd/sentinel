@@ -7,6 +7,7 @@ import {
   Assets,
   CompanyDailyProfits,
   SystemState,
+  WealthStateResponse,
 } from "@sentinel/shared";
 import { sendToWorker } from "../lib/ipc.js";
 

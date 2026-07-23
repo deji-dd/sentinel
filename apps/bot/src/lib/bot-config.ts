@@ -19,12 +19,8 @@ export const isDev = nodeEnv === "development" || nodeEnv === "dev";
 export function initializeDatabaseConfig(): {
   dbPath: string;
 } {
-  const dbPath = isDev
-    ? process.env.SQLITE_DB_PATH_LOCAL || "./data/sentinel-local.db"
-    : process.env.SQLITE_DB_PATH || "./data/sentinel.db";
-
-  logger.debug(`Using SQLite database path: ${dbPath} (isDev: ${isDev})`);
-
+  const dbPath = process.env.SQLITE_DB_PATH || "./data/sentinel.db";
+  logger.debug(`Using SQLite database path: ${dbPath}`);
   return { dbPath };
 }
 
@@ -32,17 +28,11 @@ export function initializeDatabaseConfig(): {
  * Load and validate Discord bot token
  */
 export function initializeDiscordToken(): string {
-  const discordToken = isDev
-    ? process.env.DISCORD_BOT_TOKEN_LOCAL!
-    : process.env.DISCORD_BOT_TOKEN!;
+  const discordToken = process.env.DISCORD_BOT_TOKEN;
 
   if (!discordToken) {
-    throw new Error(
-      `Missing Discord bot token for ${isDev ? "local" : "cloud"} environment`,
-    );
+    throw new Error("DISCORD_BOT_TOKEN environment variable is required");
   }
-
-  logger.debug(`Using ${isDev ? "local" : "production"} Discord bot instance`);
 
   return discordToken;
 }
@@ -81,45 +71,5 @@ export function createDiscordClient(): Client {
  * Get HTTP port for the bot server
  */
 export function getHttpPort(): number {
-  return isDev ? 3001 : parseInt(process.env.HTTP_PORT || "3001");
-}
-
-/**
- * Get the UI base URL (Dashboard)
- */
-export function getUiUrl(): string {
-  return isDev
-    ? process.env.UI_ORIGIN_LOCAL || "http://localhost:3000"
-    : process.env.UI_ORIGIN || "https://sentinel.ayodejib.dev";
-}
-
-/**
- * Get the Map Painter base URL
- */
-export function getPainterUrl(): string {
-  return isDev
-    ? process.env.MAP_PAINTER_URL_LOCAL || "http://localhost:3000"
-    : process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
-}
-
-/**
- * Get the API base URL for magic link activation
- */
-export function getApiUrl(): string {
-  return isDev
-    ? process.env.BOT_ORIGIN_LOCAL || "http://localhost:3001"
-    : process.env.BOT_ORIGIN || "https://api.blasted-labs.tech";
-}
-
-/**
- * Get the allowed origins for CORS
- */
-export function getAllowedOrigins(): string[] {
-  const prodUiOrigin = process.env.UI_ORIGIN || "https://sentinel.ayodejib.dev";
-  const prodPainterOrigin =
-    process.env.MAP_PAINTER_URL || "https://hub.blasted-labs.tech";
-  if (isDev) {
-    return ["http://localhost:3000", prodUiOrigin, prodPainterOrigin];
-  }
-  return [prodUiOrigin, prodPainterOrigin];
+  return parseInt(process.env.HTTP_PORT || "3001", 10);
 }

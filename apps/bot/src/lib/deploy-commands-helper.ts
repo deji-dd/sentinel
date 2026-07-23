@@ -26,13 +26,9 @@ function parseEnabledModules(value: string | string[] | null): string[] {
 
 export async function deployGuildCommands(guildId: string): Promise<boolean> {
   try {
-    const isDev = process.env.NODE_ENV === "development";
-    const token = isDev
-      ? process.env.DISCORD_BOT_TOKEN_LOCAL
-      : process.env.DISCORD_BOT_TOKEN;
-    const clientId = isDev
-      ? process.env.DISCORD_CLIENT_ID_LOCAL
-      : process.env.DISCORD_CLIENT_ID;
+    const token = process.env.DISCORD_BOT_TOKEN;
+    const clientId =
+      process.env.DISCORD_CLIENT_ID || process.env.AUTH_DISCORD_ID;
     const adminGuildId = process.env.ADMIN_GUILD_ID;
 
     if (!token || !clientId || !adminGuildId) {
@@ -43,19 +39,19 @@ export async function deployGuildCommands(guildId: string): Promise<boolean> {
     const rest = new REST({ version: "10" }).setToken(token);
 
     // Statically/Dynamically load commands
+    const configCommand = await import("../commands/general/config.js");
     const verifyCommand =
       await import("../commands/general/verification/verify.js");
     const verifyallCommand =
       await import("../commands/general/verification/verifyall.js");
-    const configCommand = await import("../commands/general/admin/config.js");
     const assaultCheckCommand =
       await import("../commands/general/territories/assault-check.js");
     const burnMapCommand =
       await import("../commands/general/territories/burn-map.js");
     const allianceMapCommand =
       await import("../commands/general/territories/alliance-map.js");
-    const adminCommand = await import("../commands/general/admin/admin.js");
-    const inviteCommand = await import("../commands/personal/admin/invite.js");
+    const ttSelectorCommand =
+      await import("../commands/general/territories/tt-selector.js");
 
     const commandsByModule: Record<string, any[]> = {
       verify: [verifyCommand.data.toJSON(), verifyallCommand.data.toJSON()],
@@ -64,18 +60,18 @@ export async function deployGuildCommands(guildId: string): Promise<boolean> {
         assaultCheckCommand.data.toJSON(),
         burnMapCommand.data.toJSON(),
         allianceMapCommand.data.toJSON(),
+        ttSelectorCommand.data.toJSON(),
       ],
     };
 
     if (guildId === adminGuildId) {
       // Admin guild always gets all commands
       const adminCommands = [
-        adminCommand.data.toJSON(),
-        inviteCommand.data.toJSON(),
         configCommand.data.toJSON(),
         assaultCheckCommand.data.toJSON(),
         burnMapCommand.data.toJSON(),
         allianceMapCommand.data.toJSON(),
+        ttSelectorCommand.data.toJSON(),
         verifyCommand.data.toJSON(),
         verifyallCommand.data.toJSON(),
       ];
@@ -96,9 +92,9 @@ export async function deployGuildCommands(guildId: string): Promise<boolean> {
       helperLogger.warn(
         `No guild config row found for ${guildId}, deploying default config command.`,
       );
-      // Default to config command if config not yet saved fully
+      // Default to empty command array if config not yet saved fully
       await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
-        body: [configCommand.data.toJSON()],
+        body: [],
       });
       return true;
     }

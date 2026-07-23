@@ -1,6 +1,14 @@
 import { FastifyInstance } from "fastify";
 import os from "os";
-import { SystemState, SystemStateDocument, UserConfig } from "@sentinel/shared";
+import {
+  SystemState,
+  SystemStateDocument,
+  UserConfig,
+  StatusResponse,
+  StatusSyncPayload,
+  StatusSettingsPayload,
+  StatusStreamUpdate,
+} from "@sentinel/shared";
 import net from "net";
 
 const probeSocket = (path: string): Promise<boolean> => {
@@ -21,7 +29,7 @@ const probeSocket = (path: string): Promise<boolean> => {
   });
 };
 
-function generateSettingsPayload() {
+function generateSettingsPayload(): StatusSettingsPayload {
   const config = UserConfig.findOne("global");
   return {
     log_manager_cadence: config?.log_manager_cadence ?? 60,
@@ -30,7 +38,7 @@ function generateSettingsPayload() {
   };
 }
 
-async function generateStatusPayload(fastify: FastifyInstance) {
+async function generateStatusPayload(fastify: FastifyInstance): Promise<StatusResponse> {
   const cpus = os.cpus();
   const loadAvg = os.loadavg();
   const cpuUsagePercent = ((loadAvg[0] / cpus.length) * 100).toFixed(1);
@@ -51,7 +59,6 @@ async function generateStatusPayload(fastify: FastifyInstance) {
         apiMem = state.memory || 0;
       } else if (state.id === "bot" && state.status === "online") {
         botCpu = state.cpu || 0;
-        apiMem = state.memory || 0; // Wait, this was a bug in previous code!
         botMem = state.memory || 0;
       } else if (state.id === "worker" && state.status === "online") {
         workerCpu = state.cpu || 0;

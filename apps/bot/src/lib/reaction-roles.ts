@@ -9,6 +9,9 @@ import {
   type User,
   type PartialMessageReaction,
   type PartialUser,
+  type Client,
+  type TextChannel,
+  type Message,
 } from "discord.js";
 import {
   GuildConfigs,
@@ -239,6 +242,24 @@ async function sendReactionFeedback(
   }
 }
 
+function isEmojiMatch(
+  mappingEmoji: string,
+  reactionEmoji: MessageReaction["emoji"],
+): boolean {
+  if (!mappingEmoji) return false;
+  const mapStr = mappingEmoji.trim();
+  const reactStr = reactionEmoji.toString();
+  const reactName = reactionEmoji.name || "";
+  const reactId = reactionEmoji.id || "";
+
+  if (mapStr === reactStr) return true;
+  if (reactName && mapStr === reactName) return true;
+  if (reactId && (mapStr === reactId || mapStr.includes(reactId))) return true;
+  if (normalizeEmojiForKey(mapStr) === normalizeEmojiForKey(reactStr)) return true;
+
+  return false;
+}
+
 /**
  * Handle emoji reactions for role assignment
  */
@@ -250,8 +271,15 @@ export async function handleReactionRoleAdd(
     // Ignore bot reactions
     if (user.bot) return;
 
-    // Ensure reaction is fully fetched
-    const fullReaction = reaction.partial ? await reaction.fetch() : reaction;
+    // Ensure reaction and message are fully fetched
+    const fullReaction = reaction.partial
+      ? await reaction.fetch().catch(() => null)
+      : reaction;
+    if (!fullReaction) return;
+
+    if (fullReaction.message.partial) {
+      await fullReaction.message.fetch().catch(() => null);
+    }
 
     // Check if reaction is in a guild
     if (!fullReaction.message.guildId) return;
@@ -262,8 +290,11 @@ export async function handleReactionRoleAdd(
     const reactionKey = getReactionKey(messageId, user.id, emoji);
 
     const guildConfig = GuildConfigs.findOne(guildId);
-    const enabledModules = guildConfig?.enabled_modules || [];
-    if (!enabledModules.includes("reaction_roles")) {
+    const enabledModules = _parseTextArray(guildConfig?.enabled_modules);
+    if (
+      !enabledModules.includes("reactions") &&
+      !enabledModules.includes("reaction_roles")
+    ) {
       return;
     }
 
@@ -275,7 +306,9 @@ export async function handleReactionRoleAdd(
     const sourceChannelId = fullReaction.message.channelId;
 
     // Check if this message is registered as a reaction-role message
-    const message = ReactionRoleMessages.findFirst({ message_id: messageId });
+    const message =
+      ReactionRoleMessages.findFirst({ message_id: messageId }) ||
+      ReactionRoleMessages.findOne(messageId);
 
     // Silently ignore reactions on non-reaction-role messages
     if (!message) {
@@ -283,10 +316,14 @@ export async function handleReactionRoleAdd(
     }
 
     // Find the role mapping for this emoji+message combo
-    const mapping = ReactionRoleMappings.findFirst({
-      message_id: messageId,
-      emoji: emoji,
-    });
+    const mappings = ReactionRoleMappings.find({ message_id: message.id }).concat(
+      message.message_id
+        ? ReactionRoleMappings.find({ message_id: message.message_id })
+        : [],
+    );
+    const mapping = mappings.find((m) =>
+      isEmojiMatch(m.emoji, fullReaction.emoji),
+    );
 
     const removeUserReaction = async () => {
       await fullReaction.users.remove(user.id).catch(() => {
@@ -406,4 +443,117 @@ export async function handleReactionRoleRemove(
   _user: User | PartialUser,
 ): Promise<void> {
   return;
+}
+
+/**
+ * Synchronizes reaction role messages with Discord channels.
+ * Posts new messages, updates existing embeds, and adds configured reaction emojis.
+ */
+export async function syncReactionRoleMessages(client: Client): Promise<void> {
+  try {
+    const allMessages = ReactionRoleMessages.find({});
+    for (const msgDoc of allMessages) {
+      if (!msgDoc.guild_id || !msgDoc.channel_id) continue;
+
+      const guildConfig = GuildConfigs.findOne(msgDoc.guild_id);
+      const enabledModules = _parseTextArray(guildConfig?.enabled_modules);
+      if (
+        !enabledModules.includes("reaction_roles") &&
+        !enabledModules.includes("reactions")
+      ) {
+        continue;
+      }
+
+      const channel = await client.channels
+        .fetch(msgDoc.channel_id)
+        .catch(() => null);
+      if (
+        !channel ||
+        !channel.isTextBased() ||
+        channel.isDMBased() ||
+        !("send" in channel)
+      ) {
+        continue;
+      }
+
+      const textChannel = channel as TextChannel;
+      const mappings = ReactionRoleMappings.find({ message_id: msgDoc.id }).concat(
+        msgDoc.message_id
+          ? ReactionRoleMappings.find({ message_id: msgDoc.message_id })
+          : [],
+      );
+
+      // Build Embed
+      const embed = new EmbedBuilder()
+        .setColor(0xec4899)
+        .setTitle(msgDoc.title)
+        .setTimestamp();
+
+      if (mappings.length > 0) {
+        const desc = mappings
+          .map((m) => `${m.emoji}  →  <@&${m.role_id}>`)
+          .join("\n\n");
+        embed.setDescription(desc);
+      } else {
+        embed.setDescription("No reaction roles configured yet.");
+      }
+
+      if (msgDoc.required_role_id) {
+        embed.setFooter({ text: "Required role needed to interact" });
+      }
+
+      let discordMsg: Message | null = null;
+      if (msgDoc.message_id) {
+        discordMsg = await textChannel.messages
+          .fetch(msgDoc.message_id)
+          .catch(() => null);
+      }
+
+      if (discordMsg) {
+        await discordMsg.edit({ embeds: [embed] }).catch(() => null);
+      } else {
+        discordMsg = await textChannel.send({ embeds: [embed] }).catch(() => null);
+        if (discordMsg) {
+          msgDoc.message_id = discordMsg.id;
+          ReactionRoleMessages.update(msgDoc);
+        }
+      }
+
+      // Automatically add mapped reactions and remove unmapped reactions from the message
+      if (discordMsg) {
+        const activeEmojis = new Set(mappings.map((m) => m.emoji.trim()));
+
+        // Remove reactions from discordMsg that are no longer mapped
+        for (const reaction of discordMsg.reactions.cache.values()) {
+          const rEmoji = reaction.emoji.toString();
+          const rName = reaction.emoji.name || "";
+          const rId = reaction.emoji.id || "";
+
+          const isStillMapped = Array.from(activeEmojis).some(
+            (mapEmoji) =>
+              mapEmoji === rEmoji ||
+              mapEmoji === rName ||
+              (rId && (mapEmoji === rId || mapEmoji.includes(rId))),
+          );
+
+          if (!isStillMapped && reaction.me) {
+            await reaction.users
+              .remove(client.user?.id)
+              .catch(() => null);
+          }
+        }
+
+        // Add reactions for mappings that are missing
+        for (const mapping of mappings) {
+          try {
+            await discordMsg.react(mapping.emoji);
+          } catch {
+            // Ignore react errors (e.g. invalid custom emoji)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error syncing reaction role messages:", error);
+  }
 }

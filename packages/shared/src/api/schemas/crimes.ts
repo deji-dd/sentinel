@@ -40,3 +40,9 @@ export interface CrimesAllResponse {
     name: string;
   }>;
 }
+
+export interface MapCrimeActionPayload {
+  action: string;
+  crime_id: number;
+}
+

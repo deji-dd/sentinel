@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { UserConfig, Logger, tornApi, TornError, encryptApiKey } from "@sentinel/shared";
+import { UserConfig, Logger, tornApi, TornError, encryptApiKey, ConfigStatusResponse, ConfigureApiKeyResponse } from "@sentinel/shared";
 import { z } from "zod";
 
 const logger = new Logger("api_config");
@@ -60,7 +60,8 @@ export async function configRoutes(fastify: FastifyInstance) {
 
       logger.info("API Key configured successfully.");
 
-      return reply.send({ success: true });
+      const response: ConfigureApiKeyResponse = { success: true };
+      return reply.send(response);
     } catch (err) {
       logger.error("Error setting config:", err);
       return reply.status(500).send({ error: "Internal server error" });
@@ -71,9 +72,11 @@ export async function configRoutes(fastify: FastifyInstance) {
     try {
       const config = UserConfig.findOne("global");
       if (!config) {
-        return reply.send({ configured: false });
+        const response: ConfigStatusResponse = { configured: false };
+        return reply.send(response);
       }
-      return reply.send({ configured: true, updated_at: config.updated_at });
+      const response: ConfigStatusResponse = { configured: true, updated_at: config.updated_at };
+      return reply.send(response);
     } catch (err) {
       logger.error("Error getting config:", err);
       return reply.status(500).send({ error: "Internal server error" });

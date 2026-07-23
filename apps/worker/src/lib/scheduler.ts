@@ -89,7 +89,7 @@ export function startEventDrivenRunner(config: EventRunnerConfig): void {
       !schedule!.force_run
     ) {
       delayMs = Math.max(delayMs, config.initialDelayMs);
-      logger.info(
+      logger.warn(
         `Staggering initial boot execution by ${config.initialDelayMs}ms...`,
       );
       isInitialBoot = false;

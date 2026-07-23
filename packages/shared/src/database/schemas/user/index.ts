@@ -1,4 +1,5 @@
 export * from "./company.js";
+export * from "./user-maps.js";
 export * from "./cash-history.js";
 export * from "./item-ledger.js";
 export * from "./crime-ledger.js";

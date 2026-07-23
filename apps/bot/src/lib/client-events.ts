@@ -6,6 +6,7 @@
 import { Client, Events, EmbedBuilder } from "discord.js";
 import { setupIpcServer } from "./ipc/index.js";
 import { startAutoVerifyCron } from "./auto-verify.js";
+import { syncReactionRoleMessages } from "./reaction-roles.js";
 import { Logger, SystemState, SystemStateDocument } from "@sentinel/shared";
 // Note: We deleted db-client.js and TABLE_NAMES because the Bot no longer resets sync jobs.
 
@@ -30,8 +31,12 @@ export function registerClientReadyEvent(client: Client): void {
     // Start the background loop that fetches all guild members and pipes them to the worker
     startAutoVerifyCron(readyClient);
 
-    // Background interval to process pending system boot alerts
+    // Sync reaction role messages on startup
+    void syncReactionRoleMessages(readyClient);
+
+    // Background interval to process pending system boot alerts and reaction role syncs
     setInterval(async () => {
+      void syncReactionRoleMessages(readyClient);
       try {
         const unreported = SystemState.find({ reported: false }) as State[];
 

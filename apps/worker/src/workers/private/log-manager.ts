@@ -148,7 +148,8 @@ async function syncLogs(): Promise<void> {
           id: "log_manager_last_checked",
           timestamp: lastCheckedTimestamp,
         });
-        logger.info(`Saved ${newLogsCount} new logs in ${finishSync()}`);
+        logger.info(`Saved ${newLogsCount} new logs`);
+        finishSync();
       }
     }
   } catch (error) {

@@ -31,3 +31,9 @@ export interface TravelStateResponse {
 export interface TravelUnmappedResponse {
   data: TravelUnmappedAreaDocument[];
 }
+
+export interface MapTravelAreaPayload {
+  areaId: string;
+  yataCode: string;
+}
+
