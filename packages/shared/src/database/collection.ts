@@ -93,15 +93,28 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
       }
 
       if (!columnTypeMap.has(field.key)) {
-        try {
-          this.db.exec(`
-            ALTER TABLE ${this.tableName} 
-            ADD COLUMN "${field.key}" ${field.type} GENERATED ALWAYS AS (data ->> '$.${field.key}') VIRTUAL
-          `);
-        } catch (err: any) {
-          // Ignore duplicate column errors caused by multiprocess startup race conditions
-          if (!err.message.includes("duplicate column name")) {
-            throw err;
+        let attempts = 0;
+        while (attempts < 5) {
+          try {
+            this.db.exec(`
+              ALTER TABLE ${this.tableName} 
+              ADD COLUMN "${field.key}" ${field.type} GENERATED ALWAYS AS (data ->> '$.${field.key}') VIRTUAL
+            `);
+            break;
+          } catch (err: any) {
+            if (err.message.includes("duplicate column name")) break;
+            if (
+              (err.code === "SQLITE_BUSY" ||
+                err.message.includes("database is locked")) &&
+              attempts < 4
+            ) {
+              attempts++;
+              const delay = attempts * 300;
+              const start = Date.now();
+              while (Date.now() - start < delay) {}
+            } else {
+              throw err;
+            }
           }
         }
       }
@@ -251,7 +264,6 @@ export class Collection<T extends BaseDocument> extends EventEmitter {
 
     return rows.map((r) => JSON.parse(r.data));
   }
-
 
   /**
    * Creates a functional B-Tree index over a nested JSON property to optimize lookups.

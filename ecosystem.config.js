@@ -37,14 +37,14 @@ module.exports = {
       cwd: path.join(basePath, "apps/worker"),
       script: "dist/index.js",
       interpreter: "node",
-      // Given slightly more RAM since it processes Torn API payloads
-      node_args: ["--max-old-space-size=200"],
+      // Given slightly more RAM since it processes Torn API payloads and historical log inits
+      node_args: ["--max-old-space-size=400"],
       env: { NODE_ENV: "development", ...workerEnv },
       env_production: { NODE_ENV: "production", ...workerEnv },
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
-      max_memory_restart: "300M", // Hard cap
+      max_memory_restart: "450M", // Hard cap
       error_file: "./logs/worker-error.log",
       out_file: "./logs/worker-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",

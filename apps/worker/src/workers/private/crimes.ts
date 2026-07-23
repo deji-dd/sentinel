@@ -172,7 +172,10 @@ async function runCrimesLedgerInit() {
     }
 
     if (crimeLogsToInsert.length > 0) {
-      CrimeLogs.insertMany(crimeLogsToInsert);
+      const BATCH_SIZE = 5000;
+      for (let i = 0; i < crimeLogsToInsert.length; i += BATCH_SIZE) {
+        CrimeLogs.insertMany(crimeLogsToInsert.slice(i, i + BATCH_SIZE));
+      }
     }
 
     const updatedLedger = ledgerInserts.map((base) => {
