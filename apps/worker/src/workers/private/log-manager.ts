@@ -31,7 +31,7 @@ const LOG_ROUTER: LogRouteMap = {
 };
 
 // Core router dispatcher
-function dispatchLog(log: TornSchema<"UserLog">) {
+export function dispatchLog(log: TornSchema<"UserLog">) {
   const logId = log.details.id as keyof LogDataRegistry;
   const mappedParsers = LOG_ROUTER[logId];
 
@@ -243,4 +243,53 @@ export function startLogManager(options?: WorkerStartOptions): void {
   workerEvents.on("settings_updated", () => {
     syncSettingsToSchedule();
   });
+}
+
+/**
+ * Manual range re-sync function triggered via UI or IPC
+ */
+export async function resyncLogsRange(
+  from: number,
+  to: number,
+): Promise<{ fetched: number; newLogs: number }> {
+  const apiKey = getWorkerApiKey("personal");
+  if (!apiKey) throw new Error("No personal API key found");
+
+  logger.info(`Manual resync requested for range: ${from} to ${to}`);
+  let currentFrom = from;
+  let totalFetched = 0;
+  let totalNew = 0;
+
+  while (currentFrom < to) {
+    const res = await tornApi.get("/user/log", {
+      apiKey,
+      queryParams: { from: currentFrom, to, limit: 100 },
+    });
+
+    if (!res.log || res.log.length === 0) break;
+
+    totalFetched += res.log.length;
+    let maxTimestamp = currentFrom;
+
+    for (const log of res.log) {
+      maxTimestamp = Math.max(maxTimestamp, log.timestamp);
+      const idStr = String(log.id);
+      const existing = PersonalLogs.findOne(idStr);
+      if (existing) {
+        PersonalLogs.update({ ...log, id: idStr });
+      } else {
+        PersonalLogs.insertOne({ ...log, id: idStr });
+        totalNew++;
+      }
+      dispatchLog(log);
+    }
+
+    if (maxTimestamp <= currentFrom) break;
+    currentFrom = maxTimestamp + 1;
+  }
+
+  logger.info(
+    `Manual resync complete for range ${from}-${to}. Fetched: ${totalFetched}, New: ${totalNew}`,
+  );
+  return { fetched: totalFetched, newLogs: totalNew };
 }

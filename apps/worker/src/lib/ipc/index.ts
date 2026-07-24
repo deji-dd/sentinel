@@ -48,6 +48,11 @@ export async function setupIpcServer() {
           workerEvents.emit("settings_updated");
         } else if (packet.action === "wealth_init") {
           workerEvents.emit("wealth_init");
+        } else if (packet.action === "resync_logs") {
+          const { resyncLogsRange } = await import(
+            "../../workers/private/log-manager.js"
+          );
+          await resyncLogsRange(packet.data.from, packet.data.to);
         } else if (packet.action === "verify") {
           const result = await runVerificationJob(packet.data);
           if (result) {

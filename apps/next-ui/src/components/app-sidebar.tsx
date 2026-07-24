@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Plane,
   Activity,
+  Database,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,7 @@ const navItems = [
   { name: "GYM_LEDGER", href: "/gym", icon: Dumbbell },
   { name: "STOCK_PORTFOLIO", href: "/stocks", icon: TrendingUp },
   { name: "TRAVEL_AGENCY", href: "/travel", icon: Plane },
+  { name: "LOG_MANAGER", href: "/logs", icon: Database },
 ];
 
 export function AppSidebar() {
