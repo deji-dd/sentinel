@@ -25,6 +25,9 @@ import {
   startMetricsReporter,
   stopMetricsReporter,
   SystemState,
+  GuildConfigs,
+  VerifiedUsers,
+  FactionRoles,
 } from "@sentinel/shared";
 
 // Global process error handlers to prevent crashes on transient network socket drops
@@ -170,6 +173,54 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
     await handleReactionRoleRemove(reaction, user);
   } catch (error) {
     console.error("Error handling message reaction remove:", error);
+  }
+});
+
+// Guard strict faction roles on member role updates
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  try {
+    const guildId = newMember.guild.id;
+    const config = GuildConfigs.findOne(guildId);
+    if (
+      !config?.strict_faction_role_ids ||
+      config.strict_faction_role_ids.length === 0
+    ) {
+      return;
+    }
+
+    const addedRoles = newMember.roles.cache.filter(
+      (r) => !oldMember.roles.cache.has(r.id),
+    );
+    if (addedRoles.size === 0) return;
+
+    const strictRoles = new Set(config.strict_faction_role_ids);
+    const addedStrictRoles = addedRoles.filter((r) => strictRoles.has(r.id));
+    if (addedStrictRoles.size === 0) return;
+
+    // Check if member is in an active mapped faction
+    const verifiedUser = VerifiedUsers.findOne(newMember.id);
+    let isInMappedFaction = false;
+
+    if (verifiedUser?.faction_id) {
+      const activeMappings = FactionRoles.find({
+        guild_id: guildId,
+        enabled: true,
+      });
+      isInMappedFaction = activeMappings.some(
+        (m) => m.faction_id === verifiedUser.faction_id,
+      );
+    }
+
+    if (!isInMappedFaction) {
+      for (const [roleId, role] of addedStrictRoles) {
+        await newMember.roles.remove(roleId).catch(() => null);
+        console.log(
+          `[Strict Faction Guard] Stripped role "${role.name}" (${roleId}) from member ${newMember.user.tag} (${newMember.id}) - Not in any mapped faction.`,
+        );
+      }
+    }
+  } catch (error) {
+    console.error("Error handling GuildMemberUpdate strict role guard:", error);
   }
 });
 

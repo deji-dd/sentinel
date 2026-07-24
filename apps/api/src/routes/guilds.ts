@@ -99,19 +99,20 @@ export async function guildsRoutes(fastify: FastifyInstance) {
 
     try {
       const token = process.env.DISCORD_BOT_TOKEN;
-      const clientId =
-        process.env.DISCORD_CLIENT_ID || process.env.AUTH_DISCORD_ID;
+      const clientId = process.env.DISCORD_CLIENT_ID;
       const adminGuildId = process.env.ADMIN_GUILD_ID;
 
       if (!token || !clientId) {
         return reply.status(500).send({
-          error: "Discord Bot Token or Client ID is missing in API configuration.",
+          error:
+            "Discord Bot Token or Client ID is missing in API configuration.",
         });
       }
 
       const configCmd = {
         name: "config",
-        description: "Open the web dashboard to configure Sentinel for this server",
+        description:
+          "Open the web dashboard to configure Sentinel for this server",
       };
       const ttSelectorCmd = {
         name: "tt-selector",
@@ -142,7 +143,12 @@ export async function guildsRoutes(fastify: FastifyInstance) {
         verification: [verifyCmd, verifyallCmd],
         verify: [verifyCmd, verifyallCmd],
         admin: [configCmd],
-        territories: [assaultCheckCmd, burnMapCmd, allianceMapCmd, ttSelectorCmd],
+        territories: [
+          assaultCheckCmd,
+          burnMapCmd,
+          allianceMapCmd,
+          ttSelectorCmd,
+        ],
       };
 
       let guildCommands: unknown[] = [];
@@ -200,7 +206,10 @@ export async function guildsRoutes(fastify: FastifyInstance) {
 
       if (!res.ok) {
         const errText = await res.text();
-        logger.error(`Discord API error deploying commands for guild ${id}:`, errText);
+        logger.error(
+          `Discord API error deploying commands for guild ${id}:`,
+          errText,
+        );
         return reply.status(res.status).send({
           error: `Discord API returned status ${res.status}: ${errText}`,
         });
@@ -364,6 +373,10 @@ export async function guildsRoutes(fastify: FastifyInstance) {
           body.tt_faction_ids !== undefined
             ? body.tt_faction_ids
             : (guildConfig?.tt_faction_ids ?? []),
+        strict_faction_role_ids:
+          body.strict_faction_role_ids !== undefined
+            ? body.strict_faction_role_ids
+            : (guildConfig?.strict_faction_role_ids ?? []),
       };
 
       if (isNew) {
@@ -1109,7 +1122,12 @@ export async function guildsRoutes(fastify: FastifyInstance) {
         ReactionRoleMappings.delete(emojiMappingId);
 
         const botToken = process.env.DISCORD_BOT_TOKEN;
-        if (botToken && message.channel_id && message.message_id && mapping.emoji) {
+        if (
+          botToken &&
+          message.channel_id &&
+          message.message_id &&
+          mapping.emoji
+        ) {
           const formattedEmoji = encodeURIComponent(mapping.emoji.trim());
           fetch(
             `https://discord.com/api/v10/channels/${message.channel_id}/messages/${message.message_id}/reactions/${formattedEmoji}/@me`,

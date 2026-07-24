@@ -19,6 +19,7 @@ export type GuildConfigDocument = BaseDocument & {
   tt_filtered_channel_id: string | null;
   tt_territory_ids: string[];
   tt_faction_ids: number[];
+  strict_faction_role_ids?: string[];
 };
 
 export type FactionRoleMappingDocument = BaseDocument & {

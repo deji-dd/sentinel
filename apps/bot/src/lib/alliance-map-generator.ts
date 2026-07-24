@@ -7,24 +7,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 function resolveSvgPath(): string {
-  const workspaceRoot = resolve(__dirname, "../../../../");
-  const srcPath = join(
-    workspaceRoot,
-    "packages/shared/src/assets/torn-territory-map.svg",
-  );
-  if (existsSync(srcPath)) {
-    return srcPath;
+  const candidates = [
+    join(__dirname, "../assets/torn-territory-map.svg"),
+    join(__dirname, "../../src/assets/torn-territory-map.svg"),
+    join(__dirname, "../../assets/torn-territory-map.svg"),
+    join(process.cwd(), "apps/bot/src/assets/torn-territory-map.svg"),
+    join(process.cwd(), "apps/bot/dist/assets/torn-territory-map.svg"),
+    join(process.cwd(), "src/assets/torn-territory-map.svg"),
+    join(process.cwd(), "dist/assets/torn-territory-map.svg"),
+    resolve(__dirname, "../../../../apps/bot/src/assets/torn-territory-map.svg"),
+    resolve(__dirname, "../../../../apps/bot-dashboard/public/torn-territory-map.svg"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
   }
 
-  const distPath = join(
-    workspaceRoot,
-    "packages/shared/dist/assets/torn-territory-map.svg",
-  );
-  if (existsSync(distPath)) {
-    return distPath;
-  }
-
-  return srcPath;
+  return join(__dirname, "../assets/torn-territory-map.svg");
 }
 
 const SVG_PATH = resolveSvgPath();

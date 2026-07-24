@@ -6,7 +6,9 @@ import * as verifyCommand from "./commands/general/verification/verify.js";
 import * as verifyallCommand from "./commands/general/verification/verifyall.js";
 import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
 import * as burnMapCommand from "./commands/general/territories/burn-map.js";
-import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";function requireEnv(name: string): string {
+import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";
+
+function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
@@ -50,6 +52,7 @@ async function deployCommands() {
     console.log(
       "[Deploy Commands] Successfully registered commands to admin guild.",
     );
+    process.exit(0);
   } catch (error) {
     console.error("[Deploy Commands] Failed to register commands:", error);
     process.exit(1);

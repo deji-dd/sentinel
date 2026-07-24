@@ -22,7 +22,7 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased bg-background text-foreground min-h-screen flex flex-col`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
-          <Toaster position="top-right" theme="system" />
+          <Toaster position="top-right" theme="system" richColors closeButton />
         </ThemeProvider>
       </body>
     </html>

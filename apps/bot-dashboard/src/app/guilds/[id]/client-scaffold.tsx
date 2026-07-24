@@ -334,6 +334,20 @@ export function GuildConfigScaffold({
     initialConfig.verify_cron_interval ?? 1
   );
 
+  const [strictFactionRoles, setStrictFactionRoles] = useState<string[]>(
+    ensureArray(initialConfig.strict_faction_role_ids)
+  );
+
+  const handleAddStrictFactionRole = (roleId: string) => {
+    if (!strictFactionRoles.includes(roleId)) {
+      setStrictFactionRoles([...strictFactionRoles, roleId]);
+    }
+  };
+
+  const handleRemoveStrictFactionRole = (roleId: string) => {
+    setStrictFactionRoles(strictFactionRoles.filter((id) => id !== roleId));
+  };
+
   const [logChannelInput, setLogChannelInput] = useState<string>(
     initialConfig.log_channel_id || ""
   );
@@ -392,6 +406,9 @@ export function GuildConfigScaffold({
     const initialTerritories = ensureArray(initialConfig.tt_territory_ids);
     const territoriesChanged = JSON.stringify([...ttTerritoryIdsInput].sort()) !== JSON.stringify([...initialTerritories].sort());
 
+    const initialStrict = ensureArray(initialConfig.strict_faction_role_ids);
+    const strictChanged = JSON.stringify([...strictFactionRoles].sort()) !== JSON.stringify([...initialStrict].sort());
+
     const initialFactions = ensureArray(initialConfig.tt_faction_ids).map(Number).filter((n) => !isNaN(n) && n > 0);
     const factionsChanged = JSON.stringify([...ttFactionIdsInput].sort()) !== JSON.stringify([...initialFactions].sort());
 
@@ -408,7 +425,8 @@ export function GuildConfigScaffold({
       modulesChanged ||
       adminChanged ||
       territoriesChanged ||
-      factionsChanged
+      factionsChanged ||
+      strictChanged
     );
   }, [
     config.nickname_template,
@@ -424,6 +442,7 @@ export function GuildConfigScaffold({
     adminRoleIdsInput,
     ttTerritoryIdsInput,
     ttFactionIdsInput,
+    strictFactionRoles,
     initialConfig,
   ]);
 
@@ -435,6 +454,7 @@ export function GuildConfigScaffold({
     setVerifyOnJoinInput(initialConfig.verify_on_join ?? true);
     setVerifyCronInput(initialConfig.verify_cron ?? true);
     setVerifyCronIntervalInput(initialConfig.verify_cron_interval ?? 1);
+    setStrictFactionRoles(ensureArray(initialConfig.strict_faction_role_ids));
     setLogChannelInput(initialConfig.log_channel_id || "");
     setFactionListChannelInput(initialConfig.faction_list_channel_id || "");
     setEnabledModulesInput(ensureArray(initialConfig.enabled_modules));
@@ -725,6 +745,7 @@ export function GuildConfigScaffold({
         tt_filtered_channel_id: ttFilteredChannelInput || null,
         tt_territory_ids: ttTerritoryIdsInput,
         tt_faction_ids: ttFactionIdsInput,
+        strict_faction_role_ids: strictFactionRoles,
       };
 
       const res = await updateGuildConfig(guildId, payload);
@@ -904,6 +925,9 @@ export function GuildConfigScaffold({
               handleOpenEditMapping={handleOpenEditMapping}
               handleToggleMappingEnabled={handleToggleMappingEnabled}
               handleDeleteMapping={handleDeleteMapping}
+              strictFactionRoles={strictFactionRoles}
+              handleAddStrictFactionRole={handleAddStrictFactionRole}
+              handleRemoveStrictFactionRole={handleRemoveStrictFactionRole}
               ensureArray={ensureArray}
             />
           )}

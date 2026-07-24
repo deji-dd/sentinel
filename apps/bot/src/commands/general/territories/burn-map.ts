@@ -17,12 +17,15 @@ import {
   WarLedger,
   TerritoryStates,
   TerritoryBlueprints,
+  Logger,
 } from "@sentinel/shared";
 
 import {
   getBurnedTerritories,
   type WarRecord,
 } from "../../../lib/territory-burn-logic.js";
+
+const logger = new Logger("burn_map");
 
 const STATUS_EMOJI_SUCCESS = "<:Green:1474607376140079104>";
 const STATUS_EMOJI_ERROR = "<:Red:1474607810368114886>";
@@ -61,7 +64,8 @@ export async function execute(
     const apiKey = guildId ? await getActiveApiKey(guildId) : null;
 
     // Get faction name
-    const factionName = await validateAndFetchFactionDetails(factionId, apiKey);
+    const faction = await validateAndFetchFactionDetails(factionId, apiKey);
+    const factionName = faction.data.name;
     const factionDisplay = factionName
       ? `${factionName} (${factionId})`
       : `Faction ${factionId}`;
@@ -108,9 +112,8 @@ export async function execute(
       availableCount: allTerritoryIds.length - burnedTerritories.length,
     };
 
-    console.log(
-      `[burn-map] Generating map for faction ${factionId}`,
-      `(${burnedTerritories.length} burned territories)`,
+    logger.info(
+      `Generating map for faction ${factionId} (${burnedTerritories.length} burned territories)`,
     );
 
     let pngBuffer: Buffer;
@@ -122,11 +125,11 @@ export async function execute(
       );
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[burn-map] PNG generation failed: ${errorMsg}`);
+      logger.error(`PNG generation failed: ${errorMsg}`);
       throw error;
     }
 
-    console.log(`[burn-map] Generated PNG (${pngBuffer.length} bytes)`);
+    logger.info(`Generated PNG (${pngBuffer.length} bytes)`);
 
     // Create attachment
     const attachment = new AttachmentBuilder(pngBuffer, {
@@ -197,7 +200,7 @@ export async function execute(
       errorMsg = error;
     }
 
-    console.error("Error in burn-map command:", errorMsg);
+    logger.error("Error in burn-map command:", errorMsg);
     const errorEmbed = new EmbedBuilder()
       .setColor(0xef4444)
       .setTitle(`${STATUS_EMOJI_ERROR} Error`)

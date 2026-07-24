@@ -142,6 +142,10 @@ export async function runVerificationJob(
       mappings.forEach((m: ReactionRoleMappingDocument) => managedRoles.add(m.role_id));
     });
 
+    parseArray(config.strict_faction_role_ids).forEach((id) =>
+      managedRoles.add(id),
+    );
+
     if (cache) cache.managedRoles = managedRoles;
   }
 
@@ -237,11 +241,13 @@ export async function runVerificationJob(
   if (config.verified_role_id) targetRoles.add(config.verified_role_id);
   parseArray(config.verified_role_ids).forEach((id) => targetRoles.add(id));
 
+  let isInMappedFaction = false;
   if (factionId) {
     const mapping = factionMappings.find(
       (m: FactionRoleMappingDocument) => m.faction_id === factionId,
     );
     if (mapping) {
+      isInMappedFaction = true;
       parseArray(mapping.member_role_ids).forEach((id) => targetRoles.add(id));
 
       // Check if the user is a Leader or Co-leader using their profile response directly
@@ -254,6 +260,14 @@ export async function runVerificationJob(
         );
       }
     }
+  }
+
+  if (isInMappedFaction) {
+    parseArray(config.strict_faction_role_ids).forEach((roleId) => {
+      if (job.current_role_ids.includes(roleId)) {
+        targetRoles.add(roleId);
+      }
+    });
   }
 
   if (isMerc) {
