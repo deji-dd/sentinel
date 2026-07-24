@@ -247,4 +247,58 @@ export const crimesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(500).send({ error: "Failed to reset crimes ledger" });
     }
   });
+
+  /**
+   * GET /api/crimes/mappings
+   * Returns all mapped (crime_id !== 0) action strings grouped by crime,
+   * each annotated with how many CrimeLogs entries used that action.
+   */
+  fastify.get("/mappings", async (_request, reply) => {
+    try {
+      const mappings = CrimeActionMappings.find({}).filter(
+        (m: CrimeActionMappingDocument) => m.crime_id !== 0,
+      );
+
+      // Build crime_id → crime_name lookup
+      const crimeNameMap = new Map<number, string>();
+      for (const m of mappings) {
+        if (!crimeNameMap.has(m.crime_id)) {
+          const crimeData = TornCrimes.findOne(m.crime_id.toString());
+          crimeNameMap.set(m.crime_id, crimeData?.data?.name ?? `Crime #${m.crime_id}`);
+        }
+      }
+
+      // Count logs per action string
+      const logCountMap = new Map<string, number>();
+      const allLogs = CrimeLogs.find({});
+      for (const log of allLogs) {
+        if (!log.action) continue;
+        logCountMap.set(log.action, (logCountMap.get(log.action) ?? 0) + 1);
+      }
+
+      // Group actions by crime
+      const grouped = new Map<number, { action: string; log_count: number }[]>();
+      for (const m of mappings) {
+        if (!grouped.has(m.crime_id)) grouped.set(m.crime_id, []);
+        grouped.get(m.crime_id)!.push({
+          action: m.action,
+          log_count: logCountMap.get(m.action) ?? 0,
+        });
+      }
+
+      const data = Array.from(grouped.entries())
+        .map(([crime_id, actions]) => ({
+          crime_id,
+          crime_name: crimeNameMap.get(crime_id) ?? `Crime #${crime_id}`,
+          actions: actions.sort((a, b) => b.log_count - a.log_count),
+        }))
+        .sort((a, b) => a.crime_id - b.crime_id);
+
+      return reply.send({ data });
+    } catch (error: unknown) {
+      fastify.log.error(error);
+      return reply.status(500).send({ error: "Failed to fetch crime mappings" });
+    }
+  });
 };
+

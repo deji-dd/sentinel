@@ -37,6 +37,7 @@ import { CrimeBarChart } from "@/components/crimes/CrimeBarChart";
 import { CrimeHistoricalChart, CrimeHistoricalPoint } from "@/components/crimes/CrimeHistoricalChart";
 import { UnmappedCrimes } from "@/components/crimes/UnmappedCrimes";
 import { RecentCrimesTable, RecentCrimeLog } from "@/components/crimes/RecentCrimesTable";
+import { CrimeActionMappingBrowser, CrimeMappingGroup } from "@/components/crimes/CrimeActionMappingBrowser";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   CrimesRoiResponse,
@@ -52,6 +53,7 @@ export default function CrimesDashboard() {
   const [data, setData] = useState<CrimeRoiItem[]>([]);
   const [recentLogs, setRecentLogs] = useState<RecentCrimeLog[]>([]);
   const [unmapped, setUnmapped] = useState<string[]>([]);
+  const [mappingGroups, setMappingGroups] = useState<CrimeMappingGroup[]>([]);
   const [allCrimes, setAllCrimes] = useState<{ id: number; name: string }[]>([]);
   const [historicalData, setHistoricalData] = useState<CrimeHistoricalPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +95,12 @@ export default function CrimesDashboard() {
         if (allRes.ok) {
           const aJson: CrimesAllResponse = await allRes.json();
           setAllCrimes(aJson.data || []);
+        }
+
+        const mappingsRes = await fetch("/api/crimes/mappings");
+        if (mappingsRes.ok) {
+          const mJson = await mappingsRes.json();
+          setMappingGroups(mJson.data || []);
         }
 
         const histRes = await fetch("/api/crimes/historical");
@@ -257,6 +265,12 @@ export default function CrimesDashboard() {
             unmappedActions={unmapped}
             allCrimes={allCrimes}
             onMapped={fetchCrimes}
+          />
+
+          <CrimeActionMappingBrowser
+            groups={mappingGroups}
+            allCrimes={allCrimes}
+            onRemapped={fetchCrimes}
           />
 
           {data.length > 0 && (

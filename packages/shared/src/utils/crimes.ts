@@ -98,7 +98,13 @@ export function getCrimeIdFromAction(action: string): number {
     lower.includes("laminating") ||
     lower.includes("cutting") ||
     lower.includes("perforating") ||
-    lower.includes("painting")
+    lower.includes("painting") ||
+    lower.includes("trimming") ||
+    lower.includes("stacking & folding") ||
+    lower.includes("sewing") ||
+    lower.includes("gluing") ||
+    lower.includes("checking") ||
+    lower.includes("embossing")
   ) {
     resolvedId = 11;
   } else if (lower.includes("scam") || lower.includes("spam")) {
@@ -113,7 +119,12 @@ export function getCrimeIdFromAction(action: string): number {
     lower.includes("ignite fire") ||
     lower.includes("stoke fire") ||
     lower.includes("dampen fire") ||
-    lower.includes("collect")
+    lower.includes("collect") ||
+    lower.includes("breaching") ||
+    lower.includes("combustible") ||
+    lower.includes("igniting") ||
+    lower.includes("dampening") ||
+    lower.includes("stoking")
   ) {
     resolvedId = 13;
   }
