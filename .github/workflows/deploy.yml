@@ -62,11 +62,14 @@ jobs:
           rsync -avz --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
           rsync -avz --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
           rsync -avz --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
-          rsync -avz --delete --exclude=node_modules packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
+          rsync -avz --delete --exclude=node_modules --exclude=.turbo packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
 
-      - name: Run Prisma Database Migrations / Schema Push
+      - name: Run Prisma Database Migrations / Schema Push (via SSH Tunnel)
         run: |
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' npx -y prisma@7.9.0 db push --schema=/opt/sentinel/packages/database/prisma/schema.prisma --accept-data-loss"
+          # Open SSH port forwarding: Runner localhost:5433 -> VPS /var/run/postgresql/.s.PGSQL.5432
+          ssh -f -N -L 5433:/var/run/postgresql/.s.PGSQL.5432 ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}
+          sleep 2
+          DATABASE_URL="postgresql://deji@localhost:5433/sentinel" pnpm --filter @sentinel/database db:push
 
 #      - name: Restart Systemd Services
 #        run: |
