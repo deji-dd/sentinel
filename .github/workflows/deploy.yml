@@ -66,7 +66,7 @@ jobs:
 
       - name: Run Prisma Database Migrations / Schema Push
         run: |
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "cd /opt/sentinel/packages/database && export DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' && npx --package=prisma prisma db push --accept-data-loss"
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' npx -y prisma@7.9.0 db push --schema=/opt/sentinel/packages/database/prisma/schema.prisma --accept-data-loss"
 
 #      - name: Restart Systemd Services
 #        run: |
