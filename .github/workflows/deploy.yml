@@ -1,0 +1,65 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "apps/dashboard/**"
+      - "apps/bot-dashboard/**"
+      - "README.md"
+      - "docs/**"
+      - ".gitignore"
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Build Applications (Turborepo Backend Only)
+        run: pnpm turbo build --filter="@sentinel/bot..." --filter="@sentinel/worker..." --filter="@sentinel/api..."
+
+      - name: Configure SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.GCP_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run Prisma Database Migrations / Schema Push
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm --filter @sentinel/database db:push
+
+      - name: Deploy Dist Directories via Rsync
+        run: |
+          rsync -avz --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
+          rsync -avz --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
+          rsync -avz --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
+
+#      - name: Restart Systemd Services
+#        run: |
+#          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "sudo systemctl restart sentinel-bot sentinel-worker sentinel-api"

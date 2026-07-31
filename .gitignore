@@ -59,7 +59,6 @@ next-env.d.ts
 
 # PM2 logs
 logs/
-.github/
 **/logs/
 
 # Archived DB tooling generated files
