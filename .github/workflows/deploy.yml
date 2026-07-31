@@ -49,15 +49,16 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.GCP_HOST }} >> ~/.ssh/known_hosts || true
 
-      - name: Run Prisma Database Migrations / Schema Push
-        run: |
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "cd /opt/sentinel/apps/worker && DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' npx prisma db push --accept-data-loss"
-
-      - name: Deploy Dist Directories via Rsync
+      - name: Deploy Dist & Database Schema via Rsync
         run: |
           rsync -avz --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
           rsync -avz --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
           rsync -avz --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
+          rsync -avz packages/database/prisma/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/prisma/
+
+      - name: Run Prisma Database Migrations / Schema Push
+        run: |
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' npx prisma db push --schema=/opt/sentinel/prisma/schema.prisma --accept-data-loss"
 
 #      - name: Restart Systemd Services
 #        run: |
