@@ -50,9 +50,8 @@ jobs:
           ssh-keyscan -H ${{ secrets.GCP_HOST }} >> ~/.ssh/known_hosts || true
 
       - name: Run Prisma Database Migrations / Schema Push
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-        run: pnpm --filter @sentinel/database db:push
+        run: |
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "cd /opt/sentinel/apps/worker && DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' npx prisma db push --accept-data-loss"
 
       - name: Deploy Dist Directories via Rsync
         run: |
