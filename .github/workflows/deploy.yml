@@ -54,11 +54,11 @@ jobs:
           rsync -avz --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
           rsync -avz --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
           rsync -avz --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
-          rsync -avz --delete packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
+          rsync -avz --delete --exclude=node_modules packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
 
       - name: Run Prisma Database Migrations / Schema Push
         run: |
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "export DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' && npx --package=prisma prisma db push --schema=/opt/sentinel/packages/database/prisma/schema.prisma --accept-data-loss"
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "cd /opt/sentinel/packages/database && export DATABASE_URL='postgresql://deji@localhost/sentinel?host=/var/run/postgresql' && npx --package=prisma prisma db push --accept-data-loss"
 
 #      - name: Restart Systemd Services
 #        run: |
