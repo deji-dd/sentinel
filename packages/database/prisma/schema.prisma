@@ -1,0 +1,490 @@
+// Prisma schema file for Sentinel v2 Database (Prisma 7 format)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "prisma"
+}
+
+model ApiKey {
+  id              String    @id @default(uuid())
+  userId          Int
+  apiKeyEncrypted String
+  apiKeyHash      String    @unique
+  keyType         String    @default("personal")
+  isValid         Boolean   @default(true)
+  invalidCount    Int       @default(0)
+  lastInvalidAt   DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([apiKeyHash])
+  @@index([isValid])
+  @@map("api_keys")
+}
+
+model Faction {
+  id            Int              @id // Faction ID e.g. 8795
+  name          String
+  tag           String?
+  tagImage      String?
+  leaderId      Int?
+  coLeaderId    Int?
+  respect       Int              @default(0)
+  capacity      Int              @default(0)
+  membersCount  Int              @default(0)
+  data          Json?
+  territories   TerritoryState[]
+  assaultedWars WarLedger[]      @relation("AssaultingFaction")
+  defendedWars  WarLedger[]      @relation("DefendingFaction")
+  victorWars    WarLedger[]      @relation("VictorFaction")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("factions")
+}
+
+model TerritoryBlueprint {
+  id        String          @id // Territory code e.g. "JCA"
+  sector    Int?
+  size      Int?
+  density   Int?
+  slots     Int?
+  data      Json
+  state     TerritoryState?
+  wars      WarLedger[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([sector])
+  @@map("territory_blueprints")
+}
+
+model WorkerSchedule {
+  id             String    @id // Worker name e.g. "torn_territory_blueprints_sync"
+  cadenceSeconds Int       @default(86400)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  forceRun       Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("worker_schedules")
+}
+
+model TerritoryState {
+  id        String              @id // Territory code e.g. "JCA"
+  factionId Int?
+  racket    Json?
+  isWarring Boolean             @default(false)
+  blueprint TerritoryBlueprint? @relation(fields: [id], references: [id])
+  faction   Faction?            @relation(fields: [factionId], references: [id])
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@index([factionId])
+  @@map("territory_states")
+}
+
+model WarLedger {
+  id                String              @id // War ID
+  tt                String              // Territory code e.g. "JCA"
+  assaultingFaction Int
+  defendingFaction  Int
+  victorFaction     Int?
+  startTime         DateTime
+  endTime           DateTime?
+  blueprint         TerritoryBlueprint? @relation(fields: [tt], references: [id])
+  assaulting        Faction?            @relation("AssaultingFaction", fields: [assaultingFaction], references: [id])
+  defending         Faction?            @relation("DefendingFaction", fields: [defendingFaction], references: [id])
+  victor            Faction?            @relation("VictorFaction", fields: [victorFaction], references: [id])
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([tt])
+  @@index([endTime])
+  @@index([assaultingFaction])
+  @@index([defendingFaction])
+  @@index([victorFaction])
+  @@map("war_ledgers")
+}
+
+model SystemState {
+  id        String   @id
+  init      Boolean  @default(false)
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_states")
+}
+
+model PersonalLog {
+  id        String   @id // Log ID as string
+  log       Int      // Log ID type code (e.g. 8100)
+  title     String?
+  timestamp DateTime
+  category  String?
+  data      Json     // Full raw log object
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([log])
+  @@index([timestamp])
+  @@map("personal_logs")
+}
+
+model GymLedger {
+  id         String   @id // PersonalLog ID
+  timestamp  DateTime
+  statType   String   // "strength" | "defense" | "speed" | "dexterity"
+  source     String   // "gym" | "item" | "book" | "company"
+  trains     Int?
+  energyUsed Int?
+  statGained Float
+  statBefore Float?
+  statAfter  Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([statType])
+  @@index([timestamp])
+  @@map("gym_ledgers")
+}
+
+model CrimeLog {
+  id        String   @id // PersonalLog ID
+  crimeId   Int      // Numeric Crime ID (1-13)
+  action    String   // e.g. "search_for_cash"
+  nerve     Int      @default(0)
+  value     Float    @default(0)
+  timestamp DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([crimeId])
+  @@index([timestamp])
+  @@map("crime_logs")
+}
+
+model CrimeActionMapping {
+  id        String   @id // Action string lowercase
+  crimeId   Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("crime_action_mappings")
+}
+
+model TornItem {
+  id        String   @id // Item ID
+  name      String?
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("torn_items")
+}
+
+model TornCrime {
+  id        String   @id // Crime ID
+  name      String?
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("torn_crimes")
+}
+
+model TornStock {
+  id        String   @id // Stock ID
+  name      String
+  acronym   String
+  market    Json?
+  bonus     Json?
+  images    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("torn_stocks")
+}
+
+model TornProperty {
+  id        String   @id // Property ID
+  name      String?
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("torn_properties")
+}
+
+model TornGym {
+  id        String   @id // Gym ID
+  name      String
+  stage     Int
+  cost      Int
+  energy    Int
+  strength  Float
+  speed     Float
+  defense   Float
+  dexterity Float
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("torn_gyms")
+}
+
+model TravelDestination {
+  id        String   @id // Country code e.g. "mex" or "haw"
+  name      String?
+  stocks    Json     // Array of TravelStock Objects with 12-hour history
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("travel_destinations")
+}
+
+model Asset {
+  id                String   @id // e.g. "item_50_inventory" or "uid_12345"
+  type              String   // "item" | "point" | "stock" | "property"
+  assetId           String   // e.g. "50"
+  quantity          Float    @default(0)
+  movingAverageCost Float    @default(0)
+  totalCostBasis    Float    @default(0)
+  location          String   // "inventory" | "bazaar" | "display" | "escrow"
+  owner             String   @default("personal")
+  origin            String?
+  realizedPnl       Float    @default(0)
+  lastUpdated       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([assetId])
+  @@index([location])
+  @@index([owner])
+  @@map("assets")
+}
+
+model LedgerEvent {
+  id              String   @id // e.g. "ledger_ev_123456"
+  logId           String?  // PersonalLog ID if originated from log
+  timestamp       DateTime
+  type            String   // "barter" | "market_buy" | "company_profit" | "stock_dividend" | "travel_buy" | "injection" | "loss"
+  categoryId      Int
+  transactionName String
+  assetsAffected  Json     // Array of { assetId, quantityChange, costBasisImpact }
+  cashFlow        Float    @default(0)
+  realizedPnl     Float    @default(0)
+  rawLog          Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([timestamp])
+  @@index([type])
+  @@index([categoryId])
+  @@map("ledger_events")
+}
+
+model CompanyDailyProfit {
+  id        String   @id
+  timestamp DateTime
+  inflow    Float
+  outflow   Float
+  profit    Float
+  profile   Json
+  employees Json
+  createdAt DateTime @default(now())
+
+  @@index([timestamp])
+  @@map("company_daily_profits")
+}
+
+model UserStock {
+  id           String   @id // Stock ID as string (e.g. "1")
+  shares       Int      @default(0)
+  transactions Json?
+  bonus        Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("user_stocks")
+}
+
+model StockLedger {
+  id        String   @id // PersonalLog ID
+  timestamp DateTime
+  stockId   Int
+  logType   Int
+  value     Float
+  itemId    Int?
+  createdAt DateTime @default(now())
+
+  @@index([stockId])
+  @@index([timestamp])
+  @@map("stock_ledgers")
+}
+
+model TravelAreaMapping {
+  id          Int      @id // Numeric Area ID (e.g. 1)
+  countryCode String   // e.g. "saf"
+  name        String   // e.g. "South Africa"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("travel_area_mappings")
+}
+
+model TravelPurchaseLog {
+  id          String   @id // PersonalLog ID
+  timestamp   DateTime
+  destination Int      // Area ID
+  itemId      Int
+  quantity    Int      @default(0)
+  costTotal   Float    @default(0)
+  marketValue Float    @default(0)
+  profit      Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([destination])
+  @@index([timestamp])
+  @@map("travel_purchase_logs")
+}
+
+model GuildConfig {
+  guildId               String               @id
+  logChannelId          String?
+  adminRoleIds          String[]
+  enabledModules        String[]
+  // Verification Settings
+  verifiedRoleIds       String[]
+  nicknameTemplate      String?              @default("[{tag}] {name} [{id}]")
+  verifyOnJoin          Boolean              @default(false)
+  verifyCron            Boolean              @default(false)
+  verifyCronInterval    Int                  @default(24)
+  lastVerifyCronAt      DateTime?
+  protectedRoleIds      String[]
+  factionListChannelId  String?
+  factionListMessageIds String[]
+
+  // Territory Module Settings
+  ttFullChannelId       String?
+  ttFilteredChannelId   String?
+  ttTerritoryIds        String[]             @default([])
+  ttFactionIds          Int[]                @default([])
+
+  apiKeys               GuildApiKey[]
+  factionRoleMappings   FactionRoleMapping[]
+  reactionRoleMessages  ReactionRoleMessage[]
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@map("guild_configs")
+}
+
+model ReactionRoleMessage {
+  id              String                @id @default(uuid())
+  guildId         String
+  guildConfig     GuildConfig           @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  title           String
+  channelId       String
+  messageId       String?               @unique
+  requiredRoleId  String?
+  mappings        ReactionRoleMapping[]
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([guildId])
+  @@index([messageId])
+  @@map("reaction_role_messages")
+}
+
+model ReactionRoleMapping {
+  id          String              @id @default(uuid())
+  messageId   String
+  message     ReactionRoleMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  emoji       String
+  roleId      String
+  description String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([messageId, emoji])
+  @@map("reaction_role_mappings")
+}
+
+model GuildApiKey {
+  id              String      @id @default(uuid())
+  guildId         String
+  guildConfig     GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  userId          Int?
+  apiKeyEncrypted String
+  apiKeyHash      String      @unique
+  providedBy      String?
+  isValid         Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([guildId])
+  @@index([apiKeyHash])
+  @@map("guild_api_keys")
+}
+
+model FactionRoleMapping {
+  id            String      @id @default(uuid())
+  guildId       String
+  guildConfig   GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  factionId     Int
+  factionName   String?
+  memberRoleIds String[]
+  leaderRoleIds String[]
+  enabled       Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([guildId])
+  @@index([factionId])
+  @@map("faction_role_mappings")
+}
+
+model VerifiedUser {
+  discordId  String   @id
+  tornId     Int
+  tornName   String
+  factionId  Int?
+  factionTag String?
+  updatedAt  DateTime @updatedAt
+
+  @@index([tornId])
+  @@index([factionId])
+  @@map("verified_users")
+}
+
+model VerificationLog {
+  id           String   @id @default(uuid())
+  guildId      String
+  discordId    String
+  status       String   // "success" | "failure"
+  triggeredBy  String   @default("user") // "user" | "admin" | "join" | "cron"
+  rolesAdded   String[]
+  rolesRemoved String[]
+  oldNickname  String?
+  newNickname  String?
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([guildId])
+  @@index([discordId])
+  @@index([createdAt])
+  @@map("verification_logs")
+}
+
+
+

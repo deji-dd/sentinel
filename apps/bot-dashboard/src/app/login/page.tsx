@@ -1,98 +1,118 @@
+import React from "react";
 import Image from "next/image";
-import { LoginButton } from "@/components/login-button";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { LegalSheet } from "@/components/legal-sheet";
 import { auth, signIn } from "@/auth";
 import { redirect } from "next/navigation";
+import { LegalModal } from "@/components/legal-modal";
+import { LoginSubmitButton } from "@/components/action-buttons";
+import { ShieldCheck, UserCheck, MapPin, Sliders } from "lucide-react";
 
 export default async function LoginPage() {
   const session = await auth();
 
-  // Redirect to dashboard if already logged in
   if (session?.user) {
     redirect("/");
   }
 
   return (
-    <div className="grid min-h-screen w-full lg:grid-cols-2">
-      {/* Left Panel: Branding & Atmosphere */}
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-zinc-50 dark:bg-zinc-950 p-10 text-zinc-900 dark:text-white lg:flex">
-        {/* Background Atmosphere */}
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-linear-to-br from-zinc-100 to-zinc-50 dark:from-zinc-900 dark:to-zinc-950" />
-          <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-blue-500/10 dark:bg-blue-600/20 blur-[120px]" />
-          <div className="absolute bottom-[-10%] right-[-10%] h-[500px] w-[500px] rounded-full bg-indigo-500/10 dark:bg-indigo-600/20 blur-[120px]" />
+    <div className="min-h-screen grid lg:grid-cols-2 bg-[#070a11] text-slate-100 font-sans">
+      {/* Left Panel - Cyber Branding & Feature Showcase */}
+      <div className="relative hidden lg:flex flex-col justify-between p-12 lg:p-16 bg-gradient-to-br from-[#0b1220] via-[#070a11] to-[#090e1a] border-r border-slate-800/80 overflow-hidden">
+        {/* Glow backdrop shapes */}
+        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-blue-600/10 blur-[120px] pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-purple-600/10 blur-[120px] pointer-events-none" />
 
-          {/* Subtle Grid overlay */}
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#00000005_1px,transparent_1px),linear-gradient(to_bottom,#00000005_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,#000_70%,transparent_100%)]" />
-        </div>
-
-        {/* Content Top */}
+        {/* Top Branding */}
         <div className="relative z-10 flex items-center gap-3">
-          <Image src="/logo.png" alt="Sentinel Logo" width={40} height={40} className="object-contain drop-shadow-sm dark:drop-shadow-md rounded-full" />
-          <span className="text-xl font-semibold tracking-tight">Sentinel</span>
+          <Image
+            src="/logo.png"
+            alt="Sentinel Logo"
+            width={36}
+            height={36}
+            className="object-contain rounded-full"
+          />
+          <div>
+            <span className="text-lg font-extrabold tracking-tight text-white block">
+              Sentinel
+            </span>
+
+          </div>
         </div>
 
-        {/* Content Bottom */}
-        <div className="relative z-10 space-y-6 max-w-lg">
-          <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none bg-clip-text text-transparent bg-linear-to-br from-zinc-900 to-zinc-600 dark:from-white dark:to-white/60">
-            Please
-          </h1>
-          <p className="text-lg text-zinc-600 dark:text-zinc-400">
-            Don&apos;t break it!          </p>
-
-          <div className="flex items-center gap-4 text-sm font-medium text-zinc-500">
-            <div className="flex items-center gap-2">
-              <div className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-              Systems Operational
-            </div>
-            <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-800" />
-            <span>v2.0.0-beta</span>
+        {/* Center Headline & Features */}
+        <div className="relative z-10 max-w-lg space-y-8 my-auto py-8">
+          <div className="space-y-3">
+            <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
+              Please
+            </h1>
+            <p className="text-slate-400 text-sm leading-relaxed">
+              try not to break it.            </p>
           </div>
+        </div>
+
+        {/* Footer Badge */}
+        <div className="relative z-10 flex items-center justify-between text-xs text-slate-500 pt-6 border-t border-slate-800/60">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-mono">Sentinel v2</span>
+          </div>
+          <span className="font-mono text-[11px]">Made by Blasted</span>
         </div>
       </div>
 
-      {/* Right Panel: Auth Form */}
-      <div className="relative flex flex-col justify-center p-8 sm:p-12 lg:p-16 xl:p-24 bg-background">
-        {/* Theme Toggle in top right */}
-        <div className="absolute right-4 top-4 md:right-8 md:top-8">
-          <ThemeToggle />
-        </div>
-
-        <div className="mx-auto flex w-full max-w-sm flex-col gap-8">
-          {/* Mobile Logo */}
-          <div className="flex lg:hidden items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
-              <Image src="/logo.png" alt="Sentinel Logo" width={24} height={24} className="object-contain" />
+      {/* Right Panel - Auth Action */}
+      <div className="flex flex-col justify-center items-center p-8 sm:p-12 lg:p-16 relative">
+        <div className="w-full max-w-md flex flex-col gap-8">
+          {/* Mobile Header Branding */}
+          <div className="flex lg:hidden items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center p-1.5 shadow-md">
+              <Image
+                src="/logo.png"
+                alt="Sentinel Logo"
+                width={36}
+                height={36}
+                className="object-contain"
+              />
             </div>
-            <span className="text-lg font-semibold tracking-tight">Sentinel</span>
+            <div>
+              <span className="text-lg font-extrabold tracking-tight text-white block">
+                Sentinel
+              </span>
+              <span className="text-[10px] font-mono text-slate-400 block -mt-1">
+                Command Dashboard
+              </span>
+            </div>
           </div>
 
-          <div className="flex flex-col space-y-2 text-center lg:text-left">
-            <h2 className="text-3xl font-semibold tracking-tight">Welcome back</h2>
-            <p className="text-sm text-muted-foreground">
-              Sign in with your Discord account to access the Sentinel dashboard.
+          <div className="space-y-2 text-left">
+            <h2 className="text-3xl font-extrabold tracking-tight text-white">
+              Welcome Back
+            </h2>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              Sign in with Discord to access your authorized server configuration panels.
             </p>
           </div>
 
-          <div className="flex flex-col gap-4">
+          <div className="p-6 rounded-3xl bg-[#0c111d] border border-slate-800/80 shadow-2xl space-y-6">
+            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+              <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0" />
+              <span>OAuth2 login requests read-only guild list permissions to identify shared servers.</span>
+            </div>
+
             <form
               action={async () => {
                 "use server";
                 await signIn("discord");
               }}
             >
-              <LoginButton />
+              <LoginSubmitButton />
             </form>
           </div>
 
-          <p className="px-8 text-center text-sm text-muted-foreground lg:px-0 lg:text-left">
-            By clicking continue, you agree to our{" "}
-            <LegalSheet type="tos">Terms of Service</LegalSheet>
-            {" "}and{" "}
-            <LegalSheet type="privacy">Privacy Policy</LegalSheet>
-            .
-          </p>
+          <div className="text-xs text-slate-500 text-center leading-relaxed">
+            By signing in, you agree to the Sentinel{" "}
+            <LegalModal type="tos">Terms of Service</LegalModal> and{" "}
+            <LegalModal type="privacy">Privacy Policy</LegalModal>.
+          </div>
         </div>
       </div>
     </div>

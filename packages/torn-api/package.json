@@ -1,0 +1,23 @@
+{
+  "name": "@sentinel/torn-api",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "generate-types": "openapi-typescript https://www.torn.com/swagger/openapi.json -o src/torn-api.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3"
+  }
+}

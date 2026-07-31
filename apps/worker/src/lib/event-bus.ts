@@ -1,18 +1,20 @@
 import { EventEmitter } from "events";
-import type { TornSchema } from "@sentinel/shared";
 
-// Strongly type the event emitter
-interface WorkerEvents {
-  reinit_ledger: (ledger: string) => void;
+/**
+ * Strongly-typed event signatures for Worker V2 inter-module communication.
+ */
+export type WorkerEvents = {
+  new_log: (log: any) => void;
   settings_updated: () => void;
+  reinit_ledger: (ledger: string) => void;
   wealth_init: () => void;
-  wealth_heal: () => void;
-
-  new_log: (log: TornSchema<"UserLog">) => void;
   log_backfill_completed: () => void;
-  company_pay_received: () => void;
   live_state_updated: () => void;
-}
+  company_pay_received: () => void;
+  key_invalidated: (apiKey: string, userId: number) => void;
+};
+
+type EventListener = (...args: unknown[]) => void;
 
 class TypedEventEmitter extends EventEmitter {
   public emit<K extends keyof WorkerEvents>(
@@ -26,21 +28,25 @@ class TypedEventEmitter extends EventEmitter {
     eventName: K,
     listener: WorkerEvents[K],
   ): this {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return super.on(eventName, listener as any);
+    return super.on(eventName, listener as EventListener);
   }
 
   public once<K extends keyof WorkerEvents>(
     eventName: K,
     listener: WorkerEvents[K],
   ): this {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return super.once(eventName, listener as any);
+    return super.once(eventName, listener as EventListener);
+  }
+
+  public off<K extends keyof WorkerEvents>(
+    eventName: K,
+    listener: WorkerEvents[K],
+  ): this {
+    return super.off(eventName, listener as EventListener);
   }
 }
 
 /**
- * Global internal event bus for the Worker process.
- * Used for zero-latency Pub/Sub communication between child workers.
+ * Global in-process event bus for Worker V2 modules.
  */
 export const workerEvents = new TypedEventEmitter();

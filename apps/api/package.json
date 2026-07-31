@@ -1,26 +1,28 @@
 {
   "name": "@sentinel/api",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Sentinel Fastify API Gateway",
-  "main": "dist/index.js",
   "type": "module",
+  "main": "./dist/index.cjs",
   "scripts": {
-    "dev": "NODE_ENV=development tsx watch --env-file=.env src/index.ts _app=sentinel-api",
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/index.js _app=sentinel-api",
-    "lint": "eslint src/"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format cjs --minify --clean --out-dir dist",
+    "start": "node dist/index.cjs"
   },
   "dependencies": {
-    "@fastify/cors": "^11.3.0",
-    "@fastify/websocket": "^11.3.0",
-    "@sentinel/shared": "workspace:*",
-    "fastify": "^5.10.0",
-    "zod": "^3.23.8"
+    "@fastify/cors": "^10.0.2",
+    "@sentinel/database": "workspace:*",
+    "@sentinel/schemas": "workspace:*",
+    "@sentinel/torn-api": "workspace:*",
+    "@sentinel/torn-api-manager": "workspace:*",
+    "@sentinel/utils": "workspace:*",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "tsx": "^4",
-    "typescript": "^5"
+    "@types/node": "^22.13.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
   }
 }

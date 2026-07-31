@@ -1,26 +1,20 @@
-import { executeSync } from "../../lib/sync.js";
-import { Logger } from "@sentinel/shared";
+import { Logger } from "@sentinel/utils";
+import { db, type Prisma } from "@sentinel/database";
+import { type TornSchema } from "@sentinel/torn-api";
+import {
+  tornApiManager,
+  getSystemKeyPool,
+} from "@sentinel/torn-api-manager";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
-import { tornApi, getSystemKeyPool } from "@sentinel/shared";
-import { TerritoryBlueprints, WorkerSchedules } from "@sentinel/shared";
-import type { TornSchema } from "@sentinel/shared";
+import type { WorkerStartOptions } from "../registry.js";
 
-const WORKER_NAME = "tt_sync";
+const WORKER_NAME = "torn_territory_blueprints_sync";
 const logger = new Logger(WORKER_NAME);
 
-/**
- * Represents a strictly typed, single territory blueprint object extracted
- * natively from the Torn OpenAPI schema response.
- */
 type SingleTerritory = TornSchema<"TornTerritory">;
 
 /**
- * Calculates the epoch timestamp for the next execution target.
- * Enforces a strict daily cadence by targeting the next upcoming 03:00 UTC.
- * If the worker has missed a 24-hour window, it returns the current timestamp
- * to trigger an immediate catch-up sync.
- * * @param {number | null} lastRunAt - The epoch ms of the last successful execution, or null if never run.
- * @returns {number} The target epoch timestamp in milliseconds for the next execution.
+ * Calculates the target epoch timestamp for the next upcoming 03:00 UTC execution.
  */
 function getNext0300UtcTimestamp(lastRunAt: number | null): number {
   const now = Date.now();
@@ -32,118 +26,95 @@ function getNext0300UtcTimestamp(lastRunAt: number | null): number {
 }
 
 /**
- * Core extraction and transformation engine for territory blueprints.
- * Rapidly paginates through the Torn API using a rotating system key pool,
- * fetching the static geographic and structural data (sizes, coordinates, neighbors)
- * for all ~4,108 territories simultaneously.
- * * Executes a bulk NoSQL upsert to mirror the state locally and automatically
- * recalculates its own schedule to align with the next 03:00 UTC.
- * * @throws {Error} Rethrows network or API errors to the parent scheduler to initiate a safe sleep cycle.
- * @returns {Promise<void>} Resolves when the transaction is successfully committed to the database.
+ * Core extraction and bulk dump engine for territory blueprints.
+ * Fetches system API keys and executes multi-key parallel batch requests across offsets.
  */
-async function fetchAndDumpBlueprints(): Promise<void> {
+async function fetchAndDumpBlueprints(): Promise<number> {
   const finishLog = logger.time();
 
   try {
-    // 1. Initialize API key rotator for parallel execution
-    const keys = getSystemKeyPool();
-    let keyIndex = 0;
-    const getKey = () => keys[keyIndex++ % keys.length];
+    // 1. Fetch system key pool
+    const keys = await getSystemKeyPool();
+    logger.info(`${keys.length} API keys in key pool.`);
 
     const limit = 250;
-    const estimatedTotal = 4500; // ~4,108 territories exist, padding to 4,500 guarantees coverage
+    const estimatedTotal = 4500;
     const pageCount = Math.ceil(estimatedTotal / limit);
     const offsets = Array.from({ length: pageCount }, (_, i) => i * limit);
 
-    // 2. Execute massive parallel fetch
-    const responses = await Promise.all(
-      offsets.map(
-        (offset) =>
-          tornApi.get("/torn/territory", {
-            apiKey: getKey(),
-            queryParams: { offset, limit },
-          }) as Promise<TornSchema<"TornTerritoriesResponse">>,
-      ),
-    );
+    // 2. Execute parallel batch requests across all offsets using key pool & rate limiter
+    const responses = (await tornApiManager.executeBatch(
+      "/torn/territory",
+      offsets,
+      keys,
+      (offset) => ({ queryParams: { offset, limit } }),
+    )) as TornSchema<"TornTerritoriesResponse">[];
 
-    // 3. Flatten the array of responses into a single array of territories
     const territories: SingleTerritory[] = responses.flatMap(
       (res) => res.territory || [],
     );
 
     if (territories.length === 0) {
       logger.warn("Received empty territories response from Torn API.");
-      return;
+      return getNext0300UtcTimestamp(Date.now());
     }
 
-    // 4. Map to NoSQL where ID = Territory Name (e.g., 'JCA')
-    const docsToUpsert = territories.map((tt) => ({
-      id: tt.id,
-      data: tt,
-    }));
+    logger.info(
+      `Fetched ${territories.length} territory blueprints across ${offsets.length} parallel requests. Dumping to PostgreSQL...`,
+    );
 
-    if (docsToUpsert.length > 0) {
-      TerritoryBlueprints.insertMany(docsToUpsert);
-    }
-
-    // 5. Self-Heal Schedule
-    const schedule = WorkerSchedules.findOne(WORKER_NAME);
-    if (schedule) {
-      const next3AM = getNext0300UtcTimestamp(Date.now());
-      schedule.cadence_seconds = Math.max(
-        60,
-        Math.floor((next3AM - Date.now()) / 1000),
+    // 3. Bulk database transaction in chunks of 500
+    const chunkSize = 500;
+    for (let i = 0; i < territories.length; i += chunkSize) {
+      const chunk = territories.slice(i, i + chunkSize);
+      await db.$transaction(
+        chunk.map((tt) => {
+          const jsonData = tt as unknown as Prisma.InputJsonValue;
+          return db.territoryBlueprint.upsert({
+            where: { id: tt.id },
+            update: {
+              sector: tt.sector,
+              size: tt.size,
+              density: tt.density,
+              slots: tt.slots,
+              data: jsonData,
+              updatedAt: new Date(),
+            },
+            create: {
+              id: tt.id,
+              sector: tt.sector,
+              size: tt.size,
+              density: tt.density,
+              slots: tt.slots,
+              data: jsonData,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+        }),
       );
-      WorkerSchedules.insertOne(schedule);
     }
 
     finishLog();
+
+    // 4. Return target next run timestamp (03:00 UTC)
+    return getNext0300UtcTimestamp(Date.now());
   } catch (error) {
-    logger.error("Failed to sync territory blueprints", error);
+    logger.error("Failed to sync territory blueprints:", error);
     throw error;
   }
 }
 
 /**
- * Initializes and boots the territory blueprint background worker.
- * Employs self-healing schedule logic on startup: if no schedule exists or if
- * the server was offline and missed a daily sync, it forces an immediate run.
- * Otherwise, it seamlessly attaches to the event-driven loop and sleeps until 03:00 UTC.
+ * Initializes and starts the territory blueprint worker.
  */
-import type { WorkerStartOptions } from "../registry.js";
-
-export function startTerritoryBlueprintSync(options?: WorkerStartOptions): void {
-  // Pre-initialize the schedule if it doesn't exist to force the 03:00 UTC alignment
-  let schedule = WorkerSchedules.findOne(WORKER_NAME);
-
-  if (!schedule) {
-    const nextRunMs = getNext0300UtcTimestamp(null);
-
-    WorkerSchedules.insertOne({
-      id: WORKER_NAME,
-      cadence_seconds: 86400,
-      next_run_at: nextRunMs,
-      last_run_at: null,
-      force_run: false,
-    });
-  } else {
-    // Check if the server was offline and we missed a day
-    const targetRun = getNext0300UtcTimestamp(schedule.last_run_at);
-    if (targetRun <= Date.now()) {
-      schedule.next_run_at = Date.now();
-      WorkerSchedules.insertOne(schedule);
-    }
-  }
-
+export function startTerritoryBlueprintSync(
+  options?: WorkerStartOptions,
+): void {
   startEventDrivenRunner({
     worker: WORKER_NAME,
     defaultCadenceSeconds: 86400,
     initialDelayMs: options?.initialDelayMs,
-    handler: async () =>
-      await executeSync({
-        name: WORKER_NAME,
-        timeout: 300000,
-        handler: fetchAndDumpBlueprints,
-      }),
+    handler: fetchAndDumpBlueprints,
   });
 }

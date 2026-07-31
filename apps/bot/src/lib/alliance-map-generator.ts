@@ -1,31 +1,27 @@
 import { readFileSync, existsSync } from "fs";
+import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { dirname, join, resolve } from "path";
 import sharp from "sharp";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+function getDirname(): string {
+  try {
+    if (typeof import.meta?.url === "string" && import.meta.url.startsWith("file:")) {
+      return dirname(fileURLToPath(import.meta.url));
+    }
+  } catch {}
+  return typeof __dirname !== "undefined" ? __dirname : process.cwd();
+}
 
 function resolveSvgPath(): string {
-  const candidates = [
-    join(__dirname, "../assets/torn-territory-map.svg"),
-    join(__dirname, "../../src/assets/torn-territory-map.svg"),
-    join(__dirname, "../../assets/torn-territory-map.svg"),
-    join(process.cwd(), "apps/bot/src/assets/torn-territory-map.svg"),
-    join(process.cwd(), "apps/bot/dist/assets/torn-territory-map.svg"),
-    join(process.cwd(), "src/assets/torn-territory-map.svg"),
-    join(process.cwd(), "dist/assets/torn-territory-map.svg"),
-    resolve(__dirname, "../../../../apps/bot/src/assets/torn-territory-map.svg"),
-    resolve(__dirname, "../../../../apps/bot-dashboard/public/torn-territory-map.svg"),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
+  const targetPath = join(process.cwd(), "apps/bot/src/assets/torn-territory-map.svg");
+  if (existsSync(targetPath)) {
+    return targetPath;
   }
-
-  return join(__dirname, "../assets/torn-territory-map.svg");
+  const fallbackPath = resolve(getDirname(), "../assets/torn-territory-map.svg");
+  if (existsSync(fallbackPath)) {
+    return fallbackPath;
+  }
+  throw new Error(`CRITICAL: SVG map file not found at ${targetPath}`);
 }
 
 const SVG_PATH = resolveSvgPath();

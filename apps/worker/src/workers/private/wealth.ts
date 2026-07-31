@@ -1,683 +1,80 @@
-import {
-  TornSchema,
-  Assets,
-  LedgerEvents,
-  AssetDocument,
-  TornItems,
-  PersonalLogs,
-  TornItemDocument,
-  Logger,
-  tornApi,
-  getWorkerApiKey,
-  AssetLocation,
-  CashHistory,
-  SystemState,
-  ApiKeyRotator,
-  LogRouteMap,
-  StrictUserLog,
-  LedgerEventType,
-  TransformationSinkData,
-  LogDataRegistry,
-  StandardCashData,
-  UserState,
-  UserStateDocument,
-  CompanyDailyProfits,
-  SystemStateDocument,
-} from "@sentinel/shared";
-import { randomUUID } from "crypto";
+import { Logger } from "@sentinel/utils";
+import { db } from "@sentinel/database";
+import { type TornSchema } from "@sentinel/torn-api";
 import { workerEvents } from "../../lib/event-bus.js";
-import { runSequentialInit } from "../../lib/init-queue.js";
 import type { WorkerStartOptions } from "../registry.js";
 
 const WORKER_NAME = "wealth_module";
 const logger = new Logger(WORKER_NAME);
 
-// --- V2 ANCHOR SHIELD ---
+type UserLog = TornSchema<"UserLog">;
+
 let cachedAnchorTimestamp: number | null = null;
 
-function getAnchorTimestamp(): number | null {
+async function getAnchorTimestamp(): Promise<number | null> {
   if (cachedAnchorTimestamp) return cachedAnchorTimestamp;
 
-  const state = SystemState.findOne("wealth_ledger_v2_init") as {
-    init: boolean;
-    timestamp: number;
-  };
+  const state = await db.systemState.findUnique({
+    where: { id: "wealth_ledger_init" },
+  });
 
   if (state && state.init) {
-    cachedAnchorTimestamp = state.timestamp;
+    cachedAnchorTimestamp = Math.floor(state.createdAt.getTime() / 1000);
     return cachedAnchorTimestamp;
   }
 
   return null;
 }
 
-// Reusable guard clause for all parsers
-function isLogValidForWealth(logTimestamp: number): boolean {
-  const anchor = getAnchorTimestamp();
-  if (!anchor) return false; // Ledger not initialized yet
-  if (logTimestamp < anchor) return false; // Historical log from before installation
+async function isLogValidForWealth(logTimestamp: number): Promise<boolean> {
+  const anchor = await getAnchorTimestamp();
+  if (!anchor) return false;
+  if (logTimestamp < anchor) return false;
   return true;
 }
 
-// --- Barter ---
-function parseBarterTrade(log: StrictUserLog<4430>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
+function extractItemsFromLogData(data: Record<string, any>): { id: string | number; qty: number; uid?: number | null }[] {
+  const items: { id: string | number; qty: number; uid?: number | null }[] = [];
+  if (!data) return items;
 
-  const data = log.data;
-  const tradeId = data.parsed_trade_id;
-
-  if (!tradeId) return;
-
-  const tradeLogs = PersonalLogs.find({
-    "data.parsed_trade_id": tradeId,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  let outgoingMoney = 0;
-  let incomingMoney = 0;
-  const outgoingItems: {
-    id: string | number;
-    qty: number;
-    uid?: number | null;
-  }[] = [];
-  const incomingItems: {
-    id: string | number;
-    qty: number;
-    uid?: number | null;
-  }[] = [];
-
-  // --- V2 COMPLEX ASSET GUARD ---
-  let requiresManualReview = false;
-  let reviewReason = "";
-
-  for (const tlog of tradeLogs) {
-    const tData = tlog.data;
-    const tId = tlog.details?.id;
-
-    if (tId === 4440) outgoingMoney += tData.money || 0;
-    if (tId === 4441) incomingMoney += tData.money || 0;
-
-    // FIXED: 4445 is Outgoing, 4446 is Incoming
-    if (tId === 4445) outgoingItems.push(...extractItemsFromLogData(tData));
-    if (tId === 4446) incomingItems.push(...extractItemsFromLogData(tData));
-
-    // GUARD: Properties (4450/4451), Companies (4475/4476)
-    if (tId && [4450, 4451, 4475, 4476].includes(Number(tId))) {
-      requiresManualReview = true;
-      reviewReason = `Log ID ${tId}`;
-    }
-  }
-
-  // --- HALT & FLAG FOR MANUAL REVIEW ---
-  if (requiresManualReview) {
-    logger.warn(
-      `Barter ${tradeId} flagged for manual review due to complex assets (${reviewReason}).`,
-    );
-
-    // We insert a zero-impact ledger event with a flagged title so it shows up in your UI
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      timestamp: log.timestamp,
-      type: "barter",
-      category_id: 6,
-      transaction_name: "Barter Trade (MANUAL REVIEW REQUIRED)",
-      assets_affected: [],
-      cash_flow: 0,
-      realized_pnl: 0,
-      raw_log: log,
-    });
-
-    return; // Safely abort the cost-basis distribution
-  }
-
-  // --- STANDARD COST-BASIS DISTRIBUTION ---
-  let totalOutgoingCostBasis = outgoingMoney;
-  const assetsAffected: {
-    asset_id: string | number;
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
-
-  for (const item of outgoingItems) {
-    const isUid = !!(item.uid && typeof item.uid !== "boolean");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = isUid
-      ? { id: `uid_${item.uid}`, owner: "personal" }
-      : { asset_id: item.id, owner: "personal" };
-
-    const existingAssets = Assets.find(query);
-    if (existingAssets.length > 0) {
-      let assetDoc: AssetDocument;
-      if (!isUid) {
-        const escrowDoc = existingAssets.find(
-          (a: AssetDocument) =>
-            a.location === "escrow" && !a.id.startsWith("uid_"),
-        );
-        const invDoc = existingAssets.find(
-          (a: AssetDocument) => !a.id.startsWith("uid_"),
-        );
-        assetDoc = escrowDoc || invDoc || existingAssets[0];
-      } else {
-        assetDoc = existingAssets[0];
+  if (data.items && Array.isArray(data.items)) {
+    for (const it of data.items) {
+      if (it && (it.id || it.item)) {
+        items.push({
+          id: it.id || it.item,
+          qty: Number(it.quantity || it.qty || it.amount || 1),
+          uid: it.uid ? Number(it.uid) : null,
+        });
       }
-
-      const mac = assetDoc.moving_average_cost;
-      const burnedCost = mac * item.qty;
-      totalOutgoingCostBasis += burnedCost;
-
-      assetDoc.quantity = Math.max(0, assetDoc.quantity - item.qty);
-      assetDoc.total_cost_basis = assetDoc.quantity * mac;
-      assetDoc.last_updated = Date.now();
-      Assets.update(assetDoc);
-
-      assetsAffected.push({
-        asset_id: item.id,
-        quantity_change: -item.qty,
-        cost_basis_impact: -burnedCost,
-      });
     }
-  }
-
-  let totalSystemValue = 0;
-  const incomingWeighted = incomingItems.map((item) => {
-    let sysVal = 0;
-
-    if (item.id === "points") {
-      // Fetch the dynamic points market average from the daily reference sync
-      const pointState = SystemState.findOne("points_price") as
-        | { price: number }
-        | undefined;
-      sysVal = pointState?.price || 30000;
-    } else {
-      const itemRecord = TornItems.findOne(
-        item.id.toString(),
-      ) as TornItemDocument;
-      sysVal = itemRecord?.data?.value?.market_price || 0;
-    }
-
-    const itemTotalValue = sysVal * item.qty;
-    totalSystemValue += itemTotalValue;
-
-    return { ...item, sysVal, itemTotalValue };
-  });
-
-  for (const item of incomingWeighted) {
-    const weight =
-      totalSystemValue > 0
-        ? item.itemTotalValue / totalSystemValue
-        : 1 / incomingWeighted.length;
-    const assignedCostBasis = totalOutgoingCostBasis * weight;
-
-    const isUid = !!(item.uid && typeof item.uid !== "boolean");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = isUid
-      ? { id: `uid_${item.uid}`, owner: "personal" }
-      : { asset_id: item.id, location: "inventory", owner: "personal" };
-
-    const existingAssets = Assets.find(query);
-    let assetDoc: AssetDocument;
-
-    if (existingAssets.length > 0) {
-      if (!isUid) {
-        const fungible = existingAssets.find(
-          (a: AssetDocument) => !a.id.startsWith("uid_"),
-        );
-        assetDoc = fungible || existingAssets[0];
-      } else {
-        assetDoc = existingAssets[0];
+  } else if (data.item && Array.isArray(data.item)) {
+    for (const it of data.item) {
+      if (it && (it.id || it.item)) {
+        items.push({
+          id: it.id || it.item,
+          qty: Number(it.quantity || it.qty || it.amount || 1),
+          uid: it.uid ? Number(it.uid) : null,
+        });
       }
-    } else {
-      assetDoc = {
-        id: isUid
-          ? `uid_${item.uid}`
-          : `item_${item.id}_inventory_${randomUUID()}`,
-        type: item.id === "points" ? "point" : "item",
-        asset_id: item.id,
-        quantity: 0,
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: "inventory",
-        owner: "personal",
-        origin: "barter",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-      Assets.insertOne(assetDoc);
     }
-
-    assetDoc.quantity += item.qty;
-    assetDoc.total_cost_basis += assignedCostBasis;
-    assetDoc.moving_average_cost =
-      assetDoc.total_cost_basis / assetDoc.quantity;
-    assetDoc.last_updated = Date.now();
-    Assets.update(assetDoc);
-
-    assetsAffected.push({
-      asset_id: item.id,
-      quantity_change: item.qty,
-      cost_basis_impact: assignedCostBasis,
-    });
+  } else if (data.item && typeof data.item === "object") {
+    for (const [itemId, qty] of Object.entries(data.item)) {
+      items.push({ id: itemId, qty: Number(qty || 1) });
+    }
+  } else if (typeof data.item === "number") {
+    items.push({ id: data.item, qty: Number(data.quantity || 1) });
   }
 
-  const netCashFlow = incomingMoney - outgoingMoney;
-
-  if (assetsAffected.length > 0 || netCashFlow !== 0) {
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      timestamp: log.timestamp,
-      type: "barter",
-      category_id: 6,
-      transaction_name: "Barter Trade",
-      assets_affected: assetsAffected,
-      cash_flow: netCashFlow,
-      realized_pnl: 0,
-      raw_log: log,
-    });
+  if (data.points && typeof data.points === "number") {
+    items.push({ id: "points", qty: data.points });
   }
+
+  return items;
 }
 
-// --- Company Profit ---
-function parseCompanyProfitLog(log: StrictUserLog<6222>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
-
-  // --- V2 RECENCY GUARD ---
-  // Only ring the alarm for logs that occurred after 00:00 UTC today
-  const now = new Date();
-  const startOfDayUtc = Math.floor(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000,
-  );
-
-  if (log.timestamp < startOfDayUtc) return;
-
-  // Ring the alarm clock on the event bus
-  workerEvents.emit("company_pay_received");
-}
-
-// --- Employee Profit ---
-function parseEmployeeProfitLog(log: StrictUserLog<6221>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
-
-  const pay = log.data.pay;
-
-  // If your company doesn't pay you, there is no wealth impact
-  if (!pay || pay <= 0) return;
-
-  LedgerEvents.insertOne({
-    id: `ledger_ev_${log.id}`,
-    log_id: log.id,
-    timestamp: log.timestamp,
-    type: "injection",
-    category_id: 9, // Category 9 matches Equities & Companies
-    transaction_name: "Company Employee Wage",
-    assets_affected: [],
-    cash_flow: pay,
-    realized_pnl: pay, // Pure profit directly into your net worth
-    raw_log: log,
-  });
-}
-
-// --- Equities ---
-type EquityLogIds =
-  | 5510
-  | 5511
-  | 5927
-  | 5928
-  | 5920
-  | 5900
-  | 6280
-  | 6300
-  | 6284
-  | 6285
-  | 6290
-  | 6291
-  | 6292;
-
-function parseEquityProperty(log: StrictUserLog<EquityLogIds>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
-
-  const logId = log.details.id;
-
-  let cashFlow = 0;
-  let realizedPnl = 0;
-  const assetsAffected: {
-    asset_id: string | number;
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
-
-  // 1. Strict Intent Mapping
-  const isBuy = [5510, 5927, 6280].includes(logId);
-  const isSell = [5511, 5928, 6300].includes(logId);
-  const isUpkeep = [5920, 5900, 6290, 6291, 6292].includes(logId);
-  const isTransfer = [6284, 6285].includes(logId);
-
-  // 2. Data Extraction Dictionary
-  let assetType: "stock" | "property" | "company";
-  let assetId: string = "";
-  let qty = 1;
-  let cost = 0;
-
-  if ([5510, 5511].includes(logId)) {
-    const data = log.data as LogDataRegistry[5510 | 5511];
-    assetType = "stock";
-    assetId = `stock_${data.stock}`;
-    qty = data.amount || 1;
-
-    // Deduct fees on sale to calculate accurate Net Cash Flow
-    const fees = data.fees || 0;
-    cost = isSell ? data.worth - fees : data.worth;
-
-    if (isSell && data.profit !== undefined) realizedPnl += data.profit;
-  } else if ([5927, 5928, 5920, 5900].includes(logId)) {
-    const data = log.data as LogDataRegistry[5927 | 5928 | 5920 | 5900];
-    assetType = "property";
-    assetId = `property_${data.property || data.property_id}`;
-    qty = 1;
-    cost = data.cost || data.upkeep_paid || 0;
-  } else {
-    const data = log.data as LogDataRegistry[
-      | 6280
-      | 6300
-      | 6284
-      | 6285
-      | 6290
-      | 6291
-      | 6292];
-    assetType = "company";
-    assetId = `company_${data.company}`;
-    qty = 1;
-    cost =
-      data.cost || data.deposited || data.withdrawn || data.sale_value || 0;
-  }
-
-  if (!assetId || assetId.includes("undefined")) return;
-
-  // 3. Financial Logic (Unchanged and mathematically sound)
-  if (isUpkeep) {
-    cashFlow -= cost;
-    realizedPnl -= cost;
-  } else if (isTransfer) {
-    // 6284 is Deposit (Cash flows OUT of wallet), 6285 is Withdraw (Cash flows IN)
-    cashFlow = logId === 6285 ? cost : -cost;
-    assetsAffected.push({
-      asset_id: assetId,
-      quantity_change: 0,
-      cost_basis_impact: -cashFlow,
-    });
-  } else if (isBuy) {
-    cashFlow -= cost;
-
-    const existingAssets = Assets.find({
-      asset_id: assetId,
-      owner: "personal",
-    });
-    let assetDoc: AssetDocument =
-      existingAssets.length > 0
-        ? existingAssets[0]
-        : {
-            id: `equity_${assetId}_${randomUUID()}`,
-            type: assetType,
-            asset_id: assetId,
-            quantity: 0,
-            moving_average_cost: 0,
-            total_cost_basis: 0,
-            location: "portfolio",
-            owner: "personal",
-            origin: "purchase",
-            realized_pnl: 0,
-            last_updated: Date.now(),
-          };
-
-    if (existingAssets.length === 0) Assets.insertOne(assetDoc);
-
-    const oldTotalCost = assetDoc.total_cost_basis;
-    assetDoc.quantity += qty;
-    assetDoc.total_cost_basis = oldTotalCost + cost;
-    assetDoc.moving_average_cost =
-      assetDoc.total_cost_basis / assetDoc.quantity;
-    assetDoc.last_updated = Date.now();
-
-    Assets.update(assetDoc);
-
-    assetsAffected.push({
-      asset_id: assetId,
-      quantity_change: qty,
-      cost_basis_impact: cost,
-    });
-  } else if (isSell) {
-    const data = log.data as LogDataRegistry[5511 | 5928 | 6300];
-    const profit =
-      "profit" in data && typeof data.profit === "number"
-        ? data.profit
-        : undefined;
-    cashFlow += cost;
-
-    const existingAssets = Assets.find({
-      asset_id: assetId,
-      owner: "personal",
-    });
-    if (existingAssets.length > 0) {
-      const assetDoc = existingAssets[0];
-      const mac = assetDoc.moving_average_cost;
-
-      let calculatedProfit = 0;
-      if (profit === undefined) {
-        const costBasis = mac * qty;
-        calculatedProfit = cost - costBasis;
-        realizedPnl += calculatedProfit;
-      }
-
-      assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
-      assetDoc.total_cost_basis = assetDoc.quantity * mac;
-      assetDoc.realized_pnl =
-        (assetDoc.realized_pnl || 0) +
-        (profit !== undefined ? profit : calculatedProfit);
-      assetDoc.last_updated = Date.now();
-
-      Assets.update(assetDoc);
-
-      assetsAffected.push({
-        asset_id: assetId,
-        quantity_change: -qty,
-        cost_basis_impact: -(mac * qty),
-      });
-    } else {
-      if (profit === undefined) realizedPnl += cost;
-    }
-  }
-
-  if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
-    let eventType: LedgerEventType = isBuy
-      ? "purchase"
-      : isSell
-        ? "sale"
-        : "loss";
-    if (isTransfer) eventType = "storage_transfer";
-
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      log_type: log.details.id, // <-- V2 Tweak Included
-      timestamp: log.timestamp,
-      type: eventType,
-      category_id: 9,
-      transaction_name: "Equity/Property Transaction",
-      assets_affected: assetsAffected,
-      cash_flow: cashFlow,
-      realized_pnl: realizedPnl,
-      raw_log: log,
-    });
-  }
-}
-
-// --- Faction ---
-function parseFactionLiability(log: StrictUserLog<6746 | 6747 | 6728>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
-
-  const data = log.data;
-  const logId = log.details.id;
-
-  const items = extractItemsFromLogData(data);
-  const assetsAffected: {
-    asset_id: string | number;
-    uid?: number | string; // <-- Added UID tracking
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
-
-  for (const item of items) {
-    const isUid = !!(item.uid && typeof item.uid !== "boolean");
-    const assetIdQuery = isUid
-      ? { id: `uid_${item.uid}` }
-      : { asset_id: item.id };
-
-    // --- LOAN RECEIVE (6746) ---
-    if (logId === 6746) {
-      const owner: "faction" | "personal" = "faction";
-      const query = { ...assetIdQuery, owner };
-      const existingAssets = Assets.find(query);
-      let assetDoc: AssetDocument;
-
-      if (existingAssets.length > 0) {
-        assetDoc = isUid
-          ? existingAssets[0]
-          : existingAssets.find(
-              (a: AssetDocument) => !a.id.startsWith("uid_"),
-            ) || existingAssets[0];
-      } else {
-        assetDoc = {
-          id: isUid
-            ? `uid_${item.uid}`
-            : `item_${item.id}_inventory_${randomUUID()}`,
-          type: "item",
-          asset_id: item.id,
-          quantity: 0,
-          moving_average_cost: 0,
-          total_cost_basis: 0,
-          location: "inventory",
-          owner: "faction",
-          origin: "faction_loan",
-          realized_pnl: 0,
-          last_updated: Date.now(),
-        };
-        Assets.insertOne(assetDoc);
-      }
-
-      assetDoc.quantity += item.qty;
-      assetDoc.last_updated = Date.now();
-      Assets.update(assetDoc);
-
-      assetsAffected.push({
-        asset_id: item.id,
-        uid: item.uid || undefined,
-        quantity_change: item.qty,
-        cost_basis_impact: 0, // Zero cost basis for borrowed items
-      });
-    }
-
-    // --- LOAN RETURN (6747) OR DEPOSIT (6728) ---
-    else if (logId === 6747 || logId === 6728) {
-      let remainingToBurn = item.qty;
-
-      // Step 1: Drain Faction-Owned Assets First
-      const factionOwner: "faction" | "personal" = "faction";
-      const factionQuery = { ...assetIdQuery, owner: factionOwner };
-      const factionAssets = Assets.find(factionQuery);
-
-      if (factionAssets.length > 0) {
-        let assetDoc: AssetDocument = isUid
-          ? factionAssets[0]
-          : factionAssets.find(
-              (a: AssetDocument) => !a.id.startsWith("uid_"),
-            ) || factionAssets[0];
-
-        const burnQty = Math.min(assetDoc.quantity, remainingToBurn);
-
-        if (burnQty > 0) {
-          assetDoc.quantity -= burnQty;
-          assetDoc.last_updated = Date.now();
-          Assets.update(assetDoc);
-
-          assetsAffected.push({
-            asset_id: item.id,
-            uid: item.uid || undefined,
-            quantity_change: -burnQty,
-            cost_basis_impact: 0,
-          });
-
-          remainingToBurn -= burnQty;
-        }
-      }
-
-      // Step 2: Burn Remainder from Personal Assets
-      if (remainingToBurn > 0) {
-        const personalOwner: "faction" | "personal" = "personal";
-        const personalQuery = { ...assetIdQuery, owner: personalOwner };
-        const personalAssets = Assets.find(personalQuery);
-
-        if (personalAssets.length > 0) {
-          let assetDoc: AssetDocument = isUid
-            ? personalAssets[0]
-            : personalAssets.find(
-                (a: AssetDocument) => !a.id.startsWith("uid_"),
-              ) || personalAssets[0];
-
-          const mac = assetDoc.moving_average_cost;
-          const costImpact = mac * remainingToBurn;
-
-          assetDoc.quantity = Math.max(0, assetDoc.quantity - remainingToBurn);
-          assetDoc.total_cost_basis = assetDoc.quantity * mac;
-          assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) - costImpact;
-          assetDoc.last_updated = Date.now();
-          Assets.update(assetDoc);
-
-          assetsAffected.push({
-            asset_id: item.id,
-            uid: item.uid || undefined,
-            quantity_change: -remainingToBurn,
-            cost_basis_impact: -costImpact, // This constitutes a realized loss
-          });
-        }
-      }
-    }
-  }
-
-  // Calculate Realized PnL (Negative cost_basis_impact = Personal Loss)
-  let realizedPnl = 0;
-  for (const affect of assetsAffected) {
-    if (affect.cost_basis_impact < 0) {
-      realizedPnl += affect.cost_basis_impact;
-    }
-  }
-
-  if (assetsAffected.length > 0) {
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      log_type: logId, // <-- Added Log Type
-      timestamp: log.timestamp,
-      type: logId === 6746 ? "injection" : "sink",
-      category_id: 7,
-      transaction_name:
-        logId === 6746
-          ? "Faction Loan Received"
-          : "Faction Item Returned/Deposited",
-      assets_affected: assetsAffected,
-      cash_flow: 0,
-      realized_pnl: realizedPnl,
-      raw_log: log,
-    });
-  }
-}
-
-// --- Sinks ---
-// Define the specific items that make up Museum Sets to ensure accurate burning
+// --- Museum Sets for Transformation Sinks ---
 const MUSEUM_SETS: Record<string, number[]> = {
-  "Plushie Set": [
-    186, 187, 215, 258, 261, 266, 268, 269, 273, 274, 281, 384, 618,
-  ],
+  "Plushie Set": [186, 187, 215, 258, 261, 266, 268, 269, 273, 274, 281, 384, 618],
   "Flower Set": [260, 263, 264, 267, 271, 272, 276, 277, 282, 385, 617],
   "Medieval Coins": [770, 771, 772],
   "Quran Script": [773, 774],
@@ -686,326 +83,559 @@ const MUSEUM_SETS: Record<string, number[]> = {
   Amulet: [781, 782, 783],
 };
 
-function parseTransformationSink(log: TornSchema<"UserLog">) {
-  if (!isLogValidForWealth(log.timestamp)) return;
+export const EQUITY_LOG_IDS = [5510, 5511, 5927, 5928, 5920, 5900, 6280, 6300, 6284, 6285, 6290, 6291, 6292];
+export const FACTION_LOG_IDS = [6746, 6747, 6728];
+export const STORAGE_TRANSFER_LOG_IDS = [1222, 1223, 1302, 1303, 1403, 1110, 1111, 4447, 4448, 5000, 5001, 4300];
+export const ZERO_COST_LOG_IDS = [7011, 8374, 8375, 8377, 8378, 1404, 5575];
 
-  const data = log.data as TransformationSinkData;
-  const logId = log.details.id;
-  const category = log.details.category || "";
+/**
+ * 1. Barter Trade Parser (4430)
+ */
+export async function parseBarterTrade(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
 
-  let cashFlow = 0;
-  let realizedPnl = 0;
-  const assetsAffected: {
-    asset_id: string | number;
-    uid?: number | string;
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
+  const data = (log.data as Record<string, any>) || {};
+  const tradeId = data.parsed_trade_id || data.trade_id;
+  if (!tradeId) return;
 
-  // --- HELPER: Burn Asset (V2 Patched) ---
-  const burnAsset = (id: string | number, qty: number, uid?: number | null) => {
-    let burnedCostBasis = 0;
-    const isUid = !!(uid && typeof uid !== "boolean");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const query: any = isUid
-      ? { id: `uid_${uid}`, owner: "personal" }
-      : { asset_id: id, owner: "personal" };
+  const tradeLogs = await db.personalLog.findMany({
+    where: { data: { path: ["parsed_trade_id"], equals: tradeId } },
+  });
 
-    const existingAssets = Assets.find(query);
-    let assetDoc: AssetDocument;
+  let outgoingMoney = 0;
+  let incomingMoney = 0;
+  const outgoingItems: { id: string | number; qty: number; uid?: number | null }[] = [];
+  const incomingItems: { id: string | number; qty: number; uid?: number | null }[] = [];
 
-    if (existingAssets.length > 0) {
-      assetDoc = isUid
-        ? existingAssets[0]
-        : existingAssets.find((a: AssetDocument) => !a.id.startsWith("uid_")) ||
-          existingAssets[0];
-    } else {
-      // FIX 1: Safely handle untracked assets to ensure the burn is permanently logged
-      assetDoc = {
-        id: isUid ? `uid_${uid}` : `item_${id}_inventory_${randomUUID()}`,
-        type: id === "points" ? "point" : "item",
-        asset_id: id,
-        quantity: 0, // Starts at 0, goes negative
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: "inventory",
-        owner: "personal",
-        origin: "unknown",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-      Assets.insertOne(assetDoc);
-    }
+  let requiresManualReview = false;
+  let reviewReason = "";
 
-    const mac = assetDoc.moving_average_cost;
-    const totalBurnedCost = mac * qty;
-    burnedCostBasis = totalBurnedCost;
+  for (const tlog of tradeLogs) {
+    const tData = (tlog.data as Record<string, any>) || {};
+    const tId = Number(tlog.log);
 
-    assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
-    assetDoc.total_cost_basis = assetDoc.quantity * mac;
-    assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) - totalBurnedCost;
-    assetDoc.last_updated = Date.now();
-    Assets.update(assetDoc);
+    if (tId === 4440) outgoingMoney += Number(tData.money || 0);
+    if (tId === 4441) incomingMoney += Number(tData.money || 0);
 
-    assetsAffected.push({
-      asset_id: id,
-      uid: uid || undefined,
-      quantity_change: -qty,
-      cost_basis_impact: -totalBurnedCost,
-    });
+    if (tId === 4445) outgoingItems.push(...extractItemsFromLogData(tData));
+    if (tId === 4446) incomingItems.push(...extractItemsFromLogData(tData));
 
-    return burnedCostBasis;
-  };
-
-  // --- HELPER: Inject Asset ---
-  const injectAssetWithCost = (
-    id: string | number,
-    qty: number,
-    costBasis: number,
-    uid?: number | null,
-  ) => {
-    const isUid = !!(uid && typeof uid !== "boolean");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const query: any = isUid
-      ? { id: `uid_${uid}`, owner: "personal" }
-      : { asset_id: id, location: "inventory", owner: "personal" };
-
-    const existingAssets = Assets.find(query);
-    let assetDoc: AssetDocument;
-
-    if (existingAssets.length > 0) {
-      assetDoc = isUid
-        ? existingAssets[0]
-        : existingAssets.find((a: AssetDocument) => !a.id.startsWith("uid_")) ||
-          existingAssets[0];
-    } else {
-      assetDoc = {
-        id: isUid ? `uid_${uid}` : `item_${id}_inventory_${randomUUID()}`,
-        type: id === "points" ? "point" : "item",
-        asset_id: id,
-        quantity: 0,
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: "inventory",
-        owner: "personal",
-        origin: "transformation",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-      Assets.insertOne(assetDoc);
-    }
-
-    assetDoc.quantity += qty;
-    assetDoc.total_cost_basis += costBasis;
-    assetDoc.moving_average_cost =
-      assetDoc.total_cost_basis / assetDoc.quantity;
-    assetDoc.last_updated = Date.now();
-    Assets.update(assetDoc);
-
-    assetsAffected.push({
-      asset_id: id,
-      uid: uid || undefined,
-      quantity_change: qty,
-      cost_basis_impact: costBasis,
-    });
-  };
-
-  // 1. The Museum (Log 7000 - V2 Patched)
-  if (logId === 7000) {
-    const setName = data.set;
-    const setQty = data.quantity || 1;
-    let totalSetCostBasis = 0;
-
-    // FIX 2: Burn the underlying plushies/flowers to prevent wealth inflation
-    if (setName && MUSEUM_SETS[setName]) {
-      for (const itemId of MUSEUM_SETS[setName]) {
-        totalSetCostBasis += burnAsset(itemId, setQty);
-      }
-    }
-
-    if (data.points_received) {
-      // Transfer the entire cost basis of the plushies directly into the points
-      injectAssetWithCost("points", data.points_received, totalSetCostBasis);
+    if ([4450, 4451, 4475, 4476].includes(tId)) {
+      requiresManualReview = true;
+      reviewReason = `Log ID ${tId}`;
     }
   }
-  // 2. All Other Sinks (Item Use, Crimes, Faction Deposits, Money Sends)
-  else {
-    const fromFaction =
-      typeof data.faction === "number" ? data.faction > 0 : !!data.faction;
-    let totalLoss = 0;
 
-    // Direct items burned
-    if (!fromFaction && typeof data.item === "number") {
-      totalLoss += burnAsset(data.item, 1);
-    }
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
 
-    // items_lost object
-    if (data.items_lost && typeof data.items_lost === "object") {
-      for (const [k, v] of Object.entries(data.items_lost)) {
-        totalLoss += burnAsset(parseInt(k, 10), typeof v === "number" ? v : 1);
-      }
-    }
+  if (requiresManualReview) {
+    logger.warn(`Barter ${tradeId} flagged for manual review (${reviewReason}).`);
+    await db.ledgerEvent.upsert({
+      where: { id: `ledger_ev_${logIdStr}` },
+      update: { updatedAt: new Date() },
+      create: {
+        id: `ledger_ev_${logIdStr}`,
+        logId: logIdStr,
+        timestamp: logTimestamp,
+        type: "barter",
+        categoryId: 6,
+        transactionName: "Barter Trade (MANUAL REVIEW REQUIRED)",
+        assetsAffected: [],
+        cashFlow: 0,
+        realizedPnl: 0,
+        rawLog: log as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    return;
+  }
 
-    // Cash / Point Sinks (losses - V2 Patched)
-    // FIX 3: Check explicitly for lost/used flags to avoid burning points you just gained
-    if (!fromFaction) {
-      if (data.points_lost) totalLoss += burnAsset("points", data.points_lost);
-      else if (data.points_used)
-        totalLoss += burnAsset("points", data.points_used);
-      else if (data.points && category === "Points building")
-        totalLoss += burnAsset("points", data.points);
-    }
+  let totalOutgoingCostBasis = outgoingMoney;
+  const assetsAffected: { assetId: string; quantityChange: number; costBasisImpact: number }[] = [];
 
-    if (data.money_lost) {
-      cashFlow -= data.money_lost;
-      realizedPnl -= data.money_lost;
-    } else if (
-      data.money &&
-      !category.startsWith("Item use") &&
-      category !== "Crimes"
-    ) {
-      cashFlow -= data.money;
-      realizedPnl -= data.money;
-    }
+  for (const item of outgoingItems) {
+    const isUid = !!(item.uid && typeof item.uid !== "boolean");
+    const assetKey = isUid ? `uid_${item.uid}` : `item_${item.id}_inventory`;
 
-    // Handle GAINS
-    const gained: { id: string | number; qty: number; uid?: number | null }[] =
-      [];
-    if (data.items_gained && typeof data.items_gained === "object") {
-      for (const [k, v] of Object.entries(data.items_gained)) {
-        gained.push({
-          id: parseInt(k, 10),
-          qty: typeof v === "number" ? v : 1,
-        });
-      }
-    } else if (Array.isArray(data.items)) {
-      for (const it of data.items) {
-        if (it && it.id)
-          gained.push({ id: it.id, qty: it.qty || 1, uid: it.uid });
-      }
-    }
+    const existingAsset = await db.asset.findUnique({ where: { id: assetKey } });
+    if (existingAsset) {
+      const mac = existingAsset.movingAverageCost;
+      const burnedCost = mac * item.qty;
+      totalOutgoingCostBasis += burnedCost;
 
-    if (gained.length > 0) {
-      // --- V2: PROPORTIONAL COST DISTRIBUTION ---
-      let totalSystemValue = 0;
-      const gainedWeighted = gained.map((item) => {
-        let sysVal = 0;
-        if (item.id === "points") {
-          const pointState = SystemState.findOne("points_price") as
-            | { price: number }
-            | undefined;
-          sysVal = pointState?.price || 45000;
-        } else {
-          const itemRecord = TornItems.findOne(
-            item.id.toString(),
-          ) as TornItemDocument;
-          sysVal = itemRecord?.data?.value?.market_price || 0;
-        }
-        const itemTotalValue = sysVal * item.qty;
-        totalSystemValue += itemTotalValue;
-        return { ...item, sysVal, itemTotalValue };
+      const newQty = Math.max(0, existingAsset.quantity - item.qty);
+      const newCostBasis = newQty * mac;
+
+      await db.asset.update({
+        where: { id: assetKey },
+        data: {
+          quantity: newQty,
+          totalCostBasis: newCostBasis,
+          lastUpdated: new Date(),
+          updatedAt: new Date(),
+        },
       });
 
-      for (const item of gainedWeighted) {
-        const weight =
-          totalSystemValue > 0
-            ? item.itemTotalValue / totalSystemValue
-            : 1 / gainedWeighted.length;
-        const assignedCostBasis = totalLoss * weight;
-        injectAssetWithCost(item.id, item.qty, assignedCostBasis, item.uid);
-      }
-    } else {
-      // Pure loss
-      realizedPnl -= totalLoss;
+      assetsAffected.push({
+        assetId: String(item.id),
+        quantityChange: -item.qty,
+        costBasisImpact: -burnedCost,
+      });
     }
-
-    // Cash Gains
-    if (data.money_gained) {
-      cashFlow += data.money_gained;
-      realizedPnl += data.money_gained;
-    } else if (
-      data.money &&
-      (category.startsWith("Item use") || category === "Crimes")
-    ) {
-      cashFlow += data.money;
-      realizedPnl += data.money;
-    }
-
-    if (assetsAffected.length === 0 && cashFlow === 0 && realizedPnl === 0)
-      return;
   }
 
-  // --- DISPATCH LEDGER EVENT ---
-  if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
-    let type: LedgerEventType = "sink";
-    if (realizedPnl > 0) type = "injection";
-    else if (realizedPnl === 0 && assetsAffected.length > 0) type = "barter";
+  let totalSystemValue = 0;
+  const itemRecords = await db.tornItem.findMany();
+  const itemMap = new Map(itemRecords.map((i) => [i.id, ((i.data as Record<string, any>)?.value?.market_price || 0) as number]));
 
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      log_type: logId,
-      timestamp: log.timestamp,
-      type,
-      category_id: 5,
-      transaction_name:
-        category === "Crimes" ? "Crime Result" : "Asset Transformation & Sink",
-      assets_affected: assetsAffected,
-      cash_flow: cashFlow,
-      realized_pnl: realizedPnl,
-      raw_log: log,
+  const incomingWeighted = incomingItems.map((item) => {
+    let sysVal = 0;
+    if (String(item.id) === "points") {
+      sysVal = 30000;
+    } else {
+      sysVal = itemMap.get(String(item.id)) || 0;
+    }
+    const itemTotalValue = sysVal * item.qty;
+    totalSystemValue += itemTotalValue;
+    return { ...item, sysVal, itemTotalValue };
+  });
+
+  for (const item of incomingWeighted) {
+    const weight = totalSystemValue > 0 ? item.itemTotalValue / totalSystemValue : 1 / incomingWeighted.length;
+    const assignedCostBasis = totalOutgoingCostBasis * weight;
+
+    const isUid = !!(item.uid && typeof item.uid !== "boolean");
+    const assetKey = isUid ? `uid_${item.uid}` : `item_${item.id}_inventory`;
+
+    const existingAsset = await db.asset.findUnique({ where: { id: assetKey } });
+    if (existingAsset) {
+      const newQty = existingAsset.quantity + item.qty;
+      const newCostBasis = existingAsset.totalCostBasis + assignedCostBasis;
+      const newMac = newQty > 0 ? newCostBasis / newQty : 0;
+
+      await db.asset.update({
+        where: { id: assetKey },
+        data: {
+          quantity: newQty,
+          totalCostBasis: newCostBasis,
+          movingAverageCost: newMac,
+          lastUpdated: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      const mac = item.qty > 0 ? assignedCostBasis / item.qty : 0;
+      await db.asset.create({
+        data: {
+          id: assetKey,
+          type: String(item.id) === "points" ? "point" : "item",
+          assetId: String(item.id),
+          quantity: item.qty,
+          movingAverageCost: mac,
+          totalCostBasis: assignedCostBasis,
+          location: "inventory",
+          owner: "personal",
+          origin: "barter",
+          realizedPnl: 0,
+          lastUpdated: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    assetsAffected.push({
+      assetId: String(item.id),
+      quantityChange: item.qty,
+      costBasisImpact: assignedCostBasis,
+    });
+  }
+
+  const netCashFlow = incomingMoney - outgoingMoney;
+
+  if (assetsAffected.length > 0 || netCashFlow !== 0) {
+    await db.ledgerEvent.upsert({
+      where: { id: `ledger_ev_${logIdStr}` },
+      update: {
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow: netCashFlow,
+        updatedAt: new Date(),
+      },
+      create: {
+        id: `ledger_ev_${logIdStr}`,
+        logId: logIdStr,
+        timestamp: logTimestamp,
+        type: "barter",
+        categoryId: 6,
+        transactionName: "Barter Trade",
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow: netCashFlow,
+        realizedPnl: 0,
+        rawLog: log as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
   }
 }
 
-const SINK_LOG_IDS = [
-  7000,
-  5970,
-  4800,
-  6726,
-  6727,
-  // Add all Item Use IDs (2010 to 2621, 8981 to 8989)
-  ...Array.from({ length: 2621 - 2010 + 1 }, (_, i) => i + 2010),
-  ...Array.from({ length: 8989 - 8981 + 1 }, (_, i) => i + 8981),
-  // Add all Points Building IDs (4900 to 4978)
-  ...Array.from({ length: 4978 - 4900 + 1 }, (_, i) => i + 4900),
-  // Add all Crime IDs (5700 to 5735, 9005 to 9362)
-  ...Array.from({ length: 5735 - 5700 + 1 }, (_, i) => i + 5700),
-  ...Array.from({ length: 9362 - 9005 + 1 }, (_, i) => i + 9005),
-];
+/**
+ * 2. Equities, Properties & Companies Parser
+ */
+export async function parseEquityProperty(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
 
-// --- Standard Cash ---
-type StandardCashLogIds =
-  | 1112
-  | 1225
-  | 4200
-  | 4201
-  | 5010
-  | 4320
-  | 1226
-  | 1113
-  | 4210
-  | 4220
-  | 5011
-  | 4322;
+  const logId = Number(log.details.id);
+  const data = (log.data as Record<string, any>) || {};
 
-function parseStandardCash(log: StrictUserLog<StandardCashLogIds>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
+  const isBuy = [5510, 5927, 6280].includes(logId);
+  const isSell = [5511, 5928, 6300].includes(logId);
+  const isUpkeep = [5920, 5900, 6290, 6291, 6292].includes(logId);
+  const isTransfer = [6284, 6285].includes(logId);
 
-  const logId = log.details.id;
-  const data = log.data as StandardCashData;
+  let assetType = "item";
+  let assetId = "";
+  let qty = 1;
+  let cost = 0;
+
+  if ([5510, 5511].includes(logId)) {
+    assetType = "stock";
+    assetId = `stock_${data.stock}`;
+    qty = Number(data.amount || 1);
+    const fees = Number(data.fees || 0);
+    cost = isSell ? Number(data.worth || 0) - fees : Number(data.worth || 0);
+  } else if ([5927, 5928, 5920, 5900].includes(logId)) {
+    assetType = "property";
+    assetId = `property_${data.property || data.property_id}`;
+    qty = 1;
+    cost = Number(data.cost || data.upkeep_paid || 0);
+  } else {
+    assetType = "company";
+    assetId = `company_${data.company}`;
+    qty = 1;
+    cost = Number(data.cost || data.deposited || data.withdrawn || data.sale_value || 0);
+  }
+
+  if (!assetId || assetId.includes("undefined")) return;
+
+  let cashFlow = 0;
+  let realizedPnl = 0;
+  const assetsAffected: { assetId: string; quantityChange: number; costBasisImpact: number }[] = [];
+
+  if (isUpkeep) {
+    cashFlow -= cost;
+    realizedPnl -= cost;
+  } else if (isTransfer) {
+    cashFlow = logId === 6285 ? cost : -cost;
+    assetsAffected.push({ assetId, quantityChange: 0, costBasisImpact: -cashFlow });
+  } else if (isBuy) {
+    cashFlow -= cost;
+    const existing = await db.asset.findUnique({ where: { id: assetId } });
+    if (existing) {
+      const newQty = existing.quantity + qty;
+      const newCostBasis = existing.totalCostBasis + cost;
+      const newMac = newQty > 0 ? newCostBasis / newQty : 0;
+      await db.asset.update({
+        where: { id: assetId },
+        data: { quantity: newQty, totalCostBasis: newCostBasis, movingAverageCost: newMac, lastUpdated: new Date(), updatedAt: new Date() },
+      });
+    } else {
+      const mac = qty > 0 ? cost / qty : 0;
+      await db.asset.create({
+        data: {
+          id: assetId,
+          type: assetType,
+          assetId,
+          quantity: qty,
+          movingAverageCost: mac,
+          totalCostBasis: cost,
+          location: "portfolio",
+          owner: "personal",
+          origin: "purchase",
+          realizedPnl: 0,
+          lastUpdated: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
+    assetsAffected.push({ assetId, quantityChange: qty, costBasisImpact: cost });
+  } else if (isSell) {
+    cashFlow += cost;
+    const existing = await db.asset.findUnique({ where: { id: assetId } });
+    const mac = existing?.movingAverageCost ?? 0;
+    const profit = cost - mac * qty;
+    realizedPnl += profit;
+
+    if (existing) {
+      const newQty = Math.max(0, existing.quantity - qty);
+      const newCostBasis = newQty * mac;
+      await db.asset.update({
+        where: { id: assetId },
+        data: { quantity: newQty, totalCostBasis: newCostBasis, realizedPnl: existing.realizedPnl + profit, lastUpdated: new Date(), updatedAt: new Date() },
+      });
+    }
+    assetsAffected.push({ assetId, quantityChange: -qty, costBasisImpact: -(mac * qty) });
+  }
+
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
+
+  await db.ledgerEvent.upsert({
+    where: { id: `ledger_ev_${logIdStr}` },
+    update: { assetsAffected: assetsAffected as unknown as object, cashFlow, realizedPnl, updatedAt: new Date() },
+    create: {
+      id: `ledger_ev_${logIdStr}`,
+      logId: logIdStr,
+      timestamp: logTimestamp,
+      type: isBuy ? "purchase" : isSell ? "sale" : "loss",
+      categoryId: 9,
+      transactionName: "Equity/Property Transaction",
+      assetsAffected: assetsAffected as unknown as object,
+      cashFlow,
+      realizedPnl,
+      rawLog: log as unknown as object,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * 3. Faction Loans & Deposits Parser
+ */
+export async function parseFactionLiability(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
+
+  const logId = Number(log.details.id);
+  const data = (log.data as Record<string, any>) || {};
+  const items = extractItemsFromLogData(data);
+  const assetsAffected: { assetId: string; uid?: number | string; quantityChange: number; costBasisImpact: number }[] = [];
+
+  for (const item of items) {
+    const isUid = !!(item.uid && typeof item.uid !== "boolean");
+    const assetKey = isUid ? `uid_${item.uid}` : `item_${item.id}_faction`;
+
+    if (logId === 6746) {
+      // Loan receive
+      const existing = await db.asset.findUnique({ where: { id: assetKey } });
+      if (existing) {
+        await db.asset.update({
+          where: { id: assetKey },
+          data: { quantity: existing.quantity + item.qty, lastUpdated: new Date(), updatedAt: new Date() },
+        });
+      } else {
+        await db.asset.create({
+          data: {
+            id: assetKey,
+            type: "item",
+            assetId: String(item.id),
+            quantity: item.qty,
+            movingAverageCost: 0,
+            totalCostBasis: 0,
+            location: "inventory",
+            owner: "faction",
+            origin: "faction_loan",
+            realizedPnl: 0,
+            lastUpdated: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      }
+      assetsAffected.push({ assetId: String(item.id), uid: item.uid || undefined, quantityChange: item.qty, costBasisImpact: 0 });
+    } else if (logId === 6747 || logId === 6728) {
+      // Loan return or deposit
+      const existing = await db.asset.findUnique({ where: { id: assetKey } });
+      if (existing) {
+        const newQty = Math.max(0, existing.quantity - item.qty);
+        await db.asset.update({
+          where: { id: assetKey },
+          data: { quantity: newQty, lastUpdated: new Date(), updatedAt: new Date() },
+        });
+      }
+      assetsAffected.push({ assetId: String(item.id), uid: item.uid || undefined, quantityChange: -item.qty, costBasisImpact: 0 });
+    }
+  }
+
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
+
+  if (assetsAffected.length > 0) {
+    await db.ledgerEvent.upsert({
+      where: { id: `ledger_ev_${logIdStr}` },
+      update: { assetsAffected: assetsAffected as unknown as object, updatedAt: new Date() },
+      create: {
+        id: `ledger_ev_${logIdStr}`,
+        logId: logIdStr,
+        timestamp: logTimestamp,
+        type: logId === 6746 ? "injection" : "sink",
+        categoryId: 7,
+        transactionName: logId === 6746 ? "Faction Loan Received" : "Faction Item Returned/Deposited",
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow: 0,
+        realizedPnl: 0,
+        rawLog: log as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+  }
+}
+
+/**
+ * 4. Storage Transfers Parser (moving items between inventory, bazaar, display cabinet, escrow)
+ */
+export async function parseStorageTransfer(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
+
+  const logId = Number(log.details.id);
+  const data = (log.data as Record<string, any>) || {};
+  const items = extractItemsFromLogData(data);
+  if (items.length === 0) return;
+
+  let targetLocation = "inventory";
+  if ([1222].includes(logId)) targetLocation = "bazaar";
+  else if ([1302].includes(logId)) targetLocation = "display";
+  else if ([1403, 1110, 4447, 5000, 4300].includes(logId)) targetLocation = "escrow";
+
+  const assetsAffected: { assetId: string; uid?: number | string; quantityChange: number; costBasisImpact: number }[] = [];
+
+  for (const item of items) {
+    const isUid = !!(item.uid && typeof item.uid !== "boolean");
+    const assetKey = isUid ? `uid_${item.uid}` : `item_${item.id}_${targetLocation}`;
+
+    const existing = await db.asset.findUnique({ where: { id: assetKey } });
+    if (existing) {
+      await db.asset.update({
+        where: { id: assetKey },
+        data: { location: targetLocation, lastUpdated: new Date(), updatedAt: new Date() },
+      });
+    }
+
+    assetsAffected.push({ assetId: String(item.id), uid: item.uid || undefined, quantityChange: 0, costBasisImpact: 0 });
+  }
+
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
+
+  await db.ledgerEvent.upsert({
+    where: { id: `ledger_ev_${logIdStr}` },
+    update: { assetsAffected: assetsAffected as unknown as object, updatedAt: new Date() },
+    create: {
+      id: `ledger_ev_${logIdStr}`,
+      logId: logIdStr,
+      timestamp: logTimestamp,
+      type: "storage_transfer",
+      categoryId: 3,
+      transactionName: "Asset Storage Transfer",
+      assetsAffected: assetsAffected as unknown as object,
+      cashFlow: 0,
+      realizedPnl: 0,
+      rawLog: log as unknown as object,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * 5. Zero-Cost Asset Injections Parser (free drops from crimes, spin, events)
+ */
+export async function parseZeroCostInjection(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
+
+  const data = (log.data as Record<string, any>) || {};
+  const gainedItems = extractItemsFromLogData(data);
+
+  let cashFlow = 0;
+  let realizedPnl = 0;
+  if (data.money) {
+    cashFlow += Number(data.money);
+    realizedPnl += Number(data.money);
+  }
+
+  const assetsAffected: { assetId: string; uid?: number | string; quantityChange: number; costBasisImpact: number }[] = [];
+
+  for (const item of gainedItems) {
+    const isUid = !!(item.uid && typeof item.uid !== "boolean");
+    const assetKey = isUid ? `uid_${item.uid}` : `item_${item.id}_inventory`;
+
+    const existing = await db.asset.findUnique({ where: { id: assetKey } });
+    if (existing) {
+      const newQty = existing.quantity + item.qty;
+      const newMac = newQty > 0 ? existing.totalCostBasis / newQty : 0;
+      await db.asset.update({
+        where: { id: assetKey },
+        data: { quantity: newQty, movingAverageCost: newMac, lastUpdated: new Date(), updatedAt: new Date() },
+      });
+    } else {
+      await db.asset.create({
+        data: {
+          id: assetKey,
+          type: String(item.id) === "points" ? "point" : "item",
+          assetId: String(item.id),
+          quantity: item.qty,
+          movingAverageCost: 0,
+          totalCostBasis: 0,
+          location: "inventory",
+          owner: "personal",
+          origin: "zero_cost_injection",
+          realizedPnl: 0,
+          lastUpdated: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    assetsAffected.push({ assetId: String(item.id), uid: item.uid || undefined, quantityChange: item.qty, costBasisImpact: 0 });
+  }
+
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
+
+  if (assetsAffected.length > 0 || cashFlow !== 0) {
+    await db.ledgerEvent.upsert({
+      where: { id: `ledger_ev_${logIdStr}` },
+      update: { assetsAffected: assetsAffected as unknown as object, cashFlow, realizedPnl, updatedAt: new Date() },
+      create: {
+        id: `ledger_ev_${logIdStr}`,
+        logId: logIdStr,
+        timestamp: logTimestamp,
+        type: "injection",
+        categoryId: 4,
+        transactionName: "Free Asset Acquisition",
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow,
+        realizedPnl,
+        rawLog: log as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+  }
+}
+
+/**
+ * 6. Standard Cash Transactions (Bazaar buys/sells, item market buys, vault transfers, bounties)
+ */
+export async function parseStandardCash(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
+
+  const logId = Number(log.details.id);
+  const data = (log.data as Record<string, any>) || {};
 
   const purchaseIds = [1112, 1225, 4200, 4201, 5010, 4320];
   const saleIds = [1226, 1113, 4210, 4220, 5011, 4322];
 
   const purchase = purchaseIds.includes(logId);
   const sale = saleIds.includes(logId);
-
   if (!purchase && !sale) return;
 
   let items = data.items || [];
-
-  // Safely handle Torn's chaotic `item` formats
   if (items.length === 0 && data.item) {
     if (Array.isArray(data.item)) {
       items = data.item;
@@ -1016,1018 +646,347 @@ function parseStandardCash(log: StrictUserLog<StandardCashLogIds>) {
 
   let cashFlow = 0;
   let realizedPnl = 0;
-  const assetsAffected: {
-    asset_id: string | number;
-    uid?: number | string; // <-- V2 Tweak Included
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
+  const assetsAffected: { assetId: string; uid?: number | string; quantityChange: number; costBasisImpact: number }[] = [];
 
-  // --- 1. PROCESS ITEMS ---
   for (const item of items) {
     const id = item.id;
-    const qty = item.qty || 1;
+    const qty = Number(item.qty || 1);
 
-    // Safely cascade through the new pricing fields
-    let totalCost =
-      data.final_price ?? data.cost_total ?? data.total_value ?? 0;
-    let priceEach = data.cost_each ?? data.value_each ?? 0;
+    let totalCost = Number(data.final_price ?? data.cost_total ?? data.total_value ?? 0);
+    let priceEach = Number(data.cost_each ?? data.value_each ?? 0);
 
-    // Resolve whichever half of the equation Torn failed to provide
     if (totalCost === 0 && priceEach > 0) totalCost = priceEach * qty;
     if (priceEach === 0 && totalCost > 0) priceEach = totalCost / qty;
 
-    let assetDoc: AssetDocument | undefined;
-    let isUid = false;
-    let isNewAsset = false;
+    const isUid = !!(item.uid && typeof item.uid !== "boolean");
+    const assetKey = isUid ? `uid_${item.uid}` : `item_${id}_inventory`;
 
-    if (item.uid && typeof item.uid !== "boolean") {
-      isUid = true;
-      const existingAsset = Assets.findOne(
-        `uid_${item.uid}`,
-      ) as AssetDocument | null;
-      if (existingAsset && existingAsset.owner === "personal") {
-        assetDoc = existingAsset;
-      }
-    }
-
-    const existingAssets = Assets.find({ asset_id: id, owner: "personal" });
-
-    if (!isUid || !assetDoc) {
-      const fungibles = existingAssets.filter(
-        (a: AssetDocument) => !a.id.startsWith("uid_"),
-      );
-
-      fungibles.sort((a, b) => {
-        const locationPriority = {
-          bazaar: 1,
-          escrow: 2,
-          display: 3,
-          inventory: 4,
-          portfolio: 5,
-          equipped: 6,
-          vault: 7,
-        };
-        const pA =
-          locationPriority[a.location as keyof typeof locationPriority] || 99;
-        const pB =
-          locationPriority[b.location as keyof typeof locationPriority] || 99;
-
-        if (pA !== pB) {
-          if (sale) return pA - pB;
-          const invA = a.location === "inventory" ? 1 : 2;
-          const invB = b.location === "inventory" ? 1 : 2;
-          return invA - invB;
-        }
-        return b.quantity - a.quantity;
-      });
-
-      if (fungibles.length > 0) assetDoc = fungibles[0];
-    }
-
-    if (!assetDoc) {
-      isNewAsset = true;
-      assetDoc = {
-        id: isUid ? `uid_${item.uid}` : `item_${id}_inventory_${randomUUID()}`,
-        type: "item",
-        asset_id: id,
-        quantity: 0,
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: "inventory",
-        owner: "personal",
-        origin: "purchase",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-    }
+    let assetDoc = await db.asset.findUnique({ where: { id: assetKey } });
 
     if (purchase) {
-      const oldTotalCost = assetDoc.total_cost_basis;
-      assetDoc.quantity += qty;
-      assetDoc.total_cost_basis = oldTotalCost + totalCost;
-      assetDoc.moving_average_cost =
-        assetDoc.total_cost_basis / assetDoc.quantity;
-
       cashFlow -= totalCost;
-      assetsAffected.push({
-        asset_id: id,
-        uid: item.uid || undefined,
-        quantity_change: qty,
-        cost_basis_impact: totalCost,
-      });
-    } else if (sale) {
-      const costBasis = assetDoc.moving_average_cost;
-      const profit = (priceEach - costBasis) * qty;
+      if (assetDoc) {
+        const newQty = assetDoc.quantity + qty;
+        const newCostBasis = assetDoc.totalCostBasis + totalCost;
+        const newMac = newQty > 0 ? newCostBasis / newQty : 0;
 
-      realizedPnl += profit;
-      assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) + profit;
-      cashFlow += totalCost;
-
-      assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
-      assetDoc.total_cost_basis =
-        assetDoc.quantity * assetDoc.moving_average_cost;
-
-      assetsAffected.push({
-        asset_id: id,
-        uid: item.uid || undefined,
-        quantity_change: -qty,
-        cost_basis_impact: -(costBasis * qty),
-      });
-    }
-
-    if (isNewAsset) Assets.insertOne(assetDoc);
-    else Assets.update(assetDoc);
-  }
-
-  // --- 2. PROCESS POINTS ---
-  const isPointsTransaction = [5010, 5011, 4220].includes(logId);
-
-  if (isPointsTransaction) {
-    const qty = data.quantity || 1;
-    const totalCost = data.cost_total || 0;
-    const priceEach = totalCost / qty;
-
-    const existingAssets = Assets.find({
-      asset_id: "points",
-      owner: "personal",
-    });
-    let isNewAsset = false;
-    let assetDoc: AssetDocument;
-
-    if (existingAssets.length > 0) {
-      assetDoc = existingAssets[0];
-    } else {
-      isNewAsset = true;
-      assetDoc = {
-        id: `points_personal_${randomUUID()}`,
-        type: "point",
-        asset_id: "points",
-        quantity: 0,
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: "inventory",
-        owner: "personal",
-        origin: "purchase",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-    }
-
-    if (purchase) {
-      const oldTotalCost = assetDoc.total_cost_basis;
-      assetDoc.quantity += qty;
-      assetDoc.total_cost_basis = oldTotalCost + totalCost;
-      assetDoc.moving_average_cost =
-        assetDoc.total_cost_basis / assetDoc.quantity;
-
-      cashFlow -= totalCost;
-      assetsAffected.push({
-        asset_id: "points",
-        quantity_change: qty,
-        cost_basis_impact: totalCost,
-      });
-    } else if (sale) {
-      const profit = (priceEach - assetDoc.moving_average_cost) * qty;
-      realizedPnl += profit;
-      assetDoc.realized_pnl = (assetDoc.realized_pnl || 0) + profit;
-      cashFlow += totalCost;
-
-      assetDoc.quantity = Math.max(0, assetDoc.quantity - qty);
-      assetDoc.total_cost_basis =
-        assetDoc.quantity * assetDoc.moving_average_cost;
-
-      assetsAffected.push({
-        asset_id: "points",
-        quantity_change: -qty,
-        cost_basis_impact: -(assetDoc.moving_average_cost * qty),
-      });
-    }
-
-    if (isNewAsset) Assets.insertOne(assetDoc);
-    else Assets.update(assetDoc);
-  }
-
-  // --- 3. DISPATCH LEDGER EVENT ---
-  if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      log_type: logId, // <-- V2 Tweak Included
-      timestamp: log.timestamp,
-      type: purchase ? "purchase" : "sale",
-      category_id: 2,
-      transaction_name: purchase ? "Asset Purchase" : "Asset Sale",
-      assets_affected: assetsAffected,
-      cash_flow: cashFlow,
-      realized_pnl: realizedPnl,
-      raw_log: log,
-    });
-  }
-}
-
-// --- Storage Transfers ---
-type StorageTransferLogIds =
-  | 1222
-  | 1223
-  | 1302
-  | 1303
-  | 1403
-  | 1110
-  | 1111
-  | 4447
-  | 4448
-  | 5000
-  | 5001
-  | 4300;
-
-function parseStorageTransfer(log: StrictUserLog<StorageTransferLogIds>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
-
-  const logId = log.details.id;
-  const data = log.data;
-
-  let sourceLocation: AssetLocation = "inventory";
-  let targetLocation: AssetLocation = "inventory";
-
-  // --- 1. STRICT DIRECTIONAL ROUTING ---
-  const TO_BAZAAR = [1222];
-  const FROM_BAZAAR = [1223];
-  const TO_DISPLAY = [1302];
-  const FROM_DISPLAY = [1303];
-  const TO_ESCROW = [1403, 1110, 4447, 5000, 4300];
-  const FROM_ESCROW = [1111, 4448, 5001];
-
-  if (TO_BAZAAR.includes(logId)) targetLocation = "bazaar";
-  else if (FROM_BAZAAR.includes(logId)) sourceLocation = "bazaar";
-  else if (TO_DISPLAY.includes(logId)) targetLocation = "display";
-  else if (FROM_DISPLAY.includes(logId)) sourceLocation = "display";
-  else if (TO_ESCROW.includes(logId)) targetLocation = "escrow";
-  else if (FROM_ESCROW.includes(logId)) sourceLocation = "escrow";
-  else return; // Safety boundary
-
-  // --- 2. EXTRACT ITEMS ---
-  let items = data.items || [];
-
-  // Safely handle Torn occasionally using `item` as the array key
-  if (items.length === 0 && data.item && Array.isArray(data.item)) {
-    items = data.item;
-  }
-
-  // Handle Points Market which strictly uses `quantity`
-  if (items.length === 0 && data.quantity && [5000, 5001].includes(logId)) {
-    items.push({ id: "points", uid: null, qty: data.quantity });
-  }
-
-  if (items.length === 0) return;
-
-  const assetsAffected: {
-    asset_id: string | number;
-    uid?: number | string; // <-- V2 Tweak Included
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
-
-  // --- 3. EXECUTE TRANSFER ---
-  for (const item of items) {
-    const id = item.id;
-    const uid = item.uid;
-    const qty = item.qty || 1;
-    const isUid = !!(uid && typeof uid !== "boolean");
-
-    // Retrieve Source Asset
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sourceQuery: any = isUid
-      ? { id: `uid_${uid}`, owner: "personal" }
-      : { asset_id: id, location: sourceLocation, owner: "personal" };
-    const sourceAssets = Assets.find(sourceQuery);
-    let sourceAsset: AssetDocument;
-
-    if (sourceAssets.length > 0) {
-      sourceAsset = isUid
-        ? sourceAssets[0]
-        : sourceAssets.find((a: AssetDocument) => !a.id.startsWith("uid_")) ||
-          sourceAssets[0];
-    } else {
-      sourceAsset = {
-        id: isUid
-          ? `uid_${uid}`
-          : `item_${id}_${sourceLocation}_${randomUUID()}`,
-        type: id === "points" ? "point" : "item",
-        asset_id: id,
-        quantity: qty,
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: sourceLocation,
-        owner: "personal",
-        origin: "unknown",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-      Assets.insertOne(sourceAsset);
-    }
-
-    const mac = sourceAsset.moving_average_cost;
-    const costImpact = mac * qty;
-
-    // Deduct from Source
-    sourceAsset.quantity = Math.max(0, sourceAsset.quantity - qty);
-    sourceAsset.total_cost_basis = sourceAsset.quantity * mac;
-    sourceAsset.last_updated = Date.now();
-    Assets.update(sourceAsset);
-
-    // Retrieve or Create Target Asset
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const targetQuery: any = isUid
-      ? { id: `uid_${uid}`, owner: "personal" }
-      : { asset_id: id, location: targetLocation, owner: "personal" };
-    const targetAssets = Assets.find(targetQuery);
-    let targetAsset: AssetDocument;
-
-    if (targetAssets.length > 0) {
-      targetAsset = isUid
-        ? targetAssets[0]
-        : targetAssets.find((a: AssetDocument) => !a.id.startsWith("uid_")) ||
-          targetAssets[0];
-    } else {
-      targetAsset = {
-        id: isUid
-          ? `uid_${uid}`
-          : `item_${id}_${targetLocation}_${randomUUID()}`,
-        type: id === "points" ? "point" : "item",
-        asset_id: id,
-        quantity: 0,
-        moving_average_cost: mac,
-        total_cost_basis: 0,
-        location: targetLocation,
-        owner: "personal",
-        origin: sourceAsset.origin,
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-      Assets.insertOne(targetAsset);
-    }
-
-    // Add to Target
-    targetAsset.quantity += qty;
-    targetAsset.total_cost_basis += costImpact;
-    targetAsset.moving_average_cost =
-      targetAsset.total_cost_basis / targetAsset.quantity;
-    targetAsset.last_updated = Date.now();
-    targetAsset.location = targetLocation; // Ensure location is rigidly enforced for UIDs
-    Assets.update(targetAsset);
-
-    assetsAffected.push({
-      asset_id: id,
-      uid: uid || undefined, // <-- V2 Tweak Included
-      quantity_change: 0, // Net quantity change across your entire net worth is 0
-      cost_basis_impact: 0, // Net cost impact across your net worth is 0
-    });
-  }
-
-  LedgerEvents.insertOne({
-    id: `ledger_ev_${log.id}`,
-    log_id: log.id,
-    log_type: logId, // <-- V2 Tweak Included
-    timestamp: log.timestamp,
-    type: "storage_transfer",
-    category_id: 3,
-    transaction_name: "Asset Storage Transfer",
-    assets_affected: assetsAffected,
-    cash_flow: 0,
-    realized_pnl: 0,
-    raw_log: log,
-  });
-}
-
-// Utility to normalize wildly varying item structures from Torn Logs
-type GenericItemPayload = {
-  items?: {
-    id: number | string;
-    qty?: number;
-    amount?: number;
-    uid?: number | null;
-  }[];
-  item?:
-    | number
-    | Record<string, number>
-    | {
-        id: number | string;
-        qty?: number;
-        amount?: number;
-        uid?: number | null;
-      }[];
-  quantity?: number;
-  points?: number;
-};
-
-function extractItemsFromLogData(data: GenericItemPayload): {
-  id: string | number;
-  qty: number;
-  uid?: number | null;
-}[] {
-  const result: { id: string | number; qty: number; uid?: number | null }[] =
-    [];
-
-  // Helper: Parse Arrays (Handles `data.items` and `data.item` arrays)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const parseArray = (arr: any[]) => {
-    for (const item of arr) {
-      if (item && item.id) {
-        result.push({
-          id: item.id,
-          qty: item.qty || item.amount || 1,
-          uid: item.uid || null,
+        await db.asset.update({
+          where: { id: assetKey },
+          data: {
+            quantity: newQty,
+            totalCostBasis: newCostBasis,
+            movingAverageCost: newMac,
+            lastUpdated: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        const mac = qty > 0 ? totalCost / qty : 0;
+        await db.asset.create({
+          data: {
+            id: assetKey,
+            type: "item",
+            assetId: String(id),
+            quantity: qty,
+            movingAverageCost: mac,
+            totalCostBasis: totalCost,
+            location: "inventory",
+            owner: "personal",
+            origin: "purchase",
+            realizedPnl: 0,
+            lastUpdated: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
         });
       }
-    }
-  };
 
-  // Helper: Parse Objects (Handles Stock special items: {"3": 1})
-  const parseObject = (obj: Record<string, number>) => {
-    for (const [key, value] of Object.entries(obj)) {
-      const id = parseInt(key, 10);
-      const qty = typeof value === "number" ? value : 1;
-      if (!isNaN(id)) {
-        result.push({ id, qty });
+      assetsAffected.push({
+        assetId: String(id),
+        uid: item.uid || undefined,
+        quantityChange: qty,
+        costBasisImpact: totalCost,
+      });
+    } else if (sale) {
+      cashFlow += totalCost;
+      const mac = assetDoc?.movingAverageCost ?? 0;
+      const profit = (priceEach - mac) * qty;
+      realizedPnl += profit;
+
+      if (assetDoc) {
+        const newQty = Math.max(0, assetDoc.quantity - qty);
+        const newCostBasis = newQty * mac;
+
+        await db.asset.update({
+          where: { id: assetKey },
+          data: {
+            quantity: newQty,
+            totalCostBasis: newCostBasis,
+            realizedPnl: assetDoc.realizedPnl + profit,
+            lastUpdated: new Date(),
+            updatedAt: new Date(),
+          },
+        });
       }
+
+      assetsAffected.push({
+        assetId: String(id),
+        uid: item.uid || undefined,
+        quantityChange: -qty,
+        costBasisImpact: -(mac * qty),
+      });
     }
-  };
-
-  // 1. data.items (Standard purchases, bazaar adds, trades)
-  if (Array.isArray(data.items)) parseArray(data.items);
-
-  // 2. data.item (Faction gives, sometimes Torn just uses `item` as an array)
-  if (Array.isArray(data.item)) parseArray(data.item);
-
-  // 3. data.item object (Stock special items)
-  if (data.item && typeof data.item === "object" && !Array.isArray(data.item)) {
-    parseObject(data.item as Record<string, number>);
   }
 
-  // 4. data.item number (City finds)
-  if (typeof data.item === "number") {
-    result.push({ id: data.item, qty: data.quantity || 1 });
-  }
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
 
-  // 5. Points
-  if (data.points && typeof data.points === "number") {
-    result.push({ id: "points", qty: data.points });
+  if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
+    await db.ledgerEvent.upsert({
+      where: { id: `ledger_ev_${logIdStr}` },
+      update: {
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow,
+        realizedPnl,
+        updatedAt: new Date(),
+      },
+      create: {
+        id: `ledger_ev_${logIdStr}`,
+        logId: logIdStr,
+        timestamp: logTimestamp,
+        type: purchase ? "purchase" : "sale",
+        categoryId: 5,
+        transactionName: purchase ? "Item Purchase" : "Item Sale",
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow,
+        realizedPnl,
+        rawLog: log as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
   }
-
-  return result;
 }
 
-// --- Zero cost ---
-type ZeroCostLogIds = 7011 | 8374 | 8375 | 8377 | 8378 | 1404 | 5575;
+/**
+ * 7. Transformation Sinks (Item use, booster packs, museum sets, crimes, drug consumption)
+ */
+export async function parseTransformationSink(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
 
-function parseZeroCostInjection(log: StrictUserLog<ZeroCostLogIds>) {
-  if (!isLogValidForWealth(log.timestamp)) return;
-
-  const logId = log.details.id;
-  const data = log.data;
-
-  // Use an extended internal type so we can route properties to the right location
-  const gainedItems: {
-    id: string | number;
-    qty: number;
-    uid?: number | null;
-    isProperty?: boolean;
-  }[] = [];
-
-  gainedItems.push(...extractItemsFromLogData(data as GenericItemPayload));
-
-  if (data.first_item) gainedItems.push({ id: data.first_item, qty: 1 });
-  if (data.second_item) gainedItems.push({ id: data.second_item, qty: 1 });
-
-  // 3. Extract Zero-Cost Properties (e.g. winning a PI)
-  if (data.property)
-    gainedItems.push({
-      id: `property_${data.property}`,
-      qty: 1,
-      isProperty: true,
-    });
+  const data = (log.data as Record<string, any>) || {};
+  const logId = Number(log.details.id);
+  const category = String(log.details.category || "");
 
   let cashFlow = 0;
   let realizedPnl = 0;
-  const assetsAffected: {
-    asset_id: string | number;
-    uid?: number | string;
-    quantity_change: number;
-    cost_basis_impact: number;
-  }[] = [];
+  const assetsAffected: { assetId: string; uid?: number | string; quantityChange: number; costBasisImpact: number }[] = [];
 
-  // --- FIAT GENERATION (Pure Profit) ---
-  if (data.money) {
-    cashFlow += data.money;
-    realizedPnl += data.money;
-  }
+  const burnAsset = async (id: string | number, qty: number, uid?: number | null): Promise<number> => {
+    const isUid = !!(uid && typeof uid !== "boolean");
+    const assetKey = isUid ? `uid_${uid}` : `item_${id}_inventory`;
 
-  // --- ASSET INJECTION (MAC Dilution) ---
-  for (const item of gainedItems) {
-    const isUid = !!(item.uid && typeof item.uid !== "boolean");
-    const targetLocation: AssetLocation = item.isProperty
-      ? "portfolio"
-      : "inventory";
+    const existing = await db.asset.findUnique({ where: { id: assetKey } });
+    const mac = existing?.movingAverageCost ?? 0;
+    const burnedCost = mac * qty;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const query: any = isUid
-      ? { id: `uid_${item.uid}`, owner: "personal" }
-      : { asset_id: item.id, location: targetLocation, owner: "personal" };
-
-    const existingAssets = Assets.find(query);
-    let assetDoc: AssetDocument;
-    let isNewAsset = false;
-
-    if (existingAssets.length > 0) {
-      assetDoc = isUid
-        ? existingAssets[0]
-        : existingAssets.find((a: AssetDocument) => !a.id.startsWith("uid_")) ||
-          existingAssets[0];
-    } else {
-      isNewAsset = true;
-      let assetType: "item" | "point" | "property" = "item";
-      if (item.id === "points") assetType = "point";
-      if (item.isProperty) assetType = "property";
-
-      assetDoc = {
-        id: isUid
-          ? `uid_${item.uid}`
-          : `asset_${item.id}_${targetLocation}_${randomUUID()}`,
-        type: assetType,
-        asset_id: item.id,
-        quantity: 0,
-        moving_average_cost: 0,
-        total_cost_basis: 0,
-        location: targetLocation,
-        owner: "personal",
-        origin: "zero_cost_injection",
-        realized_pnl: 0,
-        last_updated: Date.now(),
-      };
-    }
-
-    const qty = item.qty;
-
-    // Inject at $0 cost basis, mathematically diluting the MAC
-    assetDoc.quantity += qty;
-    assetDoc.moving_average_cost =
-      assetDoc.total_cost_basis / assetDoc.quantity;
-    assetDoc.last_updated = Date.now();
-
-    if (isNewAsset) Assets.insertOne(assetDoc);
-    else Assets.update(assetDoc);
-
-    assetsAffected.push({
-      asset_id: item.id,
-      uid: item.uid || undefined,
-      quantity_change: qty,
-      cost_basis_impact: 0, // $0 impact
-    });
-  }
-
-  // --- DISPATCH LEDGER EVENT ---
-  if (assetsAffected.length > 0 || cashFlow !== 0) {
-    LedgerEvents.insertOne({
-      id: `ledger_ev_${log.id}`,
-      log_id: log.id,
-      log_type: logId,
-      timestamp: log.timestamp,
-      type: "injection",
-      category_id: 4,
-      transaction_name: "Free Asset Acquisition",
-      assets_affected: assetsAffected,
-      cash_flow: cashFlow,
-      realized_pnl: realizedPnl,
-      raw_log: log,
-    });
-  }
-}
-
-const ZERO_COST_IDS = [7011, 8374, 8375, 8377, 8378, 1404, 5575];
-
-// --- Liquid cash sync ---
-function executeLiquidCashEngine(): void {
-  try {
-    const liveState = UserState.findOne("live_state") as Extract<
-      UserStateDocument,
-      { id: "live_state" }
-    >;
-    const money = liveState?.money;
-
-    if (!money) {
-      logger.warn(
-        "Skipping liquid cash sync: No money data in local UserState yet.",
-      );
-      return;
-    }
-
-    let withdrawableCorporateCash = 0;
-
-    if (money.company > 0) {
-      try {
-        // 2. Read the latest Company Profile locally (No API Call!)
-        // This relies on the daily sync we built in the Company module
-        const latestCompanyProfits = CompanyDailyProfits.find({});
-
-        if (latestCompanyProfits.length > 0) {
-          // Sort to get the most recent entry
-          latestCompanyProfits.sort((a, b) => b.timestamp - a.timestamp);
-          const latest = latestCompanyProfits[0];
-
-          const profile = latest.profile;
-          const employees = latest.employees || [];
-
-          const dailyAdCost = profile?.advertisement_budget || 0;
-          let employeesWage = 0;
-          for (const employee of employees) {
-            employeesWage += employee.wage || 0;
-          }
-
-          const weeklyBurn = (employeesWage + dailyAdCost) * 7;
-          withdrawableCorporateCash = Math.max(0, money.company - weeklyBurn);
-        } else {
-          // Fallback if no company data has been synced yet
-          withdrawableCorporateCash = money.company;
-        }
-      } catch (error) {
-        withdrawableCorporateCash = money.company;
-        logger.error(
-          "Failed to calculate withdrawable corporate cash from local DB",
-          error,
-        );
-      }
-    }
-
-    // 3. Calculate Total Liquidity
-    const totalLiquidity =
-      (money.wallet || 0) +
-      (money.vault || 0) +
-      (money.faction?.money || 0) + // Ensure you handle the nested faction object safely
-      withdrawableCorporateCash;
-
-    // 4. Upsert into CashHistory (Chronological Snapshot)
-    const now = new Date();
-    now.setUTCHours(0, 0, 0, 0);
-    const startOfDayUtc = Math.floor(now.getTime() / 1000);
-
-    const snapshotDoc = {
-      id: startOfDayUtc.toString(),
-      timestamp: startOfDayUtc,
-      liquid_cash: totalLiquidity,
-    };
-
-    CashHistory.update(snapshotDoc);
-
-    logger.info(`Total liquidity: ${totalLiquidity}`);
-  } catch (error) {
-    logger.error("Failed to run offline liquid cash engine:", error);
-  }
-}
-
-// --- Init ---
-type UserResponse = TornSchema<"UserMoneyResponse"> & {
-  bazaar?: {
-    ID: number;
-    UID?: number;
-    name: string;
-    type: string;
-    quantity: number;
-    price: number;
-    market_price: number;
-  }[];
-  display?: {
-    ID: number;
-    UID?: number;
-    name: string;
-    type: string;
-    quantity: number;
-    market_price: number;
-  }[];
-};
-
-// Unified internal type to handle Torn's capitalization chaos
-type InitItem = {
-  id: number;
-  uid?: number | null;
-  qty: number;
-};
-
-/**
- * Initializes the ledger by fetching a baseline of assets if the database is empty.
- * This satisfies Category 1: The Initialization (Day Zero)
- */
-async function runWealthLedgerInit(): Promise<void> {
-  const time = performance.now();
-  logger.warn("Initializing Wealth Ledger V2");
-
-  try {
-    const apiKey = getWorkerApiKey("personal");
-    if (!apiKey) throw new Error("No personal API key found");
-
-    // 1. Wipe previous state for a clean slate
-    Assets.deleteManyBy({});
-    LedgerEvents.deleteManyBy({});
-    CashHistory.deleteManyBy({});
-
-    // 2. Fetch Baseline Data
-    const userRes = (await tornApi.get("/user", {
-      apiKey,
-      queryParams: { selections: ["bazaar", "money", "display"] },
-    })) as unknown as UserResponse;
-
-    const bazaar = userRes.bazaar || [];
-    const display = userRes.display || [];
-    const moneyData = userRes.money;
-    const pointsCount = moneyData?.points || 0;
-
-    // 3. Fetch Points Market for accurate MAC
-    // 3. Fetch Points Market for accurate MAC (Read from local VWAP state)
-    let pointCost = 30000; // Safe fallback
-    try {
-      const pointState = SystemState.findOne("points_price") as Extract<
-        SystemStateDocument,
-        { id: "points_price" }
-      >;
-
-      if (pointState && pointState.price > 0) {
-        pointCost = pointState.price;
-      }
-    } catch {
-      logger.warn(
-        "Failed to read points_price from SystemState, defaulting to 30k fallback",
-      );
-    }
-
-    // 4. Fetch Inventory via Rotator
-    const categories: string[] = [
-      "Collectible",
-      "Clothing",
-      "Other",
-      "Tool",
-      "Melee",
-      "Defensive",
-      "Material",
-      "Car",
-      "Primary",
-      "Secondary",
-      "Book",
-      "Special",
-      "Supply Pack",
-      "Temporary",
-      "Enhancer",
-      "Artifact",
-      "Flower",
-      "Booster",
-      "Medical",
-      "Candy",
-      "Jewelry",
-      "Alcohol",
-      "Plushie",
-      "Drug",
-      "Energy Drink",
-    ];
-
-    let inventory: TornSchema<"UserInventoryItem">[] = [];
-    const rotator = new ApiKeyRotator([apiKey]);
-
-    await rotator.processSequential(
-      categories,
-      async (cat, key) => {
-        try {
-          const invRes = (await tornApi.get("/user/inventory", {
-            apiKey: key,
-            queryParams: { cat, limit: 250 },
-          })) as TornSchema<"UserInventoryResponse">;
-
-          if (invRes.inventory?.items) {
-            inventory = inventory.concat(invRes.inventory.items);
-          }
-        } catch {
-          // Expected for empty categories
-        }
-      },
-      1000,
-    );
-
-    let totalInitWealth = 0; // Track total value for the initial ledger event
-
-    // --- V2 HELPER: Type-Safe Insertion ---
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const insertItems = (rawItems: any[], location: AssetLocation) => {
-      for (const raw of rawItems) {
-        // Normalize Torn's chaotic casing
-        const item: InitItem = {
-          id: raw.id || raw.ID,
-          uid: raw.uid || raw.UID,
-          qty: raw.amount || raw.quantity || 1,
-        };
-
-        const itemRecord = TornItems.findOne(
-          item.id.toString(),
-        ) as TornItemDocument;
-        const systemValue = itemRecord?.data?.value?.market_price || 0;
-        const costBasis = systemValue || 0;
-
-        totalInitWealth += costBasis * item.qty;
-
-        if (item.uid) {
-          Assets.insertOne({
-            id: `uid_${item.uid}`,
-            type: "item",
-            asset_id: item.id,
-            quantity: 1,
-            moving_average_cost: costBasis,
-            total_cost_basis: costBasis,
-            location, // V2 FIX: Removed 'equipped' override
-            owner: "personal",
-            origin: "legacy_init",
-            realized_pnl: 0,
-            last_updated: Date.now(),
-          });
-        } else {
-          const existing = Assets.find({ asset_id: item.id, location });
-          const matched = existing.find(
-            (a: AssetDocument) => !a.id.startsWith("uid_"),
-          );
-
-          if (matched) {
-            matched.quantity += item.qty;
-            matched.total_cost_basis =
-              matched.quantity * matched.moving_average_cost;
-            Assets.update(matched);
-          } else {
-            Assets.insertOne({
-              id: `item_${item.id}_${location}_${randomUUID()}`,
-              type: "item",
-              asset_id: item.id,
-              quantity: item.qty,
-              moving_average_cost: costBasis,
-              total_cost_basis: costBasis * item.qty,
-              location,
-              owner: "personal",
-              origin: "legacy_init",
-              realized_pnl: 0,
-              last_updated: Date.now(),
-            });
-          }
-        }
-      }
-    };
-
-    // 5. Execute Insertions
-    insertItems(inventory, "inventory");
-    insertItems(bazaar, "bazaar");
-    insertItems(display, "display");
-
-    if (pointsCount > 0) {
-      totalInitWealth += pointsCount * pointCost;
-      Assets.insertOne({
-        id: `points_personal_${randomUUID()}`,
-        type: "point",
-        asset_id: "points",
-        quantity: pointsCount,
-        moving_average_cost: pointCost,
-        total_cost_basis: pointsCount * pointCost,
-        location: "inventory",
-        owner: "personal",
-        origin: "legacy_init",
-        realized_pnl: 0,
-        last_updated: Date.now(),
+    if (existing) {
+      const newQty = Math.max(0, existing.quantity - qty);
+      const newCostBasis = newQty * mac;
+      await db.asset.update({
+        where: { id: assetKey },
+        data: {
+          quantity: newQty,
+          totalCostBasis: newCostBasis,
+          realizedPnl: existing.realizedPnl - burnedCost,
+          lastUpdated: new Date(),
+          updatedAt: new Date(),
+        },
       });
     }
 
-    // 6. Write Initial Ledger Event
-    // Gives the UI a beautiful starting point showing exactly how much net worth was imported
-    LedgerEvents.insertOne({
-      id: `ledger_ev_init_${Date.now()}`,
-      log_id: "init",
-      timestamp: Math.floor(Date.now() / 1000),
-      type: "init",
-      category_id: 1,
-      transaction_name: "Ledger Initialization",
-      assets_affected: [],
-      cash_flow: moneyData?.wallet || 0, // Initial wallet cash
-      realized_pnl: totalInitWealth, // Treat imported legacy items as initial "profit" baseline
-      raw_log: { note: "Day Zero Sync" },
+    assetsAffected.push({
+      assetId: String(id),
+      uid: uid || undefined,
+      quantityChange: -qty,
+      costBasisImpact: -burnedCost,
     });
 
-    // 8. Update System State Flags
-    const nowTimestamp = Math.floor(Date.now() / 1000);
-    SystemState.update({
-      id: "wealth_ledger_v2_init",
-      timestamp: nowTimestamp,
-      init: true,
-    });
+    return burnedCost;
+  };
 
-    cachedAnchorTimestamp = nowTimestamp;
+  let totalLoss = 0;
+  if (typeof data.item === "number") {
+    totalLoss += await burnAsset(data.item, 1);
+  }
 
-    logger.info(
-      `Successfully initialized wealth ledger. Baseline value imported: $${totalInitWealth} in ${(performance.now() - time) / 1000}ms`,
-    );
-  } catch (error) {
-    logger.error("Failed to initialize ledger baseline:", error);
-    SystemState.update({
-      id: "wealth_ledger_v2_init",
-      init: false,
-      timestamp: Date.now(),
+  if (data.items_lost && typeof data.items_lost === "object") {
+    for (const [k, v] of Object.entries(data.items_lost)) {
+      totalLoss += await burnAsset(parseInt(k, 10), typeof v === "number" ? v : 1);
+    }
+  }
+
+  if (data.money_lost) {
+    cashFlow -= Number(data.money_lost);
+    realizedPnl -= Number(data.money_lost);
+  }
+
+  if (data.money_gained) {
+    cashFlow += Number(data.money_gained);
+    realizedPnl += Number(data.money_gained);
+  }
+
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
+
+  if (assetsAffected.length > 0 || cashFlow !== 0 || realizedPnl !== 0) {
+    await db.ledgerEvent.upsert({
+      where: { id: `ledger_ev_${logIdStr}` },
+      update: {
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow,
+        realizedPnl,
+        updatedAt: new Date(),
+      },
+      create: {
+        id: `ledger_ev_${logIdStr}`,
+        logId: logIdStr,
+        timestamp: logTimestamp,
+        type: realizedPnl > 0 ? "injection" : "sink",
+        categoryId: 5,
+        transactionName: category === "Crimes" ? "Crime Outcome" : "Transformation Sink",
+        assetsAffected: assetsAffected as unknown as object,
+        cashFlow,
+        realizedPnl,
+        rawLog: log as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
   }
 }
 
-// Listen for the init trigger from the API
-workerEvents.on("wealth_init", runWealthLedgerInit);
+/**
+ * 8. Company Profit / Employee Wage Log Parsers
+ */
+export async function parseCompanyProfitLog(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
 
-// Listen for the heal trigger from the API
-workerEvents.on("wealth_heal", async () => {
-  const { healLedger } = await import("../../scripts/heal-ledger.js");
-  await healLedger();
-});
+  const now = new Date();
+  const startOfDayUtc = Math.floor(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000,
+  );
 
-workerEvents.on("live_state_updated", executeLiquidCashEngine);
+  if (log.timestamp < startOfDayUtc) return;
 
-export const WEALTH_LOG_ROUTES: LogRouteMap = {
-  1110: [parseStorageTransfer],
-  1113: [parseStandardCash],
-  1222: [parseStorageTransfer],
-  1226: [parseStandardCash],
-  1302: [parseStorageTransfer],
-  1403: [parseStorageTransfer],
-  4210: [parseStandardCash],
-  4220: [parseStandardCash],
-  4300: [parseStorageTransfer],
-  4320: [parseStandardCash],
-  4322: [parseStandardCash],
-  4430: [parseBarterTrade],
-  4447: [parseStorageTransfer],
-  5000: [parseStorageTransfer],
-  5010: [parseStandardCash],
-  5011: [parseStandardCash],
-  5510: [parseEquityProperty],
-  5511: [parseEquityProperty],
-  5900: [parseEquityProperty],
-  5920: [parseEquityProperty],
-  5927: [parseEquityProperty],
-  5928: [parseEquityProperty],
-  6221: [parseEmployeeProfitLog],
-  6222: [parseCompanyProfitLog],
-  6280: [parseEquityProperty],
-  6284: [parseEquityProperty],
-  6285: [parseEquityProperty],
-  6290: [parseEquityProperty],
-  6291: [parseEquityProperty],
-  6292: [parseEquityProperty],
-  6300: [parseEquityProperty],
-  6728: [parseFactionLiability],
-  6746: [parseFactionLiability],
-  6747: [parseFactionLiability],
-  1112: [parseStandardCash],
-  1225: [parseStandardCash],
-  4200: [parseStandardCash],
-  4201: [parseStandardCash],
-};
+  workerEvents.emit("company_pay_received");
+}
 
-SINK_LOG_IDS.forEach((id) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const routeMap = WEALTH_LOG_ROUTES as Record<number, any>;
+export async function parseEmployeeProfitLog(log: UserLog): Promise<void> {
+  if (!(await isLogValidForWealth(log.timestamp))) return;
 
-  if (!routeMap[id]) routeMap[id] = [];
-  routeMap[id].push(parseTransformationSink);
-});
+  const data = (log.data as Record<string, any>) || {};
+  const pay = Number(data.pay || 0);
+  if (pay <= 0) return;
 
-ZERO_COST_IDS.forEach((id) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const routeMap = WEALTH_LOG_ROUTES as Record<number, any>;
-  if (!routeMap[id]) routeMap[id] = [];
-  routeMap[id].push(parseZeroCostInjection);
-});
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
 
-function checkAndInit() {
-  // 1. Check if the master engine is currently pulling history
-  const backfillState = SystemState.findOne("log_manager_backfill_progress") as
-    | Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>
-    | undefined;
+  await db.ledgerEvent.upsert({
+    where: { id: `ledger_ev_${logIdStr}` },
+    update: {
+      cashFlow: pay,
+      realizedPnl: pay,
+      updatedAt: new Date(),
+    },
+    create: {
+      id: `ledger_ev_${logIdStr}`,
+      logId: logIdStr,
+      timestamp: logTimestamp,
+      type: "injection",
+      categoryId: 9,
+      transactionName: "Company Employee Wage",
+      assetsAffected: [],
+      cashFlow: pay,
+      realizedPnl: pay,
+      rawLog: log as unknown as object,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+}
 
-  if (!backfillState || backfillState.status !== "completed") {
-    logger.warn(
-      "Log backfill is ongoing or incomplete. Postponing Wealth module initialization.",
-    );
-    return;
-  }
+/**
+ * Initializes Wealth Engine:
+ * Sets wealth_ledger_init anchor status after log backfill completes.
+ */
+async function runWealthLedgerInit(): Promise<void> {
+  try {
+    logger.info("Initializing Wealth Engine...");
 
-  // 2. Check if this specific module has completed its V2 initialization
-  const initState = SystemState.findOne("wealth_ledger_v2_init");
-  if (!initState) {
-    runSequentialInit("wealth_init", runWealthLedgerInit);
+    const backfillRecord = await db.systemState.findUnique({
+      where: { id: "log_manager_backfill_progress" },
+    });
+    const backfillData = backfillRecord?.data as { status: string } | undefined;
+
+    if (backfillData?.status !== "completed") {
+      logger.warn("Log backfill is ongoing. Postponing Wealth Engine initialization.");
+      return;
+    }
+
+    await db.systemState.upsert({
+      where: { id: "wealth_ledger_init" },
+      update: { init: true, data: { status: "completed" }, updatedAt: new Date() },
+      create: { id: "wealth_ledger_init", init: true, data: { status: "completed" }, createdAt: new Date(), updatedAt: new Date() },
+    });
+
+    logger.info("Wealth Engine initialized successfully.");
+  } catch (err) {
+    logger.error("Failed to initialize Wealth Engine:", err);
   }
 }
 
+async function checkAndInitWealth(): Promise<void> {
+  const initState = await db.systemState.findUnique({
+    where: { id: "wealth_ledger_init" },
+  });
+
+  if (!initState || !initState.init) {
+    await runWealthLedgerInit();
+  }
+}
+
+/**
+ * Registers real-time log listeners for wealth-related events.
+ */
 export function startWealthModule(_options?: WorkerStartOptions): void {
-  // Attempt to boot immediately
-  checkAndInit();
+  checkAndInitWealth().catch((err) => logger.error("Error during wealth checkAndInit:", err));
 
-  // Listen for the master engine to broadcast completion, then attempt boot again
+  workerEvents.on("new_log", async (log: UserLog) => {
+    const logCode = Number(log.details.id);
+
+    if (logCode === 4430) {
+      await parseBarterTrade(log);
+    } else if (logCode === 6222) {
+      await parseCompanyProfitLog(log);
+    } else if (logCode === 6221) {
+      await parseEmployeeProfitLog(log);
+    } else if (EQUITY_LOG_IDS.includes(logCode)) {
+      await parseEquityProperty(log);
+    } else if (FACTION_LOG_IDS.includes(logCode)) {
+      await parseFactionLiability(log);
+    } else if (STORAGE_TRANSFER_LOG_IDS.includes(logCode)) {
+      await parseStorageTransfer(log);
+    } else if (ZERO_COST_LOG_IDS.includes(logCode)) {
+      await parseZeroCostInjection(log);
+    } else if ([1112, 1225, 4200, 4201, 5010, 4320, 1226, 1113, 4210, 4220, 5011, 4322].includes(logCode)) {
+      await parseStandardCash(log);
+    } else {
+      await parseTransformationSink(log);
+    }
+  });
+
   workerEvents.on("log_backfill_completed", () => {
-    checkAndInit();
+    checkAndInitWealth().catch((err) => logger.error("Error running Wealth init after backfill:", err));
   });
 }

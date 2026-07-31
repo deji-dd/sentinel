@@ -1,104 +1,49 @@
-/**
- * Faction data sync worker
- * Runs once daily to update faction data in the NoSQL table
- * Uses system API keys to distribute rate limit load
- */
-
-import {
-  TornFactions,
-  FactionRoles,
-  getSystemKeyPool,
-  tornApi,
-  Logger,
-  FactionRoleMappingDocument,
-} from "@sentinel/shared";
+import { Logger } from "@sentinel/utils";
+import { db } from "@sentinel/database";
+import { ensureFactionsTracked } from "../../lib/faction-tracker.js";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
-import { ApiKeyRotator } from "@sentinel/shared";
+import type { WorkerStartOptions } from "../registry.js";
 
 const WORKER_NAME = "faction_sync";
 const logger = new Logger(WORKER_NAME);
 
-import type { WorkerStartOptions } from "../registry.js";
+/**
+ * Sweeps all registered territory states and war ledgers to ensure faction data
+ * is fully populated and refreshed if older than 24 hours.
+ */
+export async function runFactionSync(): Promise<void> {
+  const finishLog = logger.time();
 
-export function startFactionSync(options?: WorkerStartOptions) {
+  try {
+    const states = await db.territoryState.findMany({
+      select: { factionId: true },
+    });
+    const wars = await db.warLedger.findMany({
+      select: { assaultingFaction: true, defendingFaction: true, victorFaction: true },
+    });
+
+    const allFactionIds: (number | null | undefined)[] = [
+      ...states.map((s) => s.factionId),
+      ...wars.flatMap((w) => [w.assaultingFaction, w.defendingFaction, w.victorFaction]),
+    ];
+
+    const updatedCount = await ensureFactionsTracked(allFactionIds);
+    logger.info(`Faction sync completed. Refreshed ${updatedCount} factions.`);
+
+    finishLog();
+  } catch (error) {
+    logger.error("Failed to execute faction sync:", error);
+  }
+}
+
+/**
+ * Starts the daily faction sync worker.
+ */
+export function startFactionSync(options?: WorkerStartOptions): void {
   startEventDrivenRunner({
     worker: WORKER_NAME,
-    defaultCadenceSeconds: 86400, // Run once daily
+    defaultCadenceSeconds: 86400, // 24 hours
     initialDelayMs: options?.initialDelayMs,
-    handler: async () => {
-      const finishLog = logger.time();
-
-      try {
-        // 1. Get all faction IDs we're tracking from guild mappings
-        const factionRoles = FactionRoles.findAll();
-        const uniqueFactionIds = Array.from(
-          new Set(
-            factionRoles
-              .map((row: FactionRoleMappingDocument) => row.faction_id)
-              .filter(Boolean),
-          ),
-        ) as number[];
-
-        if (uniqueFactionIds.length === 0) {
-          finishLog();
-          return;
-        }
-
-        logger.info(`Syncing ${uniqueFactionIds.length} factions`);
-
-        // 2. Prepare the System API Key Rotator
-        const apiKeys = getSystemKeyPool();
-        if (!apiKeys.length) {
-          logger.error("No system API key available");
-          return;
-        }
-        const keyRotator = new ApiKeyRotator(apiKeys);
-
-        // 3. Process concurrently with strict pacing
-        const delayMs = Math.max(
-          100,
-          Math.floor(60000 / (50 * apiKeys.length)),
-        );
-
-        const results = await keyRotator.processConcurrent(
-          uniqueFactionIds.map(String),
-          async (factionId, key) => {
-            try {
-              const res = await tornApi.get("/faction/{id}/basic", {
-                apiKey: key,
-                pathParams: { id: factionId },
-              });
-              return { factionId, data: res.basic, error: null };
-            } catch (err) {
-              return { factionId, data: null, error: err };
-            }
-          },
-          delayMs,
-        );
-
-        // 4. Dump into NoSQL Engine
-        const docsToInsert = [];
-
-        for (const { factionId, data, error } of results) {
-          if (error || !data) {
-            continue;
-          }
-
-          docsToInsert.push({
-            id: factionId,
-            data: data,
-            updated_at: Date.now(),
-          });
-        }
-
-        if (docsToInsert.length > 0) {
-          TornFactions.insertMany(docsToInsert);
-        }
-
-        finishLog();
-      } catch (error) {
-        logger.error("Faction sync failed", error);
-      }
-    },
+    handler: runFactionSync,
   });
 }

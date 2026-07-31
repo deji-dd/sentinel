@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "db:generate": {
+      "inputs": ["prisma/schema.prisma"],
+      "outputs": [
+        "node_modules/.prisma/client/**",
+        "node_modules/@prisma/client/**"
+      ]
+    },
+    "build": {
+      "dependsOn": ["^build", "db:generate"],
+      "inputs": ["src/**", "prisma/**", "package.json", "tsconfig*.json"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "outputs": []
+    }
+  }
+}

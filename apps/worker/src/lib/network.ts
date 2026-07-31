@@ -1,26 +1,29 @@
 import { Agent, setGlobalDispatcher } from "undici";
 import CacheableLookup from "cacheable-lookup";
-import { Logger } from "@sentinel/shared";
+import { Logger } from "@sentinel/utils";
 
 const logger = new Logger("Network");
 
-export function initializeNetworkPipelining(): void {
-  logger.warn("Initializing network pipelining & DNS cache...");
+/**
+ * Initializes global undici agent dispatcher with DNS caching and HTTP socket keep-alive
+ * to minimize latency on frequent Torn API requests.
+ */
+export function initializeNetworkOptimization(): void {
+  logger.info("Initializing network socket reuse & DNS cache...");
 
   const dnsCache = new CacheableLookup({
     maxTtl: 300, // Cache DNS records for at most 5 minutes
   });
 
   const globalAgent = new Agent({
-    pipelining: 1, // Enable socket reuse without head-of-line blocking pipelining
+    pipelining: 1, // Enable socket reuse without head-of-line blocking
     connections: 100, // Max active connections per origin
-    keepAliveTimeout: 10 * 60 * 1000, // Keep connections open for 10 minutes of inactivity
+    keepAliveTimeout: 10 * 60 * 1000, // 10 minutes keep-alive
     connect: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       lookup: dnsCache.lookup as any,
     },
   });
 
   setGlobalDispatcher(globalAgent);
-  logger.info("Network pipelining & DNS cache successfully initialized.");
+  logger.info("Network optimization & DNS cache initialized.");
 }

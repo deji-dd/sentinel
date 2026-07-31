@@ -1,102 +1,88 @@
-import Fastify from "fastify";
-import {
-  Logger,
-  sentinelDbEngine,
-  startMetricsReporter,
-  stopMetricsReporter,
-  SystemState,
-  seedSystemModules,
-} from "@sentinel/shared";
-import healthRoutes from "./routes/health.js";
-import statusRoutes from "./routes/status.js";
-import ledgerRoutes from "./routes/ledger.js";
-import { crimesRoutes } from "./routes/crimes.js";
-import { gymRoutes } from "./routes/gym.js";
-import { stocksRoutes } from "./routes/stocks.js";
-import { configRoutes } from "./routes/config.js";
-import { settingsRoutes } from "./routes/settings.js";
-import { travelRoutes } from "./routes/travel.js";
-import { wealthRoutes } from "./routes/wealth.js";
-import { ttRoutes } from "./routes/tt.js";
-import { guildsRoutes } from "./routes/guilds.js";
-import { logsRoutes } from "./routes/logs.js";
+import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
-import websocket from "@fastify/websocket";
+import dotenv from "dotenv";
+import { db } from "@sentinel/database";
+import { Logger } from "@sentinel/utils";
+import { guildRoutes } from "./routes/guilds.js";
+// Establish IPC connection to worker at startup (auto-reconnects on worker restart)
+import { ipcClient } from "./lib/ipc-client.js";
 
-startMetricsReporter("api");
 
-const logger = new Logger("api_gateway");
-const fastify = Fastify({ logger: false }); // We'll use our own logger or integrate later
+dotenv.config();
 
-const PORT = parseInt(process.env.PORT || "3001", 10);
-const HOST = "0.0.0.0";
+const logger = new Logger("SentinelApi");
+const PORT = parseInt(process.env.API_PORT || "3001", 10);
+const HOST = process.env.API_HOST || "0.0.0.0";
 
-// Register routes
-fastify.register(cors, {
-  origin: "*", // The user approved "any origin is fine"
+const app = Fastify({
+  logger: false,
 });
-fastify.register(websocket);
-fastify.register(healthRoutes);
-fastify.register(statusRoutes);
-fastify.register(ledgerRoutes);
-fastify.register(crimesRoutes, { prefix: "/api/crimes" });
-fastify.register(gymRoutes, { prefix: "/api/gym" });
-fastify.register(stocksRoutes, { prefix: "/api/stocks" });
-fastify.register(configRoutes, { prefix: "/api/config" });
-fastify.register(settingsRoutes, { prefix: "/api/settings" });
-fastify.register(travelRoutes, { prefix: "/api/travel" });
-fastify.register(wealthRoutes, { prefix: "/api/wealth" });
-fastify.register(ttRoutes, { prefix: "/api/tt" });
-fastify.register(guildsRoutes, { prefix: "/api/guilds" });
-fastify.register(logsRoutes, { prefix: "/api/logs" });
 
-async function start() {
+/**
+ * Initialize plugins, routes, and start Fastify server
+ */
+async function startServer(): Promise<void> {
   try {
-    // Ensure the database is ready
-    if (!sentinelDbEngine.db || !sentinelDbEngine.db.open) {
-      throw new Error("Shared SQLite Database failed to open.");
-    }
-
-    // Seed system modules
-    seedSystemModules();
-
-    await fastify.listen({ port: PORT, host: HOST });
-    logger.info(`Fastify API Gateway listening on http://${HOST}:${PORT}`);
-
-    SystemState.update({
-      id: "api_boot_alert",
-      component: "api",
-      message: "API Gateway process successfully booted up.",
-      timestamp: Date.now(),
-      reported: false,
+    // Request logging hooks
+    app.addHook("onRequest", async (request) => {
+      (request as any).startTime = performance.now();
     });
+
+    app.addHook("onResponse", async (request, reply) => {
+      const startTime = (request as any).startTime || performance.now();
+      const duration = Math.round(performance.now() - startTime);
+      const method = request.method;
+      const url = request.url;
+      const status = reply.statusCode;
+
+      logger.info(`${method} ${url} -> ${status} (${duration}ms)`);
+    });
+
+    // Centralized error handler logging
+    app.setErrorHandler((error: FastifyError, request, reply) => {
+      logger.error(`Error processing ${request.method} ${request.url}:`, error);
+      const statusCode = error.statusCode ?? 500;
+      reply.status(statusCode).send({
+        error: error.name ?? "InternalServerError",
+        message: error.message ?? "An internal server error occurred",
+      });
+    });
+
+    await app.register(cors, {
+      origin: true,
+      credentials: true,
+    });
+
+    // Register Guild Routes
+    await app.register(guildRoutes);
+
+    // Health check endpoint
+    app.get("/health", async (_request, reply) => {
+      try {
+        await db.$queryRaw`SELECT 1`;
+        return reply.send({
+          status: "ok",
+          component: "sentinel-api",
+          timestamp: new Date().toISOString(),
+          database: "connected",
+        });
+      } catch (err) {
+        return reply.status(503).send({
+          status: "error",
+          component: "sentinel-api",
+          timestamp: new Date().toISOString(),
+          database: "disconnected",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+
+    await app.listen({ port: PORT, host: HOST });
+    logger.info(`Fastify API Gateway listening on http://${HOST}:${PORT}`);
   } catch (err) {
-    logger.error("Error starting API Gateway:", err);
+    logger.error("Failed to start Fastify API server:", err);
     process.exit(1);
   }
 }
 
-// Graceful shutdown
-const shutdown = async (signal: string) => {
-  logger.info(`Received ${signal}. Shutting down API Gateway...`);
-
-  try {
-    await fastify.close();
-    logger.info("Fastify server closed.");
-
-    // Stop metrics reporter first while DB is still open
-    stopMetricsReporter("api");
-
-    // Close shared database connection
-    sentinelDbEngine.close();
-    process.exit(0);
-  } catch (err) {
-    logger.error("Error during shutdown:", err);
-    process.exit(1);
-  }
-};
-
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
-start();
+startServer();

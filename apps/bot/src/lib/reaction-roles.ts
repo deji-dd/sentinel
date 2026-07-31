@@ -1,55 +1,21 @@
-/**
- * Reaction Role Message Handler
- * Processes emoji reactions on messages to assign roles
- */
-
 import {
-  EmbedBuilder,
-  type MessageReaction,
-  type User,
-  type PartialMessageReaction,
-  type PartialUser,
   type Client,
+  type MessageReaction,
+  type PartialMessageReaction,
+  type User,
+  type PartialUser,
   type TextChannel,
-  type Message,
 } from "discord.js";
-import {
-  GuildConfigs,
-  ReactionRoleMessages,
-  ReactionRoleMappings,
-} from "@sentinel/shared";
+import { db } from "@sentinel/database";
+import { isModuleEnabled, Logger } from "@sentinel/utils";
+import { createBaseEmbed, EMBED_COLORS } from "./embeds.js";
+import { sendGuildAuditLog } from "./guild-logger.js";
+
+const logger = new Logger("ReactionRoles");
 
 const REACTION_FEEDBACK_TTL_MS = 10000;
 const REACTION_EVENT_LOCK_MS = 4000;
 const reactionProcessingLock = new Map<string, number>();
-
-type ReactionFeedbackType =
-  | "added"
-  | "removed"
-  | "denied"
-  | "invalid"
-  | "error";
-
-function _parseTextArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string");
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (item): item is string => typeof item === "string",
-        );
-      }
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
-}
 
 function normalizeEmojiForKey(emoji: string): string {
   return emoji.normalize("NFKC").replace(/\uFE0F/g, "");
@@ -83,165 +49,6 @@ function beginReactionProcessing(key: string): boolean {
   return true;
 }
 
-async function sendReactionLogEmbed(
-  channelContext: unknown,
-  guildId: string,
-  actorUserId: string,
-  sourceChannelId: string,
-  title: string,
-  description: string,
-): Promise<void> {
-  try {
-    const guildConfig = GuildConfigs.findOne(guildId);
-
-    const logChannelId = guildConfig?.log_channel_id;
-    if (!logChannelId) return;
-    if (logChannelId === sourceChannelId) return;
-
-    if (
-      !channelContext ||
-      typeof channelContext !== "object" ||
-      !("client" in channelContext)
-    ) {
-      return;
-    }
-
-    const maybeClient = (channelContext as { client?: unknown }).client;
-    if (
-      !maybeClient ||
-      typeof maybeClient !== "object" ||
-      !("channels" in maybeClient)
-    ) {
-      return;
-    }
-
-    const channels = (
-      maybeClient as {
-        channels?: { fetch?: (id: string) => Promise<unknown> };
-      }
-    ).channels;
-    if (!channels?.fetch) {
-      return;
-    }
-
-    const logChannel = await channels.fetch(logChannelId);
-
-    if (
-      !logChannel ||
-      typeof logChannel !== "object" ||
-      !("isTextBased" in logChannel) ||
-      typeof (logChannel as { isTextBased?: unknown }).isTextBased !==
-        "function" ||
-      !("isDMBased" in logChannel) ||
-      typeof (logChannel as { isDMBased?: unknown }).isDMBased !== "function" ||
-      !("send" in logChannel) ||
-      typeof (logChannel as { send?: unknown }).send !== "function"
-    ) {
-      return;
-    }
-
-    const typedLogChannel = logChannel as {
-      isTextBased: () => boolean;
-      isDMBased: () => boolean;
-      send: (payload: { embeds: EmbedBuilder[] }) => Promise<unknown>;
-    };
-
-    if (!typedLogChannel.isTextBased() || typedLogChannel.isDMBased()) {
-      return;
-    }
-
-    const logEmbed = new EmbedBuilder()
-      .setColor(0x64748b)
-      .setTitle(title)
-      .setDescription(description)
-      .addFields(
-        { name: "User", value: `<@${actorUserId}>`, inline: true },
-        {
-          name: "Source Channel",
-          value: `<#${sourceChannelId}>`,
-          inline: true,
-        },
-      )
-      .setTimestamp();
-
-    await typedLogChannel.send({ embeds: [logEmbed] });
-  } catch (error) {
-    console.warn("Failed to send reaction log embed:", error);
-  }
-}
-
-async function sendReactionFeedback(
-  channel: unknown,
-  guildId: string,
-  sourceChannelId: string,
-  _messageId: string,
-  _emoji: string,
-  userId: string,
-  feedbackType: ReactionFeedbackType,
-  title: string,
-  description: string,
-): Promise<void> {
-  try {
-    if (
-      !channel ||
-      typeof channel !== "object" ||
-      !("send" in channel) ||
-      typeof (channel as { send?: unknown }).send !== "function"
-    ) {
-      return;
-    }
-
-    const feedbackEmbed = new EmbedBuilder()
-      .setColor(
-        feedbackType === "added"
-          ? 0x22c55e
-          : feedbackType === "removed"
-            ? 0xf59e0b
-            : feedbackType === "error"
-              ? 0xef4444
-              : 0x3b82f6,
-      )
-      .setTitle(title)
-      .setDescription(description)
-      .setFooter({
-        text: "Sentinel • This message auto-deletes in 10 seconds",
-      });
-
-    const feedbackMessage = await (
-      channel as {
-        send: (payload: {
-          content: string;
-          embeds: EmbedBuilder[];
-          allowedMentions: { users: string[] };
-        }) => Promise<{ delete: () => Promise<unknown> }>;
-      }
-    ).send({
-      content: `<@${userId}>`,
-      embeds: [feedbackEmbed],
-      allowedMentions: { users: [userId] },
-    });
-
-    if (feedbackType === "added" || feedbackType === "removed") {
-      await sendReactionLogEmbed(
-        channel,
-        guildId,
-        userId,
-        sourceChannelId,
-        title,
-        description,
-      );
-    }
-
-    setTimeout(() => {
-      void feedbackMessage.delete().catch(() => {
-        // Message may already be deleted or inaccessible
-      });
-    }, REACTION_FEEDBACK_TTL_MS);
-  } catch (error) {
-    console.warn("Failed to send reaction feedback message:", error);
-  }
-}
-
 function isEmojiMatch(
   mappingEmoji: string,
   reactionEmoji: MessageReaction["emoji"],
@@ -255,23 +62,55 @@ function isEmojiMatch(
   if (mapStr === reactStr) return true;
   if (reactName && mapStr === reactName) return true;
   if (reactId && (mapStr === reactId || mapStr.includes(reactId))) return true;
-  if (normalizeEmojiForKey(mapStr) === normalizeEmojiForKey(reactStr)) return true;
+  if (normalizeEmojiForKey(mapStr) === normalizeEmojiForKey(reactStr))
+    return true;
 
   return false;
 }
 
+async function sendReactionFeedback(
+  channel: TextChannel,
+  userId: string,
+  type: "added" | "removed" | "denied" | "invalid",
+  title: string,
+  description: string,
+): Promise<void> {
+  try {
+    const color =
+      type === "added"
+        ? EMBED_COLORS.SUCCESS
+        : type === "removed"
+          ? EMBED_COLORS.WARNING
+          : EMBED_COLORS.DANGER;
+
+    const embed = createBaseEmbed(title, description, color).setFooter({
+      text: "Sentinel • Auto-deletes in 10s",
+    });
+
+    const msg = await channel.send({
+      content: `<@${userId}>`,
+      embeds: [embed],
+      allowedMentions: { users: [userId] },
+    });
+
+    setTimeout(() => {
+      void msg.delete().catch(() => {});
+    }, REACTION_FEEDBACK_TTL_MS);
+  } catch (err) {
+    logger.warn("Failed to send reaction feedback message:", err);
+  }
+}
+
 /**
- * Handle emoji reactions for role assignment
+ * Handles incoming emoji reactions for role assignment / unassignment.
  */
 export async function handleReactionRoleAdd(
   reaction: MessageReaction | PartialMessageReaction,
   user: User | PartialUser,
 ): Promise<void> {
   try {
-    // Ignore bot reactions
     if (user.bot) return;
 
-    // Ensure reaction and message are fully fetched
     const fullReaction = reaction.partial
       ? await reaction.fetch().catch(() => null)
       : reaction;
@@ -281,279 +120,274 @@ export async function handleReactionRoleAdd(
       await fullReaction.message.fetch().catch(() => null);
     }
 
-    // Check if reaction is in a guild
-    if (!fullReaction.message.guildId) return;
-
     const guildId = fullReaction.message.guildId;
+    if (!guildId) return;
+
     const messageId = fullReaction.message.id;
     const emoji = fullReaction.emoji.toString();
     const reactionKey = getReactionKey(messageId, user.id, emoji);
 
-    const guildConfig = GuildConfigs.findOne(guildId);
-    const enabledModules = _parseTextArray(guildConfig?.enabled_modules);
-    if (
-      !enabledModules.includes("reactions") &&
-      !enabledModules.includes("reaction_roles")
-    ) {
-      return;
-    }
+    // Fetch GuildConfig
+    const config = await db.guildConfig.findUnique({
+      where: { guildId },
+    });
 
-    if (!beginReactionProcessing(reactionKey)) {
-      return;
-    }
+    const enabled = isModuleEnabled(config?.enabledModules, "reaction_role");
+    if (!enabled) return;
 
-    const feedbackChannel = fullReaction.message.channel;
-    const sourceChannelId = fullReaction.message.channelId;
+    if (!beginReactionProcessing(reactionKey)) return;
 
-    // Check if this message is registered as a reaction-role message
-    const message =
-      ReactionRoleMessages.findFirst({ message_id: messageId }) ||
-      ReactionRoleMessages.findOne(messageId);
+    const channel = fullReaction.message.channel as TextChannel;
 
-    // Silently ignore reactions on non-reaction-role messages
-    if (!message) {
-      return;
-    }
+    // Fetch matching ReactionRoleMessage record from DB
+    const rrMsg = await db.reactionRoleMessage.findFirst({
+      where: { messageId },
+      include: { mappings: true },
+    });
 
-    // Find the role mapping for this emoji+message combo
-    const mappings = ReactionRoleMappings.find({ message_id: message.id }).concat(
-      message.message_id
-        ? ReactionRoleMappings.find({ message_id: message.message_id })
-        : [],
-    );
-    const mapping = mappings.find((m) =>
-      isEmojiMatch(m.emoji, fullReaction.emoji),
-    );
+    if (!rrMsg) return;
 
-    const removeUserReaction = async () => {
-      await fullReaction.users.remove(user.id).catch(() => {
-        // Reaction may already be gone or inaccessible
-      });
-    };
-
-    if (!mapping) {
-      await removeUserReaction();
-      await sendReactionFeedback(
-        feedbackChannel,
-        guildId,
-        sourceChannelId,
-        messageId,
-        emoji,
-        user.id,
-        "invalid",
-        "Reaction Role Not Configured",
-        "That emoji is not configured for this reaction-role message.",
-      );
-      return;
-    }
-
-    // Get the guild member
+    // Check optional required role constraint
     const member = await fullReaction.message.guild?.members.fetch(user.id);
     if (!member) return;
 
-    const msgReq = ReactionRoleMessages.findFirst({ message_id: messageId });
-
-    if (msgReq?.required_role_id) {
-      const requiredRoleIds = msgReq.required_role_id.split(",");
-      const hasRequiredRole = requiredRoleIds.some((roleId) =>
-        member.roles.cache.has(roleId),
+    if (rrMsg.requiredRoleId) {
+      const requiredRoleIds = rrMsg.requiredRoleId.split(",");
+      const hasRequired = requiredRoleIds.some((id) =>
+        member.roles.cache.has(id.trim()),
       );
 
-      if (!hasRequiredRole) {
-        await removeUserReaction();
+      if (!hasRequired) {
+        await fullReaction.users.remove(user.id).catch(() => {});
         await sendReactionFeedback(
-          feedbackChannel,
-          guildId,
-          sourceChannelId,
-          messageId,
-          emoji,
+          channel,
           user.id,
           "denied",
           "Reaction Role Access Denied",
-          `You must have at least one of the required roles to use this: ${requiredRoleIds.map((rid) => `<@&${rid}>`).join(", ")}`,
+          `You must have at least one of the required roles to react: ${requiredRoleIds.map((rid) => `<@&${rid.trim()}>`).join(", ")}`,
+        );
+
+        // Audit Log
+        const auditEmbed = createBaseEmbed(
+          "Reaction Role Denied",
+          `<@${user.id}> attempted to react on **${rrMsg.title}** without required role.`,
+          EMBED_COLORS.DANGER,
+        );
+        await sendGuildAuditLog(
+          clientFromChannel(channel),
+          guildId,
+          auditEmbed,
         );
         return;
       }
     }
 
-    // Toggle the role - add if user doesn't have it, remove if they do
-    const roleId = mapping.role_id;
+    // Find emoji mapping
+    const mapping = rrMsg.mappings.find((m) =>
+      isEmojiMatch(m.emoji, fullReaction.emoji),
+    );
+
+    if (!mapping) {
+      await fullReaction.users.remove(user.id).catch(() => {});
+      return;
+    }
+
+    // Toggle Role
+    const roleId = mapping.roleId;
     const hasRole = member.roles.cache.has(roleId);
 
-    try {
-      if (hasRole) {
-        // User already has the role - remove it
-        await member.roles.remove(roleId, `Reaction role removal: ${emoji}`);
-        await sendReactionFeedback(
-          feedbackChannel,
-          guildId,
-          sourceChannelId,
-          messageId,
-          emoji,
-          user.id,
-          "removed",
-          "Reaction Role Removed",
-          `Removed <@&${roleId}>.`,
-        );
-      } else {
-        // User doesn't have the role - add it
-        await member.roles.add(roleId, `Reaction role assignment: ${emoji}`);
-        await sendReactionFeedback(
-          feedbackChannel,
-          guildId,
-          sourceChannelId,
-          messageId,
-          emoji,
-          user.id,
-          "added",
-          "Reaction Role Added",
-          `Added <@&${roleId}>.`,
-        );
-      }
+    if (hasRole) {
+      await member.roles.remove(roleId, `Reaction Role: ${emoji}`);
+      await fullReaction.users.remove(user.id).catch(() => {});
 
-      await removeUserReaction();
-    } catch (error) {
-      console.error("Failed to toggle reaction role:", error);
-      await removeUserReaction();
       await sendReactionFeedback(
-        feedbackChannel,
-        guildId,
-        sourceChannelId,
-        messageId,
-        emoji,
+        channel,
         user.id,
-        "error",
-        "Reaction Role Update Failed",
-        "I couldn't update your role. Please try again or contact an admin.",
+        "removed",
+        "Reaction Role Removed",
+        `Removed <@&${roleId}>.`,
       );
+
+      const auditEmbed = createBaseEmbed(
+        "Reaction Role Removed",
+        `Removed <@&${roleId}> from <@${user.id}> via **${rrMsg.title}**.`,
+        EMBED_COLORS.WARNING,
+      );
+      await sendGuildAuditLog(clientFromChannel(channel), guildId, auditEmbed);
+    } else {
+      await member.roles.add(roleId, `Reaction Role: ${emoji}`);
+      await fullReaction.users.remove(user.id).catch(() => {});
+
+      await sendReactionFeedback(
+        channel,
+        user.id,
+        "added",
+        "Reaction Role Assigned",
+        `Added <@&${roleId}>.`,
+      );
+
+      const auditEmbed = createBaseEmbed(
+        "Reaction Role Assigned",
+        `Assigned <@&${roleId}> to <@${user.id}> via **${rrMsg.title}**.`,
+        EMBED_COLORS.SUCCESS,
+      );
+      await sendGuildAuditLog(clientFromChannel(channel), guildId, auditEmbed);
     }
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error("Error handling reaction role add:", errorMsg);
-  } finally {
-    // Lock cleanup is time-based in beginReactionProcessing to absorb duplicate dispatches.
+  } catch (err) {
+    logger.error("Error handling reaction role add:", err);
   }
 }
 
+function clientFromChannel(channel: TextChannel): Client {
+  return channel.client;
+}
+
 /**
- * Handle emoji reaction removal for role unassignment
+ * Removes orphan or duplicate bot embed messages in the channel matching a specific title.
  */
-export async function handleReactionRoleRemove(
-  _reaction: MessageReaction | PartialMessageReaction,
-  _user: User | PartialUser,
+async function cleanupDuplicateReactionRoleEmbeds(
+  channel: TextChannel,
+  title: string,
+  keepMessageId: string,
 ): Promise<void> {
-  return;
+  try {
+    const fetched = await channel.messages
+      .fetch({ limit: 50 })
+      .catch(() => null);
+    if (!fetched || fetched.size === 0) return;
+
+    const duplicates = fetched.filter((m) => {
+      if (m.id === keepMessageId) return false;
+      if (m.author.id !== channel.client.user?.id) return false;
+      return m.embeds.some((e) => e.title === title);
+    });
+
+    for (const [, dupMsg] of duplicates) {
+      await dupMsg.delete().catch(() => {});
+    }
+  } catch (err) {
+    logger.warn(
+      `Failed to cleanup duplicate reaction role embeds for title "${title}" in channel ${channel.id}:`,
+      err,
+    );
+  }
 }
 
 /**
  * Synchronizes reaction role messages with Discord channels.
- * Posts new messages, updates existing embeds, and adds configured reaction emojis.
+ * Posts new messages, updates existing embeds, and manages reactions.
  */
-export async function syncReactionRoleMessages(client: Client): Promise<void> {
+export async function syncReactionRoleMessages(
+  client: Client,
+  guildId?: string,
+): Promise<void> {
   try {
-    const allMessages = ReactionRoleMessages.find({});
-    for (const msgDoc of allMessages) {
-      if (!msgDoc.guild_id || !msgDoc.channel_id) continue;
+    const rrMessages = await db.reactionRoleMessage.findMany({
+      where: guildId ? { guildId } : undefined,
+      include: {
+        mappings: true,
+        guildConfig: true,
+      },
+    });
 
-      const guildConfig = GuildConfigs.findOne(msgDoc.guild_id);
-      const enabledModules = _parseTextArray(guildConfig?.enabled_modules);
-      if (
-        !enabledModules.includes("reaction_roles") &&
-        !enabledModules.includes("reactions")
-      ) {
-        continue;
-      }
-
-      const channel = await client.channels
-        .fetch(msgDoc.channel_id)
-        .catch(() => null);
-      if (
-        !channel ||
-        !channel.isTextBased() ||
-        channel.isDMBased() ||
-        !("send" in channel)
-      ) {
-        continue;
-      }
-
-      const textChannel = channel as TextChannel;
-      const mappings = ReactionRoleMappings.find({ message_id: msgDoc.id }).concat(
-        msgDoc.message_id
-          ? ReactionRoleMappings.find({ message_id: msgDoc.message_id })
-          : [],
+    for (const msgRecord of rrMessages) {
+      const enabled = isModuleEnabled(
+        msgRecord.guildConfig.enabledModules,
+        "reaction_role",
       );
 
-      // Build Embed
-      const embed = new EmbedBuilder()
-        .setColor(0xec4899)
-        .setTitle(msgDoc.title)
-        .setTimestamp();
+      if (!enabled || !msgRecord.channelId) continue;
 
-      if (mappings.length > 0) {
-        const desc = mappings
-          .map((m) => `${m.emoji}  →  <@&${m.role_id}>`)
-          .join("\n\n");
-        embed.setDescription(desc);
-      } else {
-        embed.setDescription("No reaction roles configured yet.");
-      }
+      try {
+        const channel = (await client.channels
+          .fetch(msgRecord.channelId)
+          .catch(() => null)) as TextChannel | null;
+        if (!channel || !channel.isTextBased()) continue;
 
-      if (msgDoc.required_role_id) {
-        embed.setFooter({ text: "Required role needed to interact" });
-      }
+        // Build description with mapped emojis & roles
+        const mappingLines = msgRecord.mappings.map((m) => {
+          const desc = m.description ? ` — ${m.description}` : "";
+          return `${m.emoji} — <@&${m.roleId}>${desc}`;
+        });
 
-      let discordMsg: Message | null = null;
-      if (msgDoc.message_id) {
-        discordMsg = await textChannel.messages
-          .fetch(msgDoc.message_id)
-          .catch(() => null);
-      }
+        const description =
+          mappingLines.length > 0
+            ? mappingLines.join("\n")
+            : "No reaction roles configured yet.";
 
-      if (discordMsg) {
-        await discordMsg.edit({ embeds: [embed] }).catch(() => null);
-      } else {
-        discordMsg = await textChannel.send({ embeds: [embed] }).catch(() => null);
+        const embed = createBaseEmbed(
+          msgRecord.title,
+          description,
+          EMBED_COLORS.PRIMARY,
+        );
+
+        if (msgRecord.requiredRoleId) {
+          const reqRoles = msgRecord.requiredRoleId
+            .split(",")
+            .map((r) => `<@&${r.trim()}>`)
+            .join(", ");
+          embed.addFields({
+            name: "Required Role",
+            value: reqRoles,
+            inline: false,
+          });
+        }
+
+        let discordMsg = msgRecord.messageId
+          ? await channel.messages.fetch(msgRecord.messageId).catch(() => null)
+          : null;
+
         if (discordMsg) {
-          msgDoc.message_id = discordMsg.id;
-          ReactionRoleMessages.update(msgDoc);
-        }
-      }
-
-      // Automatically add mapped reactions and remove unmapped reactions from the message
-      if (discordMsg) {
-        const activeEmojis = new Set(mappings.map((m) => m.emoji.trim()));
-
-        // Remove reactions from discordMsg that are no longer mapped
-        for (const reaction of discordMsg.reactions.cache.values()) {
-          const rEmoji = reaction.emoji.toString();
-          const rName = reaction.emoji.name || "";
-          const rId = reaction.emoji.id || "";
-
-          const isStillMapped = Array.from(activeEmojis).some(
-            (mapEmoji) =>
-              mapEmoji === rEmoji ||
-              mapEmoji === rName ||
-              (rId && (mapEmoji === rId || mapEmoji.includes(rId))),
-          );
-
-          if (!isStillMapped && reaction.me) {
-            await reaction.users
-              .remove(client.user?.id)
-              .catch(() => null);
-          }
+          await discordMsg.edit({ embeds: [embed] });
+        } else {
+          discordMsg = await channel.send({ embeds: [embed] });
+          await db.reactionRoleMessage.update({
+            where: { id: msgRecord.id },
+            data: { messageId: discordMsg.id },
+          });
         }
 
-        // Add reactions for mappings that are missing
-        for (const mapping of mappings) {
+        // Clean up any orphan historical bot embeds matching this title in the channel
+        await cleanupDuplicateReactionRoleEmbeds(
+          channel,
+          msgRecord.title,
+          discordMsg.id,
+        );
+
+        // Add mapped reaction emojis to message
+        for (const mapping of msgRecord.mappings) {
           try {
             await discordMsg.react(mapping.emoji);
-          } catch {
-            // Ignore react errors (e.g. invalid custom emoji)
+          } catch (reactErr) {
+            logger.warn(
+              `Failed to add reaction ${mapping.emoji} to message ${discordMsg.id}:`,
+              reactErr,
+            );
           }
         }
+      } catch (msgErr) {
+        logger.warn(
+          `Error syncing reaction role message ${msgRecord.id}:`,
+          msgErr,
+        );
       }
     }
-  } catch (error) {
-    console.error("Error syncing reaction role messages:", error);
+  } catch (err) {
+    logger.error("Error in syncReactionRoleMessages:", err);
   }
+}
+
+/**
+ * Starts periodic sync loop for reaction role messages across all guilds.
+ * Ensures newly created or edited reaction role menus in DB are continuously updated in Discord.
+ */
+export function startReactionRoleSyncLoop(
+  client: Client,
+  intervalMs = 15000,
+): NodeJS.Timeout {
+  void syncReactionRoleMessages(client);
+
+  return setInterval(() => {
+    void syncReactionRoleMessages(client);
+  }, intervalMs);
 }

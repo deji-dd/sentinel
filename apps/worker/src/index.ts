@@ -1,114 +1,108 @@
-import { initializeNetworkPipelining } from "./lib/network.js";
-initializeNetworkPipelining();
+import "dotenv/config";
+import { Logger } from "@sentinel/utils";
+import { IpcServer, DEFAULT_IPC_SOCKET_PATH } from "@sentinel/utils/ipc";
+import { db, recordBootAlert } from "@sentinel/database";
+import { ManagedTornApiClient } from "@sentinel/torn-api-manager";
+import { initializeNetworkOptimization } from "./lib/network.js";
+import { startRegisteredWorkers } from "./workers/registry.js";
 
-// Global process error handlers
-process.on("uncaughtException", (err) => {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (
-    msg.includes("other side closed") ||
-    msg.includes("UND_ERR_SOCKET") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("socket hang up")
-  ) {
-    logger.warn(
-      "[Process] Gracefully caught transient network socket error:",
-      msg,
-    );
-  } else {
-    logger.error("[Process] Uncaught Exception:", err);
+import { runVerificationJob } from "./lib/verification-engine.js";
+
+import { triggerWorkerByName } from "./lib/scheduler.js";
+
+const logger = new Logger("WorkerIndex");
+
+const socketPath = process.env.IPC_SOCKET_PATH ?? DEFAULT_IPC_SOCKET_PATH;
+
+export const ipcServer = new IpcServer(socketPath, async (message: any) => {
+  logger.info("IPC Message Received:", message);
+
+  if (message?.action === "verification_request" && message.data) {
+    try {
+      const result = await runVerificationJob(
+        message.data,
+        message.apiKeyOverride,
+      );
+      ipcServer.broadcast({
+        action: "verification_response",
+        requestId: message.requestId,
+        data: result,
+      });
+    } catch (err) {
+      logger.error("Failed to process verification IPC job:", err);
+      ipcServer.broadcast({
+        action: "verification_response",
+        requestId: message.requestId,
+        data: {
+          guild_id: message.data.guild_id,
+          channel_id: message.data.channel_id,
+          discord_id: message.data.discord_id,
+          error: {
+            message: err instanceof Error ? err.message : "Internal error",
+          },
+        },
+      });
+    }
+    return;
+  }
+
+  if (message?.action === "force_run_worker" && message.data?.workerName) {
+    const workerName = message.data.workerName;
+    try {
+      await db.workerSchedule.upsert({
+        where: { id: workerName },
+        update: { forceRun: true },
+        create: { id: workerName, forceRun: true },
+      });
+      logger.info(
+        `Set forceRun = true for worker '${workerName}' in PostgreSQL.`,
+      );
+
+      const triggered = triggerWorkerByName(workerName);
+      if (triggered) {
+        logger.info(
+          `Triggered active in-memory runner for '${workerName}' immediately.`,
+        );
+      }
+    } catch (err) {
+      logger.error(`Failed to force trigger worker '${workerName}':`, err);
+    }
   }
 });
 
-process.on("unhandledRejection", (reason, promise) => {
-  console.error(
-    "[Process] Unhandled Rejection at:",
-    promise,
-    "reason:",
-    reason,
-  );
-});
+async function main() {
+  logger.info("Initializing Sentinel Workers...");
 
-import {
-  initializeApiKeyMappings,
-  initializeRateLimitCache,
-} from "@sentinel/shared";
-import { startWorkers } from "./workers/registry.js";
-import {
-  Logger,
-  sentinelDbEngine,
-  startMetricsReporter,
-  stopMetricsReporter,
-  SystemState,
-} from "@sentinel/shared";
-import { setupIpcServer } from "./lib/ipc/index.js";
+  // 1. Initialize global network socket reuse & DNS caching
+  initializeNetworkOptimization();
 
-const logger = new Logger("worker_root");
+  // 2. Initialize managed Torn API client (per-user rate limiting & key health)
+  const tornApiManager = new ManagedTornApiClient();
 
-/**
- * The master bootstrap sequence for the Sentinel background worker layer.
- * Initializes required rate limiters, memory caches, and dynamically boots the
- * event-driven worker runners based on the assigned operational scope.
- * * @returns {Promise<void>} Resolves when all scheduled runners are actively ticking.
- */
-async function startAllWorkers(): Promise<void> {
-  logger.warn("Starting workers");
+  // 3. Start IPC Server for inter-process communication
+  ipcServer.start();
 
-  try {
-    await setupIpcServer();
+  // 4. Record boot alert in database for worker process startup notification
+  await recordBootAlert("worker");
 
-    startMetricsReporter("worker");
-    logger.info("Worker process initialized and running.");
-    await initializeApiKeyMappings();
-    initializeRateLimitCache();
+  // 5. Start registered background workers with staggered boot
+  const workerCount = startRegisteredWorkers();
+  logger.info(`${workerCount} registered workers.`);
 
-    const startedCount = startWorkers();
-    logger.info(`Started ${startedCount} worker runners`);
+  // Graceful shutdown handling
+  const shutdown = async (signal: string) => {
+    logger.warn(`Received ${signal}. Shutting down Workers V2...`);
+    ipcServer.close();
+    await db.$disconnect();
+    logger.info("Workers V2 shutdown complete.");
+    process.exit(0);
+  };
 
-    SystemState.insertOne({
-      id: "worker_boot_alert",
-      component: "worker",
-      message: "Worker process successfully booted up.",
-      timestamp: Date.now(),
-      reported: false,
-    });
-  } catch (error) {
-    logger.error("Failed to start workers:", error);
-    process.exit(1);
-  }
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
-let isShuttingDown = false;
-
-/**
- * Safely intercepts OS termination signals (Ctrl+C, PM2 restart) to perform a graceful teardown.
- * Ensures the SQLite WAL is flushed and file locks are released before the Node process dies.
- * * @param {string} signal The OS signal received (e.g., 'SIGINT', 'SIGTERM').
- */
-const handleShutdown = (signal: string) => {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-
-  logger.warn(`📛 Received ${signal}. Executing graceful shutdown...`);
-
-  try {
-    stopMetricsReporter("worker");
-    sentinelDbEngine.close();
-    logger.info("Database connection safely closed.");
-    process.exit(0);
-  } catch (err) {
-    logger.error("Error during database shutdown:", err);
-    process.exit(1);
-  }
-};
-
-process.on("SIGINT", () => handleShutdown("SIGINT"));
-process.on("SIGTERM", () => handleShutdown("SIGTERM"));
-
-// Start execution
-startAllWorkers().catch((error) => {
-  console.error(
-    "[CRITICAL] Failed to start workers:",
-    error instanceof Error ? error.message : error,
-  );
+main().catch((err) => {
+  logger.error("Fatal error during Workers V2 startup:", err);
   process.exit(1);
 });

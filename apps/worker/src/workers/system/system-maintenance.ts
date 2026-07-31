@@ -1,36 +1,59 @@
-import { executeSync } from "../../lib/sync.js";
-import { Logger } from "@sentinel/shared";
+import { Logger } from "@sentinel/utils";
+import { db } from "@sentinel/database";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
-
-// Import the collections that need pruning
-import { RateLimits } from "@sentinel/shared";
+import type { WorkerStartOptions } from "../registry.js";
 
 const WORKER_NAME = "system_maintenance";
 const logger = new Logger(WORKER_NAME);
 
 /**
- * Executes daily system cleanup and data retention tasks.
- * Prevents SQLite from bloating with historical job logs and expired rate limits.
+ * Daily system cleanup and retention manager.
+ * Retains 90 days of completed WarLedger data to maintain accuracy for war checks, while pruning stale temporary system state records.
  */
-async function runPruningJobs(): Promise<void> {
+export async function executeMaintenance(): Promise<void> {
   const finishSync = logger.time();
 
-  // 2. Prune Rate Limit cache older than 1 day
-  // Since WINDOW_MS is only 60 seconds, anything older than 24h is definitely dead weight
-  const rateLimitsDeleted = RateLimits.deleteOlderThan(1, "$.requested_at");
-  logger.info(`Pruned ${rateLimitsDeleted} expired rate limit entries.`);
+  try {
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
-  finishSync();
+    // 1. Retain 90 days of completed WarLedger records (prune older finished wars)
+    const prunedWars = await db.warLedger.deleteMany({
+      where: {
+        endTime: {
+          not: null,
+          lt: ninetyDaysAgo,
+        },
+      },
+    });
+
+    if (prunedWars.count > 0) {
+      logger.info(
+        `Pruned ${prunedWars.count} finished WarLedger records older than 90 days.`,
+      );
+    }
+
+    // 3. Prune VerificationLogs older than 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const prunedLogs = await db.verificationLog.deleteMany({
+      where: {
+        createdAt: { lt: thirtyDaysAgo },
+      },
+    });
+
+    if (prunedLogs.count > 0) {
+      logger.info(
+        `Pruned ${prunedLogs.count} VerificationLog records older than 30 days.`,
+      );
+    }
+
+    finishSync();
+  } catch (error) {
+    logger.error("Error executing system maintenance:", error);
+  }
 }
-
-export async function executeMaintenance(): Promise<void> {
-  await runPruningJobs();
-}
-
-import type { WorkerStartOptions } from "../registry.js";
 
 /**
- * Initializes the automated daily data retention manager.
+ * Initializes the automated daily system maintenance worker.
  */
 export function startSystemMaintenance(options?: WorkerStartOptions): void {
   const ONE_DAY_SECONDS = 86400;
@@ -40,11 +63,9 @@ export function startSystemMaintenance(options?: WorkerStartOptions): void {
     defaultCadenceSeconds: ONE_DAY_SECONDS,
     initialDelayMs: options?.initialDelayMs,
     handler: async () => {
-      await executeSync({
-        name: WORKER_NAME,
-        timeout: 300000,
-        handler: executeMaintenance,
-      });
+      await executeMaintenance();
     },
   });
+
+  logger.info("System maintenance worker initialized (cadence: 24h).");
 }

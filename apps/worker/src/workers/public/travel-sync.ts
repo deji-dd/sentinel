@@ -1,119 +1,131 @@
-import { Logger, TravelDestinations } from "@sentinel/shared";
+import { Logger } from "@sentinel/utils";
+import { db, type Prisma } from "@sentinel/database";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
+import type { WorkerStartOptions } from "../registry.js";
 
 const WORKER_NAME = "travel_sync";
-// Run every 15 minutes to track YATA depletion
-const CADENCE_SEC = 60 * 15;
+const logger = new Logger(WORKER_NAME);
 
-export async function runTravelSync() {
-  const logger = new Logger(WORKER_NAME);
+// Cadence: Run every 5 minutes (300 seconds) to track YATA item depletion
+const CADENCE_SEC = 300;
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+const MAX_DATAPOINTS = 144; // 12 hours * 12 checks per hour
+
+type YataStockItem = {
+  id: number;
+  name: string;
+  quantity: number;
+  cost: number;
+};
+
+type YataCountryData = {
+  update: number;
+  country: string;
+  stocks: YataStockItem[];
+};
+
+type YataExportResponse = {
+  stocks?: Record<string, YataCountryData>;
+};
+
+export type TravelStockHistoryPoint = {
+  timestamp: number;
+  quantity: number;
+};
+
+export type TravelStockItem = {
+  id: number;
+  name: string;
+  quantity: number;
+  cost: number;
+  history: TravelStockHistoryPoint[];
+};
+
+/**
+ * Polls YATA travel export every 5 minutes and updates PostgreSQL `TravelDestination` records.
+ * Maintains a rolling 12-hour history window for stock depletion tracking.
+ */
+export async function runTravelSync(): Promise<void> {
+  const finishLog = logger.time();
 
   try {
-    const finishSync = logger.time();
-    let res: Response | null = null;
-    let retries = 3;
-    let delay = 2000;
-
-    while (retries > 0) {
-      try {
-        res = await fetch("https://yata.yt/api/v1/travel/export/", {
-          // 15 second timeout to prevent indefinite hangs
-          signal: AbortSignal.timeout(15000),
-        });
-        if (res.ok) break;
-        logger.warn(`YATA fetch returned status ${res.status}. Retrying...`);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (err: any) {
-        logger.warn(
-          `YATA fetch failed: ${err.message}. Retrying in ${delay}ms...`,
-        );
-      }
-      retries--;
-      if (retries > 0) {
-        await new Promise((r) => setTimeout(r, delay));
-        delay *= 2; // Exponential backoff
-      }
+    const res = await fetch("https://yata.yt/api/v1/travel/export/");
+    if (!res.ok) {
+      throw new Error(`YATA API HTTP ${res.status}: ${res.statusText}`);
     }
 
-    if (!res || !res.ok) {
-      logger.error(
-        `Exhausted retries fetching YATA travel data. Final status: ${res?.status || "Network Error"}`,
-      );
-      return;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = (await res.json()) as any;
-    if (!data.stocks) {
-      logger.error("Invalid YATA travel payload: missing stocks");
+    const data = (await res.json()) as YataExportResponse;
+    const stocksMap = data.stocks;
+
+    if (!stocksMap || Object.keys(stocksMap).length === 0) {
+      logger.warn("No travel stocks data received from YATA export API.");
       return;
     }
 
-    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const cutoff = Date.now() - TWELVE_HOURS_MS;
+    const nowTimestamp = Date.now();
 
-    const destinations = Object.entries(data.stocks);
-    for (const [countryCode, info] of destinations) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsedInfo = info as any;
-      const updateTimestamp = parsedInfo.update || currentTimestamp;
-      const stocks = parsedInfo.stocks || [];
+    // Fetch existing destinations from PostgreSQL
+    const existingDestinations = await db.travelDestination.findMany();
+    const existingMap = new Map(existingDestinations.map((d) => [d.id, d.stocks as unknown as TravelStockItem[]]));
 
-      // Load existing destination document
-      const existingDoc = TravelDestinations.findOne(countryCode);
-      const newStocksArray = [];
+    const upsertOperations = Object.entries(stocksMap).map(([countryCode, countryData]) => {
+      const existingStocks = existingMap.get(countryCode) ?? [];
+      const existingStockMap = new Map(existingStocks.map((s) => [s.id, s.history || []]));
 
-      for (const stock of stocks) {
-        let history =
-          existingDoc?.stocks.find((s) => s.id === stock.id)?.history || [];
+      const updatedStocks: TravelStockItem[] = countryData.stocks.map((item) => {
+        const history = existingStockMap.get(item.id) ?? [];
+        // Append new timestamp & filter history to retain last 12 hours (up to 144 points max)
+        const updatedHistory = [
+          ...history.filter((h) => h.timestamp >= cutoff),
+          { timestamp: nowTimestamp, quantity: item.quantity },
+        ].slice(-MAX_DATAPOINTS);
 
-        const lastEntry =
-          history.length > 0 ? history[history.length - 1] : null;
-
-        // If the quantity increased, it's a restock. We should clear the history.
-        if (lastEntry && stock.quantity > lastEntry.quantity) {
-          history = [];
-        } else if (lastEntry && stock.quantity === lastEntry.quantity) {
-          // If the quantity is exactly the same, do we add it?
-          // Adding it helps flatten the depletion rate when nobody buys.
-        }
-
-        // Add current datapoint
-        history.push({ timestamp: updateTimestamp, quantity: stock.quantity });
-
-        // Retain only the last 10 datapoints
-        if (history.length > 10) {
-          history = history.slice(history.length - 10);
-        }
-
-        newStocksArray.push({
-          id: stock.id,
-          name: stock.name,
-          quantity: stock.quantity,
-          cost: stock.cost,
-          history,
-        });
-      }
-
-      TravelDestinations.deleteManyBy({ id: countryCode });
-      TravelDestinations.insertOne({
-        id: countryCode,
-        updatedAt: updateTimestamp,
-        stocks: newStocksArray,
+        return {
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          cost: item.cost,
+          history: updatedHistory,
+        };
       });
-    }
 
-    finishSync();
-  } catch (e) {
-    logger.error("Travel sync failed", e);
+      const stocksJson = updatedStocks as unknown as Prisma.InputJsonValue;
+
+      return db.travelDestination.upsert({
+        where: { id: countryCode },
+        update: {
+          name: countryData.country ?? countryCode,
+          stocks: stocksJson,
+          updatedAt: new Date(),
+        },
+        create: {
+          id: countryCode,
+          name: countryData.country ?? countryCode,
+          stocks: stocksJson,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    });
+
+    await db.$transaction(upsertOperations);
+    logger.info(`Successfully synced ${upsertOperations.length} travel destinations into PostgreSQL.`);
+
+    finishLog();
+  } catch (error) {
+    logger.error("Failed to execute travel sync:", error);
   }
 }
 
-import type { WorkerStartOptions } from "../registry.js";
-
+/**
+ * Initializes and starts the travel sync background worker.
+ */
 export function startTravelSync(options?: WorkerStartOptions): void {
   startEventDrivenRunner({
     worker: WORKER_NAME,
-    handler: runTravelSync,
     defaultCadenceSeconds: CADENCE_SEC,
     initialDelayMs: options?.initialDelayMs,
+    handler: runTravelSync,
   });
 }

@@ -1,0 +1,17 @@
+[Unit]
+Description=Sentinel Dashboard API Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=deji
+WorkingDirectory=/opt/sentinel/apps/api
+ExecStart=/usr/bin/node dist/index.cjs
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/sentinel/apps/api/.env
+MemoryHigh=150M
+MemoryMax=180M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,85 +1,100 @@
-import {
-  getWorkerApiKey,
-  LedgerEvents,
-  tornApi,
-  TornSchema,
-} from "@sentinel/shared";
-import { Logger, CompanyDailyProfits } from "@sentinel/shared";
-import { randomUUID } from "crypto";
+import { Logger } from "@sentinel/utils";
+import { db, Prisma } from "@sentinel/database";
+import { type TornSchema } from "@sentinel/torn-api";
+import { tornApiManager, getPersonalKey } from "@sentinel/torn-api-manager";
 import { workerEvents } from "../../lib/event-bus.js";
+import type { WorkerStartOptions } from "../registry.js";
 
-const logger = new Logger("company_sync");
+const WORKER_NAME = "company_sync";
+const logger = new Logger(WORKER_NAME);
 
-async function syncCompanyDailyProfit(): Promise<void> {
+/**
+ * Fetches company profile & employee data, calculates daily net profit,
+ * and records snapshot to CompanyDailyProfit and LedgerEvent.
+ */
+export async function syncCompanyDailyProfit(): Promise<void> {
   const finishSync = logger.time();
+
   try {
-    const apiKey = getWorkerApiKey("personal");
-    if (!apiKey) throw new Error("No personal API key found");
+    const keyEntry = await getPersonalKey();
+    if (!keyEntry) {
+      logger.warn("No personal API key found for company sync. Skipping.");
+      return;
+    }
 
-    const rawRes = await tornApi.get("/company", {
-      apiKey,
+    const rawRes = (await tornApiManager.get("/company", {
+      apiKey: keyEntry.apiKey,
+      userId: keyEntry.userId,
       queryParams: { selections: ["profile", "employees"] },
-    });
-
-    const res = rawRes as TornSchema<"CompanyProfileResponseMixed"> &
+    })) as TornSchema<"CompanyProfileExtendedResponse"> &
       TornSchema<"CompanyEmployeesResponse">;
-    const profile = res.profile as
-      | TornSchema<"CompanyProfileExtended">
-      | undefined;
-    const employees = res.employees as
-      | TornSchema<"CompanyEmployeeFull">[]
-      | undefined;
+
+    const profile = rawRes.profile;
+    const employees = rawRes.employees;
 
     if (!profile || !employees) {
       logger.warn("Company sync response missing profile or employees data.");
       return;
     }
 
-    const inflow = profile.income.daily;
-    let outflow = profile.advertisement_budget;
+    const inflow = profile.income?.daily ?? 0;
+    let outflow = profile.advertisement_budget ?? 0;
     for (const employee of employees) {
-      outflow += employee.wage;
+      const wage = "wage" in employee ? (employee.wage ?? 0) : 0;
+      outflow += wage;
     }
 
     const profit = inflow - outflow;
-    const timestamp = Math.floor(Date.now() / 1000);
+    const now = new Date();
+    const timestampStr = Math.floor(now.getTime() / 1000).toString();
 
-    CompanyDailyProfits.insertOne({
-      id: `company_daily_profit_${timestamp}_${randomUUID()}`,
-      timestamp,
-      inflow,
-      outflow,
-      profit,
-      profile,
-      employees,
+    // 1. Insert snapshot into CompanyDailyProfit
+    await db.companyDailyProfit.create({
+      data: {
+        id: `company_daily_profit_${timestampStr}_${crypto.randomUUID()}`,
+        timestamp: now,
+        inflow,
+        outflow,
+        profit,
+        profile: profile as unknown as object,
+        employees: employees as unknown as object,
+        createdAt: now,
+      },
     });
 
-    LedgerEvents.insertOne({
-      id: `ledger_ev_company_profit_${timestamp}`,
-      log_id: "0", // System-generated
-      timestamp,
-      type: profit >= 0 ? "injection" : "loss",
-      category_id: 9,
-      transaction_name: "Daily Company Profit/Loss",
-      assets_affected: [],
-      cash_flow: 0,
-      realized_pnl: profit,
-      raw_log: null,
+    // 2. Record financial transaction into LedgerEvent
+    await db.ledgerEvent.create({
+      data: {
+        id: `ledger_ev_company_profit_${timestampStr}`,
+        logId: "0",
+        timestamp: now,
+        type: profit >= 0 ? "injection" : "loss",
+        categoryId: 9,
+        transactionName: "Daily Company Profit/Loss",
+        assetsAffected: [],
+        cashFlow: 0,
+        realizedPnl: profit,
+        rawLog: Prisma.JsonNull,
+        createdAt: now,
+        updatedAt: now,
+      },
     });
 
     logger.info(
-      `Successfully synced daily company profit: $${profit} in ${finishSync()}`,
+      `Successfully synced daily company profit: $${profit.toLocaleString()} in ${finishSync()}`,
     );
   } catch (error) {
     logger.error("Failed to sync company data:", error);
   }
 }
 
-import type { WorkerStartOptions } from "../registry.js";
+/**
+ * Registers company alarm listener to sync profit when company pay is received.
+ */
+export function startCompanyModule(_options?: WorkerStartOptions): void {
+  workerEvents.on("company_pay_received", async () => {
+    await syncCompanyDailyProfit();
+  });
 
-export function registerCompanyAlarmClock(_options?: WorkerStartOptions) {
-  workerEvents.on(
-    "company_pay_received",
-    async () => await syncCompanyDailyProfit(),
-  );
+  logger.info("Company module registered and listening for pay events.");
 }

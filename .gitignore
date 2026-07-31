@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env
+**/.env
+**/.env.*
 .env.local
 .dev.vars
 .dev.vars.*
@@ -67,7 +69,6 @@ logs/
 
 .archive/
 
-
 # Agent Guidelines
 .agents/
 .agent/
@@ -86,3 +87,9 @@ repomix-output.xml
 repomix.config.json
 
 **/test.ts
+implementation_plan.md
+**/.turbo/**
+apps_old/
+packages_old/
+
+scripts/migrations_v2/**

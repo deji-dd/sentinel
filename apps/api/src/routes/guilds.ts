@@ -1,1152 +1,641 @@
 import { FastifyInstance } from "fastify";
-import {
-  GuildConfigs,
-  GuildInitRequests,
-  SystemModules,
-  GuildApiKeys,
-  Logger,
-  decryptApiKey,
-  GuildConfigDocument,
-  FactionRoles,
-  FactionRoleMappingDocument,
-  GuildConfigResponse,
-  SystemModulesListResponse,
-  UpdateGuildConfigPayload,
-  MaskedGuildApiKey,
-  UserConfig,
-  validateAndFetchFactionDetails,
-  TerritoryBlueprints,
-  TerritoryBlueprintSummary,
-  TerritoryListResponse,
-  ReactionRoleMessages,
-  ReactionRoleMappings,
-  ReactionRoleMessagesListResponse,
-  CreateReactionRoleMessagePayload,
-  UpdateReactionRoleMessagePayload,
-  AddEmojiMappingPayload,
-} from "@sentinel/shared";
-import { randomUUID } from "crypto";
+import { db } from "@sentinel/database";
+import { normalizeModules } from "@sentinel/utils";
+import { tornApi, encryptApiKey, hashApiKey } from "@sentinel/torn-api";
+import { ipcClient } from "../lib/ipc-client.js";
 
-const logger = new Logger("api_guilds");
-
-async function resolveDiscordUsername(providedBy: string): Promise<string> {
-  if (!providedBy) return "Unknown";
-  if (!/^\d{17,20}$/.test(providedBy)) {
-    return providedBy;
-  }
-  const botToken = process.env.DISCORD_BOT_TOKEN;
-
-  if (!botToken) return providedBy;
-  try {
-    const res = await fetch(`https://discord.com/api/v10/users/${providedBy}`, {
-      headers: { Authorization: `Bot ${botToken}` },
-    });
-    if (res.ok) {
-      const user = await res.json();
-      return user.global_name || user.username || providedBy;
-    }
-  } catch {}
-  return providedBy;
-}
-
-export async function guildsRoutes(fastify: FastifyInstance) {
-  // Get all territory blueprints list
-  fastify.get<{ Reply: TerritoryListResponse | { error: string } }>(
-    "/territories/list",
+export async function guildRoutes(fastify: FastifyInstance): Promise<void> {
+  // GET /api/guilds/:guildId/config
+  fastify.get<{ Params: { guildId: string } }>(
+    "/api/guilds/:guildId/config",
     async (request, reply) => {
-      try {
-        const blueprints = TerritoryBlueprints.find({});
-        const territories: TerritoryBlueprintSummary[] = blueprints
-          .map((b) => ({
-            id: b.id,
-            sector: b.data.sector,
-            size: b.data.size,
-            slots: b.data.slots,
-            respect: b.data.respect || 0,
-          }))
-          .sort((a, b) => a.id.localeCompare(b.id));
+      const { guildId } = request.params;
 
-        return reply.send(territories);
-      } catch (err) {
-        logger.error("Error fetching territory blueprints list:", err);
-        return reply.status(500).send({ error: "Internal server error" });
-      }
-    },
-  );
-
-  // Get all system modules — only return the canonical seeded module IDs
-  const KNOWN_MODULE_IDS = new Set([
-    "verification",
-    "territories",
-    "bazaar",
-    "reactions",
-  ]);
-  fastify.get("/modules/list", async (request, reply) => {
-    try {
-      const modules = SystemModules.find({}).filter((m) =>
-        KNOWN_MODULE_IDS.has(m.module_id),
-      );
-      return reply.send(modules);
-    } catch (err) {
-      logger.error("Error fetching system modules:", err);
-      return reply.status(500).send({ error: "Internal server error" });
-    }
-  });
-
-  // Deploy slash commands to Discord guild
-  fastify.post("/:id/deploy-commands", async (request, reply) => {
-    const { id } = request.params as { id: string };
-
-    try {
-      const token = process.env.DISCORD_BOT_TOKEN;
-      const clientId = process.env.DISCORD_CLIENT_ID;
-      const adminGuildId = process.env.ADMIN_GUILD_ID;
-
-      if (!token || !clientId) {
-        return reply.status(500).send({
-          error:
-            "Discord Bot Token or Client ID is missing in API configuration.",
-        });
-      }
-
-      const configCmd = {
-        name: "config",
-        description:
-          "Open the web dashboard to configure Sentinel for this server",
-      };
-      const ttSelectorCmd = {
-        name: "tt-selector",
-        description: "Open the interactive Territory Selector tool",
-      };
-      const verifyCmd = {
-        name: "verify",
-        description: "Verify your Torn account with Discord",
-      };
-      const verifyallCmd = {
-        name: "verifyall",
-        description: "Force re-verify all members in the server",
-      };
-      const assaultCheckCmd = {
-        name: "assault-check",
-        description: "Check active territory assaults and wall statuses",
-      };
-      const burnMapCmd = {
-        name: "burn-map",
-        description: "Generate territory burn map image",
-      };
-      const allianceMapCmd = {
-        name: "alliance-map",
-        description: "Generate alliance territory map image",
-      };
-
-      const commandsByModule: Record<string, unknown[]> = {
-        verification: [verifyCmd, verifyallCmd],
-        verify: [verifyCmd, verifyallCmd],
-        admin: [configCmd],
-        territories: [
-          assaultCheckCmd,
-          burnMapCmd,
-          allianceMapCmd,
-          ttSelectorCmd,
-        ],
-      };
-
-      let guildCommands: unknown[] = [];
-
-      if (id === adminGuildId) {
-        guildCommands = [
-          configCmd,
-          assaultCheckCmd,
-          burnMapCmd,
-          allianceMapCmd,
-          ttSelectorCmd,
-          verifyCmd,
-          verifyallCmd,
-        ];
-      } else {
-        const configDoc = GuildConfigs.findOne(id);
-        let enabledModules: string[] = [
-          "admin",
-          "verification",
-          "territories",
-          "reactions",
-        ];
-        if (configDoc && configDoc.enabled_modules) {
-          if (Array.isArray(configDoc.enabled_modules)) {
-            enabledModules = configDoc.enabled_modules as string[];
-          } else if (typeof configDoc.enabled_modules === "string") {
-            try {
-              enabledModules = JSON.parse(configDoc.enabled_modules);
-            } catch {}
-          }
-        }
-
-        if (!enabledModules.includes("admin")) {
-          enabledModules.push("admin");
-        }
-
-        for (const mod of enabledModules) {
-          if (commandsByModule[mod]) {
-            guildCommands.push(...commandsByModule[mod]);
-          }
-        }
-      }
-
-      const res = await fetch(
-        `https://discord.com/api/v10/applications/${clientId}/guilds/${id}/commands`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bot ${token}`,
-            "Content-Type": "application/json",
+      const config = await db.guildConfig.findUnique({
+        where: { guildId },
+        include: {
+          apiKeys: {
+            select: {
+              id: true,
+              providedBy: true,
+              isValid: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
           },
-          body: JSON.stringify(guildCommands),
+          factionRoleMappings: {
+            orderBy: { createdAt: "asc" },
+          },
         },
-      );
-
-      if (!res.ok) {
-        const errText = await res.text();
-        logger.error(
-          `Discord API error deploying commands for guild ${id}:`,
-          errText,
-        );
-        return reply.status(res.status).send({
-          error: `Discord API returned status ${res.status}: ${errText}`,
-        });
-      }
-
-      logger.info(
-        `Successfully deployed ${guildCommands.length} slash commands to guild ${id}`,
-      );
-      return reply.send({
-        success: true,
-        deployedCount: guildCommands.length,
-        message: `Successfully deployed ${guildCommands.length} slash commands to Discord guild.`,
       });
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`Failed to deploy commands for guild ${id}:`, err);
-      return reply.status(500).send({
-        error: errorMsg || "Failed to deploy slash commands to Discord.",
-      });
-    }
-  });
 
-  // Pre-handler hook to authenticate internal requests
-  fastify.addHook("preHandler", async (request, reply) => {
-    const secret = request.headers["x-sentinel-secret"];
-    const expectedSecret = process.env.SENTINEL_INTERNAL_SECRET;
-
-    if (!expectedSecret || secret !== expectedSecret) {
-      return reply.status(403).send({ error: "Unauthorized internal request" });
-    }
-  });
-
-  // Get guild configuration
-  fastify.get("/:id/config", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      if (!id) {
-        return reply.status(400).send({ error: "Guild ID is required" });
+      if (!config) {
+        return reply.send({ initialized: false, config: null, apiKeys: [] });
       }
 
-      const guildConfig = GuildConfigs.find({ guild_id: id })[0];
-      if (!guildConfig) {
-        return reply.send({ initialized: false });
-      }
-
-      // Retrieve all keys for this guild and mask their values
-      const keys = GuildApiKeys.find({ guild_id: id }) || [];
-      const encryptionKey = process.env.ENCRYPTION_KEY;
-      const apiKeys = await Promise.all(
-        keys.map(async (k) => {
-          let masked = "•••• •••• ••••";
-          try {
-            if (encryptionKey) {
-              const decrypted = decryptApiKey(
-                k.api_key_encrypted,
-                encryptionKey,
-              );
-              if (decrypted && decrypted.length >= 4) {
-                masked = `•••• •••• •••• ${decrypted.slice(-4)}`;
-              }
-            }
-          } catch (err) {
-            logger.warn(`Failed to decrypt and mask api key ${k.id}:`, err);
-          }
-          const providedByName = await resolveDiscordUsername(k.provided_by);
-          return {
-            id: k.id,
-            masked,
-            is_primary: k.is_primary,
-            provided_by: providedByName,
-          };
-        }),
+      // Enrich faction mappings with tagImage + tag from Faction table
+      const factionIds = config.factionRoleMappings.map((m) => m.factionId);
+      const factions = factionIds.length
+        ? await db.faction.findMany({
+            where: { id: { in: factionIds } },
+            select: { id: true, tag: true, tagImage: true },
+          })
+        : [];
+      const factionMeta = new Map(
+        factions.map((f) => [f.id, { tag: f.tag, tagImage: f.tagImage }]),
       );
+
+      const enrichedMappings = config.factionRoleMappings.map((m) => ({
+        ...m,
+        factionTag: factionMeta.get(m.factionId)?.tag ?? null,
+        tagImage: factionMeta.get(m.factionId)?.tagImage ?? null,
+      }));
 
       return reply.send({
         initialized: true,
-        config: guildConfig,
-        hasApiKey: keys.length > 0,
-        apiKeys,
-      });
-    } catch (err) {
-      logger.error("Error fetching guild config:", err);
-      return reply.status(500).send({ error: "Internal server error" });
-    }
-  });
-
-  // Update guild configuration
-  fastify.put("/:id/config", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      const body = request.body as Partial<GuildConfigDocument> & {
-        api_key?: string;
-      };
-
-      if (!id) {
-        return reply.status(400).send({ error: "Guild ID is required" });
-      }
-
-      // 1. Fetch or create config document
-      let guildConfig = GuildConfigs.find({ guild_id: id })[0];
-      const isNew = !guildConfig;
-
-      const updatedConfig = {
-        id: guildConfig?.id || randomUUID(),
-        guild_id: id,
-        verify_on_join:
-          body.verify_on_join !== undefined
-            ? body.verify_on_join
-            : (guildConfig?.verify_on_join ?? false),
-        verify_cron:
-          body.verify_cron !== undefined
-            ? body.verify_cron
-            : (guildConfig?.verify_cron ?? false),
-        verify_cron_interval:
-          body.verify_cron_interval !== undefined
-            ? body.verify_cron_interval
-            : (guildConfig?.verify_cron_interval ?? 1),
-        nickname_template:
-          body.nickname_template !== undefined
-            ? body.nickname_template
-            : (guildConfig?.nickname_template ??
-              "[{faction_tag}] {name} [{id}]"),
-        verified_role_id:
-          body.verified_role_id !== undefined
-            ? body.verified_role_id
-            : (guildConfig?.verified_role_id ?? null),
-        verified_role_ids:
-          body.verified_role_ids !== undefined
-            ? body.verified_role_ids
-            : (guildConfig?.verified_role_ids ?? []),
-        enabled_modules:
-          body.enabled_modules !== undefined
-            ? body.enabled_modules
-            : (guildConfig?.enabled_modules ?? ["admin"]),
-        admin_role_ids:
-          body.admin_role_ids !== undefined
-            ? body.admin_role_ids
-            : (guildConfig?.admin_role_ids ?? []),
-        log_channel_id:
-          body.log_channel_id !== undefined
-            ? body.log_channel_id
-            : (guildConfig?.log_channel_id ?? null),
-        faction_list_channel_id:
-          body.faction_list_channel_id !== undefined
-            ? body.faction_list_channel_id
-            : (guildConfig?.faction_list_channel_id ?? null),
-        faction_list_message_ids: guildConfig?.faction_list_message_ids ?? [],
-        tt_full_channel_id:
-          body.tt_full_channel_id !== undefined
-            ? body.tt_full_channel_id
-            : (guildConfig?.tt_full_channel_id ?? null),
-        tt_filtered_channel_id:
-          body.tt_filtered_channel_id !== undefined
-            ? body.tt_filtered_channel_id
-            : (guildConfig?.tt_filtered_channel_id ?? null),
-        tt_territory_ids:
-          body.tt_territory_ids !== undefined
-            ? body.tt_territory_ids
-            : (guildConfig?.tt_territory_ids ?? []),
-        tt_faction_ids:
-          body.tt_faction_ids !== undefined
-            ? body.tt_faction_ids
-            : (guildConfig?.tt_faction_ids ?? []),
-        strict_faction_role_ids:
-          body.strict_faction_role_ids !== undefined
-            ? body.strict_faction_role_ids
-            : (guildConfig?.strict_faction_role_ids ?? []),
-      };
-
-      if (isNew) {
-        GuildConfigs.insertOne(updatedConfig);
-      } else {
-        GuildConfigs.update(updatedConfig);
-      }
-
-      // 2. Handle legacy api_key if provided
-      if (body.api_key) {
-        const encryptionKey = process.env.ENCRYPTION_KEY;
-        if (!encryptionKey) {
-          throw new Error(
-            "ENCRYPTION_KEY environment variable is missing on API gateway",
-          );
-        }
-
-        const { encryptApiKey } = await import("@sentinel/shared");
-        const encrypted = encryptApiKey(body.api_key, encryptionKey);
-
-        const existingKeys = GuildApiKeys.find({ guild_id: id });
-        const primaryKey =
-          existingKeys.find((k) => k.is_primary) || existingKeys[0];
-
-        if (primaryKey) {
-          GuildApiKeys.update({
-            ...primaryKey,
-            api_key_encrypted: encrypted,
-            provided_by: "api-dashboard",
-          });
-        } else {
-          GuildApiKeys.insertOne({
-            id: randomUUID(),
-            guild_id: id,
-            user_id: 0,
-            api_key_encrypted: encrypted,
-            is_primary: true,
-            provided_by: "api-dashboard",
-          });
-        }
-      }
-
-      return reply.send({ success: true, config: updatedConfig });
-    } catch (err: any) {
-      logger.error("Error updating guild config:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // Verify and Add API Key
-  fastify.post("/:id/api-keys", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      const { api_key } = request.body as { api_key: string };
-      if (!id || !api_key) {
-        return reply
-          .status(400)
-          .send({ error: "Guild ID and API Key are required" });
-      }
-
-      const encryptionKey = process.env.ENCRYPTION_KEY;
-      if (!encryptionKey) {
-        throw new Error("ENCRYPTION_KEY is missing on API gateway");
-      }
-
-      // Verify the key against the Torn API first!
-      let userId: number | null = null;
-      try {
-        const { TornApiClient } = await import("@sentinel/shared");
-        const client = new TornApiClient();
-        const data = await client.get("/user/basic", { apiKey: api_key });
-        userId = data.profile?.id || null;
-      } catch (err: any) {
-        return reply
-          .status(400)
-          .send({ error: `Invalid API key or Torn API error: ${err.message}` });
-      }
-
-      if (!userId) {
-        return reply
-          .status(400)
-          .send({ error: "Could not resolve Torn user ID from this key." });
-      }
-
-      // Encrypt the key
-      const { encryptApiKey } = await import("@sentinel/shared");
-      const encrypted = encryptApiKey(api_key, encryptionKey);
-
-      // Insert key
-      const existingKeys = GuildApiKeys.find({ guild_id: id }) || [];
-      const isPrimary = existingKeys.length === 0;
-
-      const providedByRaw =
-        (request.body as { provided_by?: string }).provided_by ||
-        "api-dashboard";
-      const providedByName = await resolveDiscordUsername(providedByRaw);
-
-      const newKeyDoc = {
-        id: randomUUID(),
-        guild_id: id,
-        user_id: userId,
-        api_key_encrypted: encrypted,
-        is_primary: isPrimary,
-        provided_by: providedByName,
-      };
-      GuildApiKeys.insertOne(newKeyDoc);
-
-      let masked = "•••• •••• ••••";
-      if (api_key.length >= 4) {
-        masked = `•••• •••• •••• ${api_key.slice(-4)}`;
-      }
-
-      return reply.send({
-        success: true,
-        apiKey: {
-          id: newKeyDoc.id,
-          masked,
-          is_primary: newKeyDoc.is_primary,
-          provided_by: newKeyDoc.provided_by,
+        config: {
+          guildId: config.guildId,
+          logChannelId: config.logChannelId,
+          adminRoleIds: config.adminRoleIds,
+          enabledModules: config.enabledModules,
+          verifiedRoleIds: config.verifiedRoleIds,
+          nicknameTemplate: config.nicknameTemplate,
+          verifyOnJoin: config.verifyOnJoin,
+          verifyCron: config.verifyCron,
+          verifyCronInterval: config.verifyCronInterval,
+          protectedRoleIds: config.protectedRoleIds,
+          factionListChannelId: config.factionListChannelId,
+          factionListMessageIds: config.factionListMessageIds,
+          factionRoleMappings: enrichedMappings,
+          ttFullChannelId: config.ttFullChannelId,
+          ttFilteredChannelId: config.ttFilteredChannelId,
+          ttTerritoryIds: config.ttTerritoryIds,
+          ttFactionIds: config.ttFactionIds,
         },
+        apiKeys: config.apiKeys,
       });
-    } catch (err: any) {
-      logger.error("Error adding guild api key:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
+    },
+  );
+
+  // PUT /api/guilds/:guildId/config
+  fastify.put<{
+    Params: { guildId: string };
+    Body: {
+      logChannelId?: string | null;
+      adminRoleIds?: string[];
+      enabledModules?: string[];
+      verifiedRoleIds?: string[];
+      nicknameTemplate?: string | null;
+      verifyOnJoin?: boolean;
+      verifyCron?: boolean;
+      verifyCronInterval?: number;
+      protectedRoleIds?: string[];
+      factionListChannelId?: string | null;
+      ttFullChannelId?: string | null;
+      ttFilteredChannelId?: string | null;
+      ttTerritoryIds?: string[];
+      ttFactionIds?: number[];
+    };
+  }>("/api/guilds/:guildId/config", async (request, reply) => {
+    const { guildId } = request.params;
+    const {
+      logChannelId,
+      adminRoleIds,
+      enabledModules,
+      verifiedRoleIds,
+      nicknameTemplate,
+      verifyOnJoin,
+      verifyCron,
+      verifyCronInterval,
+      protectedRoleIds,
+      factionListChannelId,
+      ttFullChannelId,
+      ttFilteredChannelId,
+      ttTerritoryIds,
+      ttFactionIds,
+    } = request.body;
+
+    const updated = await db.guildConfig.upsert({
+      where: { guildId },
+      update: {
+        ...(logChannelId !== undefined ? { logChannelId } : {}),
+        ...(adminRoleIds !== undefined ? { adminRoleIds } : {}),
+        ...(enabledModules !== undefined ? { enabledModules: normalizeModules(enabledModules) } : {}),
+        ...(verifiedRoleIds !== undefined ? { verifiedRoleIds } : {}),
+        ...(nicknameTemplate !== undefined ? { nicknameTemplate } : {}),
+        ...(verifyOnJoin !== undefined ? { verifyOnJoin } : {}),
+        ...(verifyCron !== undefined ? { verifyCron } : {}),
+        ...(verifyCronInterval !== undefined ? { verifyCronInterval } : {}),
+        ...(protectedRoleIds !== undefined ? { protectedRoleIds } : {}),
+        ...(factionListChannelId !== undefined ? { factionListChannelId } : {}),
+        ...(ttFullChannelId !== undefined ? { ttFullChannelId } : {}),
+        ...(ttFilteredChannelId !== undefined ? { ttFilteredChannelId } : {}),
+        ...(ttTerritoryIds !== undefined ? { ttTerritoryIds } : {}),
+        ...(ttFactionIds !== undefined ? { ttFactionIds } : {}),
+      },
+      create: {
+        guildId,
+        logChannelId: logChannelId ?? null,
+        adminRoleIds: adminRoleIds ?? [],
+        enabledModules: enabledModules ? normalizeModules(enabledModules) : ["verification"],
+        verifiedRoleIds: verifiedRoleIds ?? [],
+        nicknameTemplate: nicknameTemplate ?? null,
+        verifyOnJoin: verifyOnJoin ?? false,
+        verifyCron: verifyCron ?? false,
+        verifyCronInterval: verifyCronInterval ?? 24,
+        protectedRoleIds: protectedRoleIds ?? [],
+        factionListChannelId: factionListChannelId ?? null,
+        ttFullChannelId: ttFullChannelId ?? null,
+        ttFilteredChannelId: ttFilteredChannelId ?? null,
+        ttTerritoryIds: ttTerritoryIds ?? [],
+        ttFactionIds: ttFactionIds ?? [],
+      },
+    });
+
+    if (factionListChannelId !== undefined) {
+      ipcClient.send({ action: "sync_faction_map", data: { guildId } });
     }
+
+    return reply.send({ success: true, config: updated });
   });
 
-  // Delete Guild API Key
-  fastify.delete("/:id/api-keys/:keyId", async (request, reply) => {
-    try {
-      const { id, keyId } = request.params as { id: string; keyId: string };
-      if (!id || !keyId) {
-        return reply
-          .status(400)
-          .send({ error: "Guild ID and Key ID are required" });
-      }
+  // POST /api/guilds/:guildId/faction-mappings
+  fastify.post<{
+    Params: { guildId: string };
+    Body: {
+      factionId: number;
+      factionName?: string;
+      memberRoleIds?: string[];
+      leaderRoleIds?: string[];
+    };
+  }>("/api/guilds/:guildId/faction-mappings", async (request, reply) => {
+    const { guildId } = request.params;
+    const { factionId, factionName, memberRoleIds, leaderRoleIds } =
+      request.body;
 
-      const targetKey = GuildApiKeys.find({ id: keyId })[0];
-      if (!targetKey) {
-        return reply.status(404).send({ error: "API Key not found" });
-      }
+    if (!factionId || typeof factionId !== "number" || factionId <= 0) {
+      return reply.status(400).send({ error: "Invalid faction ID." });
+    }
 
-      GuildApiKeys.delete(keyId);
+    // Ensure target GuildConfig exists
+    await db.guildConfig.upsert({
+      where: { guildId },
+      update: {},
+      create: { guildId },
+    });
 
-      // If the deleted key was primary, make another key primary
-      if (targetKey.is_primary) {
-        const remaining = GuildApiKeys.find({ guild_id: id });
-        if (remaining.length > 0) {
-          GuildApiKeys.update({
-            ...remaining[0],
-            is_primary: true,
-          });
-        }
-      }
+    const mapping = await db.factionRoleMapping.create({
+      data: {
+        guildId,
+        factionId,
+        factionName: factionName || null,
+        memberRoleIds: memberRoleIds ?? [],
+        leaderRoleIds: leaderRoleIds ?? [],
+        enabled: true,
+      },
+    });
+
+    ipcClient.send({ action: "sync_faction_map", data: { guildId } });
+
+    return reply.send({ success: true, mapping });
+  });
+
+  // DELETE /api/guilds/:guildId/faction-mappings/:mappingId
+  fastify.delete<{ Params: { guildId: string; mappingId: string } }>(
+    "/api/guilds/:guildId/faction-mappings/:mappingId",
+    async (request, reply) => {
+      const { guildId, mappingId } = request.params;
+
+      await db.factionRoleMapping.delete({ where: { id: mappingId } });
+
+      ipcClient.send({ action: "sync_faction_map", data: { guildId } });
 
       return reply.send({ success: true });
-    } catch (err: any) {
-      logger.error("Error deleting guild api key:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
+    },
+  );
+
+  // PUT /api/guilds/:guildId/faction-mappings/:mappingId
+  fastify.put<{
+    Params: { guildId: string; mappingId: string };
+    Body: { memberRoleIds: string[]; leaderRoleIds: string[] };
+  }>(
+    "/api/guilds/:guildId/faction-mappings/:mappingId",
+    async (request, reply) => {
+      const { guildId, mappingId } = request.params;
+      const { memberRoleIds, leaderRoleIds } = request.body;
+
+      const updated = await db.factionRoleMapping.update({
+        where: { id: mappingId },
+        data: {
+          memberRoleIds: memberRoleIds ?? [],
+          leaderRoleIds: leaderRoleIds ?? [],
+          updatedAt: new Date(),
+        },
+      });
+
+      ipcClient.send({ action: "sync_faction_map", data: { guildId } });
+
+      return reply.send({ success: true, mapping: updated });
+    },
+  );
+
+
+
+  // POST /api/guilds/:guildId/api-keys
+  fastify.post<{
+    Params: { guildId: string };
+    Body: { apiKey: string; providedBy?: string };
+  }>("/api/guilds/:guildId/api-keys", async (request, reply) => {
+    const { guildId } = request.params;
+    const { apiKey, providedBy } = request.body;
+
+    if (!apiKey || apiKey.trim().length !== 16) {
+      return reply.status(400).send({
+        error:
+          "Invalid Torn API key format. Key must be a 16-character string.",
+      });
     }
+
+    const trimmedKey = apiKey.trim();
+
+    // 1. Verify API Key with Torn API first
+    let tornUserId: number | null = null;
+    try {
+      const profile = await tornApi.get("/user/profile", {
+        apiKey: trimmedKey,
+      });
+
+      tornUserId = profile.profile.id;
+
+      if (!tornUserId) {
+        return reply.status(400).send({
+          error: "Failed to extract valid Torn Player ID from Torn API key.",
+        });
+      }
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Torn API verification failed.";
+      return reply.status(400).send({
+        error: `Torn API Verification Failed: ${errorMessage}`,
+      });
+    }
+
+    // 2. Encrypt & Hash API Key
+    const masterKey = process.env.ENCRYPTION_KEY || "";
+    const pepper = process.env.API_KEY_HASH_PEPPER || "";
+    const apiKeyEncrypted = encryptApiKey(trimmedKey, masterKey);
+    const apiKeyHash = hashApiKey(trimmedKey, pepper);
+
+    // 3. Check for duplicates in database
+    const existing = await db.guildApiKey.findFirst({
+      where: { apiKeyHash },
+    });
+
+    if (existing) {
+      return reply
+        .status(400)
+        .send({ error: "This API key has already been added." });
+    }
+
+    // Ensure target GuildConfig exists
+    await db.guildConfig.upsert({
+      where: { guildId },
+      update: {},
+      create: { guildId },
+    });
+
+    // 4. Save to PostgreSQL with verified Torn Player ID
+    const createdKey = await db.guildApiKey.create({
+      data: {
+        guildId,
+        userId: tornUserId,
+        apiKeyEncrypted,
+        apiKeyHash,
+        providedBy: providedBy || "Dashboard User",
+        isValid: true,
+      },
+    });
+
+    return reply.send({
+      success: true,
+      apiKey: {
+        id: createdKey.id,
+        providedBy: createdKey.providedBy,
+        isValid: createdKey.isValid,
+        createdAt: createdKey.createdAt,
+      },
+    });
   });
 
-  // Set API Key as primary
-  fastify.put("/:id/api-keys/:keyId/primary", async (request, reply) => {
-    try {
-      const { id, keyId } = request.params as { id: string; keyId: string };
-      if (!id || !keyId) {
-        return reply
-          .status(400)
-          .send({ error: "Guild ID and Key ID are required" });
+  // DELETE /api/guilds/:guildId/api-keys/:keyId
+  fastify.delete<{ Params: { guildId: string; keyId: string } }>(
+    "/api/guilds/:guildId/api-keys/:keyId",
+    async (request, reply) => {
+      const { keyId } = request.params;
+
+      await db.guildApiKey.delete({
+        where: { id: keyId },
+      });
+
+      return reply.send({ success: true });
+    },
+  );
+
+  // GET /api/factions/:factionId
+  // Resolves a faction ID to its name and tag. Checks DB first;
+  // if missing or stale (>24h), fetches from Torn API and upserts.
+  fastify.get<{ Params: { factionId: string } }>(
+    "/api/factions/:factionId",
+    async (request, reply) => {
+      const factionId = parseInt(request.params.factionId, 10);
+
+      if (isNaN(factionId) || factionId <= 0) {
+        return reply.status(400).send({ error: "Invalid faction ID." });
       }
 
-      const keys = GuildApiKeys.find({ guild_id: id });
-      const targetKey = keys.find((k) => k.id === keyId);
-      if (!targetKey) {
-        return reply.status(404).send({ error: "API Key not found" });
-      }
+      const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
-      for (const k of keys) {
-        GuildApiKeys.update({
-          ...k,
-          is_primary: k.id === keyId,
+      // 1. Check DB
+      const existing = await db.faction.findUnique({
+        where: { id: factionId },
+        select: { id: true, name: true, tag: true, updatedAt: true },
+      });
+
+      const isStale =
+        !existing ||
+        Date.now() - existing.updatedAt.getTime() > TWENTY_FOUR_HOURS_MS;
+
+      if (!isStale) {
+        return reply.send({
+          faction: { id: existing.id, name: existing.name, tag: existing.tag },
         });
       }
 
-      return reply.send({ success: true });
-    } catch (err: any) {
-      logger.error("Error setting primary guild api key:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // Check if initialization has been requested
-  fastify.get("/:id/request-init", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      if (!id) {
-        return reply.status(400).send({ error: "Guild ID is required" });
-      }
-
-      const reqDoc = GuildInitRequests.find({ guild_id: id })[0];
-      if (!reqDoc) {
-        return reply.send({ requested: false });
-      }
-
-      return reply.send({
-        requested: true,
-        requested_by: reqDoc.requested_by,
-        requested_at: reqDoc.requested_at,
-      });
-    } catch (err) {
-      logger.error("Error checking guild init request:", err);
-      return reply.status(500).send({ error: "Internal server error" });
-    }
-  });
-
-  // Record an initialization request
-  fastify.post("/:id/request-init", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      const { userId } = request.body as { userId: string };
-
-      if (!id || !userId) {
-        return reply
-          .status(400)
-          .send({ error: "Guild ID and User ID are required" });
-      }
-
-      const existing = GuildInitRequests.find({ guild_id: id })[0];
-      if (existing) {
-        return reply
-          .status(400)
-          .send({ error: "Initialization request already exists" });
-      }
-
-      GuildInitRequests.insertOne({
-        id: randomUUID(),
-        guild_id: id,
-        requested_by: userId,
-        requested_at: Date.now(),
-      });
-
-      return reply.send({ success: true });
-    } catch (err) {
-      logger.error("Error recording guild init request:", err);
-      return reply.status(500).send({ error: "Internal server error" });
-    }
-  });
-
-  // Delete guild configuration (De-initialize)
-  fastify.delete("/:id/config", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      if (!id) {
-        return reply.status(400).send({ error: "Guild ID is required" });
-      }
-
-      // Delete configuration
-      const configs = GuildConfigs.find({ guild_id: id });
-      for (const c of configs) {
-        GuildConfigs.delete(c.id);
-      }
-
-      // Delete API Keys associated with the guild
-      const keys = GuildApiKeys.find({ guild_id: id });
-      for (const key of keys) {
-        GuildApiKeys.delete(key.id);
-      }
-
-      // Delete Init Requests associated with the guild
-      const reqs = GuildInitRequests.find({ guild_id: id });
-      for (const r of reqs) {
-        GuildInitRequests.delete(r.id);
-      }
-
-      return reply.send({ success: true });
-    } catch (err: any) {
-      logger.error("Error deleting guild config:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // Get all faction role mappings for a guild
-  fastify.get("/:id/faction-roles", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      if (!id) {
-        return reply.status(400).send({ error: "Guild ID is required" });
-      }
-      const mappings = FactionRoles.find({ guild_id: id });
-      return reply.send(mappings);
-    } catch (err: any) {
-      logger.error("Error fetching faction roles:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // Helper to resolve an API key for a guild
-  function getApiKeyForGuild(guildId: string): string {
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (!encryptionKey) return "";
-
-    const keys = GuildApiKeys.find({ guild_id: guildId, is_primary: true });
-    if (keys.length > 0) {
+      // 2. Fetch from Torn API using any available guild API key
       try {
-        const dec = decryptApiKey(keys[0].api_key_encrypted, encryptionKey);
-        if (dec) return dec;
-      } catch {}
-    }
+        const anyKey = await db.guildApiKey.findFirst({
+          where: { isValid: true },
+          select: { apiKeyEncrypted: true },
+          orderBy: { createdAt: "asc" },
+        });
 
-    const allKeys = GuildApiKeys.find({ guild_id: guildId });
-    if (allKeys.length > 0) {
-      try {
-        const dec = decryptApiKey(allKeys[0].api_key_encrypted, encryptionKey);
-        if (dec) return dec;
-      } catch {}
-    }
-
-    const globalConfig = UserConfig.findOne("global");
-    if (globalConfig?.api_key) {
-      try {
-        const dec = decryptApiKey(globalConfig.api_key, encryptionKey);
-        if (dec) return dec;
-      } catch {}
-    }
-
-    return "";
-  }
-
-  // Fetch faction info by faction ID using validateAndFetchFactionDetails
-  fastify.get("/:id/faction-info/:factionId", async (request, reply) => {
-    try {
-      const { id, factionId } = request.params as {
-        id: string;
-        factionId: string;
-      };
-      const fNum = Number(factionId);
-      if (isNaN(fNum) || fNum <= 0) {
-        return reply.status(400).send({ error: "Invalid Faction ID" });
-      }
-
-      const apiKey = getApiKeyForGuild(id);
-      const factionDoc = await validateAndFetchFactionDetails(fNum, apiKey);
-      if (!factionDoc?.data) {
-        return reply.status(404).send({ error: "Faction not found" });
-      }
-
-      return reply.send({
-        faction_id: fNum,
-        name: factionDoc.data.name,
-        tag: factionDoc.data.tag || null,
-      });
-    } catch (err: any) {
-      logger.error("Error fetching faction info:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // Create a new faction role mapping
-  fastify.post("/:id/faction-roles", async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      if (!id) {
-        return reply.status(400).send({ error: "Guild ID is required" });
-      }
-      const body = request.body as Omit<
-        FactionRoleMappingDocument,
-        "id" | "guild_id"
-      >;
-
-      let factionName = body.faction_name || null;
-      const apiKey = getApiKeyForGuild(id);
-      if (apiKey && body.faction_id) {
-        const factionDoc = await validateAndFetchFactionDetails(
-          Number(body.faction_id),
-          apiKey,
-        );
-        if (factionDoc?.data?.name) {
-          factionName = factionDoc.data.name;
+        if (!anyKey) {
+          // No keys available — return existing stale data if we have it
+          if (existing) {
+            return reply.send({
+              faction: { id: existing.id, name: existing.name, tag: existing.tag },
+            });
+          }
+          return reply
+            .status(404)
+            .send({ error: "Faction not in database and no API keys available to fetch it." });
         }
-      }
 
-      const newMapping = FactionRoles.insertOne({
-        id: randomUUID(),
-        guild_id: id,
-        faction_id: Number(body.faction_id),
-        faction_name: factionName,
-        member_role_ids: body.member_role_ids || [],
-        leader_role_ids: body.leader_role_ids || [],
-        enabled: body.enabled !== undefined ? body.enabled : true,
-      });
+        const { decryptApiKey } = await import("@sentinel/torn-api");
+        const masterKey = process.env.ENCRYPTION_KEY || "";
+        const rawKey = decryptApiKey(anyKey.apiKeyEncrypted, masterKey);
 
-      return reply.send(newMapping);
-    } catch (err: any) {
-      logger.error("Error creating faction role mapping:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
+        const res = await tornApi.get("/faction/{id}/basic", {
+          apiKey: rawKey,
+          pathParams: { id: factionId },
+        });
 
-  // Update an existing faction role mapping
-  fastify.put("/:id/faction-roles/:mappingId", async (request, reply) => {
-    try {
-      const { id, mappingId } = request.params as {
-        id: string;
-        mappingId: string;
-      };
-      if (!id || !mappingId) {
-        return reply
-          .status(400)
-          .send({ error: "Guild ID and Mapping ID are required" });
-      }
-
-      const body = request.body as Partial<
-        Omit<FactionRoleMappingDocument, "id" | "guild_id">
-      >;
-      const existing = FactionRoles.find({ id: mappingId })[0];
-      if (!existing || existing.guild_id !== id) {
-        return reply
-          .status(404)
-          .send({ error: "Faction role mapping not found" });
-      }
-
-      const factionIdToUse =
-        body.faction_id !== undefined
-          ? Number(body.faction_id)
-          : existing.faction_id;
-      let factionName = existing.faction_name;
-      const apiKey = getApiKeyForGuild(id);
-      if (apiKey && factionIdToUse) {
-        const factionDoc = await validateAndFetchFactionDetails(
-          factionIdToUse,
-          apiKey,
-        );
-        if (factionDoc?.data?.name) {
-          factionName = factionDoc.data.name;
+        const basic = res.basic;
+        if (!basic) {
+          if (existing) {
+            return reply.send({
+              faction: { id: existing.id, name: existing.name, tag: existing.tag },
+            });
+          }
+          return reply.status(404).send({ error: "Faction not found on Torn." });
         }
-      }
 
-      const updated = {
-        ...existing,
-        faction_id: factionIdToUse,
-        faction_name: factionName,
-        member_role_ids:
-          body.member_role_ids !== undefined
-            ? body.member_role_ids
-            : existing.member_role_ids,
-        leader_role_ids:
-          body.leader_role_ids !== undefined
-            ? body.leader_role_ids
-            : existing.leader_role_ids,
-        enabled: body.enabled !== undefined ? body.enabled : existing.enabled,
-      };
+        const upserted = await db.faction.upsert({
+          where: { id: factionId },
+          update: {
+            name: basic.name ?? `Faction ${factionId}`,
+            tag: basic.tag ?? null,
+            tagImage: basic.tag_image ?? null,
+            leaderId: basic.leader_id ?? null,
+            coLeaderId: basic.co_leader_id ?? null,
+            respect: basic.respect ?? 0,
+            capacity: basic.capacity ?? 0,
+            membersCount:
+              typeof basic.members === "number" ? basic.members : 0,
+            updatedAt: new Date(),
+          },
+          create: {
+            id: factionId,
+            name: basic.name ?? `Faction ${factionId}`,
+            tag: basic.tag ?? null,
+            tagImage: basic.tag_image ?? null,
+            leaderId: basic.leader_id ?? null,
+            coLeaderId: basic.co_leader_id ?? null,
+            respect: basic.respect ?? 0,
+            capacity: basic.capacity ?? 0,
+            membersCount:
+              typeof basic.members === "number" ? basic.members : 0,
+          },
+          select: { id: true, name: true, tag: true },
+        });
 
-      FactionRoles.update(updated);
-      return reply.send(updated);
-    } catch (err: any) {
-      logger.error("Error updating faction role mapping:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // Delete a faction role mapping
-  fastify.delete("/:id/faction-roles/:mappingId", async (request, reply) => {
-    try {
-      const { id, mappingId } = request.params as {
-        id: string;
-        mappingId: string;
-      };
-      if (!id || !mappingId) {
-        return reply
-          .status(400)
-          .send({ error: "Guild ID and Mapping ID are required" });
-      }
-
-      const existing = FactionRoles.find({ id: mappingId })[0];
-      if (!existing || existing.guild_id !== id) {
-        return reply
-          .status(404)
-          .send({ error: "Faction role mapping not found" });
-      }
-
-      FactionRoles.delete(mappingId);
-      return reply.send({ success: true });
-    } catch (err: any) {
-      logger.error("Error deleting faction role mapping:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  // ─── Reaction Roles ──────────────────────────────────────────────────────────
-
-  /**
-   * GET /:id/reaction-roles
-   * List all reaction role messages for a guild, each with their emoji mappings.
-   */
-  fastify.get<{ Reply: ReactionRoleMessagesListResponse | { error: string } }>(
-    "/:id/reaction-roles",
-    async (request, reply) => {
-      try {
-        const { id } = request.params as { id: string };
-        const messages = ReactionRoleMessages.find({ guild_id: id });
-        const result: ReactionRoleMessagesListResponse = messages.map(
-          (msg) => ({
-            ...msg,
-            emojis: ReactionRoleMappings.find({ message_id: msg.id }),
-          }),
-        );
-        return reply.send(result);
-      } catch (err: any) {
-        logger.error("Error listing reaction role messages:", err);
-        return reply
-          .status(500)
-          .send({ error: err.message || "Internal server error" });
+        return reply.send({ faction: upserted });
+      } catch (err) {
+        // Fall back to stale DB record if Torn API fails
+        if (existing) {
+          return reply.send({
+            faction: { id: existing.id, name: existing.name, tag: existing.tag },
+          });
+        }
+        return reply.status(404).send({
+          error: "Faction not found and Torn API fetch failed.",
+        });
       }
     },
   );
 
-  /**
-   * POST /:id/reaction-roles
-   * Create a new reaction role message record.
-   */
-  fastify.post("/:id/reaction-roles", async (request, reply) => {
+  // GET /api/territories
+  fastify.get("/api/territories", async (_request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      const body = request.body as CreateReactionRoleMessagePayload;
-
-      if (!body.title?.trim()) {
-        return reply.status(400).send({ error: "title is required" });
-      }
-      if (!body.channel_id?.trim()) {
-        return reply.status(400).send({ error: "channel_id is required" });
-      }
-
-      const doc = {
-        id: randomUUID(),
-        guild_id: id,
-        message_id: "", // Populated by the bot worker when it posts the message
-        channel_id: body.channel_id,
-        title: body.title.trim(),
-        description: "",
-        required_role_id: body.required_role_id ?? null,
-        sync_roles: false,
-      };
-      ReactionRoleMessages.insertOne(doc);
-
-      return reply
-        .status(201)
-        .send({ success: true, message: { ...doc, emojis: [] } });
-    } catch (err: any) {
-      logger.error("Error creating reaction role message:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
+      const territories = await db.territoryBlueprint.findMany({
+        select: { id: true, sector: true },
+        orderBy: { id: "asc" },
+      });
+      return reply.send({ territories });
+    } catch {
+      return reply.send({ territories: [] });
     }
   });
 
-  /**
-   * PATCH /:id/reaction-roles/:msgId
-   * Update metadata (title, channel, required role) of an existing message.
-   */
-  fastify.patch("/:id/reaction-roles/:msgId", async (request, reply) => {
-    try {
-      const { id, msgId } = request.params as { id: string; msgId: string };
-      const body = request.body as UpdateReactionRoleMessagePayload;
+  // GET /api/guilds/:guildId/reaction-roles
+  fastify.get<{ Params: { guildId: string } }>(
+    "/api/guilds/:guildId/reaction-roles",
+    async (request, reply) => {
+      const { guildId } = request.params;
+      const reactionRoleMessages = await db.reactionRoleMessage.findMany({
+        where: { guildId },
+        include: {
+          mappings: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return reply.send({ reactionRoleMessages });
+    },
+  );
 
-      const existing = ReactionRoleMessages.findOne(msgId);
-      if (!existing || existing.guild_id !== id) {
-        return reply
-          .status(404)
-          .send({ error: "Reaction role message not found" });
-      }
+  // POST /api/guilds/:guildId/reaction-roles
+  fastify.post<{
+    Params: { guildId: string };
+    Body: {
+      title: string;
+      channelId: string;
+      requiredRoleId?: string | null;
+      mappings?: { emoji: string; roleId: string; description?: string | null }[];
+    };
+  }>("/api/guilds/:guildId/reaction-roles", async (request, reply) => {
+    const { guildId } = request.params;
+    const { title, channelId, requiredRoleId, mappings = [] } = request.body;
 
-      const updated = {
-        ...existing,
-        ...(body.title !== undefined ? { title: body.title.trim() } : {}),
-        ...(body.channel_id !== undefined
-          ? { channel_id: body.channel_id }
-          : {}),
-        ...(body.required_role_id !== undefined
-          ? { required_role_id: body.required_role_id }
-          : {}),
-      };
-      ReactionRoleMessages.update(updated);
-
-      const emojis = ReactionRoleMappings.find({ message_id: msgId });
-      return reply.send({ success: true, message: { ...updated, emojis } });
-    } catch (err: any) {
-      logger.error("Error updating reaction role message:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
+    if (!title || !title.trim()) {
+      return reply.status(400).send({ error: "Title is required." });
     }
+    if (!channelId || !channelId.trim()) {
+      return reply.status(400).send({ error: "Target channel is required." });
+    }
+
+    // Ensure GuildConfig exists and reaction_role module is enabled
+    const existingConfig = await db.guildConfig.findUnique({ where: { guildId } });
+    const currentModules = existingConfig?.enabledModules || [];
+    const updatedModules = Array.from(new Set([...currentModules, "reaction_role"]));
+
+    await db.guildConfig.upsert({
+      where: { guildId },
+      update: { enabledModules: updatedModules },
+      create: { guildId, enabledModules: updatedModules },
+    });
+
+    const message = await db.reactionRoleMessage.create({
+      data: {
+        guildId,
+        title: title.trim(),
+        channelId: channelId.trim(),
+        requiredRoleId: requiredRoleId && requiredRoleId.trim() ? requiredRoleId.trim() : null,
+        mappings: {
+          create: mappings.map((m) => ({
+            emoji: m.emoji.trim(),
+            roleId: m.roleId.trim(),
+            description: m.description?.trim() || null,
+          })),
+        },
+      },
+      include: { mappings: true },
+    });
+
+    ipcClient.send({ action: "sync_reaction_roles", data: { guildId } });
+
+    return reply.send({ success: true, message });
   });
 
-  /**
-   * DELETE /:id/reaction-roles/:msgId
-   * Delete a message and cascade-delete all its emoji mappings.
-   */
-  fastify.delete("/:id/reaction-roles/:msgId", async (request, reply) => {
-    try {
-      const { id, msgId } = request.params as { id: string; msgId: string };
+  // PUT /api/guilds/:guildId/reaction-roles/:messageId
+  fastify.put<{
+    Params: { guildId: string; messageId: string };
+    Body: {
+      title: string;
+      channelId: string;
+      requiredRoleId?: string | null;
+      mappings?: { emoji: string; roleId: string; description?: string | null }[];
+    };
+  }>("/api/guilds/:guildId/reaction-roles/:messageId", async (request, reply) => {
+    const { guildId, messageId } = request.params;
+    const { title, channelId, requiredRoleId, mappings = [] } = request.body;
 
-      const existing = ReactionRoleMessages.findOne(msgId);
-      if (!existing || existing.guild_id !== id) {
-        return reply
-          .status(404)
-          .send({ error: "Reaction role message not found" });
-      }
+    if (!title || !title.trim()) {
+      return reply.status(400).send({ error: "Title is required." });
+    }
+    if (!channelId || !channelId.trim()) {
+      return reply.status(400).send({ error: "Target channel is required." });
+    }
 
-      // If the message was posted to Discord, delete it from the channel
-      if (existing.channel_id && existing.message_id) {
+    // Ensure reaction_role module is enabled
+    const existingConfig = await db.guildConfig.findUnique({ where: { guildId } });
+    const currentModules = existingConfig?.enabledModules || [];
+    if (!currentModules.includes("reaction_role")) {
+      const updatedModules = Array.from(new Set([...currentModules, "reaction_role"]));
+      await db.guildConfig.upsert({
+        where: { guildId },
+        update: { enabledModules: updatedModules },
+        create: { guildId, enabledModules: updatedModules },
+      });
+    }
+
+    // Replace mappings in transaction
+    await db.reactionRoleMapping.deleteMany({
+      where: { messageId },
+    });
+
+    const updated = await db.reactionRoleMessage.update({
+      where: { id: messageId },
+      data: {
+        title: title.trim(),
+        channelId: channelId.trim(),
+        requiredRoleId: requiredRoleId && requiredRoleId.trim() ? requiredRoleId.trim() : null,
+        updatedAt: new Date(),
+        mappings: {
+          create: mappings.map((m) => ({
+            emoji: m.emoji.trim(),
+            roleId: m.roleId.trim(),
+            description: m.description?.trim() || null,
+          })),
+        },
+      },
+      include: { mappings: true },
+    });
+
+    ipcClient.send({ action: "sync_reaction_roles", data: { guildId } });
+
+    return reply.send({ success: true, message: updated });
+  });
+
+  // DELETE /api/guilds/:guildId/reaction-roles/:messageId
+  fastify.delete<{ Params: { guildId: string; messageId: string } }>(
+    "/api/guilds/:guildId/reaction-roles/:messageId",
+    async (request, reply) => {
+      const { guildId, messageId } = request.params;
+      const existing = await db.reactionRoleMessage.findUnique({
+        where: { id: messageId },
+      });
+
+      if (existing?.messageId && existing?.channelId) {
         const botToken = process.env.DISCORD_BOT_TOKEN;
         if (botToken) {
-          fetch(
-            `https://discord.com/api/v10/channels/${existing.channel_id}/messages/${existing.message_id}`,
-            {
-              method: "DELETE",
-              headers: { Authorization: `Bot ${botToken}` },
-            },
-          ).catch((err) => {
-            logger.warn(
-              `Failed to delete Discord message ${existing.message_id}:`,
-              err,
+          try {
+            await fetch(
+              `https://discord.com/api/v10/channels/${existing.channelId}/messages/${existing.messageId}`,
+              {
+                method: "DELETE",
+                headers: { Authorization: `Bot ${botToken}` },
+              },
             );
-          });
+          } catch {
+            // Ignore if Discord message deletion fails or already deleted
+          }
         }
       }
 
-      // Cascade delete emoji mappings first
-      const mappings = ReactionRoleMappings.find({ message_id: msgId }).concat(
-        ReactionRoleMappings.find({ message_id: existing.message_id }),
-      );
-      for (const m of mappings) {
-        ReactionRoleMappings.delete(m.id);
-      }
-      ReactionRoleMessages.delete(msgId);
+      await db.reactionRoleMessage.delete({
+        where: { id: messageId },
+      });
+
+      ipcClient.send({ action: "sync_reaction_roles", data: { guildId } });
 
       return reply.send({ success: true });
-    } catch (err: any) {
-      logger.error("Error deleting reaction role message:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  /**
-   * POST /:id/reaction-roles/:msgId/emojis
-   * Add an emoji → role mapping to a message.
-   */
-  fastify.post("/:id/reaction-roles/:msgId/emojis", async (request, reply) => {
-    try {
-      const { id, msgId } = request.params as { id: string; msgId: string };
-      const body = request.body as AddEmojiMappingPayload;
-
-      if (!body.emoji?.trim()) {
-        return reply.status(400).send({ error: "emoji is required" });
-      }
-      if (!body.role_id?.trim()) {
-        return reply.status(400).send({ error: "role_id is required" });
-      }
-
-      const existing = ReactionRoleMessages.findOne(msgId);
-      if (!existing || existing.guild_id !== id) {
-        return reply
-          .status(404)
-          .send({ error: "Reaction role message not found" });
-      }
-
-      // Prevent duplicate emoji on the same message
-      const duplicateEmoji = ReactionRoleMappings.find({
-        message_id: msgId,
-      }).find((m) => m.emoji === body.emoji.trim());
-      if (duplicateEmoji) {
-        return reply.status(409).send({
-          error: `Emoji ${body.emoji} is already mapped on this message`,
-        });
-      }
-
-      const mapping = {
-        id: randomUUID(),
-        message_id: msgId,
-        emoji: body.emoji.trim(),
-        role_id: body.role_id.trim(),
-      };
-      ReactionRoleMappings.insertOne(mapping);
-
-      return reply.status(201).send({ success: true, mapping });
-    } catch (err: any) {
-      logger.error("Error adding emoji mapping:", err);
-      return reply
-        .status(500)
-        .send({ error: err.message || "Internal server error" });
-    }
-  });
-
-  /**
-   * DELETE /:id/reaction-roles/:msgId/emojis/:emojiMappingId
-   * Remove a single emoji → role mapping.
-   */
-  fastify.delete(
-    "/:id/reaction-roles/:msgId/emojis/:emojiMappingId",
-    async (request, reply) => {
-      try {
-        const { id, msgId, emojiMappingId } = request.params as {
-          id: string;
-          msgId: string;
-          emojiMappingId: string;
-        };
-
-        const message = ReactionRoleMessages.findOne(msgId);
-        if (!message || message.guild_id !== id) {
-          return reply
-            .status(404)
-            .send({ error: "Reaction role message not found" });
-        }
-
-        const mapping = ReactionRoleMappings.findOne(emojiMappingId);
-        if (!mapping || mapping.message_id !== msgId) {
-          return reply.status(404).send({ error: "Emoji mapping not found" });
-        }
-
-        ReactionRoleMappings.delete(emojiMappingId);
-
-        const botToken = process.env.DISCORD_BOT_TOKEN;
-        if (
-          botToken &&
-          message.channel_id &&
-          message.message_id &&
-          mapping.emoji
-        ) {
-          const formattedEmoji = encodeURIComponent(mapping.emoji.trim());
-          fetch(
-            `https://discord.com/api/v10/channels/${message.channel_id}/messages/${message.message_id}/reactions/${formattedEmoji}/@me`,
-            {
-              method: "DELETE",
-              headers: { Authorization: `Bot ${botToken}` },
-            },
-          ).catch((err) => {
-            logger.warn(`Failed to delete bot reaction ${mapping.emoji}:`, err);
-          });
-        }
-
-        return reply.send({ success: true });
-      } catch (err: any) {
-        logger.error("Error deleting emoji mapping:", err);
-        return reply
-          .status(500)
-          .send({ error: err.message || "Internal server error" });
-      }
     },
   );
 }
+
+
+
+
+

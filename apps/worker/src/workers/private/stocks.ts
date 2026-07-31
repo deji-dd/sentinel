@@ -1,36 +1,27 @@
-import {
-  Logger,
-  SystemState,
-  tornApi,
-  getWorkerApiKey,
-  UserStocks,
-  StockLedger,
-  type SystemStateDocument,
-  TornItems,
-  TornStocks,
-  StrictUserLog,
-  LogRouteMap,
-  PersonalLogs,
-} from "@sentinel/shared";
+import { Logger } from "@sentinel/utils";
+import { db, Prisma } from "@sentinel/database";
+import { type TornSchema } from "@sentinel/torn-api";
+import { tornApiManager, getPersonalKey } from "@sentinel/torn-api-manager";
 import { workerEvents } from "../../lib/event-bus.js";
-import { runSequentialInit } from "../../lib/init-queue.js";
 import type { WorkerStartOptions } from "../registry.js";
 
-const logger = new Logger("stocks_module");
+const WORKER_NAME = "stocks_module";
+const logger = new Logger(WORKER_NAME);
 
-// We keep these exported because runBackgroundStockLogBackfill uses them to build API requests
 export const STOCK_ACTIVITY_LOG_IDS = [5510, 5511, 5520, 5521];
 export const STOCK_GAIN_LOG_IDS = [
   5530, 5531, 5532, 5533, 5534, 5535, 5536, 5537,
 ];
 
-// Create strictly typed ID unions for the function signatures
-type StockGainIds = 5530 | 5531 | 5532 | 5533 | 5534 | 5535 | 5536 | 5537;
+type UserLog = TornSchema<"UserLog">;
 
 let isSyncingUserStocks = false;
 let pendingSync = false;
 
-export async function parseStockActivityLog() {
+/**
+ * Debounced activity trigger to sync active user stock positions.
+ */
+export async function parseStockActivityLog(): Promise<void> {
   if (isSyncingUserStocks) {
     pendingSync = true;
     return;
@@ -47,55 +38,80 @@ export async function parseStockActivityLog() {
   }
 }
 
-async function syncUserStocks() {
-  const apiKey = getWorkerApiKey("personal");
-  if (!apiKey) return;
+/**
+ * Fetches user stocks from `/user/stocks` API and updates `db.userStock`.
+ */
+export async function syncUserStocks(): Promise<void> {
+  const keyEntry = await getPersonalKey();
+  if (!keyEntry) return;
 
   try {
-    const res = await tornApi.get("/user/stocks", { apiKey });
+    const res = await tornApiManager.get("/user/stocks", {
+      apiKey: keyEntry.apiKey,
+      userId: keyEntry.userId,
+    });
+
     if (res.stocks) {
-      UserStocks.deleteManyBy({});
-      const userStocksToInsert = [];
       const stocksArray = res.stocks;
+
       for (const stock of stocksArray) {
-        userStocksToInsert.push({
-          id: String(stock.id),
-          shares: stock.shares || 0,
-          transactions: stock.transactions,
-          bonus: stock.bonus,
+        await db.userStock.upsert({
+          where: { id: String(stock.id) },
+          update: {
+            shares: stock.shares,
+            transactions: (stock.transactions as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+            bonus: (stock.bonus as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+            updatedAt: new Date(),
+          },
+          create: {
+            id: String(stock.id),
+            shares: stock.shares,
+            transactions: (stock.transactions as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+            bonus: (stock.bonus as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
         });
       }
-      if (userStocksToInsert.length > 0) {
-        UserStocks.insertMany(userStocksToInsert);
-      }
-      logger.info("Silently synced UserStocks from activity log");
+
+      logger.info(
+        `Synced ${stocksArray.length} active UserStocks from Torn API.`,
+      );
     }
-  } catch (e) {
-    logger.error("Failed to sync user stocks data:", e);
+  } catch (err) {
+    logger.error("Failed to sync user stocks data:", err);
   }
 }
 
-export function parseStockGainLog(log: StrictUserLog<StockGainIds>) {
-  // Notice we deleted the legacy ID inclusion check here as well
-  const data = log.data; // Perfectly typed as StockGainPayload
-  if (!data || !data.stock) return;
+/**
+ * Parses individual stock gain log into `StockLedger` and `LedgerEvent`.
+ */
+export async function parseStockGainLog(log: UserLog): Promise<boolean> {
+  const data = (log.data as Record<string, any>) || {};
+  if (!data || !data.stock) return false;
 
   const stockId = Number(data.stock);
-  const userStock = UserStocks.findOne(String(stockId));
-  if (!userStock) return;
+  const userStock = await db.userStock.findUnique({
+    where: { id: String(stockId) },
+  });
+  if (!userStock) return false;
 
-  const tStock = TornStocks.findOne(String(stockId));
-  if (!tStock || !tStock.bonus || tStock.bonus.passive) return;
+  const tornStock = await db.tornStock.findUnique({
+    where: { id: String(stockId) },
+  });
+  const stockBonus = (tornStock?.bonus as Record<string, any>) ?? {};
+  if (stockBonus.passive) return false;
 
-  const hasEnoughShares = userStock.shares >= tStock.bonus.requirement;
-  if (!hasEnoughShares) return;
+  const reqShares = Number(stockBonus.requirement || 0);
+  if (userStock.shares < reqShares) return false;
 
+  const txs = (userStock.transactions as Array<{ timestamp?: number }>) || [];
   let oldestTx = Number.MAX_SAFE_INTEGER;
-  for (const tx of userStock.transactions || []) {
-    if (tx.timestamp < oldestTx) oldestTx = tx.timestamp;
+  for (const tx of txs) {
+    if (tx.timestamp && tx.timestamp < oldestTx) oldestTx = tx.timestamp;
   }
 
-  if (log.timestamp < oldestTx) return;
+  if (log.timestamp < oldestTx) return false;
 
   let valueReceived = 0;
   let itemId: number | undefined = undefined;
@@ -108,152 +124,214 @@ export function parseStockGainLog(log: StrictUserLog<StockGainIds>) {
       itemId = Number(itemIds[0]);
       const qty = Number(data.item[itemIds[0]]);
 
-      const item = TornItems.findOne(String(itemId));
-
-      if (item) {
-        // @ts-ignore
-        valueReceived = qty * (item.data.value?.market_price || 0);
-      }
+      const itemRecord = await db.tornItem.findUnique({
+        where: { id: String(itemId) },
+      });
+      const itemData = (itemRecord?.data as Record<string, any>) ?? {};
+      valueReceived = qty * (itemData.value?.market_price || 0);
     }
   }
 
-  StockLedger.insertOne({
-    id: String(log.id),
-    timestamp: log.timestamp,
-    stock_id: stockId,
-    log_type: log.details.id,
-    value: valueReceived,
-    item_id: itemId,
+  const logIdStr = String(log.id);
+  const logTimestamp = new Date(log.timestamp * 1000);
+
+  // 1. Record in StockLedger
+  await db.stockLedger.upsert({
+    where: { id: logIdStr },
+    update: {
+      timestamp: logTimestamp,
+      stockId,
+      logType: Number(log.details.id),
+      value: valueReceived,
+      itemId,
+    },
+    create: {
+      id: logIdStr,
+      timestamp: logTimestamp,
+      stockId,
+      logType: Number(log.details.id),
+      value: valueReceived,
+      itemId,
+      createdAt: new Date(),
+    },
   });
+
+  // 2. Record in LedgerEvent
+  await db.ledgerEvent.upsert({
+    where: { id: `ledger_ev_${logIdStr}` },
+    update: {
+      logId: logIdStr,
+      timestamp: logTimestamp,
+      type: "stock_dividend",
+      categoryId: 8,
+      transactionName: "Stock Benefit Block Dividend",
+      assetsAffected: itemId
+        ? [
+            {
+              assetId: String(itemId),
+              quantityChange: 1,
+              costBasisImpact: valueReceived,
+            },
+          ]
+        : [],
+      cashFlow: data.money ? valueReceived : 0,
+      realizedPnl: valueReceived,
+      rawLog: log as unknown as object,
+      updatedAt: new Date(),
+    },
+    create: {
+      id: `ledger_ev_${logIdStr}`,
+      logId: logIdStr,
+      timestamp: logTimestamp,
+      type: "stock_dividend",
+      categoryId: 8,
+      transactionName: "Stock Benefit Block Dividend",
+      assetsAffected: itemId
+        ? [
+            {
+              assetId: String(itemId),
+              quantityChange: 1,
+              costBasisImpact: valueReceived,
+            },
+          ]
+        : [],
+      cashFlow: data.money ? valueReceived : 0,
+      realizedPnl: valueReceived,
+      rawLog: log as unknown as object,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+
+  return true;
 }
 
-async function runStockLedgerInit() {
+/**
+ * Initializes Stock Ledger:
+ * 1. Checks if historical log backfill is completed.
+ * 2. Replays stock gain logs from PostgreSQL `PersonalLog`.
+ */
+async function runStockLedgerInit(): Promise<void> {
   try {
-    logger.warn("Initializing Stock Ledger V2.");
+    logger.info("Initializing Stock Ledger...");
 
-    // 1. Wipe broken/legacy data
-    StockLedger.deleteManyBy({});
+    const backfillRecord = await db.systemState.findUnique({
+      where: { id: "log_manager_backfill_progress" },
+    });
+    const backfillData = backfillRecord?.data as { status: string } | undefined;
 
-    // 2. Fetch current stocks to establish the "bought time" baselines
+    if (backfillData?.status !== "completed") {
+      logger.warn(
+        "Log backfill is ongoing. Postponing Stock Ledger initialization.",
+      );
+      return;
+    }
+
     await syncUserStocks();
 
-    const userStocks = UserStocks.findAll();
+    const userStocks = await db.userStock.findMany();
     if (userStocks.length === 0) {
-      logger.warn("User has no stocks. Skipping log parse.");
-      SystemState.update({
-        id: "stock_ledger_v2_init",
-        init: true,
-        timestamp: Math.floor(Date.now() / 1000),
+      logger.warn(
+        "User has no active stock holdings. Marking stock ledger init complete.",
+      );
+      await db.systemState.upsert({
+        where: { id: "stock_ledger_init" },
+        update: {
+          init: true,
+          data: { status: "completed" },
+          updatedAt: new Date(),
+        },
+        create: {
+          id: "stock_ledger_init",
+          init: true,
+          data: { status: "completed" },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       });
       return;
     }
 
-    // 3. Find the absolute oldest transaction timestamp across all active BBs
-    let globalOldestTimestamp = Date.now() / 1000;
-    let activeBBFound = false;
+    const stockLogs = await db.personalLog.findMany({
+      where: { log: { in: STOCK_GAIN_LOG_IDS } },
+      orderBy: { timestamp: "asc" },
+    });
 
-    for (const stock of userStocks) {
-      const tStock = TornStocks.findOne(String(stock.id));
-      if (!tStock || !tStock.bonus || tStock.bonus.passive) continue;
+    logger.info(`Replaying ${stockLogs.length} historical stock gain logs...`);
 
-      const hasEnoughShares = stock.shares >= tStock.bonus.requirement;
-      if (!hasEnoughShares) continue;
-
-      activeBBFound = true;
-
-      for (const tx of stock.transactions || []) {
-        if (tx.timestamp < globalOldestTimestamp) {
-          globalOldestTimestamp = tx.timestamp;
-        }
-      }
-    }
-
-    if (!activeBBFound) {
-      logger.warn("User has no active non-passive BBs. Skipping log parse.");
-      SystemState.update({
-        id: "stock_ledger_v2_init",
-        init: true,
-        timestamp: Math.floor(Date.now() / 1000),
-      });
-      return;
-    }
-
-    // 4. Query the local DB via indexed findIn, filter by gain IDs and the global oldest timestamp
-    const stockLogs = PersonalLogs.findIn(
-      "details.id",
-      STOCK_GAIN_LOG_IDS,
-    )
-      .filter((log) => log.timestamp >= globalOldestTimestamp)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    logger.info(
-      `Found ${stockLogs.length} historical stock gain logs. Replaying...`,
-    );
-
-    // 5. Replay through the strict parser (which dynamically checks exact bought times)
     let parsed = 0;
-    for (const log of stockLogs) {
-      // @ts-ignore - Safely crossing the strict type boundary during bulk dispatch
-      parseStockGainLog(log);
+    for (const pLog of stockLogs) {
+      await parseStockGainLog({
+        id: pLog.id as any,
+        timestamp: Math.floor(pLog.timestamp.getTime() / 1000),
+        data: pLog.data as any,
+        details: {
+          id: pLog.log,
+          title: pLog.title || "",
+          category: pLog.category || "",
+        },
+        params: {} as any,
+      });
       parsed++;
     }
 
-    // 6. Save the new V2 state
-    SystemState.update({
-      id: "stock_ledger_v2_init",
-      init: true,
-      timestamp: Math.floor(Date.now() / 1000),
+    await db.systemState.upsert({
+      where: { id: "stock_ledger_init" },
+      update: {
+        init: true,
+        data: { status: "completed" },
+        updatedAt: new Date(),
+      },
+      create: {
+        id: "stock_ledger_init",
+        init: true,
+        data: { status: "completed" },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
 
     logger.info(
       `Stock Ledger initialized successfully. Parsed ${parsed} logs.`,
     );
-  } catch (error) {
-    logger.error("Failed to initialize Stock Ledger:", error);
+  } catch (err) {
+    logger.error("Failed to initialize Stock Ledger:", err);
   }
 }
 
-function checkAndInit() {
-  const backfillState = SystemState.findOne("log_manager_backfill_progress") as
-    | Extract<SystemStateDocument, { id: "log_manager_backfill_progress" }>
-    | undefined;
+/**
+ * Checks and starts stock initialization if required.
+ */
+async function checkAndInitStocks(): Promise<void> {
+  const initState = await db.systemState.findUnique({
+    where: { id: "stock_ledger_init" },
+  });
 
-  if (!backfillState || backfillState.status !== "completed") {
-    logger.warn(
-      "Log backfill is ongoing or incomplete. Postponing Stocks module initialization.",
-    );
-    return;
-  }
-
-  const initState = SystemState.findOne("stock_ledger_v2_init");
-  if (!initState) {
-    runSequentialInit("stocks_init", runStockLedgerInit);
+  if (!initState || !initState.init) {
+    await runStockLedgerInit();
   }
 }
 
+/**
+ * Registers real-time log event listeners for stock logs.
+ */
 export function startStocksModule(_options?: WorkerStartOptions): void {
-  checkAndInit();
+  checkAndInitStocks().catch((err) =>
+    logger.error("Error during stocks checkAndInit:", err),
+  );
+
+  workerEvents.on("new_log", async (log: UserLog) => {
+    const logCode = Number(log.details.id);
+    if (STOCK_ACTIVITY_LOG_IDS.includes(logCode)) {
+      await parseStockActivityLog();
+    } else if (STOCK_GAIN_LOG_IDS.includes(logCode)) {
+      await parseStockGainLog(log);
+    }
+  });
 
   workerEvents.on("log_backfill_completed", () => {
-    checkAndInit();
+    checkAndInitStocks().catch((err) =>
+      logger.error("Error running Stocks init after backfill:", err),
+    );
   });
 }
-
-// Keep the route map exactly as it is
-export const STOCK_LOG_ROUTES: LogRouteMap = {
-  // Activity
-  5510: [parseStockActivityLog],
-  5511: [parseStockActivityLog],
-  5520: [parseStockActivityLog],
-  5521: [parseStockActivityLog],
-
-  // Gains
-  5530: [parseStockGainLog],
-  5531: [parseStockGainLog],
-  5532: [parseStockGainLog],
-  5533: [parseStockGainLog],
-  5534: [parseStockGainLog],
-  5535: [parseStockGainLog],
-  5536: [parseStockGainLog],
-  5537: [parseStockGainLog],
-};

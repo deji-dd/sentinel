@@ -1,62 +1,108 @@
-import "dotenv/config";
 import { REST, Routes } from "discord.js";
+import dotenv from "dotenv";
+import { db } from "@sentinel/database";
+import { normalizeModules } from "@sentinel/utils";
+import { logger } from "./lib/logger.js";
+import { commandsList } from "./commands/index.js";
 
-import * as inviteCommand from "./commands/personal/admin/invite.js";
-import * as verifyCommand from "./commands/general/verification/verify.js";
-import * as verifyallCommand from "./commands/general/verification/verifyall.js";
-import * as assaultCheckCommand from "./commands/general/territories/assault-check.js";
-import * as burnMapCommand from "./commands/general/territories/burn-map.js";
-import * as allianceMapCommand from "./commands/general/territories/alliance-map.js";
+dotenv.config();
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required env var: ${name}`);
-  }
-  return value;
+export interface DeployCommandsOptions {
+  target?: "global" | "guild";
+  guildId?: string;
 }
 
-const discordToken = requireEnv("DISCORD_BOT_TOKEN");
-const clientId = requireEnv("DISCORD_CLIENT_ID");
-const adminGuildId = requireEnv("ADMIN_GUILD_ID");
+/**
+ * Deploys slash commands filtered by active modules for a specific guild.
+ */
+export async function deployGuildCommands(guildId: string): Promise<void> {
+  const token = process.env.DISCORD_TOKEN;
+  const clientId = process.env.DISCORD_CLIENT_ID;
 
-// Deploy to admin guild only on startup
-const commands = [
-  inviteCommand.data.toJSON(),
-  verifyCommand.data.toJSON(),
-  verifyallCommand.data.toJSON(),
-  assaultCheckCommand.data.toJSON(),
-  burnMapCommand.data.toJSON(),
-  allianceMapCommand.data.toJSON(),
-];
+  if (!token || !clientId) return;
 
-const rest = new REST({ version: "10" }).setToken(discordToken);
+  const config = await db.guildConfig.findUnique({
+    where: { guildId },
+  });
 
-async function deployCommands() {
+  const enabledModules = new Set(normalizeModules(config?.enabledModules || []));
+
+  // Filter commands that are either global (no module required) or match enabled modules
+  const activeCommands = commandsList.filter((cmd) => {
+    if (!cmd.module) return true;
+    return enabledModules.has(cmd.module);
+  });
+
+  const commandBodies = activeCommands.map((cmd) => cmd.data.toJSON());
+  const rest = new REST({ version: "10" }).setToken(token);
+
   try {
-    console.log(
-      `[Deploy Commands] Clearing global commands and registering to admin guild ${adminGuildId}...`,
+    const globalCmdCount = commandsList.filter((cmd) => !cmd.module).length;
+    const moduleCmdCount = commandBodies.length - globalCmdCount;
+
+    logger.info(
+      `Deploying ${commandBodies.length} slash commands (${globalCmdCount} base + ${moduleCmdCount} module) to Guild ${guildId} (Active Modules: ${Array.from(enabledModules).join(", ") || "none"})...`,
     );
 
-    // Deploy global commands (clear them)
-    await rest.put(Routes.applicationCommands(clientId), {
-      body: [],
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+      body: commandBodies,
     });
-    console.log("[Deploy Commands] Registered global commands.");
-
-    // Deploy commands to admin guild only
-    await rest.put(Routes.applicationGuildCommands(clientId, adminGuildId), {
-      body: commands,
-    });
-
-    console.log(
-      "[Deploy Commands] Successfully registered commands to admin guild.",
-    );
-    process.exit(0);
   } catch (error) {
-    console.error("[Deploy Commands] Failed to register commands:", error);
-    process.exit(1);
+    logger.error(`Failed to deploy commands to guild ${guildId}:`, error);
   }
 }
 
-deployCommands();
+/**
+ * Deploys global base commands to Discord API and module-specific commands to configured guilds.
+ */
+export async function deployCommands(
+  options?: DeployCommandsOptions,
+): Promise<void> {
+  const token = process.env.DISCORD_TOKEN;
+  const clientId = process.env.DISCORD_CLIENT_ID;
+
+  if (!token || !clientId) {
+    logger.warn(
+      "Missing DISCORD_TOKEN or DISCORD_CLIENT_ID in environment variables. Skipping command deployment.",
+    );
+    return;
+  }
+
+  const rest = new REST({ version: "10" }).setToken(token);
+
+  try {
+    // 1. Deploy Global Commands (commands without module dependency)
+    const globalCommands = commandsList.filter((cmd) => !cmd.module);
+    const globalBodies = globalCommands.map((cmd) => cmd.data.toJSON());
+
+    logger.info(`Deploying ${globalBodies.length} global slash commands across all servers...`);
+    await rest.put(Routes.applicationCommands(clientId), {
+      body: globalBodies,
+    });
+
+    // 2. Deploy Module-Specific Commands per Guild
+    const allGuildConfigs = await db.guildConfig.findMany();
+    for (const guildCfg of allGuildConfigs) {
+      await deployGuildCommands(guildCfg.guildId);
+    }
+  } catch (error) {
+    logger.error("Failed to deploy slash commands:", error);
+  }
+}
+
+// Executable CLI support
+if (
+  process.argv[1]?.endsWith("deploy-commands.ts") ||
+  process.argv[1]?.endsWith("deploy-commands.js")
+) {
+  deployCommands()
+    .then(async () => {
+      await db.$disconnect();
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      logger.error("Failed to deploy commands:", err);
+      await db.$disconnect();
+      process.exit(1);
+    });
+}

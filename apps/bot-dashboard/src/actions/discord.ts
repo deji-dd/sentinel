@@ -1,7 +1,6 @@
 "use server";
 
 import { auth } from "@/auth";
-
 import { revalidatePath } from "next/cache";
 
 export interface DiscordGuild {
@@ -19,7 +18,13 @@ export async function getMutualGuilds(): Promise<DiscordGuild[]> {
     throw new Error("Not authenticated");
   }
 
-  // Fetch user guilds
+  const botToken = process.env.DISCORD_BOT_TOKEN;
+
+  if (!botToken) {
+    throw new Error("Missing bot token configuration");
+  }
+
+  // 1. Fetch user's guilds
   const userGuildsRes = await fetch(
     "https://discord.com/api/users/@me/guilds",
     {
@@ -31,30 +36,30 @@ export async function getMutualGuilds(): Promise<DiscordGuild[]> {
   );
 
   if (!userGuildsRes.ok) {
-    throw new Error("Failed to fetch user guilds");
+    throw new Error(
+      `Failed to fetch user guilds (HTTP ${userGuildsRes.status})`,
+    );
   }
   const userGuilds: DiscordGuild[] = await userGuildsRes.json();
 
-  // Fetch bot guilds
+  // 2. Fetch bot's guilds
   const botGuildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
     headers: {
-      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      Authorization: `Bot ${botToken}`,
     },
-    // Cache bot guilds for a minute to reduce API calls, but allow manual revalidation
     next: { revalidate: 60, tags: ["bot-guilds"] },
   });
 
   if (!botGuildsRes.ok) {
-    throw new Error("Failed to fetch bot guilds");
+    throw new Error(`Failed to fetch bot guilds (HTTP ${botGuildsRes.status})`);
   }
   const botGuilds: DiscordGuild[] = await botGuildsRes.json();
-
   const botGuildIds = new Set(botGuilds.map((g) => g.id));
 
-  // Return mutual guilds (no native admin permission filtering)
+  // 3. Filter mutual guilds where user and bot are both present
   return userGuilds.filter((g) => botGuildIds.has(g.id));
 }
 
-export async function refreshGuilds() {
+export async function refreshGuilds(): Promise<void> {
   revalidatePath("/");
 }

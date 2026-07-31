@@ -1,0 +1,17 @@
+[Unit]
+Description=Sentinel Discord Bot Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=deji
+WorkingDirectory=/opt/sentinel/apps/bot
+ExecStart=/usr/bin/node dist/index.cjs
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/sentinel/apps/bot/.env
+MemoryHigh=100M
+MemoryMax=125M
+
+[Install]
+WantedBy=multi-user.target

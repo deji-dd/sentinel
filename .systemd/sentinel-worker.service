@@ -1,0 +1,17 @@
+[Unit]
+Description=Sentinel Worker Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=deji
+WorkingDirectory=/opt/sentinel/apps/worker
+ExecStart=/usr/bin/node dist/index.cjs
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/sentinel/apps/worker/.env
+MemoryHigh=330M
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target
