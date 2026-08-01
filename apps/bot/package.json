@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format cjs --minify --clean --out-dir dist",
+    "build": "tsup src/index.ts --format cjs --no-external --minify --clean --out-dir dist",
     "start": "node dist/index.cjs",
     "deploy-commands": "tsx src/deploy-commands.ts"
   },
