@@ -10,7 +10,7 @@
     },
     "build": {
       "dependsOn": ["^build", "db:generate"],
-      "inputs": ["src/**", "prisma/**", "package.json", "tsconfig*.json"],
+      "inputs": ["src/**", "prisma/**", "package.json", "tsconfig*.json", "tsup.config.ts"],
       "outputs": ["dist/**"]
     },
     "dev": {
