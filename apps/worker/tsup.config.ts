@@ -7,6 +7,7 @@ export default defineConfig({
   clean: true,
   outDir: "dist",
   noExternal: [
+    "dotenv",
     "@sentinel/utils",
     "@sentinel/database",
     "@sentinel/torn-api-manager",

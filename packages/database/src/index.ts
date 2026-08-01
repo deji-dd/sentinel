@@ -2,8 +2,9 @@ import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
-// Load environment variables from local .env
-dotenv.config();
+try {
+  dotenv.config();
+} catch {}
 
 /**
  * Global instance holder for PrismaClient to prevent multiple connections
