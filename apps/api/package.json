@@ -6,7 +6,7 @@
   "main": "./dist/index.cjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format cjs --minify --clean --out-dir dist",
+    "build": "tsup",
     "start": "node dist/index.cjs"
   },
   "dependencies": {
