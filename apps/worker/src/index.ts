@@ -1,4 +1,4 @@
-import "dotenv/config";
+
 import { Logger } from "@sentinel/utils";
 import { IpcServer, DEFAULT_IPC_SOCKET_PATH } from "@sentinel/utils/ipc";
 import { db, recordBootAlert } from "@sentinel/database";

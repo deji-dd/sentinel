@@ -5,7 +5,6 @@ import {
   Events,
   type Interaction,
 } from "discord.js";
-import dotenv from "dotenv";
 import { logger } from "./lib/logger.js";
 import { buildCommandsCollection } from "./commands/index.js";
 import { readyEvent } from "./events/ready.js";
@@ -17,9 +16,6 @@ import { addIpcMessageListener } from "./lib/ipc-client.js";
 import { handleTerritoryAlert } from "./lib/territory-alert-distributor.js";
 import { handleReactionRoleAdd, syncReactionRoleMessages } from "./lib/reaction-roles.js";
 import { updateFactionMapChannel } from "./lib/faction-map-channel.js";
-
-dotenv.config();
-
 async function main(): Promise<void> {
   const token = process.env.DISCORD_TOKEN;
   if (!token) {
