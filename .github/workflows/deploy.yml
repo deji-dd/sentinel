@@ -28,6 +28,7 @@ jobs:
         with:
           node-version: 26
           cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Cache Turborepo
         uses: actions/cache@v4
