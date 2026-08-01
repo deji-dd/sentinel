@@ -1,7 +1,6 @@
 import net from "net";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import { Logger } from "./logger.js";
 
 const logger = new Logger("IPC");
@@ -11,10 +10,14 @@ const logger = new Logger("IPC");
  * package file so it points to `<workspace-root>/data/sentinel_ipc.sock`
  * regardless of which app's `process.cwd()` is active.
  */
-export const DEFAULT_IPC_SOCKET_PATH = path.resolve(
-  fileURLToPath(new URL("../../../", import.meta.url)),
-  "data/sentinel_ipc.sock",
-);
+function getDefaultIpcSocketPath(): string {
+  if (typeof process !== "undefined" && process.env.IPC_SOCKET_PATH) {
+    return process.env.IPC_SOCKET_PATH;
+  }
+  return path.resolve(process.cwd(), "data/sentinel_ipc.sock");
+}
+
+export const DEFAULT_IPC_SOCKET_PATH = getDefaultIpcSocketPath();
 
 export type IpcMessageHandler<T = unknown> = (message: T) => void;
 
@@ -91,7 +94,10 @@ export class IpcServer<T = unknown> {
       try {
         fs.unlinkSync(this.socketPath);
       } catch (err) {
-        logger.error(`Failed to unlink stale socket at ${this.socketPath}:`, err);
+        logger.error(
+          `Failed to unlink stale socket at ${this.socketPath}:`,
+          err,
+        );
       }
     }
 
@@ -220,7 +226,10 @@ export class IpcClient<T = unknown> {
     // Exponential backoff reconnect: 1s, 2s, 4s, max 10s
     if (!this.reconnectTimer) {
       this.reconnectAttempts++;
-      const backoffMs = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 10000);
+      const backoffMs = Math.min(
+        1000 * Math.pow(2, this.reconnectAttempts - 1),
+        10000,
+      );
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
         this.connect();
