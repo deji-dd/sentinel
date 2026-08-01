@@ -17,4 +17,5 @@ export default defineConfig({
     "@prisma/adapter-pg",
     "undici",
   ],
+  external: [".prisma/client/default"],
 });
