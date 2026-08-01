@@ -64,11 +64,6 @@ jobs:
           rsync -avz --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
           rsync -avz --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
           rsync -avz --delete --exclude=node_modules --exclude=.turbo packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
-          rsync -avz package.json pnpm-lock.yaml pnpm-workspace.yaml ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/
-
-      - name: Generate Prisma Engine on VPS
-        run: |
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "cd /opt/sentinel/packages/database && npx prisma generate"
 
       - name: Run Prisma Database Migrations / Schema Push (via SSH Tunnel)
         run: |

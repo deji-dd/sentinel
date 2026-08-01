@@ -15,6 +15,7 @@ export default defineConfig({
     "@sentinel/schemas",
     "@prisma/client",
     "@prisma/adapter-pg",
+    "pg",
     "undici",
   ],
   external: [".prisma/client/default"],
