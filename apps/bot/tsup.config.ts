@@ -13,4 +13,5 @@ export default defineConfig({
     "@sentinel/torn-api",
     "@sentinel/schemas",
   ],
+  external: ["@prisma/client", ".prisma/client"],
 });
