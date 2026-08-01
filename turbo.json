@@ -2,7 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "db:generate": {
-      "inputs": ["prisma/schema.prisma"],
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
       "outputs": [
         "node_modules/.prisma/client/**",
         "node_modules/@prisma/client/**"

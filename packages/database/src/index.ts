@@ -42,7 +42,6 @@ if (process.env.NODE_ENV !== "production") {
  */
 export const db = prisma;
 
-export type { ApiKey } from "@prisma/client";
 export * from "@prisma/client";
 export * from "./boot-alert.js";
 
