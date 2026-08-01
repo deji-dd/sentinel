@@ -15,24 +15,19 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error(
-    "[SentinelDatabase] DATABASE_URL environment variable is not defined. Ensure .env contains DATABASE_URL.",
-  );
-}
-
-const adapter = new PrismaPg({ connectionString });
+const adapter = connectionString ? new PrismaPg({ connectionString }) : undefined;
 
 export const prisma =
   globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-    log:
-      process.env.PRISMA_LOG_QUERIES === "true"
-        ? ["query", "error", "warn"]
-        : ["error", "warn"],
-  });
+  (connectionString
+    ? new PrismaClient({
+        adapter,
+        log:
+          process.env.PRISMA_LOG_QUERIES === "true"
+            ? ["query", "error", "warn"]
+            : ["error", "warn"],
+      })
+    : new PrismaClient());
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
