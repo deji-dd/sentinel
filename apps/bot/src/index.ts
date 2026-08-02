@@ -1,3 +1,10 @@
+import workerThreads from "node:worker_threads";
+
+// Polyfill worker_threads.markAsUncloneable for Node.js < 21 environments where undici requires it
+if (workerThreads && !(workerThreads as any).markAsUncloneable) {
+  (workerThreads as any).markAsUncloneable = () => {};
+}
+
 import {
   Client,
   GatewayIntentBits,

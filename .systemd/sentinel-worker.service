@@ -6,7 +6,7 @@ After=network.target postgresql.service
 Type=simple
 User=deji
 WorkingDirectory=/opt/sentinel/apps/worker
-ExecStart=/usr/bin/node --max-old-space-size=320 --expose-gc dist/index.cjs
+ExecStart=/home/deji/.nvm/versions/node/v26.5.1/bin/node --max-old-space-size=320 --expose-gc dist/index.cjs
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/sentinel/apps/worker/.env
