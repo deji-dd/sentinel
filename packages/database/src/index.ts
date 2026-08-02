@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../prisma/generated/client/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 try {
@@ -15,7 +15,9 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const connectionString = process.env.DATABASE_URL;
-const adapter = connectionString ? new PrismaPg({ connectionString }) : undefined;
+const adapter = connectionString
+  ? new PrismaPg({ connectionString })
+  : undefined;
 
 export const prisma =
   globalForPrisma.prisma ??
@@ -41,4 +43,3 @@ export const db = prisma;
 export type { ApiKey } from "@prisma/client";
 export * from "@prisma/client";
 export * from "./boot-alert.js";
-

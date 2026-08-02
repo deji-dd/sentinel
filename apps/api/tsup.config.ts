@@ -7,5 +7,9 @@ export default defineConfig({
   clean: true,
   outDir: "dist",
   noExternal: [/^(?!.*prisma)/],
-  external: [".prisma/client/default", "@prisma/client"],
+  external: [
+    ".prisma/client/default",
+    "@prisma/client",
+    "@prisma/client-runtime-utils",
+  ],
 });

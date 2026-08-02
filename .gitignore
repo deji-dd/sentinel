@@ -91,4 +91,4 @@ implementation_plan.md
 apps_old/
 packages_old/
 
-scripts/migrations_v2/**
+packages/database/prisma/generated
