@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "main": ".open-next/worker.js",
-  "name": "sentinel-dashboard",
+  "name": "sentinel-bot-dashboard",
   "compatibility_date": "2026-07-23",
   "compatibility_flags": [
     "nodejs_compat",
@@ -14,7 +14,7 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "sentinel-dashboard"
+      "service": "sentinel-bot-dashboard"
     }
   ],
   "images": {

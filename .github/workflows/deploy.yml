@@ -81,6 +81,7 @@ jobs:
           sleep 2
           DATABASE_URL="postgresql://deji@localhost:5433/sentinel" pnpm --filter @sentinel/database db:push
 
-#      - name: Restart Systemd Services
-#        run: |
-#          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "sudo systemctl restart sentinel-bot sentinel-worker sentinel-api"
+      - name: Restart Systemd Services
+        run: |
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "sudo systemctl restart sentinel-bot sentinel-worker sentinel-api"
+

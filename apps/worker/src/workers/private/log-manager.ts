@@ -130,6 +130,7 @@ async function runBurstHistoricalBackfill(
           },
         });
       }),
+      { timeout: 30000 },
     );
 
     for (const log of logs) {
@@ -269,6 +270,7 @@ async function syncLogs(): Promise<void> {
             },
           });
         }),
+        { timeout: 30000 },
       );
 
       for (const log of logs) {
@@ -355,6 +357,7 @@ export async function resyncLogsRange(
           },
         });
       }),
+      { timeout: 30000 },
     );
 
     for (const log of logs) {

@@ -3,6 +3,7 @@ import type { ModuleKey } from "@sentinel/utils";
 import { pingCommand } from "./ping.js";
 import { inviteCommand } from "./invite.js";
 import { configCommand } from "./config.js";
+import { purgeCommand } from "./purge.js";
 import { verifyCommand } from "./verify.js";
 import { verifyallCommand } from "./verifyall.js";
 import * as assaultCheckCommand from "./assault-check.js";
@@ -20,6 +21,7 @@ export const commandsList: BotCommand[] = [
   { ...pingCommand, module: undefined },
   { ...inviteCommand, module: undefined },
   { ...configCommand, module: undefined },
+  { ...purgeCommand, module: undefined },
   { ...ttSelectorCommand, module: undefined },
   { ...verifyCommand, module: "verification" },
   { ...verifyallCommand, module: "verification" },
