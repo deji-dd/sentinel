@@ -1,6 +1,6 @@
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
-import { db } from "@sentinel/database";
+import { db, recordBootAlert } from "@sentinel/database";
 import { Logger } from "@sentinel/utils";
 import { guildRoutes } from "./routes/guilds.js";
 // Establish IPC connection to worker at startup (auto-reconnects on worker restart)
@@ -60,6 +60,7 @@ async function startServer(): Promise<void> {
           component: "sentinel-api",
           timestamp: new Date().toISOString(),
           database: "connected",
+          error: null,
         });
       } catch (err) {
         return reply.status(503).send({
@@ -74,6 +75,9 @@ async function startServer(): Promise<void> {
 
     await app.listen({ port: PORT, host: HOST });
     logger.info(`Fastify API Gateway listening on http://${HOST}:${PORT}`);
+
+    // Record boot alert in database for API process startup notification
+    await recordBootAlert("api");
   } catch (err) {
     logger.error("Failed to start Fastify API server:", err);
     process.exit(1);

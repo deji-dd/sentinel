@@ -2,7 +2,6 @@
 import { Logger } from "@sentinel/utils";
 import { IpcServer, DEFAULT_IPC_SOCKET_PATH } from "@sentinel/utils/ipc";
 import { db, recordBootAlert } from "@sentinel/database";
-import { ManagedTornApiClient } from "@sentinel/torn-api-manager";
 import { initializeNetworkOptimization } from "./lib/network.js";
 import { startRegisteredWorkers } from "./workers/registry.js";
 
@@ -76,10 +75,7 @@ async function main() {
   // 1. Initialize global network socket reuse & DNS caching
   initializeNetworkOptimization();
 
-  // 2. Initialize managed Torn API client (per-user rate limiting & key health)
-  const tornApiManager = new ManagedTornApiClient();
-
-  // 3. Start IPC Server for inter-process communication
+  // 2. Start IPC Server for inter-process communication
   ipcServer.start();
 
   // 4. Record boot alert in database for worker process startup notification

@@ -13,7 +13,6 @@ import { sendGuildAuditLog } from "./guild-logger.js";
 
 const logger = new Logger("ReactionRoles");
 
-const REACTION_FEEDBACK_TTL_MS = 10000;
 const REACTION_EVENT_LOCK_MS = 4000;
 const reactionProcessingLock = new Map<string, number>();
 
@@ -68,14 +67,21 @@ function isEmojiMatch(
   return false;
 }
 
+/**
+ * Sends a private direct message (DM) feedback to the user regarding reaction role changes.
+ */
 async function sendReactionFeedback(
-  channel: TextChannel,
-  userId: string,
+  user: User | PartialUser,
   type: "added" | "removed" | "denied" | "invalid",
   title: string,
   description: string,
 ): Promise<void> {
   try {
+    const targetUser = user.partial
+      ? await user.fetch().catch(() => null)
+      : user;
+    if (!targetUser) return;
+
     const color =
       type === "added"
         ? EMBED_COLORS.SUCCESS
@@ -83,19 +89,9 @@ async function sendReactionFeedback(
           ? EMBED_COLORS.WARNING
           : EMBED_COLORS.DANGER;
 
-    const embed = createBaseEmbed(title, description, color).setFooter({
-      text: "Sentinel • Auto-deletes in 10s",
-    });
+    const embed = createBaseEmbed(title, description, color);
 
-    const msg = await channel.send({
-      content: `<@${userId}>`,
-      embeds: [embed],
-      allowedMentions: { users: [userId] },
-    });
-
-    setTimeout(() => {
-      void msg.delete().catch(() => {});
-    }, REACTION_FEEDBACK_TTL_MS);
+    await targetUser.send({ embeds: [embed] }).catch(() => {});
   } catch (err) {
     logger.warn("Failed to send reaction feedback message:", err);
   }
@@ -160,8 +156,7 @@ export async function handleReactionRoleAdd(
       if (!hasRequired) {
         await fullReaction.users.remove(user.id).catch(() => {});
         await sendReactionFeedback(
-          channel,
-          user.id,
+          user,
           "denied",
           "Reaction Role Access Denied",
           `You must have at least one of the required roles to react: ${requiredRoleIds.map((rid) => `<@&${rid.trim()}>`).join(", ")}`,
@@ -201,8 +196,7 @@ export async function handleReactionRoleAdd(
       await fullReaction.users.remove(user.id).catch(() => {});
 
       await sendReactionFeedback(
-        channel,
-        user.id,
+        user,
         "removed",
         "Reaction Role Removed",
         `Removed <@&${roleId}>.`,
@@ -219,8 +213,7 @@ export async function handleReactionRoleAdd(
       await fullReaction.users.remove(user.id).catch(() => {});
 
       await sendReactionFeedback(
-        channel,
-        user.id,
+        user,
         "added",
         "Reaction Role Assigned",
         `Added <@&${roleId}>.`,
