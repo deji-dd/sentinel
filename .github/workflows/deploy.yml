@@ -67,6 +67,12 @@ jobs:
           rsync -avzL --delete packages/database/node_modules/@prisma/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/
           UTILS_PATH=$(ls -d node_modules/.pnpm/@prisma+client-runtime-utils@*/node_modules/@prisma/client-runtime-utils 2>/dev/null | head -1)
           rsync -avzL --delete "$UTILS_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/client-runtime-utils/
+          SHARP_PATH=$(ls -d node_modules/.pnpm/sharp@*/node_modules/sharp 2>/dev/null | head -1)
+          rsync -avzL --delete "$SHARP_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/sharp/
+          SHARP_BIN_PATH=$(ls -d node_modules/.pnpm/@img+sharp-linux-x64@*/node_modules/@img/sharp-linux-x64 2>/dev/null | head -1)
+          rsync -avzL --delete "$SHARP_BIN_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@img/sharp-linux-x64/
+          SHARP_VIPS_PATH=$(ls -d node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64 2>/dev/null | head -1)
+          rsync -avzL --delete "$SHARP_VIPS_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@img/sharp-libvips-linux-x64/
 
       - name: Run Prisma Database Migrations / Schema Push (via SSH Tunnel)
         run: |
