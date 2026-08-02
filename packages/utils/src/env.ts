@@ -5,7 +5,7 @@ import dotenv from "dotenv";
  */
 export function ensureEnvLoaded(): void {
   try {
-    dotenv.config();
+    dotenv.config({ quiet: true });
   } catch {
     // Environment variables provided natively in production
   }

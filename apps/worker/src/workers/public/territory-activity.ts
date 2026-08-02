@@ -420,6 +420,8 @@ async function executeActivityEngine(): Promise<number> {
     return Date.now() + nextCadence * 1000;
   } catch (error) {
     logger.error("Failed to execute territory activity engine:", error);
+    dbStatesCache = null;
+    dbActiveWarsCache = null;
     throw error;
   }
 }

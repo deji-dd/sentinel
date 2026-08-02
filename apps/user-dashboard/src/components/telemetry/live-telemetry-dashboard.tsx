@@ -346,24 +346,7 @@ export function LiveTelemetryDashboard() {
           </div>
         </div>
 
-        {/* Active Processes */}
-        <div className="p-4 rounded-2xl bg-card border border-border/70 shadow-xs border-l-4 border-l-emerald-500">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
-                <Zap className="size-4" />
-              </div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Hosted Services
-              </span>
-            </div>
-          </div>
-          <div className="mt-1">
-            <div className="text-2xl font-bold font-mono tracking-tight text-foreground">
-              {telemetry?.processes ? `${telemetry.processes.filter((p) => p.status === "online").length} / ${telemetry.processes.length} Online` : "N/A"}
-            </div>
-          </div>
-        </div>
+
       </div>
 
       {/* Hosted Services Cards */}
@@ -526,7 +509,9 @@ export function LiveTelemetryDashboard() {
                       ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
                       : log.service === "worker"
                         ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30"
-                        : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : log.service === "bot"
+                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          : "bg-slate-500/20 text-slate-400 border border-slate-500/30"
                   )}
                 >
                   {log.service}

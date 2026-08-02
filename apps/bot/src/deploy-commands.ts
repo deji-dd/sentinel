@@ -5,7 +5,7 @@ import { normalizeModules } from "@sentinel/utils";
 import { logger } from "./lib/logger.js";
 import { commandsList } from "./commands/index.js";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 export interface DeployCommandsOptions {
   target?: "global" | "guild";

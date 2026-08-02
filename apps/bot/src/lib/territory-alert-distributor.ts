@@ -209,11 +209,19 @@ export async function handleTerritoryAlert(
       case "racket_despawn":
       case "racket_level_up":
       case "racket_level_down": {
-        type RacketReward = { type: string; quantity: number; id: number | null };
-        type RacketData = { name?: string; level?: number; reward?: RacketReward; description?: string };
+        type RacketReward = {
+          type: string;
+          quantity: number;
+          id: number | null;
+        };
+        type RacketData = {
+          name?: string;
+          level?: number;
+          reward?: RacketReward;
+          description?: string;
+        };
         const racket = data.racket as RacketData | null | undefined;
         const racketName = racket?.name || "Unknown Racket";
-        const racketLevel = racket?.level ? `Level ${racket.level}` : "";
         const rewardStr = racket?.reward
           ? `${racket.reward.quantity}x ${racket.reward.type}`
           : null;
@@ -240,7 +248,7 @@ export async function handleTerritoryAlert(
           { name: "Owner Faction", value: factionStr, inline: true },
           {
             name: "Racket",
-            value: `${racketName} ${racketLevel}`.trim(),
+            value: racketName,
             inline: true,
           },
         );

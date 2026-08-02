@@ -129,6 +129,14 @@ async function main() {
     process.exit(0);
   };
 
+  process.on("unhandledRejection", (reason) => {
+    logger.error("Unhandled Promise Rejection in Worker engine:", reason);
+  });
+
+  process.on("uncaughtException", (error) => {
+    logger.error("Uncaught Exception in Worker engine:", error);
+  });
+
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 }

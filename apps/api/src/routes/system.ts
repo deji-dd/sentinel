@@ -36,8 +36,8 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     };
 
     const [workerResult, botResult] = await Promise.allSettled([
-      sendIpcRequest<typeof workerStats>("get_telemetry", {}, 800, "worker"),
-      sendIpcRequest<typeof botStats>("get_telemetry", {}, 800, "bot"),
+      sendIpcRequest<typeof workerStats>("get_telemetry", {}, 3000, "worker"),
+      sendIpcRequest<typeof botStats>("get_telemetry", {}, 3000, "bot"),
     ]);
 
     if (workerResult.status === "fulfilled" && workerResult.value) {
@@ -142,33 +142,79 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
             ? "-u sentinel-api -u sentinel-worker -u sentinel-bot"
             : `-u sentinel-${service}`;
         const { stdout } = await execAsync(
-          `journalctl ${unitName} -n ${limit} --no-pager --output=short-iso`,
+          `journalctl ${unitName} -n ${limit} --no-pager --output=json`,
         );
 
         const lines = stdout.trim().split("\n").filter(Boolean);
-        logs = lines.map((line, idx) => {
-          const parts = line.split(" ");
-          const timestamp = parts[0] || new Date().toISOString();
-          const message = parts.slice(2).join(" ") || line;
-          const level: "info" | "warn" | "error" = message.toLowerCase().includes("err")
-            ? "error"
-            : message.toLowerCase().includes("warn")
-            ? "warn"
-            : "info";
+        const parsedLogs = lines
+          .map((line, idx) => {
+            let item: any = {};
+            try {
+              item = JSON.parse(line);
+            } catch {
+              return null;
+            }
 
-          let svc = "system";
-          if (line.includes("sentinel-api")) svc = "api";
-          else if (line.includes("sentinel-worker")) svc = "worker";
-          else if (line.includes("sentinel-bot")) svc = "bot";
+            let timestamp = new Date().toISOString();
+            if (item.__REALTIME_TIMESTAMP) {
+              const microSecs = Number(item.__REALTIME_TIMESTAMP);
+              if (!isNaN(microSecs) && microSecs > 0) {
+                timestamp = new Date(Math.floor(microSecs / 1000)).toISOString();
+              }
+            }
 
-          return {
-            id: `sys-${Date.now()}-${idx}`,
-            timestamp,
-            service: svc,
-            level,
-            message: message || line,
-          };
-        });
+            const unit = String(item._SYSTEMD_UNIT || item.SYSLOG_IDENTIFIER || "");
+            let svc = service !== "all" ? service : "system";
+            if (unit.includes("sentinel-api")) svc = "api";
+            else if (unit.includes("sentinel-worker")) svc = "worker";
+            else if (unit.includes("sentinel-bot")) svc = "bot";
+
+            let rawMsg = String(item.MESSAGE || "");
+            // Strip ANSI escape codes
+            rawMsg = rawMsg.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
+            // Strip syslog prefix e.g. node[345059]:
+            rawMsg = rawMsg.replace(/^node(?:\[\d+\])?:?\s*/i, "");
+
+            let level: "info" | "warn" | "error" = "info";
+            if (rawMsg.includes("[ERROR]") || rawMsg.includes("ERROR")) {
+              level = "error";
+            } else if (rawMsg.includes("[WARN]") || rawMsg.includes("WARN")) {
+              level = "warn";
+            } else if (item.PRIORITY !== undefined) {
+              const prio = Number(item.PRIORITY);
+              if (prio <= 3) level = "error";
+              else if (prio === 4) level = "warn";
+            }
+
+            // Strip redundant timestamp pattern e.g. [8/2/2026, 10:35:57 PM]
+            rawMsg = rawMsg.replace(
+              /^\[\d{1,2}\/\d{1,2}\/\d{4},\s*\d{1,2}:\d{2}:\d{2}(?:\s*(?:AM|PM))?\]\s*/i,
+              "",
+            );
+            // Strip redundant level tag e.g. [WARN] or [INFO] or [ERROR]
+            rawMsg = rawMsg.replace(/^\[(?:INFO|WARN|ERROR|DEBUG)\]\s*/i, "");
+
+            return {
+              id: `sys-${Date.now()}-${idx}`,
+              timestamp,
+              service: svc,
+              level,
+              message: rawMsg.trim() || String(item.MESSAGE || line),
+            };
+          })
+          .filter(
+            (
+              entry,
+            ): entry is {
+              id: string;
+              timestamp: string;
+              service: string;
+              level: "info" | "warn" | "error";
+              message: string;
+            } => entry !== null,
+          );
+
+        logs = parsedLogs;
       } catch (err) {
         logger.warn("Failed to read systemd logs via journalctl, falling back to process buffer:", err);
       }

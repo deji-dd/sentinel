@@ -3,7 +3,7 @@ import { PrismaClient } from "../prisma/generated/client/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 try {
-  dotenv.config();
+  dotenv.config({ quiet: true });
 } catch {}
 
 /**
