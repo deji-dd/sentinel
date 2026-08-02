@@ -6,7 +6,16 @@
 import { readFileSync, existsSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import sharp from "sharp";
+import { Resvg, initWasm } from "@resvg/resvg-wasm";
+
+let wasmInitialized = false;
+async function ensureResvgWasm(): Promise<void> {
+  if (wasmInitialized) return;
+  const wasmPath = require.resolve("@resvg/resvg-wasm/index_bg.wasm");
+  const wasmBuffer = readFileSync(wasmPath);
+  await initWasm(wasmBuffer);
+  wasmInitialized = true;
+}
 
 function getDirname(): string {
   try {
@@ -201,11 +210,10 @@ export function generateBurnMapWithLegend(
  */
 export async function convertSvgToPng(svgBuffer: Buffer): Promise<Buffer> {
   try {
-    const pngBuffer = await sharp(svgBuffer, { density: 150 })
-      .png({ quality: 85, progressive: true, compressionLevel: 9 })
-      .toBuffer();
-
-    return pngBuffer;
+    await ensureResvgWasm();
+    const resvg = new Resvg(svgBuffer, { dpi: 150 });
+    const rendered = resvg.render();
+    return Buffer.from(rendered.asPng());
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to convert SVG to PNG: ${errorMsg}`);

@@ -7,17 +7,17 @@ export default defineConfig({
   clean: true,
   outDir: "dist",
   noExternal: [/^(?!.*prisma)/],
-  external: [".prisma/client/default", "@prisma/client-runtime-utils"],
+  external: [
+    ".prisma/client/default",
+    "@prisma/client-runtime-utils",
+    "@resvg/resvg-wasm",
+    "@resvg/resvg-wasm/index_bg.wasm",
+  ],
   esbuildOptions(options) {
-    // sharp (and other ESM packages) call createRequire(import.meta.url).
-    // esbuild replaces import.meta with {} in CJS output, leaving .url as
-    // undefined. Inject a proper CJS shim so createRequire gets a valid URL.
-    options.define = {
-      ...options.define,
-      "import.meta.url": "__importMetaUrl",
-    };
-    options.banner = {
-      js: "const __importMetaUrl = require('url').pathToFileURL(__filename).href;",
-    };
+    options.external = [
+      ...(options.external || []),
+      "@resvg/resvg-wasm",
+      "@resvg/resvg-wasm/index_bg.wasm",
+    ];
   },
 });

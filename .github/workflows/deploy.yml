@@ -58,6 +58,10 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.GCP_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Clean Stale Production Artifacts (preserving .env)
+        run: |
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "rm -rf /opt/sentinel/node_modules /opt/sentinel/apps/bot/dist /opt/sentinel/apps/worker/dist /opt/sentinel/apps/api/dist /opt/sentinel/packages/database/dist"
+
       - name: Deploy Dist & Database Schema via Rsync
         run: |
           rsync -avz --mkpath --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
@@ -67,8 +71,8 @@ jobs:
           rsync -avzL --mkpath --delete packages/database/node_modules/@prisma/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/
           UTILS_PATH=$(ls -d node_modules/.pnpm/@prisma+client-runtime-utils@*/node_modules/@prisma/client-runtime-utils 2>/dev/null | head -1)
           rsync -avzL --mkpath --delete "$UTILS_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/client-runtime-utils/
-          SHARP_VERSION=$(ls -d node_modules/.pnpm/sharp@*/node_modules/sharp 2>/dev/null | head -1 | grep -oP 'sharp@\K[^/]+' | cut -d_ -f1)
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "npm install --prefix /opt/sentinel --os=linux --cpu=x64 --include=optional sharp@${SHARP_VERSION} 2>&1 | tail -5"
+          RESVG_PATH=$(ls -d node_modules/.pnpm/@resvg+resvg-wasm@*/node_modules/@resvg/resvg-wasm 2>/dev/null | head -1)
+          rsync -avzL --mkpath --delete "$RESVG_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@resvg/resvg-wasm/
 
       - name: Run Prisma Database Migrations / Schema Push (via SSH Tunnel)
         run: |
