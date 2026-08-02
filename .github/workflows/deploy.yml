@@ -60,15 +60,15 @@ jobs:
 
       - name: Deploy Dist & Database Schema via Rsync
         run: |
-          rsync -avz --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
-          rsync -avz --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
-          rsync -avz --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
-          rsync -avz --delete --exclude=node_modules --exclude=.turbo packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
-          rsync -avzL --delete packages/database/node_modules/@prisma/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/
+          rsync -avz --mkpath --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
+          rsync -avz --mkpath --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
+          rsync -avz --mkpath --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
+          rsync -avz --mkpath --delete --exclude=node_modules --exclude=.turbo packages/database/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/packages/database/
+          rsync -avzL --mkpath --delete packages/database/node_modules/@prisma/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/
           UTILS_PATH=$(ls -d node_modules/.pnpm/@prisma+client-runtime-utils@*/node_modules/@prisma/client-runtime-utils 2>/dev/null | head -1)
-          rsync -avzL --delete "$UTILS_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/client-runtime-utils/
+          rsync -avzL --mkpath --delete "$UTILS_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/client-runtime-utils/
           SHARP_PATH=$(ls -d node_modules/.pnpm/sharp@*/node_modules/sharp 2>/dev/null | head -1)
-          rsync -avzL --delete "$SHARP_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/sharp/
+          rsync -avzL --mkpath --delete "$SHARP_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/sharp/
           SHARP_BIN_PATH=$(ls -d node_modules/.pnpm/@img+sharp-linux-x64@*/node_modules/@img/sharp-linux-x64 2>/dev/null | head -1)
           rsync -avzL --mkpath --delete "$SHARP_BIN_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@img/sharp-linux-x64/
           SHARP_VIPS_PATH=$(ls -d node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64 2>/dev/null | head -1)
