@@ -68,7 +68,7 @@ jobs:
           UTILS_PATH=$(ls -d node_modules/.pnpm/@prisma+client-runtime-utils@*/node_modules/@prisma/client-runtime-utils 2>/dev/null | head -1)
           rsync -avzL --mkpath --delete "$UTILS_PATH/" ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/node_modules/@prisma/client-runtime-utils/
           SHARP_VERSION=$(ls -d node_modules/.pnpm/sharp@*/node_modules/sharp 2>/dev/null | head -1 | grep -oP 'sharp@\K[^/]+' | cut -d_ -f1)
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "mkdir -p /opt/sentinel/node_modules && cd /opt/sentinel/node_modules && npm install --os=linux --cpu=x64 --include=optional sharp@${SHARP_VERSION} 2>&1 | tail -5"
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "npm install --prefix /opt/sentinel --os=linux --cpu=x64 --include=optional sharp@${SHARP_VERSION} 2>&1 | tail -5"
 
       - name: Run Prisma Database Migrations / Schema Push (via SSH Tunnel)
         run: |

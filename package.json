@@ -7,6 +7,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "tunnel:prod": "ssh -f -N -L 5433:/var/run/postgresql/.s.PGSQL.5432 deji@100.96.215.46",
+    "sync:env": "for app in api worker bot; do rsync -avz apps/$app/.env.production deji@100.96.215.46:/opt/sentinel/apps/$app/.env; done",
     "alliances:refresh-snapshot": "node scripts/refresh-faction-alliances-snapshot.js",
     "db:generate": "pnpm --filter @sentinel/database db:generate",
     "db:push": "pnpm --filter @sentinel/database db:push",

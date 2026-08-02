@@ -52,32 +52,21 @@ export const TORN_STATIC_AREA_MAP: Record<
 export async function seedTravelAreaMappings(): Promise<void> {
   for (const [idStr, info] of Object.entries(TORN_STATIC_AREA_MAP)) {
     const id = Number(idStr);
-    const existing = await db.travelAreaMapping.findUnique({ where: { id } });
-    if (existing) {
-      if (
-        existing.countryCode !== info.countryCode ||
-        existing.name !== info.name
-      ) {
-        await db.travelAreaMapping.update({
-          where: { id },
-          data: {
-            countryCode: info.countryCode,
-            name: info.name,
-            updatedAt: new Date(),
-          },
-        });
-      }
-    } else {
-      await db.travelAreaMapping.create({
-        data: {
-          id,
-          countryCode: info.countryCode,
-          name: info.name,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
-    }
+    await db.travelAreaMapping.upsert({
+      where: { id },
+      create: {
+        id,
+        countryCode: info.countryCode,
+        name: info.name,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      update: {
+        countryCode: info.countryCode,
+        name: info.name,
+        updatedAt: new Date(),
+      },
+    });
   }
 }
 
