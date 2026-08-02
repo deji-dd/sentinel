@@ -1398,6 +1398,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get daily active players snapshot CSV
+         * @description Requires public access key.<br>Returns a CSV daily snapshot of active players.<br>This selection is standalone and cannot be used together with other selections.<br>
+         *     CSV columns: id, name, gender, role, signed_up, last_action, level, rank, donator, networth, faction, company, spouse, display_case, bazaar, location, fed, fed_reason
+         */
+        get: operations["getUsersSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/user/stocks": {
         parameters: {
             query?: never;
@@ -3963,6 +3984,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/torn/museum": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get all museum sets
+         * @description Requires public access key. <br>
+         */
+        get: operations["getTornMuseum"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/torn/organizedcrimes": {
         parameters: {
             query?: never;
@@ -4478,6 +4519,8 @@ export interface components {
             is_stealthed: boolean;
             is_raid: boolean;
             is_ranked_war: boolean;
+            is_territory_war: boolean;
+            territory_war_id: components["schemas"]["TerritoryWarId"] | null;
             finishing_hit_effects: components["schemas"]["AttackingFinishingHitEffects"][];
             modifiers: {
                 /** Format: float */
@@ -4993,8 +5036,18 @@ export interface components {
         };
         UserTrade: {
             id: components["schemas"]["TradeId"];
-            /** Format: int32 */
-            timestamp: number;
+            /**
+             * Format: int32
+             * @deprecated
+             * @description This field is depracted and replaced with 'completed_at' field.
+             */
+            timestamp?: number;
+            /** @description Populated when selected category is 'finished'. */
+            completed_at: number | null;
+            /** @description Populated when selected category is 'ongoing'. */
+            expires_at: number | null;
+            /** @description Populated when selected category is 'ongoing'. */
+            modified_at: number | null;
             user: components["schemas"]["UserTradeParticipant"];
             trader: components["schemas"]["UserTradeParticipant"];
         };
@@ -6149,7 +6202,7 @@ export interface components {
             list: components["schemas"]["UserList"][];
             _metadata: components["schemas"]["RequestMetadataWithLinks"];
         };
-        UserSelectionName: ("ammo" | "attacks" | "attacksfull" | "bars" | "basic" | "battlestats" | "bounties" | "calendar" | "casino" | "competition" | "cooldowns" | "crimes" | "discord" | "enlistedcars" | "equipment" | "events" | "faction" | "factionbalance" | "forumfeed" | "forumfriends" | "forumposts" | "forumsubscribedthreads" | "forumthreads" | "hof" | "honors" | "icons" | "inventory" | "itemmarket" | "itemmod" | "job" | "jobpoints" | "jobranks" | "list" | "log" | "lookup" | "medals" | "merits" | "messages" | "missions" | "money" | "newevents" | "newmessages" | "notifications" | "organizedcrime" | "personalstats" | "profile" | "properties" | "property" | "races" | "racingrecords" | "refills" | "reports" | "revives" | "revivesfull" | "skills" | "stocks" | "trades" | "trade" | "travel" | "timestamp" | "weaponexp" | "workstats" | "bazaar" | "criminalrecord" | "display" | "education" | "gym" | "networth" | "perks") | string;
+        UserSelectionName: ("ammo" | "attacks" | "attacksfull" | "bars" | "basic" | "battlestats" | "bounties" | "calendar" | "casino" | "competition" | "cooldowns" | "crimes" | "discord" | "enlistedcars" | "equipment" | "events" | "faction" | "factionbalance" | "forumfeed" | "forumfriends" | "forumposts" | "forumsubscribedthreads" | "forumthreads" | "hof" | "honors" | "icons" | "inventory" | "itemmarket" | "itemmod" | "job" | "jobpoints" | "jobranks" | "list" | "log" | "lookup" | "medals" | "merits" | "messages" | "missions" | "money" | "newevents" | "newmessages" | "notifications" | "organizedcrime" | "personalstats" | "profile" | "properties" | "property" | "races" | "racingrecords" | "refills" | "reports" | "revives" | "revivesfull" | "skills" | "snapshot" | "stocks" | "trades" | "trade" | "travel" | "timestamp" | "weaponexp" | "workstats" | "bazaar" | "criminalrecord" | "display" | "education" | "gym" | "networth" | "perks") | string;
         UserLookupResponse: {
             selections: components["schemas"]["UserSelectionName"][];
         };
@@ -8808,6 +8861,15 @@ export interface components {
             /** Format: int32 */
             timestamp: number;
         };
+        TornMuseumSet: {
+            name: string;
+            /** Format: int32 */
+            points: number;
+            items: components["schemas"]["ItemId"][];
+        };
+        TornMuseumResponse: {
+            museum: components["schemas"]["TornMuseumSet"][];
+        };
         TornStockDetailed: components["schemas"]["TornStock"] & {
             chart: {
                 performance: {
@@ -9326,7 +9388,7 @@ export interface components {
         TornFactionTreeResponse: {
             factionTree: components["schemas"]["TornFactionTree"][];
         };
-        TornSelectionName: ("attacklog" | "bounties" | "calendar" | "crimes" | "education" | "elimination" | "eliminationteam" | "factionhof" | "factiontree" | "hof" | "honors" | "itemammo" | "itemmods" | "items" | "logcategories" | "logtypes" | "lookup" | "medals" | "merits" | "organizedcrimes" | "properties" | "stocks" | "subcrimes" | "territory" | "timestamp" | "bank" | "cards" | "cityshops" | "companies" | "competition" | "gyms" | "itemdetails" | "itemstats" | "organisedcrimes" | "pawnshop" | "pokertables" | "rockpaperscissors" | "searchforcash" | "shoplifting" | "stats") | string;
+        TornSelectionName: ("attacklog" | "bounties" | "calendar" | "crimes" | "education" | "elimination" | "eliminationteam" | "factionhof" | "factiontree" | "hof" | "honors" | "itemammo" | "itemmods" | "items" | "logcategories" | "logtypes" | "lookup" | "medals" | "merits" | "museum" | "organizedcrimes" | "properties" | "stocks" | "subcrimes" | "territory" | "timestamp" | "bank" | "cards" | "cityshops" | "companies" | "competition" | "gyms" | "itemdetails" | "itemstats" | "organisedcrimes" | "pawnshop" | "pokertables" | "rockpaperscissors" | "searchforcash" | "shoplifting" | "stats") | string;
         TornLookupResponse: {
             selections: components["schemas"]["TornSelectionName"][];
         };
@@ -11483,6 +11545,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserSkillsResponse"];
+                };
+            };
+        };
+    };
+    getUsersSnapshot: {
+        parameters: {
+            query?: {
+                /** @description Timestamp to bypass cache or get the data in specific point in time */
+                timestamp?: components["parameters"]["ApiTimestamp"];
+                /** @description Comment for your tool/service/bot/website to be visible in the logs. */
+                comment?: components["parameters"]["ApiComment"];
+                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyPublic"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful CSV response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
         };
@@ -15469,6 +15558,33 @@ export interface operations {
             };
         };
     };
+    getTornMuseum: {
+        parameters: {
+            query?: {
+                /** @description Timestamp to bypass cache or get the data in specific point in time */
+                timestamp?: components["parameters"]["ApiTimestamp"];
+                /** @description Comment for your tool/service/bot/website to be visible in the logs. */
+                comment?: components["parameters"]["ApiComment"];
+                /** @description API key (Public).<br>It's not required to use this parameter when passing the API key via the Authorization header. */
+                key?: components["parameters"]["ApiKeyPublic"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TornMuseumResponse"];
+                };
+            };
+        };
+    };
     getTornOrganizedCrimes: {
         parameters: {
             query?: {
@@ -15735,7 +15851,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TornSubcrimesResponse"] | components["schemas"]["TornCrimesResponse"] | components["schemas"]["TornCalendarResponse"] | components["schemas"]["TornHofResponse"] | components["schemas"]["TornFactionHofResponse"] | components["schemas"]["TornLogTypesResponse"] | components["schemas"]["TornItemsResponse"] | components["schemas"]["TornLogCategoriesResponse"] | components["schemas"]["TornEducationResponse"] | components["schemas"]["TornMeritsResponse"] | components["schemas"]["TornOrganizedCrimeResponse"] | components["schemas"]["TornHonorsResponse"] | components["schemas"]["TornItemDetailsResponse"] | components["schemas"]["TornEliminationTeamsResponse"] | components["schemas"]["TornEliminationTeamPlayersResponse"] | components["schemas"]["TornMedalsResponse"] | components["schemas"]["TornBountiesResponse"] | components["schemas"]["TornItemAmmoResponse"] | components["schemas"]["TornProperties"] | components["schemas"]["TornFactionTreeResponse"] | components["schemas"]["AttackLogResponse"] | components["schemas"]["TornStockDetailedResponse"] | components["schemas"]["TornStocksResponse"] | components["schemas"]["TornTerritoriesResponse"] | components["schemas"]["TornTerritoriesNoLinksResponse"] | components["schemas"]["TornItemModsResponse"] | components["schemas"]["TornLookupResponse"] | components["schemas"]["TimestampResponse"];
+                    "application/json": components["schemas"]["TornSubcrimesResponse"] | components["schemas"]["TornCrimesResponse"] | components["schemas"]["TornCalendarResponse"] | components["schemas"]["TornHofResponse"] | components["schemas"]["TornFactionHofResponse"] | components["schemas"]["TornLogTypesResponse"] | components["schemas"]["TornItemsResponse"] | components["schemas"]["TornLogCategoriesResponse"] | components["schemas"]["TornEducationResponse"] | components["schemas"]["TornMeritsResponse"] | components["schemas"]["TornOrganizedCrimeResponse"] | components["schemas"]["TornHonorsResponse"] | components["schemas"]["TornItemDetailsResponse"] | components["schemas"]["TornEliminationTeamsResponse"] | components["schemas"]["TornEliminationTeamPlayersResponse"] | components["schemas"]["TornMedalsResponse"] | components["schemas"]["TornBountiesResponse"] | components["schemas"]["TornItemAmmoResponse"] | components["schemas"]["TornProperties"] | components["schemas"]["TornFactionTreeResponse"] | components["schemas"]["AttackLogResponse"] | components["schemas"]["TornMuseumResponse"] | components["schemas"]["TornStockDetailedResponse"] | components["schemas"]["TornStocksResponse"] | components["schemas"]["TornTerritoriesResponse"] | components["schemas"]["TornTerritoriesNoLinksResponse"] | components["schemas"]["TornItemModsResponse"] | components["schemas"]["TornLookupResponse"] | components["schemas"]["TimestampResponse"];
                 };
             };
         };

@@ -49,6 +49,46 @@ async function runBurstHistoricalBackfill(
 
   if (stateData.status === "completed") return;
 
+  const isDev = process.env.NODE_ENV !== "production";
+  const currentYear = new Date().getUTCFullYear();
+  const startOfYearTimestamp = Math.floor(Date.UTC(currentYear, 0, 1) / 1000);
+
+  if (
+    isDev &&
+    stateData.oldestTimestampReached &&
+    stateData.oldestTimestampReached <= startOfYearTimestamp
+  ) {
+    logger.info(
+      `DEV environment guard active: Backfill already reached start of current year (${currentYear}-01-01). Marking backfill as completed!`,
+    );
+    await db.systemState.upsert({
+      where: { id: "log_manager_backfill_progress" },
+      update: {
+        data: {
+          status: "completed",
+          logsParsed: stateData.logsParsed,
+          oldestTimestampReached: stateData.oldestTimestampReached,
+        },
+        updatedAt: new Date(),
+      },
+      create: {
+        id: "log_manager_backfill_progress",
+        init: true,
+        data: {
+          status: "completed",
+          logsParsed: stateData.logsParsed,
+          oldestTimestampReached: stateData.oldestTimestampReached,
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    workerEvents.emit("log_backfill_completed");
+    workerEvents.emit("settings_updated");
+    return;
+  }
+
   let currentTo = stateData.oldestTimestampReached ?? undefined;
   let totalParsed = stateData.logsParsed;
   let oldestInBatch = currentTo ?? Math.floor(Date.now() / 1000);
@@ -172,6 +212,38 @@ async function runBurstHistoricalBackfill(
     logger.info(
       `Backfill progress: Parsed ${totalParsed} logs. Oldest reached: ${readableDate}`,
     );
+
+    if (isDev && oldestInBatch <= startOfYearTimestamp) {
+      logger.info(
+        `DEV environment guard active: Reached start of current year (${currentYear}-01-01). Marking backfill as completed!`,
+      );
+      await db.systemState.upsert({
+        where: { id: "log_manager_backfill_progress" },
+        update: {
+          data: {
+            status: "completed",
+            logsParsed: totalParsed,
+            oldestTimestampReached: oldestInBatch,
+          },
+          updatedAt: new Date(),
+        },
+        create: {
+          id: "log_manager_backfill_progress",
+          init: true,
+          data: {
+            status: "completed",
+            logsParsed: totalParsed,
+            oldestTimestampReached: oldestInBatch,
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      workerEvents.emit("log_backfill_completed");
+      workerEvents.emit("settings_updated");
+      return;
+    }
 
     await new Promise((r) => setTimeout(r, 500));
   }

@@ -4,37 +4,73 @@ import * as React from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils/cn";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { Activity, Terminal } from "lucide-react";
+import { Activity, FileText } from "lucide-react";
+
+export type DashboardTab = "telemetry" | "personal-logs";
 
 export interface NavItem {
+  id: DashboardTab;
   title: string;
   icon: React.ElementType;
-  active?: boolean;
 }
 
-export function DashboardSidebar() {
+interface DashboardSidebarProps {
+  activeTab?: DashboardTab;
+  onSelectTab?: (tab: DashboardTab) => void;
+}
+
+export function DashboardSidebar({
+  activeTab = "telemetry",
+  onSelectTab,
+}: DashboardSidebarProps) {
   const mainNav: NavItem[] = [
-    { title: "Apps Telemetry", icon: Activity, active: true },
-    { title: "Console Logs", icon: Terminal },
+    { id: "telemetry", title: "Apps Telemetry", icon: Activity },
+    { id: "personal-logs", title: "Personal Logs", icon: FileText },
   ];
 
   return (
     <>
       {/* Mobile Top Header (visible on small screens < md) */}
-      <div className="md:hidden flex items-center justify-between p-3 rounded-2xl border border-border/70 bg-card backdrop-blur-md mb-3">
-        <div className="flex items-center gap-2.5">
-          <Image
-            src="/logo.png"
-            alt="Sentinel Logo"
-            width={28}
-            height={28}
-            className="object-contain rounded-xs"
-          />
-          <div>
-            <h3 className="text-xs font-bold text-foreground tracking-tight leading-none">Sentinel</h3>
+      <div className="md:hidden flex flex-col gap-2 p-3 rounded-2xl border border-border/70 bg-card backdrop-blur-md mb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Image
+              src="/logo.png"
+              alt="Sentinel Logo"
+              width={28}
+              height={28}
+              className="object-contain rounded-xs"
+            />
+            <div>
+              <h3 className="text-xs font-bold text-foreground tracking-tight leading-none">Sentinel</h3>
+            </div>
           </div>
+          <ThemeToggle />
         </div>
-        <ThemeToggle />
+
+        {/* Mobile Navigation Pills */}
+        <div className="flex items-center gap-1.5 pt-1 border-t border-border/40 overflow-x-auto">
+          {mainNav.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectTab?.(item.id)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap cursor-pointer",
+                  isActive
+                    ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                    : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Icon className="size-3.5 shrink-0" />
+                <span>{item.title}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Desktop Permanent Sidebar (visible on md+) */}
@@ -58,13 +94,15 @@ export function DashboardSidebar() {
           <nav className="flex flex-col gap-1.5">
             {mainNav.map((item) => {
               const Icon = item.icon;
+              const isActive = activeTab === item.id;
               return (
                 <button
-                  key={item.title}
+                  key={item.id}
                   type="button"
+                  onClick={() => onSelectTab?.(item.id)}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors w-full justify-start cursor-pointer",
-                    item.active
+                    isActive
                       ? "bg-primary text-primary-foreground font-semibold shadow-xs"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                   )}

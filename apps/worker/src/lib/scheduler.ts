@@ -20,6 +20,8 @@ export class ScheduledRunner {
   private isStopped = false;
   private cadenceMs: number;
 
+  private lastPersistedAt = 0;
+
   constructor(config: EventRunnerConfig) {
     this.config = config;
     this.logger = new Logger(config.worker);
@@ -105,28 +107,34 @@ export class ScheduledRunner {
       if (!this.isStopped) {
         const nextRunTimeMs = customNextRunMs ?? Date.now() + this.cadenceMs;
 
-        // Update persistent schedule in Postgres
-        try {
-          await db.workerSchedule.upsert({
-            where: { id: this.config.worker },
-            update: {
-              lastRunAt: new Date(startTime),
-              nextRunAt: new Date(nextRunTimeMs),
-              forceRun: false,
-              updatedAt: new Date(),
-            },
-            create: {
-              id: this.config.worker,
-              cadenceSeconds: this.config.defaultCadenceSeconds,
-              lastRunAt: new Date(startTime),
-              nextRunAt: new Date(nextRunTimeMs),
-              forceRun: false,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
-          });
-        } catch (dbErr) {
-          this.logger.error("Failed to persist schedule to database:", dbErr);
+        const shouldPersist =
+          !this.lastPersistedAt ||
+          startTime - this.lastPersistedAt >= 60000;
+
+        if (shouldPersist) {
+          this.lastPersistedAt = startTime;
+          try {
+            await db.workerSchedule.upsert({
+              where: { id: this.config.worker },
+              update: {
+                lastRunAt: new Date(startTime),
+                nextRunAt: new Date(nextRunTimeMs),
+                forceRun: false,
+                updatedAt: new Date(),
+              },
+              create: {
+                id: this.config.worker,
+                cadenceSeconds: this.config.defaultCadenceSeconds,
+                lastRunAt: new Date(startTime),
+                nextRunAt: new Date(nextRunTimeMs),
+                forceRun: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            });
+          } catch (dbErr) {
+            this.logger.error("Failed to persist schedule to database:", dbErr);
+          }
         }
 
         const nextDelayMs = Math.max(0, nextRunTimeMs - Date.now());

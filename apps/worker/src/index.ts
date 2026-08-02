@@ -13,6 +13,7 @@ import { initializeNetworkOptimization } from "./lib/network.js";
 import { startRegisteredWorkers } from "./workers/registry.js";
 import { runVerificationJob } from "./lib/verification-engine.js";
 import { triggerWorkerByName } from "./lib/scheduler.js";
+import { resyncLogsRange } from "./workers/private/log-manager.js";
 
 const logger = new Logger("WorkerIndex");
 
@@ -40,6 +41,35 @@ export const ipcServer = new IpcServer(socketPath, async (message: any) => {
   }
 
   logger.info("IPC Message Received:", message);
+
+  if (message?.action === "resync_personal_logs" && message.data) {
+    try {
+      const from = Number(message.data.from);
+      const to = Number(message.data.to);
+      logger.info(`Processing personal log re-sync IPC request: from=${from}, to=${to}`);
+      const result = await resyncLogsRange(from, to);
+      ipcServer.broadcast({
+        action: "resync_personal_logs_response",
+        requestId: message.requestId,
+        data: {
+          success: true,
+          fetched: result.fetched,
+          newLogs: result.newLogs,
+        },
+      });
+    } catch (err) {
+      logger.error("Failed to execute personal log re-sync IPC request:", err);
+      ipcServer.broadcast({
+        action: "resync_personal_logs_response",
+        requestId: message.requestId,
+        data: {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+    return;
+  }
 
   if (message?.action === "verification_request" && message.data) {
     try {
@@ -110,14 +140,17 @@ async function main() {
   const workerCount = startRegisteredWorkers();
   logger.info(`${workerCount} registered workers.`);
 
-  // 6. Schedule periodic V8 GC sweep every 5 minutes (if --expose-gc is enabled)
+  // 6. Schedule periodic V8 GC sweep every 30 seconds when heapUsed > 150MB (if --expose-gc is enabled)
   if (typeof global.gc === "function") {
-    logger.info("Enabling automated 5-minute V8 Garbage Collection sweep.");
+    logger.info("Enabling automated 30-second V8 Garbage Collection sweep.");
     setInterval(() => {
       try {
-        global.gc?.();
+        const mem = process.memoryUsage();
+        if (mem.heapUsed > 150 * 1024 * 1024) {
+          global.gc?.();
+        }
       } catch {}
-    }, 5 * 60 * 1000);
+    }, 30 * 1000);
   }
 
   // Graceful shutdown handling

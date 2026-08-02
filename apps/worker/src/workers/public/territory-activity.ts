@@ -8,18 +8,30 @@ import {
 } from "@sentinel/torn-api-manager";
 import { startEventDrivenRunner } from "../../lib/scheduler.js";
 import { dispatchToBot } from "../../lib/ipc.js";
-import { ensureFactionsTracked } from "../../lib/faction-tracker.js";
+import {
+  ensureFactionsTracked,
+  isFactionTrackedFresh,
+} from "../../lib/faction-tracker.js";
 import type { WorkerStartOptions } from "../registry.js";
 import type { IpcWarPayload, IpcTerritoryPayload } from "@sentinel/schemas";
 
 const WORKER_NAME = "torn_territory_activity_sync";
 const logger = new Logger(WORKER_NAME);
 
-let dbStatesCache: Map<string, any> | null = null;
+let dbStatesCache: Map<string, CompactTerritoryState> | null = null;
 let dbActiveWarsCache: Map<string, any> | null = null;
 
+export type CompactTerritoryState = {
+  id: string;
+  factionId: number | null;
+  racketChangedAt: number | null;
+  racketLevel: number | null;
+  isWarring: boolean;
+};
+
 type ApiOwnership = TornSchema<"FactionTerritoryOwnership">;
-type ApiRacket = TornSchema<"TornRacket">;
+type ApiRacket = TornSchema<"TornRacket"> & { territory?: string };
+type ApiFactionRacketsResponse = { rackets?: ApiRacket[] };
 
 type ApiTerritoryWarV1 = {
   territorywars?: Record<
@@ -90,7 +102,7 @@ async function executeActivityEngine(): Promise<number> {
       tornApiManager.get("/faction/rackets", {
         apiKey: key1.apiKey,
         userId: key1.userId,
-      }) as Promise<TornSchema<"FactionRacketsResponse">>,
+      }) as Promise<ApiFactionRacketsResponse>,
       tornApiManager.client.getRaw("/torn", {
         apiKey: key2.apiKey,
         queryParams: { selections: "territorywars" },
@@ -106,38 +118,68 @@ async function executeActivityEngine(): Promise<number> {
     ]);
 
     const apiRackets = racketsRes.rackets || [];
-    const apiOwnership = ownershipResPages.flatMap(
-      (page) => page.territoryOwnership || [],
-    );
     const apiWarsMap = warfareRes.territorywars || {};
 
-    // Non-blocking trigger to populate & refresh active faction records in background
-    const factionIdsToTrack: (number | null | undefined)[] = [
-      ...apiOwnership.map((o) => o.owned_by),
-      ...Object.values(apiWarsMap).flatMap((w) => [
-        w.assaulting_faction,
-        w.defending_faction,
-      ]),
-    ];
-    ensureFactionsTracked(factionIdsToTrack).catch((err) => {
-      logger.error("Background faction tracking error:", err);
-    });
+    const apiRacketsMap = new Map<string, ApiRacket>();
+    for (let i = 0; i < apiRackets.length; i++) {
+      const r = apiRackets[i];
+      apiRacketsMap.set(r.territory || r.name, r);
+    }
 
-    // Build O(1) lookup maps
-    const apiRacketsMap = new Map<string, ApiRacket>(
-      apiRackets.map((r: ApiRacket & { territory?: string }) => [
-        r.territory || r.name,
-        r,
-      ]),
-    );
-    const apiOwnershipMap = new Map<string, ApiOwnership>(
-      apiOwnership.map((o) => [o.id, o]),
-    );
+    const apiOwnershipMap = new Map<string, ApiOwnership>();
+    const factionIdsToTrack: number[] = [];
+
+    for (let p = 0; p < ownershipResPages.length; p++) {
+      const pageList = ownershipResPages[p]?.territoryOwnership;
+      if (pageList) {
+        for (let i = 0; i < pageList.length; i++) {
+          const item = pageList[i];
+          apiOwnershipMap.set(item.id, item);
+
+          const facId = item.owned_by;
+          if (facId && !isFactionTrackedFresh(facId)) {
+            factionIdsToTrack.push(facId);
+          }
+        }
+      }
+    }
+
+    for (const w of Object.values(apiWarsMap)) {
+      if (
+        w.assaulting_faction &&
+        !isFactionTrackedFresh(w.assaulting_faction)
+      ) {
+        factionIdsToTrack.push(w.assaulting_faction);
+      }
+      if (w.defending_faction && !isFactionTrackedFresh(w.defending_faction)) {
+        factionIdsToTrack.push(w.defending_faction);
+      }
+    }
+
+    if (factionIdsToTrack.length > 0) {
+      ensureFactionsTracked(factionIdsToTrack).catch((err) => {
+        logger.error("Background faction tracking error:", err);
+      });
+    }
 
     // Query active database records if not cached
     if (!dbStatesCache) {
       const dbStatesList = await db.territoryState.findMany();
-      dbStatesCache = new Map(dbStatesList.map((s) => [s.id, s]));
+      dbStatesCache = new Map(
+        dbStatesList.map((s) => {
+          const racket = s.racket as unknown as ApiRacket | null;
+          return [
+            s.id,
+            {
+              id: s.id,
+              factionId: s.factionId,
+              racketChangedAt: racket?.changed_at ?? null,
+              racketLevel: racket?.level ?? null,
+              isWarring: s.isWarring,
+            },
+          ];
+        }),
+      );
     }
     const dbStates = dbStatesCache;
 
@@ -214,8 +256,7 @@ async function executeActivityEngine(): Promise<number> {
     // ==========================================
     const activeWarTerritories = new Set(Object.keys(apiWarsMap));
 
-    for (const tt of apiOwnership) {
-      const ttId = tt.id;
+    for (const [ttId, tt] of apiOwnershipMap) {
       const oldState = dbStates.get(ttId);
       const newFaction = tt.owned_by ?? null;
       const racket = apiRacketsMap.get(ttId) ?? null;
@@ -240,7 +281,7 @@ async function executeActivityEngine(): Promise<number> {
                 data: {
                   id: oldState.id,
                   factionId: oldState.factionId,
-                  racket: oldState.racket,
+                  racket: null,
                   isWarring: oldState.isWarring,
                 },
               });
@@ -251,26 +292,39 @@ async function executeActivityEngine(): Promise<number> {
           }
         }
 
-        const oldRacket = oldState.racket as unknown as ApiRacket | null;
-        if (oldRacket?.changed_at !== racket?.changed_at) {
+        const oldRacketChangedAt = oldState.racketChangedAt;
+        const newRacketChangedAt = racket?.changed_at ?? null;
+
+        if (oldRacketChangedAt !== newRacketChangedAt) {
           hasChanged = true;
 
-          if (!oldRacket && racket && isStatesInit) {
+          const oldRacketLevel = oldState.racketLevel;
+          const newRacketLevel = racket?.level ?? null;
+
+          if (
+            oldRacketLevel === null &&
+            newRacketLevel !== null &&
+            isStatesInit
+          ) {
             dispatchToBot({ action: "racket_spawn", data: newState });
-          } else if (oldRacket && !racket && isStatesInit) {
+          } else if (
+            oldRacketLevel !== null &&
+            newRacketLevel === null &&
+            isStatesInit
+          ) {
             dispatchToBot({
               action: "racket_despawn",
               data: {
                 id: oldState.id,
                 factionId: oldState.factionId,
-                racket: oldState.racket,
+                racket: null,
                 isWarring: oldState.isWarring,
               },
             });
-          } else if (oldRacket && racket) {
-            if (oldRacket.level > racket.level && isStatesInit) {
+          } else if (oldRacketLevel !== null && newRacketLevel !== null) {
+            if (oldRacketLevel > newRacketLevel && isStatesInit) {
               dispatchToBot({ action: "racket_level_down", data: newState });
-            } else if (oldRacket.level < racket.level && isStatesInit) {
+            } else if (oldRacketLevel < newRacketLevel && isStatesInit) {
               dispatchToBot({ action: "racket_level_up", data: newState });
             }
           }
@@ -313,10 +367,12 @@ async function executeActivityEngine(): Promise<number> {
           ),
         );
         for (const item of chunk) {
+          const itemRacket = item.racket as unknown as ApiRacket | null;
           dbStatesCache!.set(item.id, {
             id: item.id,
             factionId: item.factionId,
-            racket: item.racket,
+            racketChangedAt: itemRacket?.changed_at ?? null,
+            racketLevel: itemRacket?.level ?? null,
             isWarring: item.isWarring,
           });
         }
@@ -410,6 +466,12 @@ async function executeActivityEngine(): Promise<number> {
     }
 
     finishLog();
+
+    if (typeof global.gc === "function") {
+      try {
+        global.gc();
+      } catch {}
+    }
 
     const totalRequestsPerLoop = 11;
     const availableKeys = (await getSystemKeyPool()).length;

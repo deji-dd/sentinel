@@ -10,6 +10,17 @@ type FactionBasicResponse = TornSchema<"FactionBasicResponse">;
 
 // In-memory set tracking faction IDs currently being fetched in-flight
 const inFlightFactionIds = new Set<number>();
+// In-memory map caching last known updatedAt timestamp (ms) per faction ID
+const trackedFactionTimestamps = new Map<number, number>();
+
+/**
+ * Synchronous check whether a faction ID is already tracked and fresh in memory.
+ */
+export function isFactionTrackedFresh(factionId: number): boolean {
+  if (inFlightFactionIds.has(factionId)) return true;
+  const lastUpdated = trackedFactionTimestamps.get(factionId);
+  return Boolean(lastUpdated && lastUpdated > Date.now() - TWENTY_FOUR_HOURS_MS);
+}
 
 /**
  * Ensures that all given faction IDs exist in PostgreSQL and have been updated
@@ -30,18 +41,34 @@ export async function ensureFactionsTracked(
 
   if (validIds.length === 0) return 0;
 
+  const now = Date.now();
+  const cutoff = now - TWENTY_FOUR_HOURS_MS;
+
+  // Filter out IDs that are already known in memory to be fresh (< 24h)
+  const idsNeedingCheck = validIds.filter((id) => {
+    if (inFlightFactionIds.has(id)) return false;
+    const lastUpdated = trackedFactionTimestamps.get(id);
+    return !lastUpdated || lastUpdated < cutoff;
+  });
+
+  if (idsNeedingCheck.length === 0) {
+    return 0;
+  }
+
   try {
     const existing = await db.faction.findMany({
-      where: { id: { in: validIds } },
+      where: { id: { in: idsNeedingCheck } },
       select: { id: true, updatedAt: true },
     });
 
+    for (const f of existing) {
+      trackedFactionTimestamps.set(f.id, f.updatedAt.getTime());
+    }
+
     const existingMap = new Map(existing.map((f) => [f.id, f.updatedAt.getTime()]));
-    const cutoff = Date.now() - TWENTY_FOUR_HOURS_MS;
 
     // Exclude IDs already saved < 24h ago OR currently being fetched in-flight
-    const idsToFetch = validIds.filter((id) => {
-      if (inFlightFactionIds.has(id)) return false;
+    const idsToFetch = idsNeedingCheck.filter((id) => {
       const lastUpdated = existingMap.get(id);
       return !lastUpdated || lastUpdated < cutoff;
     });
@@ -111,6 +138,12 @@ export async function ensureFactionsTracked(
             });
           }),
         );
+
+        for (const res of validResponses) {
+          if (res.basic?.id) {
+            trackedFactionTimestamps.set(res.basic.id, Date.now());
+          }
+        }
 
         logger.info(`Successfully synced ${validResponses.length} factions into PostgreSQL.`);
       }
