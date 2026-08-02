@@ -6,12 +6,12 @@ After=network.target postgresql.service
 Type=simple
 User=deji
 WorkingDirectory=/opt/sentinel/apps/bot
-ExecStart=/usr/bin/node dist/index.cjs
+ExecStart=/usr/bin/node --max-old-space-size=140 dist/index.cjs
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/sentinel/apps/bot/.env
-MemoryHigh=100M
-MemoryMax=125M
+MemoryHigh=150M
+MemoryMax=180M
 
 [Install]
 WantedBy=multi-user.target

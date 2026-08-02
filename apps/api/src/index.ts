@@ -3,8 +3,8 @@ import cors from "@fastify/cors";
 import { db, recordBootAlert } from "@sentinel/database";
 import { Logger } from "@sentinel/utils";
 import { guildRoutes } from "./routes/guilds.js";
-// Establish IPC connection to worker at startup (auto-reconnects on worker restart)
-import { ipcClient } from "./lib/ipc-client.js";
+import { systemRoutes } from "./routes/system.js";
+
 const logger = new Logger("SentinelApi");
 const PORT = parseInt(process.env.API_PORT || "3001", 10);
 const HOST = process.env.API_HOST || "0.0.0.0";
@@ -48,8 +48,9 @@ async function startServer(): Promise<void> {
       credentials: true,
     });
 
-    // Register Guild Routes
+    // Register Guild & System Routes
     await app.register(guildRoutes);
+    await app.register(systemRoutes);
 
     // Health check endpoint
     app.get("/health", async (_request, reply) => {

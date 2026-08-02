@@ -17,8 +17,8 @@ export function initializeNetworkOptimization(): void {
 
   const globalAgent = new Agent({
     pipelining: 1, // Enable socket reuse without head-of-line blocking
-    connections: 100, // Max active connections per origin
-    keepAliveTimeout: 10 * 60 * 1000, // 10 minutes keep-alive
+    connections: 25, // Max active connections per origin
+    keepAliveTimeout: 60 * 1000, // 1 minute keep-alive
     connect: {
       lookup: dnsCache.lookup as any,
     },

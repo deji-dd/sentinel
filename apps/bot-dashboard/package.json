@@ -16,22 +16,23 @@
     "@sentinel/schemas": "workspace:*",
     "@sentinel/utils": "workspace:*",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.475.0",
-    "next": "^15.1.7",
-    "next-auth": "5.0.0-beta.31",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "lucide-react": "^1.28.0",
+    "next": "^16.2.12",
+    "next-auth": "5.0.0-beta.32",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.0.1"
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@types/node": "^22.13.1",
-    "@types/react": "^19.0.8",
-    "@types/react-dom": "^19.0.3",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.5.1",
-    "tailwindcss": "^3.4.17",
-    "typescript": "^5.7.3",
-    "wrangler": "^4.113.0"
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.25",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.118.0"
   }
 }

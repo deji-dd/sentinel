@@ -1,19 +1,37 @@
 
 import { Logger } from "@sentinel/utils";
-import { IpcServer, DEFAULT_IPC_SOCKET_PATH } from "@sentinel/utils/ipc";
+import { IpcServer, IPC_SOCKET_PATHS } from "@sentinel/utils/ipc";
 import { db, recordBootAlert } from "@sentinel/database";
 import { initializeNetworkOptimization } from "./lib/network.js";
 import { startRegisteredWorkers } from "./workers/registry.js";
-
 import { runVerificationJob } from "./lib/verification-engine.js";
-
 import { triggerWorkerByName } from "./lib/scheduler.js";
 
 const logger = new Logger("WorkerIndex");
 
-const socketPath = process.env.IPC_SOCKET_PATH ?? DEFAULT_IPC_SOCKET_PATH;
+const socketPath = process.env.IPC_WORKER_SOCKET_PATH ?? IPC_SOCKET_PATHS.worker;
 
 export const ipcServer = new IpcServer(socketPath, async (message: any) => {
+  if (message?.action === "get_telemetry") {
+    const workerMem = process.memoryUsage();
+    ipcServer.broadcast({
+      action: "get_telemetry_response",
+      requestId: message.requestId,
+      data: {
+        pid: process.pid,
+        status: "online",
+        uptimeSeconds: Math.round(process.uptime()),
+        memory: {
+          rssBytes: workerMem.rss,
+          heapTotalBytes: workerMem.heapTotal,
+          heapUsedBytes: workerMem.heapUsed,
+          externalBytes: workerMem.external,
+        },
+      },
+    });
+    return;
+  }
+
   logger.info("IPC Message Received:", message);
 
   if (message?.action === "verification_request" && message.data) {
@@ -84,6 +102,16 @@ async function main() {
   // 5. Start registered background workers with staggered boot
   const workerCount = startRegisteredWorkers();
   logger.info(`${workerCount} registered workers.`);
+
+  // 6. Schedule periodic V8 GC sweep every 5 minutes (if --expose-gc is enabled)
+  if (typeof global.gc === "function") {
+    logger.info("Enabling automated 5-minute V8 Garbage Collection sweep.");
+    setInterval(() => {
+      try {
+        global.gc?.();
+      } catch {}
+    }, 5 * 60 * 1000);
+  }
 
   // Graceful shutdown handling
   const shutdown = async (signal: string) => {

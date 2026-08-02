@@ -10,14 +10,51 @@ const logger = new Logger("IPC");
  * package file so it points to `<workspace-root>/data/sentinel_ipc.sock`
  * regardless of which app's `process.cwd()` is active.
  */
-function getDefaultIpcSocketPath(): string {
-  if (typeof process !== "undefined" && process.env.IPC_SOCKET_PATH) {
-    return process.env.IPC_SOCKET_PATH;
+function findWorkspaceRoot(startDir: string): string | null {
+  let current = path.resolve(startDir);
+  while (true) {
+    if (fs.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
   }
-  return path.resolve(process.cwd(), "data/sentinel_ipc.sock");
+  return null;
 }
 
-export const DEFAULT_IPC_SOCKET_PATH = getDefaultIpcSocketPath();
+function getIpcSocketPath(service: "api" | "worker" | "bot"): string {
+  // 1. Specific env var per service (e.g. IPC_API_SOCKET_PATH)
+  const envVar = `IPC_${service.toUpperCase()}_SOCKET_PATH`;
+  if (typeof process !== "undefined" && process.env[envVar]) {
+    return process.env[envVar]!;
+  }
+
+  // 2. Custom IPC socket directory (e.g. IPC_SOCKET_DIR=/opt/sentinel)
+  if (typeof process !== "undefined" && process.env.IPC_SOCKET_DIR) {
+    return path.join(process.env.IPC_SOCKET_DIR, `sentinel_${service}.sock`);
+  }
+
+  // 3. Fallback for legacy IPC_SOCKET_PATH (e.g. /opt/sentinel/sentinel_ipc.sock -> /opt/sentinel/sentinel_<service>.sock)
+  if (typeof process !== "undefined" && process.env.IPC_SOCKET_PATH) {
+    const dir = path.dirname(process.env.IPC_SOCKET_PATH);
+    return path.join(dir, `sentinel_${service}.sock`);
+  }
+
+  // 4. Default workspace data directory
+  const rootDir = findWorkspaceRoot(process.cwd()) ?? process.cwd();
+  return path.join(rootDir, "data", `sentinel_${service}.sock`);
+}
+
+export const IPC_SOCKET_PATHS = {
+  api: getIpcSocketPath("api"),
+  worker: getIpcSocketPath("worker"),
+  bot: getIpcSocketPath("bot"),
+};
+
+export const DEFAULT_IPC_SOCKET_PATH = IPC_SOCKET_PATHS.worker;
 
 export type IpcMessageHandler<T = unknown> = (message: T) => void;
 

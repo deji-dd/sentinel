@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths-ignore:
-      - "apps/dashboard/**"
+      - "apps/user-dashboard/**"
       - "apps/bot-dashboard/**"
       - "README.md"
       - "docs/**"
@@ -64,6 +64,7 @@ jobs:
 
       - name: Deploy Dist & Database Schema via Rsync
         run: |
+          rsync -avz --mkpath --delete .systemd/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/.systemd/
           rsync -avz --mkpath --delete apps/bot/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/bot/dist/
           rsync -avz --mkpath --delete apps/worker/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/worker/dist/
           rsync -avz --mkpath --delete apps/api/dist/ ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }}:/opt/sentinel/apps/api/dist/
@@ -81,7 +82,6 @@ jobs:
           sleep 2
           DATABASE_URL="postgresql://deji@localhost:5433/sentinel" pnpm --filter @sentinel/database db:push
 
-      - name: Restart Systemd Services
+      - name: Sync & Restart Systemd Services
         run: |
-          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "sudo systemctl restart sentinel-bot sentinel-worker sentinel-api"
-
+          ssh ${{ secrets.GCP_USERNAME }}@${{ secrets.GCP_HOST }} "sudo cp /opt/sentinel/.systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart sentinel-bot sentinel-worker sentinel-api"

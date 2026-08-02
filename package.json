@@ -30,18 +30,18 @@
     "api:dev": "pnpm --filter api dev",
     "api:build": "pnpm --filter api build",
     "bot-dashboard:dev": "pnpm --filter bot-dashboard dev",
-    "bot-dashboard:build": "pnpm --filter bot-dashboard build"
+    "bot-dashboard:build": "pnpm --filter bot-dashboard build",
+    "user-dashboard:dev": "pnpm --filter user-dashboard dev",
+    "user-dashboard:build": "pnpm --filter user-dashboard build"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^22.20.1",
+    "@types/node": "^26.1.2",
     "@types/pidusage": "^2.0.5",
-    "better-sqlite3": "^12.11.1",
     "openapi-typescript": "^7.13.0",
     "repomix": "^1.17.0",
     "tsup": "^8.5.1",
     "tsx": "^4.23.1",
-    "turbo": "^2.10.7"
+    "turbo": "^2.10.8"
   },
   "dependencies": {
     "pidusage": "^4.0.1"

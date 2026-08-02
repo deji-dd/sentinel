@@ -1,10 +1,8 @@
 import { randomUUID } from "crypto";
-import { IpcClient, DEFAULT_IPC_SOCKET_PATH } from "@sentinel/utils/ipc";
+import { IpcClient, IpcServer, IPC_SOCKET_PATHS } from "@sentinel/utils/ipc";
 import { Logger } from "@sentinel/utils";
 
 const logger = new Logger("ApiIPC");
-
-const socketPath = process.env.IPC_SOCKET_PATH ?? DEFAULT_IPC_SOCKET_PATH;
 
 type PendingRequest = {
   resolve: (data: any) => void;
@@ -12,27 +10,9 @@ type PendingRequest = {
   timer: NodeJS.Timeout;
 };
 
-const messageListeners = new Set<(message: any) => void>();
 const pendingRequests = new Map<string, PendingRequest>();
 
-/**
- * Registers a listener for unsolicited IPC messages pushed from the worker.
- */
-export function addIpcMessageListener(listener: (message: any) => void): void {
-  messageListeners.add(listener);
-}
-
-/**
- * Removes a previously registered IPC message listener.
- */
-export function removeIpcMessageListener(
-  listener: (message: any) => void,
-): void {
-  messageListeners.delete(listener);
-}
-
-export const ipcClient = new IpcClient(socketPath, (message: any) => {
-  // Route request/response correlation
+function handleIncomingMessage(message: any) {
   if (message?.requestId) {
     const pending = pendingRequests.get(message.requestId);
     if (pending) {
@@ -42,39 +22,62 @@ export const ipcClient = new IpcClient(socketPath, (message: any) => {
       return;
     }
   }
+}
 
-  // Fan-out to registered broadcast listeners
-  for (const listener of messageListeners) {
-    try {
-      listener(message);
-    } catch (err) {
-      logger.error("Error in API IPC message listener:", err);
-    }
+// Point-to-Point Clients connecting directly to target socket servers
+export const workerIpcClient = new IpcClient(IPC_SOCKET_PATHS.worker, handleIncomingMessage);
+export const botIpcClient = new IpcClient(IPC_SOCKET_PATHS.bot, handleIncomingMessage);
+
+// Re-export workerIpcClient as default ipcClient for backwards compatibility
+export const ipcClient = workerIpcClient;
+
+// API Socket Server listening for direct incoming connections on api.sock
+export const apiIpcServer = new IpcServer(IPC_SOCKET_PATHS.api, (message: any) => {
+  if (message?.action === "get_telemetry") {
+    const apiMem = process.memoryUsage();
+    apiIpcServer.broadcast({
+      action: "get_telemetry_response",
+      requestId: message.requestId,
+      data: {
+        pid: process.pid,
+        status: "online",
+        uptimeSeconds: Math.round(process.uptime()),
+        memory: {
+          rssBytes: apiMem.rss,
+          heapTotalBytes: apiMem.heapTotal,
+          heapUsedBytes: apiMem.heapUsed,
+          externalBytes: apiMem.external,
+        },
+      },
+    });
   }
 });
+apiIpcServer.start();
 
 /**
- * Sends a typed request to the worker over IPC and waits for a correlated response.
+ * Sends a typed request directly to worker or bot over Point-to-Point UDS.
  */
 export async function sendIpcRequest<T = any>(
   action: string,
   data: unknown,
   timeoutMs = 20_000,
+  target: "worker" | "bot" = "worker",
 ): Promise<T> {
   const requestId = randomUUID();
+  const client = target === "bot" ? botIpcClient : workerIpcClient;
 
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingRequests.delete(requestId);
       reject(
         new Error(
-          `IPC request '${action}' timed out. Worker did not respond in time.`,
+          `IPC request '${action}' to '${target}' timed out. Target did not respond in time.`,
         ),
       );
     }, timeoutMs);
 
     pendingRequests.set(requestId, { resolve, reject, timer });
 
-    ipcClient.send({ action, requestId, data });
+    client.send({ action, requestId, data });
   });
 }
