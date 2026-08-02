@@ -107,6 +107,7 @@ export default async function VerificationModulePage({
 
             <Link
               href={`/guilds/${guildId}`}
+              prefetch={false}
               className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-amber-500 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-all shrink-0 hover:scale-[1.02] active:scale-[0.98]"
             >
               Configure API Key

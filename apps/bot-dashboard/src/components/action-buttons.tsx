@@ -58,3 +58,29 @@ export function LoginSubmitButton() {
     </button>
   );
 }
+
+export function DiscordLoginButton() {
+  const [loading, setLoading] = React.useState(false);
+
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={async () => {
+        setLoading(true);
+        const { signIn } = await import("next-auth/react");
+        await signIn("discord", { callbackUrl: "/" });
+      }}
+      className="w-full py-3.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-75 text-white font-semibold text-sm transition-all duration-150 flex items-center justify-center gap-2.5 shadow-lg shadow-blue-600/30 hover:shadow-blue-600/40 cursor-pointer"
+    >
+      {loading ? (
+        <>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Signing in with Discord...
+        </>
+      ) : (
+        "Sign In with Discord"
+      )}
+    </button>
+  );
+}

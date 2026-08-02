@@ -65,14 +65,6 @@ export function ServerSelector({
               <RefreshButton />
             </form>
 
-            <Link
-              href="/tt-selector"
-              className="py-2.5 px-4 rounded-xl bg-purple-600/15 hover:bg-purple-600/25 text-purple-300 text-xs font-semibold border border-purple-500/30 flex items-center gap-2 transition-all shadow-lg shadow-purple-900/10"
-            >
-              <MapPin className="w-4 h-4 text-purple-400" />
-              TT Selector
-            </Link>
-
             <a
               href={inviteUrl}
               target="_blank"
@@ -134,6 +126,7 @@ export function ServerSelector({
             <Link
               key={guild.id}
               href={`/guilds/${guild.id}`}
+              prefetch={false}
               className="group relative p-5 rounded-2xl bg-[#0c111d] hover:bg-[#111728] border border-slate-800/80 hover:border-blue-500/40 transition-all duration-200 flex flex-col justify-between gap-5 shadow-xl hover:shadow-2xl hover:shadow-blue-500/5 hover:-translate-y-0.5"
             >
               <div className="flex items-center gap-3.5">

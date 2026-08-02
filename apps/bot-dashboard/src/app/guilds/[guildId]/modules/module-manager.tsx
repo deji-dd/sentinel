@@ -140,6 +140,7 @@ export function ModuleManager({
               {isEnabled && (
                 <Link
                   href={mod.href}
+                  prefetch={false}
                   className="flex items-center gap-1 text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors"
                 >
                   <span>Configure</span>

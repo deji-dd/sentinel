@@ -51,6 +51,7 @@ export function GuildLayoutShell({
 
             <Link
               href="/"
+              prefetch={false}
               className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors border border-slate-800 flex items-center gap-1.5 text-xs font-medium"
               title="Back to Server Selection"
             >

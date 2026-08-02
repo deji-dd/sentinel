@@ -65,6 +65,7 @@ export function NotInitializedView({
         <div className="flex items-center gap-3">
           <Link
             href="/"
+            prefetch={false}
             className="flex-1 py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-semibold transition-all flex items-center justify-center gap-2"
           >
             <ArrowLeft className="w-4 h-4" />

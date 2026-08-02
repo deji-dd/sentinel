@@ -151,6 +151,7 @@ export function GuildSidebar({
                     <Link
                       key={item.href}
                       href={item.href}
+                      prefetch={false}
                       onClick={onNavigate}
                       className={`group flex items-center justify-between py-2.5 px-3 rounded-xl text-xs font-medium transition-all duration-150 ${isActive
                         ? "bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10 font-semibold"

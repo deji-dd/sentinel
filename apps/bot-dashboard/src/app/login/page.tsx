@@ -1,10 +1,10 @@
 import React from "react";
 import Image from "next/image";
-import { auth, signIn } from "@/auth";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { LegalModal } from "@/components/legal-modal";
-import { LoginSubmitButton } from "@/components/action-buttons";
-import { ShieldCheck, UserCheck, MapPin, Sliders } from "lucide-react";
+import { DiscordLoginButton } from "@/components/action-buttons";
+import { ShieldCheck } from "lucide-react";
 
 export default async function LoginPage() {
   const session = await auth();
@@ -98,14 +98,7 @@ export default async function LoginPage() {
               <span>OAuth2 login requests read-only guild list permissions to identify shared servers.</span>
             </div>
 
-            <form
-              action={async () => {
-                "use server";
-                await signIn("discord");
-              }}
-            >
-              <LoginSubmitButton />
-            </form>
+            <DiscordLoginButton />
           </div>
 
           <div className="text-xs text-slate-500 text-center leading-relaxed">
