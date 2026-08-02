@@ -92,3 +92,5 @@ apps_old/
 packages_old/
 
 packages/database/prisma/generated
+
+**/.open-next/**
