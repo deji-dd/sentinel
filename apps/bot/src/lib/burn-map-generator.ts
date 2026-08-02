@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { Resvg, initWasm } from "@resvg/resvg-wasm";
+import { TORN_TERRITORY_MAP_SVG } from "../assets/torn-territory-map.js";
 
 let wasmInitialized = false;
 async function ensureResvgWasm(): Promise<void> {
@@ -16,30 +17,6 @@ async function ensureResvgWasm(): Promise<void> {
   await initWasm(wasmBuffer);
   wasmInitialized = true;
 }
-
-function getDirname(): string {
-  try {
-    if (typeof import.meta?.url === "string" && import.meta.url.startsWith("file:")) {
-      return dirname(fileURLToPath(import.meta.url));
-    }
-  } catch {}
-  return typeof __dirname !== "undefined" ? __dirname : process.cwd();
-}
-
-// Resolve SVG path - try compiled location first, then source
-function resolveSvgPath(): string {
-  const targetPath = join(process.cwd(), "apps/bot/src/assets/torn-territory-map.svg");
-  if (existsSync(targetPath)) {
-    return targetPath;
-  }
-  const fallbackPath = resolve(getDirname(), "../assets/torn-territory-map.svg");
-  if (existsSync(fallbackPath)) {
-    return fallbackPath;
-  }
-  throw new Error(`CRITICAL: SVG map file not found at ${targetPath}`);
-}
-
-const SVG_PATH = resolveSvgPath();
 
 // Neutral colors for reset
 const NEUTRAL_FILL = "#2c2c2c"; // Dark gray
@@ -57,13 +34,7 @@ const BURN_OPACITY = "0.95"; // 95% opacity for visibility
  * @returns Buffer containing the modified SVG
  */
 export function generateBurnMapSvg(burnedTerritoryIds: string[]): Buffer {
-  // Read base SVG
-  try {
-    var svg = readFileSync(SVG_PATH, "utf-8");
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to read SVG file at ${SVG_PATH}: ${errorMsg}`);
-  }
+  var svg = TORN_TERRITORY_MAP_SVG;
 
   // Ensure xlink namespace is declared (required for images within the SVG)
   if (!svg.includes("xmlns:xlink")) {
@@ -139,13 +110,7 @@ export function generateBurnMapWithLegend(
     availableCount: number;
   },
 ): Buffer {
-  let svg: string;
-  try {
-    svg = readFileSync(SVG_PATH, "utf-8");
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to read SVG file at ${SVG_PATH}: ${errorMsg}`);
-  }
+  let svg = TORN_TERRITORY_MAP_SVG;
 
   // Ensure xlink namespace is declared (required for images within the SVG)
   if (!svg.includes("xmlns:xlink")) {
