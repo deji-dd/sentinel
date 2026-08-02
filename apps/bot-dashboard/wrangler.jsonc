@@ -37,6 +37,9 @@
   },
   "vars": {
     "NEXT_PUBLIC_API_URL": "https://api.blasted-labs.tech",
-    "NEXT_PUBLIC_APP_URL": "https://blasted-labs.tech"
+    "NEXT_PUBLIC_APP_URL": "https://blasted-labs.tech",
+    "NODE_ENV": "production",
+    "NEXTAUTH_URL": "https://blasted-labs.tech",
+    "AUTH_TRUST_HOST": "true"
   }
 }
