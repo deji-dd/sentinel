@@ -4,6 +4,7 @@
     "db:generate": {
       "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
       "outputs": [
+        "prisma/generated/**",
         "node_modules/.prisma/client/**",
         "node_modules/@prisma/client/**"
       ]
@@ -11,7 +12,7 @@
     "build": {
       "dependsOn": ["^build", "db:generate"],
       "inputs": ["src/**", "prisma/**", "package.json", "tsconfig*.json", "tsup.config.ts"],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**", "prisma/generated/**"]
     },
     "dev": {
       "cache": false,
