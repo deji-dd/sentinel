@@ -15,6 +15,9 @@ import type { IpcWarPayload, IpcTerritoryPayload } from "@sentinel/schemas";
 const WORKER_NAME = "torn_territory_activity_sync";
 const logger = new Logger(WORKER_NAME);
 
+let dbStatesCache: Map<string, any> | null = null;
+let dbActiveWarsCache: Map<string, any> | null = null;
+
 type ApiOwnership = TornSchema<"FactionTerritoryOwnership">;
 type ApiRacket = TornSchema<"TornRacket">;
 
@@ -68,6 +71,7 @@ async function executeActivityEngine(): Promise<number> {
         "War Ledger not initialized. Clearing table for fresh sync...",
       );
       await db.warLedger.deleteMany({});
+      dbActiveWarsCache = null;
     }
 
     if (!isStatesInit) {
@@ -75,6 +79,7 @@ async function executeActivityEngine(): Promise<number> {
         "Territory States not initialized. Clearing table for fresh sync...",
       );
       await db.territoryState.deleteMany({});
+      dbStatesCache = null;
     }
 
     const offsets = Array.from({ length: 9 }, (_, i) => i * 500);
@@ -129,14 +134,20 @@ async function executeActivityEngine(): Promise<number> {
       apiOwnership.map((o) => [o.id, o]),
     );
 
-    // Query active database records
-    const dbStatesList = await db.territoryState.findMany();
-    const dbStates = new Map(dbStatesList.map((s) => [s.id, s]));
+    // Query active database records if not cached
+    if (!dbStatesCache) {
+      const dbStatesList = await db.territoryState.findMany();
+      dbStatesCache = new Map(dbStatesList.map((s) => [s.id, s]));
+    }
+    const dbStates = dbStatesCache;
 
-    const dbActiveWarsList = await db.warLedger.findMany({
-      where: { endTime: null },
-    });
-    const dbActiveWars = new Map(dbActiveWarsList.map((w) => [w.tt, w]));
+    if (!dbActiveWarsCache) {
+      const dbActiveWarsList = await db.warLedger.findMany({
+        where: { endTime: null },
+      });
+      dbActiveWarsCache = new Map(dbActiveWarsList.map((w) => [w.tt, w]));
+    }
+    const dbActiveWars = dbActiveWarsCache;
 
     const warUpserts: IpcWarPayload[] = [];
     const stateUpserts: IpcTerritoryPayload[] = [];
@@ -277,7 +288,7 @@ async function executeActivityEngine(): Promise<number> {
 
     // Persist changes to PostgreSQL using Prisma transactions
     if (stateUpserts.length > 0) {
-      const chunkSize = 200;
+      const chunkSize = 50;
       for (let i = 0; i < stateUpserts.length; i += chunkSize) {
         const chunk = stateUpserts.slice(i, i + chunkSize);
         await db.$transaction(
@@ -301,11 +312,19 @@ async function executeActivityEngine(): Promise<number> {
             }),
           ),
         );
+        for (const item of chunk) {
+          dbStatesCache!.set(item.id, {
+            id: item.id,
+            factionId: item.factionId,
+            racket: item.racket,
+            isWarring: item.isWarring,
+          });
+        }
       }
     }
 
     if (warUpserts.length > 0) {
-      const chunkSize = 200;
+      const chunkSize = 50;
       for (let i = 0; i < warUpserts.length; i += chunkSize) {
         const chunk = warUpserts.slice(i, i + chunkSize);
         await db.$transaction(
@@ -345,6 +364,21 @@ async function executeActivityEngine(): Promise<number> {
             });
           }),
         );
+        for (const item of chunk) {
+          if (item.endTime) {
+            dbActiveWarsCache!.delete(item.tt);
+          } else {
+            dbActiveWarsCache!.set(item.tt, {
+              id: item.id,
+              tt: item.tt,
+              assaultingFaction: item.assaultingFaction,
+              defendingFaction: item.defendingFaction,
+              victorFaction: item.victorFaction,
+              startTime: item.startTime,
+              endTime: item.endTime,
+            });
+          }
+        }
       }
     }
 

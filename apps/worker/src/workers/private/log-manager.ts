@@ -53,7 +53,7 @@ async function runBurstHistoricalBackfill(
   let totalParsed = stateData.logsParsed;
   let oldestInBatch = currentTo ?? Math.floor(Date.now() / 1000);
 
-  const burstPages = 10;
+  const burstPages = 5;
   logger.info(
     `Starting burst backfill (up to ${burstPages * 100} logs, starting to=${currentTo ?? "latest"})...`,
   );
@@ -173,7 +173,7 @@ async function runBurstHistoricalBackfill(
       `Backfill progress: Parsed ${totalParsed} logs. Oldest reached: ${readableDate}`,
     );
 
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 500));
   }
 }
 
