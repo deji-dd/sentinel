@@ -6,12 +6,12 @@ After=network.target postgresql.service
 Type=simple
 User=deji
 WorkingDirectory=/opt/sentinel/apps/worker
-ExecStart=/home/deji/.nvm/versions/node/v26.5.1/bin/node --max-old-space-size=320 --expose-gc dist/index.cjs
+ExecStart=/home/deji/.nvm/versions/node/v26.5.1/bin/node --max-old-space-size=480 --expose-gc dist/index.cjs
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/sentinel/apps/worker/.env
-MemoryHigh=400M
-MemoryMax=450M
+MemoryHigh=600M
+MemoryMax=675M
 
 [Install]
 WantedBy=multi-user.target

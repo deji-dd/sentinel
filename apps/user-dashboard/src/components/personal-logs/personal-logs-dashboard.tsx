@@ -8,11 +8,10 @@ import {
   getPersonalLogsByDateAction,
   resyncPersonalLogsAction,
 } from "@/actions/personal-logs";
+import { PersonalLogsAreaChart } from "./personal-logs-area-chart";
 import { cn } from "@/lib/utils/cn";
 import {
-  BarChart3,
   Calendar,
-  Clock,
   RefreshCw,
   Search,
   Filter,
@@ -20,15 +19,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
-  CheckCircle2,
-  AlertCircle,
   Copy,
   Check,
   X,
   Zap,
   TrendingUp,
   Layers,
-  Sparkles,
 } from "lucide-react";
 
 interface DailySummaryItem {
@@ -381,11 +377,6 @@ export function PersonalLogsDashboard() {
                       : "Syncing"}
               </h3>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-              {stats?.logsParsedInBackfill
-                ? `${stats.logsParsedInBackfill.toLocaleString()} logs parsed`
-                : "History up to date"}
-            </p>
           </div>
           <div className="size-11 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-500 shrink-0">
             <Layers className="size-5.5" />
@@ -393,118 +384,18 @@ export function PersonalLogsDashboard() {
         </div>
       </div>
 
-      {/* Daily Volume Bar Chart Section */}
-      <div className="p-5 rounded-2xl border border-border/70 bg-card/60 backdrop-blur-xs space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-              <BarChart3 className="size-4.5 text-primary" /> Daily Log Volume
-            </h2>
-          </div>
-
-          {/* Timeframe Selector Buttons */}
-          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border/50 text-xs">
-            {[7, 14, 30, 60, 90].map((days) => (
-              <button
-                key={days}
-                type="button"
-                onClick={() => setTimeframeDays(days)}
-                className={cn(
-                  "px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer",
-                  timeframeDays === days
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {days}d
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Interactive Chart Container */}
-        <div className="relative pt-6 pb-2">
-          {/* SVG/HTML5 Bar Graph */}
-          {analyticsLoading ? (
-            <div className="h-48 flex items-center justify-center text-xs text-muted-foreground animate-pulse">
-              Loading daily volume chart...
-            </div>
-          ) : analyticsData.length === 0 ? (
-            <div className="h-48 flex items-center justify-center text-xs text-muted-foreground">
-              No personal log history found for the selected timeframe.
-            </div>
-          ) : (
-            <div className="h-48 flex items-end gap-1 sm:gap-1.5 overflow-x-auto pb-4 pt-10 px-1 scrollbar-thin">
-              {analyticsData.map((d, index) => {
-                const heightPct = Math.max((d.count / maxDailyCount) * 100, 3);
-                const isSelected = d.date === selectedDate;
-                const isToday = d.date === todayStr;
-                const isFarLeft = index <= 1;
-                const isFarRight = index >= analyticsData.length - 2;
-
-                const tooltipPosClass = isFarLeft
-                  ? "left-0"
-                  : isFarRight
-                    ? "right-0"
-                    : "left-1/2 -translate-x-1/2";
-
-                return (
-                  <div
-                    key={d.date}
-                    onClick={() => {
-                      setSelectedDate(d.date);
-                      setCurrentPage(1);
-                    }}
-                    className="flex-1 min-w-[12px] sm:min-w-[16px] max-w-[40px] flex flex-col items-center gap-1.5 group cursor-pointer h-full justify-end relative"
-                  >
-                    {/* Floating Tooltip directly above hovered bar showing amount */}
-                    <div
-                      className={cn(
-                        "absolute -top-8 opacity-0 group-hover:opacity-100 transition-all duration-150 pointer-events-none z-30 whitespace-nowrap bg-popover/95 backdrop-blur-md text-popover-foreground border border-border px-2 py-0.5 rounded-lg shadow-md text-[11px] font-semibold font-mono flex items-center gap-1",
-                        tooltipPosClass
-                      )}
-                    >
-                      <span className="text-muted-foreground">{d.date.slice(5)}:</span>
-                      <span className="text-primary font-bold">{d.count} logs</span>
-                    </div>
-
-                    {/* Bar graphic */}
-                    <div className="w-full relative flex items-end justify-center h-full">
-                      <div
-                        style={{ height: `${heightPct}%` }}
-                        className={cn(
-                          "w-full rounded-t-md transition-all duration-300 relative group-hover:brightness-125",
-                          isSelected
-                            ? "bg-gradient-to-t from-primary to-accent shadow-md shadow-primary/30 ring-2 ring-primary ring-offset-1 ring-offset-background"
-                            : d.count === 0
-                              ? "bg-muted/40"
-                              : isToday
-                                ? "bg-gradient-to-t from-emerald-600 to-emerald-400"
-                                : "bg-gradient-to-t from-primary/80 to-primary/40"
-                        )}
-                      />
-                    </div>
-
-                    {/* Date label (shown for filtered intervals) */}
-                    <span
-                      className={cn(
-                        "text-[9px] font-mono transition-colors truncate max-w-full",
-                        isSelected
-                          ? "text-primary font-bold"
-                          : isToday
-                            ? "text-emerald-500 font-bold"
-                            : "text-muted-foreground group-hover:text-foreground"
-                      )}
-                    >
-                      {d.date.slice(5)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Daily Volume Area Chart Section */}
+      <PersonalLogsAreaChart
+        analyticsData={analyticsData}
+        timeframeDays={timeframeDays}
+        onTimeframeChange={setTimeframeDays}
+        selectedDate={selectedDate}
+        onSelectDate={(date) => {
+          setSelectedDate(date);
+          setCurrentPage(1);
+        }}
+        loading={analyticsLoading}
+      />
 
       {/* Section 3: Daily Personal Logs Viewer */}
       <div className="p-5 rounded-2xl border border-border/70 bg-card/60 backdrop-blur-xs space-y-4 shadow-sm">

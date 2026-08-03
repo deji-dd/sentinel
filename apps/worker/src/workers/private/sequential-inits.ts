@@ -35,25 +35,25 @@ export async function runSequentialInits(): Promise<void> {
   logger.info("--- Starting Sequential Module Initializations Pipeline ---");
 
   try {
-    // 1. Crimes Init
+    // 1. Crimes Init (ACTIVE)
     logger.info("[1/5] Checking Crimes Ledger initialization...");
     await runCrimesLedgerInit();
 
-    // 2. Gym Init
-    logger.info("[2/5] Checking Gym Ledger initialization...");
-    await runGymLedgerInit();
+    // 2. Gym Init (PAUSED)
+    logger.info("[2/5] Gym Ledger initialization is currently PAUSED.");
+    // await runGymLedgerInit();
 
-    // 3. Stock Init
-    logger.info("[3/5] Checking Stock Ledger initialization...");
-    await runStockLedgerInit();
+    // 3. Stock Init (PAUSED)
+    logger.info("[3/5] Stock Ledger initialization is currently PAUSED.");
+    // await runStockLedgerInit();
 
-    // 4. Wealth Init
-    logger.info("[4/5] Checking Wealth Engine initialization...");
-    await runWealthLedgerInit();
+    // 4. Wealth Init (PAUSED)
+    logger.info("[4/5] Wealth Engine initialization is currently PAUSED.");
+    // await runWealthLedgerInit();
 
-    // 5. Travel Init
-    logger.info("[5/5] Checking Travel Ledger initialization...");
-    await runTravelLedgerInit();
+    // 5. Travel Init (PAUSED)
+    logger.info("[5/5] Travel Ledger initialization is currently PAUSED.");
+    // await runTravelLedgerInit();
 
     logger.info("--- Sequential Module Initializations Pipeline Completed! ---");
   } catch (err) {
