@@ -93,7 +93,7 @@ async function runBurstHistoricalBackfill(
   let totalParsed = stateData.logsParsed;
   let oldestInBatch = currentTo ?? Math.floor(Date.now() / 1000);
 
-  const burstPages = 5;
+  const burstPages = 1;
   logger.info(
     `Starting burst backfill (up to ${burstPages * 100} logs, starting to=${currentTo ?? "latest"})...`,
   );
