@@ -6,6 +6,7 @@ import { guildRoutes } from "./routes/guilds.js";
 import { systemRoutes } from "./routes/system.js";
 import { personalLogRoutes } from "./routes/personal-logs.js";
 import { crimesRoutes } from "./routes/crimes.js";
+import { pondRoutes } from "./routes/pond.js";
 
 const logger = new Logger("SentinelApi");
 const PORT = parseInt(process.env.API_PORT || "3001", 10);
@@ -55,6 +56,9 @@ async function startServer(): Promise<void> {
     await app.register(systemRoutes);
     await app.register(personalLogRoutes);
     await app.register(crimesRoutes);
+
+    // external app
+    await app.register(pondRoutes);
 
     // Health check endpoint
     app.get("/health", async (_request, reply) => {

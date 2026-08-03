@@ -488,4 +488,30 @@ model VerificationLog {
 }
 
 
+// This is for an external app, separate from sentinel, using it temporarily
+model SensorReading {
+  id              String   @id @default(uuid())
+  deviceId        String
+  temperatureC    Float
+  ph              Float
+  turbidityNtu    Float
+  pondLevelPct    Int
+  pumpInActive    Boolean
+  pumpDrainActive Boolean
+  createdAt       DateTime @default(now())
 
+  @@index([deviceId])
+  @@index([createdAt])
+  @@map("sensor_readings") 
+}
+
+model DeviceControl {
+  deviceId       String   @id
+  manualMode     Boolean  @default(false)
+  pumpIn         Boolean  @default(false)
+  pumpDrain      Boolean  @default(false)
+  simulateBreach Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  @@map("device_controls")
+}
