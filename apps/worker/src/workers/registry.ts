@@ -16,6 +16,7 @@ import { startTravelModule } from "./private/travel.js";
 import { startWealthModule } from "./private/wealth.js";
 import { startSequentialInitsManager } from "./private/sequential-inits.js";
 import { startSystemMaintenance } from "./system/system-maintenance.js";
+import { startPondSimulationWorker } from "./system/pond-simulation.js";
 
 const logger = new Logger("WorkerRegistry");
 
@@ -29,7 +30,10 @@ export type WorkerStarter = (options?: WorkerStartOptions) => void;
  * Worker category registry lists.
  * Modules register their entry functions here.
  */
-const SYSTEM_WORKERS: WorkerStarter[] = [startSystemMaintenance];
+const SYSTEM_WORKERS: WorkerStarter[] = [
+  startSystemMaintenance,
+  startPondSimulationWorker,
+];
 const PRIVATE_WORKERS: WorkerStarter[] = [
   startLogManager,
   startSequentialInitsManager,
