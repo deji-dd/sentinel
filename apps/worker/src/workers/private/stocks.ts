@@ -17,11 +17,27 @@ type UserLog = TornSchema<"UserLog">;
 
 let isSyncingUserStocks = false;
 let pendingSync = false;
+let isBackfillDone = false;
+
+async function checkBackfillStatus(): Promise<boolean> {
+  if (isBackfillDone) return true;
+  const backfillRecord = await db.systemState.findUnique({
+    where: { id: "log_manager_backfill_progress" },
+  });
+  const backfillData = backfillRecord?.data as { status: string } | undefined;
+  if (backfillData?.status === "completed") {
+    isBackfillDone = true;
+    return true;
+  }
+  return false;
+}
 
 /**
  * Debounced activity trigger to sync active user stock positions.
  */
 export async function parseStockActivityLog(): Promise<void> {
+  if (!(await checkBackfillStatus())) return;
+
   if (isSyncingUserStocks) {
     pendingSync = true;
     return;
@@ -211,8 +227,13 @@ export async function parseStockGainLog(log: UserLog): Promise<boolean> {
  * 1. Checks if historical log backfill is completed.
  * 2. Replays stock gain logs from PostgreSQL `PersonalLog`.
  */
-async function runStockLedgerInit(): Promise<void> {
+export async function runStockLedgerInit(): Promise<void> {
   try {
+    const existingState = await db.systemState.findUnique({
+      where: { id: "stock_ledger_init" },
+    });
+    if (existingState && existingState.init) return;
+
     logger.info("Initializing Stock Ledger...");
 
     const backfillRecord = await db.systemState.findUnique({
@@ -226,6 +247,7 @@ async function runStockLedgerInit(): Promise<void> {
       );
       return;
     }
+    isBackfillDone = true;
 
     await syncUserStocks();
 
@@ -316,11 +338,14 @@ async function checkAndInitStocks(): Promise<void> {
  * Registers real-time log event listeners for stock logs.
  */
 export function startStocksModule(_options?: WorkerStartOptions): void {
-  checkAndInitStocks().catch((err) =>
-    logger.error("Error during stocks checkAndInit:", err),
-  );
-
   workerEvents.on("new_log", async (log: UserLog) => {
+    const initState = await db.systemState.findUnique({
+      where: { id: "stock_ledger_init" },
+    });
+    if (!initState || !initState.init) return;
+
+    if (!(await checkBackfillStatus())) return;
+
     const logCode = Number(log.details.id);
     if (STOCK_ACTIVITY_LOG_IDS.includes(logCode)) {
       await parseStockActivityLog();
@@ -330,8 +355,6 @@ export function startStocksModule(_options?: WorkerStartOptions): void {
   });
 
   workerEvents.on("log_backfill_completed", () => {
-    checkAndInitStocks().catch((err) =>
-      logger.error("Error running Stocks init after backfill:", err),
-    );
+    isBackfillDone = true;
   });
 }

@@ -1,6 +1,8 @@
 import { Logger } from "@sentinel/utils";
 import { db } from "@sentinel/database";
 import { type TornSchema } from "@sentinel/torn-api";
+import { tornApiManager, getPersonalKey } from "@sentinel/torn-api-manager";
+import { randomUUID } from "node:crypto";
 import { workerEvents } from "../../lib/event-bus.js";
 import type { WorkerStartOptions } from "../registry.js";
 
@@ -19,7 +21,8 @@ async function getAnchorTimestamp(): Promise<number | null> {
   });
 
   if (state && state.init) {
-    cachedAnchorTimestamp = Math.floor(state.createdAt.getTime() / 1000);
+    const dataTs = (state.data as { timestamp?: number } | undefined)?.timestamp;
+    cachedAnchorTimestamp = dataTs ?? Math.floor(state.createdAt.getTime() / 1000);
     return cachedAnchorTimestamp;
   }
 
@@ -786,7 +789,11 @@ export async function parseTransformationSink(log: UserLog): Promise<void> {
     const isUid = !!(uid && typeof uid !== "boolean");
     const assetKey = isUid ? `uid_${uid}` : `item_${id}_inventory`;
 
-    const existing = await db.asset.findUnique({ where: { id: assetKey } });
+    let existing = await db.asset.findUnique({ where: { id: assetKey } });
+    if (!existing && !isUid) {
+      existing = await db.asset.findFirst({ where: { assetId: String(id), owner: "personal" } });
+    }
+
     const mac = existing?.movingAverageCost ?? 0;
     const burnedCost = mac * qty;
 
@@ -917,12 +924,50 @@ export async function parseEmployeeProfitLog(log: UserLog): Promise<void> {
 }
 
 /**
- * Initializes Wealth Engine:
- * Sets wealth_ledger_init anchor status after log backfill completes.
+ * Process a wealth-related log by routing to the appropriate parser.
  */
-async function runWealthLedgerInit(): Promise<void> {
+export async function processWealthLog(log: UserLog): Promise<void> {
+  const logCode = Number(log.details?.id ?? 0);
+
+  if (logCode === 4430) {
+    await parseBarterTrade(log);
+  } else if (logCode === 6222) {
+    await parseCompanyProfitLog(log);
+  } else if (logCode === 6221) {
+    await parseEmployeeProfitLog(log);
+  } else if (EQUITY_LOG_IDS.includes(logCode)) {
+    await parseEquityProperty(log);
+  } else if (FACTION_LOG_IDS.includes(logCode)) {
+    await parseFactionLiability(log);
+  } else if (STORAGE_TRANSFER_LOG_IDS.includes(logCode)) {
+    await parseStorageTransfer(log);
+  } else if (ZERO_COST_LOG_IDS.includes(logCode)) {
+    await parseZeroCostInjection(log);
+  } else if ([1112, 1225, 4200, 4201, 5010, 4320, 1226, 1113, 4210, 4220, 5011, 4322].includes(logCode)) {
+    await parseStandardCash(log);
+  } else {
+    await parseTransformationSink(log);
+  }
+}
+
+/**
+ * Initializes Wealth Engine (Day Zero Baseline):
+ * 1. Checks if historical log backfill is completed.
+ * 2. Fetches baseline data from Torn API (/user for bazaar, display, wallet money, points count).
+ * 3. Fetches user inventory across all 25 categories (/user/inventory).
+ * 4. Populates db.asset table with baseline items and cost basis.
+ * 5. Creates Day Zero initial ledger event.
+ * 6. Sets wealth_ledger_init anchor timestamp to ignore prior historical logs.
+ */
+export async function runWealthLedgerInit(): Promise<void> {
+  const time = performance.now();
+  logger.info("Initializing Wealth Engine Day Zero Baseline...");
+
   try {
-    logger.info("Initializing Wealth Engine...");
+    const existingState = await db.systemState.findUnique({
+      where: { id: "wealth_ledger_init" },
+    });
+    if (existingState && existingState.init) return;
 
     const backfillRecord = await db.systemState.findUnique({
       where: { id: "log_manager_backfill_progress" },
@@ -934,25 +979,249 @@ async function runWealthLedgerInit(): Promise<void> {
       return;
     }
 
-    await db.systemState.upsert({
-      where: { id: "wealth_ledger_init" },
-      update: { init: true, data: { status: "completed" }, updatedAt: new Date() },
-      create: { id: "wealth_ledger_init", init: true, data: { status: "completed" }, createdAt: new Date(), updatedAt: new Date() },
+    const keyEntry = await getPersonalKey();
+    if (!keyEntry) {
+      logger.warn("No personal API key found. Postponing Wealth Engine initialization.");
+      return;
+    }
+
+    // 1. Wipe previous state for a clean baseline slate
+    await db.asset.deleteMany({});
+    await db.ledgerEvent.deleteMany({});
+
+    // 2. Fetch Baseline Data from /user API (bazaar, display, money)
+    const userRes = (await tornApiManager.get("/user", {
+      apiKey: keyEntry.apiKey,
+      userId: keyEntry.userId,
+      queryParams: { selections: ["bazaar", "money", "display"] },
+    })) as any;
+
+    const bazaar = userRes.bazaar || [];
+    const display = userRes.display || [];
+    const moneyData = userRes.money;
+    const pointsCount = Number(moneyData?.points || 0);
+
+    // 3. Fetch Points Price for accurate MAC
+    let pointCost = 30000;
+    try {
+      const pointState = await db.systemState.findUnique({
+        where: { id: "points_price" },
+      });
+      const price = (pointState?.data as { price?: number })?.price;
+      if (price && price > 0) {
+        pointCost = price;
+      }
+    } catch {
+      logger.warn("Failed to read points_price from systemState, defaulting to 30k fallback");
+    }
+
+    // 4. Fetch Inventory across all 25 categories
+    const categories: string[] = [
+      "Collectible",
+      "Clothing",
+      "Other",
+      "Tool",
+      "Melee",
+      "Defensive",
+      "Material",
+      "Car",
+      "Primary",
+      "Secondary",
+      "Book",
+      "Special",
+      "Supply Pack",
+      "Temporary",
+      "Enhancer",
+      "Artifact",
+      "Flower",
+      "Booster",
+      "Medical",
+      "Candy",
+      "Jewelry",
+      "Alcohol",
+      "Plushie",
+      "Drug",
+      "Energy Drink",
+    ] as const;
+
+    let inventory: any[] = [];
+    for (const cat of categories) {
+      try {
+        const invRes = (await tornApiManager.get("/user/inventory", {
+          apiKey: keyEntry.apiKey,
+          userId: keyEntry.userId,
+          queryParams: { cat: cat as any, limit: 250 },
+        })) as any;
+
+        if (invRes.inventory?.items) {
+          inventory = inventory.concat(invRes.inventory.items);
+        }
+      } catch {
+        // Expected for empty categories
+      }
+    }
+
+    // Pre-fetch all TornItem market prices for fast lookup
+    const itemRecords = await db.tornItem.findMany();
+    const itemPriceMap = new Map<string, number>();
+    for (const ti of itemRecords) {
+      const price = ((ti.data as Record<string, any>)?.value?.market_price || 0) as number;
+      itemPriceMap.set(ti.id, price);
+    }
+
+    let totalInitWealth = 0;
+
+    // Helper: Insert items into Asset table
+    const insertItems = async (rawItems: any[], location: string) => {
+      for (const raw of rawItems) {
+        const itemId = raw.id || raw.ID;
+        const itemUid = raw.uid || raw.UID;
+        const qty = Number(raw.amount || raw.quantity || 1);
+        if (!itemId) continue;
+
+        const systemValue = itemPriceMap.get(String(itemId)) || 0;
+        const costBasis = systemValue;
+
+        totalInitWealth += costBasis * qty;
+
+        if (itemUid) {
+          await db.asset.upsert({
+            where: { id: `uid_${itemUid}` },
+            update: {
+              quantity: 1,
+              movingAverageCost: costBasis,
+              totalCostBasis: costBasis,
+              location,
+              owner: "personal",
+              origin: "legacy_init",
+              lastUpdated: new Date(),
+              updatedAt: new Date(),
+            },
+            create: {
+              id: `uid_${itemUid}`,
+              type: "item",
+              assetId: String(itemId),
+              quantity: 1,
+              movingAverageCost: costBasis,
+              totalCostBasis: costBasis,
+              location,
+              owner: "personal",
+              origin: "legacy_init",
+              realizedPnl: 0,
+              lastUpdated: new Date(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+        } else {
+          const assetKey = `item_${itemId}_${location}`;
+          const existing = await db.asset.findUnique({ where: { id: assetKey } });
+          if (existing) {
+            const newQty = existing.quantity + qty;
+            const newCostBasis = newQty * existing.movingAverageCost;
+            await db.asset.update({
+              where: { id: assetKey },
+              data: {
+                quantity: newQty,
+                totalCostBasis: newCostBasis,
+                lastUpdated: new Date(),
+                updatedAt: new Date(),
+              },
+            });
+          } else {
+            await db.asset.create({
+              data: {
+                id: assetKey,
+                type: "item",
+                assetId: String(itemId),
+                quantity: qty,
+                movingAverageCost: costBasis,
+                totalCostBasis: costBasis * qty,
+                location,
+                owner: "personal",
+                origin: "legacy_init",
+                realizedPnl: 0,
+                lastUpdated: new Date(),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            });
+          }
+        }
+      }
+    };
+
+    // 5. Execute Insertions for inventory, bazaar, and display
+    await insertItems(inventory, "inventory");
+    await insertItems(bazaar, "bazaar");
+    await insertItems(display, "display");
+
+    if (pointsCount > 0) {
+      totalInitWealth += pointsCount * pointCost;
+      const pointsKey = `points_personal_${randomUUID()}`;
+      await db.asset.create({
+        data: {
+          id: pointsKey,
+          type: "point",
+          assetId: "points",
+          quantity: pointsCount,
+          movingAverageCost: pointCost,
+          totalCostBasis: pointsCount * pointCost,
+          location: "inventory",
+          owner: "personal",
+          origin: "legacy_init",
+          realizedPnl: 0,
+          lastUpdated: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    // 6. Write Day Zero Initial Ledger Event
+    const nowTimestamp = Math.floor(Date.now() / 1000);
+    await db.ledgerEvent.create({
+      data: {
+        id: `ledger_ev_init_${Date.now()}`,
+        logId: "init",
+        timestamp: new Date(nowTimestamp * 1000),
+        type: "init",
+        categoryId: 1,
+        transactionName: "Ledger Initialization",
+        assetsAffected: [],
+        cashFlow: Number(moneyData?.wallet || 0),
+        realizedPnl: totalInitWealth,
+        rawLog: { note: "Day Zero Sync" } as unknown as object,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
 
-    logger.info("Wealth Engine initialized successfully.");
+    // 7. Update System State Flags
+    await db.systemState.upsert({
+      where: { id: "wealth_ledger_init" },
+      update: {
+        init: true,
+        data: { status: "completed", timestamp: nowTimestamp },
+        updatedAt: new Date(),
+      },
+      create: {
+        id: "wealth_ledger_init",
+        init: true,
+        data: { status: "completed", timestamp: nowTimestamp },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    cachedAnchorTimestamp = nowTimestamp;
+
+    const durationMs = performance.now() - time;
+    logger.info(
+      `Successfully initialized wealth ledger baseline. Value imported: $${totalInitWealth.toLocaleString()} in ${(durationMs / 1000).toFixed(2)}s`,
+    );
   } catch (err) {
-    logger.error("Failed to initialize Wealth Engine:", err);
-  }
-}
-
-async function checkAndInitWealth(): Promise<void> {
-  const initState = await db.systemState.findUnique({
-    where: { id: "wealth_ledger_init" },
-  });
-
-  if (!initState || !initState.init) {
-    await runWealthLedgerInit();
+    logger.error("Failed to initialize Wealth Engine baseline:", err);
   }
 }
 
@@ -960,33 +1229,12 @@ async function checkAndInitWealth(): Promise<void> {
  * Registers real-time log listeners for wealth-related events.
  */
 export function startWealthModule(_options?: WorkerStartOptions): void {
-  checkAndInitWealth().catch((err) => logger.error("Error during wealth checkAndInit:", err));
-
   workerEvents.on("new_log", async (log: UserLog) => {
-    const logCode = Number(log.details.id);
+    const initState = await db.systemState.findUnique({
+      where: { id: "wealth_ledger_init" },
+    });
+    if (!initState || !initState.init) return;
 
-    if (logCode === 4430) {
-      await parseBarterTrade(log);
-    } else if (logCode === 6222) {
-      await parseCompanyProfitLog(log);
-    } else if (logCode === 6221) {
-      await parseEmployeeProfitLog(log);
-    } else if (EQUITY_LOG_IDS.includes(logCode)) {
-      await parseEquityProperty(log);
-    } else if (FACTION_LOG_IDS.includes(logCode)) {
-      await parseFactionLiability(log);
-    } else if (STORAGE_TRANSFER_LOG_IDS.includes(logCode)) {
-      await parseStorageTransfer(log);
-    } else if (ZERO_COST_LOG_IDS.includes(logCode)) {
-      await parseZeroCostInjection(log);
-    } else if ([1112, 1225, 4200, 4201, 5010, 4320, 1226, 1113, 4210, 4220, 5011, 4322].includes(logCode)) {
-      await parseStandardCash(log);
-    } else {
-      await parseTransformationSink(log);
-    }
-  });
-
-  workerEvents.on("log_backfill_completed", () => {
-    checkAndInitWealth().catch((err) => logger.error("Error running Wealth init after backfill:", err));
+    await processWealthLog(log);
   });
 }

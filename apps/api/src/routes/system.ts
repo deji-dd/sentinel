@@ -24,13 +24,13 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     // Query Worker & Bot process metrics in parallel over Point-to-Point UDS IPC
     let workerStats = {
       pid: null as number | null,
-      status: "offline" as const,
+      status: "offline" as "online" | "offline" | "restarting",
       uptimeSeconds: 0,
       memory: { rssBytes: 0, heapTotalBytes: 0, heapUsedBytes: 0, externalBytes: 0 },
     };
     let botStats = {
       pid: null as number | null,
-      status: "offline" as const,
+      status: "offline" as "online" | "offline" | "restarting",
       uptimeSeconds: 0,
       memory: { rssBytes: 0, heapTotalBytes: 0, heapUsedBytes: 0, externalBytes: 0 },
     };
@@ -56,6 +56,37 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         uptimeSeconds: botResult.value.uptimeSeconds || 0,
         memory: botResult.value.memory || botStats.memory,
       };
+    }
+
+    // Fallback: Check systemd unit status if process reported offline over IPC in production
+    if (isProd) {
+      if (workerStats.status === "offline") {
+        try {
+          const { stdout } = await execAsync(
+            "systemctl show sentinel-worker --property=MainPID,ActiveState",
+          );
+          const pidMatch = stdout.match(/MainPID=(\d+)/);
+          const stateMatch = stdout.match(/ActiveState=(\w+)/);
+          if (stateMatch && stateMatch[1] === "active") {
+            workerStats.status = "online";
+            workerStats.pid = pidMatch && parseInt(pidMatch[1]!, 10) > 0 ? parseInt(pidMatch[1]!, 10) : null;
+          }
+        } catch {}
+      }
+
+      if (botStats.status === "offline") {
+        try {
+          const { stdout } = await execAsync(
+            "systemctl show sentinel-bot --property=MainPID,ActiveState",
+          );
+          const pidMatch = stdout.match(/MainPID=(\d+)/);
+          const stateMatch = stdout.match(/ActiveState=(\w+)/);
+          if (stateMatch && stateMatch[1] === "active") {
+            botStats.status = "online";
+            botStats.pid = pidMatch && parseInt(pidMatch[1]!, 10) > 0 ? parseInt(pidMatch[1]!, 10) : null;
+          }
+        } catch {}
+      }
     }
 
     return reply.send({
@@ -169,7 +200,17 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
             else if (unit.includes("sentinel-worker")) svc = "worker";
             else if (unit.includes("sentinel-bot")) svc = "bot";
 
-            let rawMsg = String(item.MESSAGE || "");
+            let rawMsg = "";
+            if (Array.isArray(item.MESSAGE)) {
+              rawMsg = Buffer.from(item.MESSAGE).toString("utf-8");
+            } else if (Buffer.isBuffer(item.MESSAGE)) {
+              rawMsg = item.MESSAGE.toString("utf-8");
+            } else if (typeof item.MESSAGE === "string") {
+              rawMsg = item.MESSAGE;
+            } else if (item.MESSAGE !== undefined && item.MESSAGE !== null) {
+              rawMsg = String(item.MESSAGE);
+            }
+
             // Strip ANSI escape codes
             rawMsg = rawMsg.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
             // Strip syslog prefix e.g. node[345059]:

@@ -286,6 +286,9 @@ export class IpcClient<T = unknown> {
         this.messageQueue.shift(); // Drop oldest message to prevent memory leaks
       }
       this.messageQueue.push(data);
+      if (!this.socket && !this.isConnecting) {
+        this.connect();
+      }
     }
   }
 

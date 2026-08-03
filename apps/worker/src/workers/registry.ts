@@ -14,6 +14,7 @@ import { startCompanyModule } from "./private/company.js";
 import { startStocksModule } from "./private/stocks.js";
 import { startTravelModule } from "./private/travel.js";
 import { startWealthModule } from "./private/wealth.js";
+import { startSequentialInitsManager } from "./private/sequential-inits.js";
 import { startSystemMaintenance } from "./system/system-maintenance.js";
 
 const logger = new Logger("WorkerRegistry");
@@ -31,6 +32,7 @@ export type WorkerStarter = (options?: WorkerStartOptions) => void;
 const SYSTEM_WORKERS: WorkerStarter[] = [startSystemMaintenance];
 const PRIVATE_WORKERS: WorkerStarter[] = [
   startLogManager,
+  startSequentialInitsManager,
   startGymModule,
   startCrimesModule,
   startPersonalReferenceSync,
@@ -41,12 +43,12 @@ const PRIVATE_WORKERS: WorkerStarter[] = [
   startWealthModule,
 ];
 const PUBLIC_WORKERS: WorkerStarter[] = [
-  startTerritoryBlueprintSync,
-  startTerritoryActivitySync,
-  startTornReferenceSync,
-  startTravelSync,
-  startFactionSync,
-  startVerificationWorker,
+  // startTerritoryBlueprintSync,
+  // startTerritoryActivitySync,
+  // startTornReferenceSync,
+  // startTravelSync,
+  // startFactionSync,
+  // startVerificationWorker,
 ];
 
 /**

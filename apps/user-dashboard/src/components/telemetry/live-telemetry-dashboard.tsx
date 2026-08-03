@@ -96,12 +96,32 @@ export function LiveTelemetryDashboard() {
   const [selectedService, setSelectedService] = React.useState<string>("all");
   const [logFilterText, setLogFilterText] = React.useState<string>("");
   const [pauseScroll, setPauseScroll] = React.useState<boolean>(false);
+  const [isUserScrolledUp, setIsUserScrolledUp] = React.useState<boolean>(false);
 
   // Restart modal state
   const [restartTarget, setRestartTarget] = React.useState<string | null>(null);
   const [restarting, setRestarting] = React.useState<boolean>(false);
 
   const logsContainerRef = React.useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = React.useRef<boolean>(false);
+
+  // Scroll detection to pause auto-scroll when user scrolls up
+  const handleLogsScroll = React.useCallback(() => {
+    if (!logsContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight <= 40;
+    const scrolledUp = !isAtBottom;
+    userScrolledUpRef.current = scrolledUp;
+    setIsUserScrolledUp(scrolledUp);
+  }, []);
+
+  const scrollToBottom = React.useCallback(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+      userScrolledUpRef.current = false;
+      setIsUserScrolledUp(false);
+    }
+  }, []);
 
   // Fetch telemetry data from API via Server Action
   const fetchTelemetry = React.useCallback(async () => {
@@ -147,9 +167,9 @@ export function LiveTelemetryDashboard() {
     return () => clearInterval(interval);
   }, [autoRefresh, fetchTelemetry, fetchLogs]);
 
-  // Auto-scroll log console
+  // Auto-scroll log console (only if user hasn't scrolled up)
   React.useEffect(() => {
-    if (!pauseScroll && logsContainerRef.current) {
+    if (!pauseScroll && !userScrolledUpRef.current && logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
   }, [logs, pauseScroll]);
@@ -488,49 +508,63 @@ export function LiveTelemetryDashboard() {
         </div>
 
         {/* Console Log Terminal Window */}
-        <div
-          ref={logsContainerRef}
-          className="h-80 overflow-y-auto p-4 rounded-2xl bg-[#080c14] border border-border/80 font-mono text-xs text-slate-300 space-y-2 shadow-inner"
-        >
-          {filteredLogs.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-muted-foreground text-xs italic">
-              No logs matching current filter or service selection.
-            </div>
-          ) : (
-            filteredLogs.map((log) => (
-              <div key={log.id} className="flex items-start gap-2.5 hover:bg-slate-800/40 p-1 rounded-sm transition-colors">
-                <span className="text-slate-500 shrink-0 text-[11px]">
-                  {new Date(log.timestamp).toLocaleTimeString()}
-                </span>
-                <span
-                  className={cn(
-                    "px-1.5 py-0.2 rounded text-[10px] uppercase font-bold shrink-0",
-                    log.service === "api"
-                      ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                      : log.service === "worker"
-                        ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30"
-                        : log.service === "bot"
-                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          : "bg-slate-500/20 text-slate-400 border border-slate-500/30"
-                  )}
-                >
-                  {log.service}
-                </span>
-                <span
-                  className={cn(
-                    "px-1 py-0.2 rounded text-[10px] uppercase font-semibold shrink-0",
-                    log.level === "error"
-                      ? "bg-rose-500/20 text-rose-400"
-                      : log.level === "warn"
-                        ? "bg-amber-500/20 text-amber-400"
-                        : "text-slate-400"
-                  )}
-                >
-                  {log.level}
-                </span>
-                <span className="text-slate-200 break-all">{log.message}</span>
+        <div className="relative">
+          <div
+            ref={logsContainerRef}
+            onScroll={handleLogsScroll}
+            className="h-80 overflow-y-auto p-4 rounded-2xl bg-[#080c14] border border-border/80 font-mono text-xs text-slate-300 space-y-2 shadow-inner"
+          >
+            {filteredLogs.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-xs italic">
+                No logs matching current filter or service selection.
               </div>
-            ))
+            ) : (
+              filteredLogs.map((log) => (
+                <div key={log.id} className="flex items-start gap-2.5 hover:bg-slate-800/40 p-1 rounded-sm transition-colors">
+                  <span className="text-slate-500 shrink-0 text-[11px]">
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </span>
+                  <span
+                    className={cn(
+                      "px-1.5 py-0.2 rounded text-[10px] uppercase font-bold shrink-0",
+                      log.service === "api"
+                        ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                        : log.service === "worker"
+                          ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30"
+                          : log.service === "bot"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : "bg-slate-500/20 text-slate-400 border border-slate-500/30"
+                    )}
+                  >
+                    {log.service}
+                  </span>
+                  <span
+                    className={cn(
+                      "px-1 py-0.2 rounded text-[10px] uppercase font-semibold shrink-0",
+                      log.level === "error"
+                        ? "bg-rose-500/20 text-rose-400"
+                        : log.level === "warn"
+                          ? "bg-amber-500/20 text-amber-400"
+                          : "text-slate-400"
+                    )}
+                  >
+                    {log.level}
+                  </span>
+                  <span className="text-slate-200 break-all">{log.message}</span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Floating Jump to Latest Logs Button */}
+          {isUserScrolledUp && !pauseScroll && (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="absolute bottom-3 right-5 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full bg-cyan-500 text-slate-950 hover:bg-cyan-400 active:scale-95 transition-all shadow-lg font-mono cursor-pointer z-10"
+            >
+              <span>↓ Jump to latest logs</span>
+            </button>
           )}
         </div>
       </div>

@@ -136,7 +136,12 @@ export async function processGymLog(log: UserLog): Promise<boolean> {
  * 2. Replays all historical gym logs from PostgreSQL `PersonalLog`.
  * 3. Updates `gym_ledger_v2_init` status to completed.
  */
-async function runGymLedgerInit(): Promise<void> {
+export async function runGymLedgerInit(): Promise<void> {
+  const existingState = await db.systemState.findUnique({
+    where: { id: "gym_ledger_init" },
+  });
+  if (existingState && existingState.init) return;
+
   logger.info("Starting Gym Ledger V2 initialization...");
 
   try {
@@ -233,24 +238,16 @@ async function runGymLedgerInit(): Promise<void> {
 }
 
 /**
- * Runner handler to check and trigger initialization if needed.
+ * Setup real-time log event listener for gym logs.
  */
-async function checkAndRunGymModule(): Promise<void> {
-  const initState = await db.systemState.findUnique({
-    where: { id: "gym_ledger_init" },
-  });
-
-  if (!initState || !initState.init) {
-    await runGymLedgerInit();
-  }
-}
-
-/**
- * Setup real-time log event listener & register background module.
- */
-export function startGymModule(options?: WorkerStartOptions): void {
+export function startGymModule(_options?: WorkerStartOptions): void {
   // Listen for real-time new logs arriving from log-manager
   workerEvents.on("new_log", async (log: UserLog) => {
+    const initState = await db.systemState.findUnique({
+      where: { id: "gym_ledger_init" },
+    });
+    if (!initState || !initState.init) return;
+
     const logTypeCode = Number(log.details.id);
     if (STAT_GAIN_LOG_IDS.includes(logTypeCode)) {
       try {
@@ -259,19 +256,5 @@ export function startGymModule(options?: WorkerStartOptions): void {
         logger.error(`Error processing real-time gym log ${log.id}:`, err);
       }
     }
-  });
-
-  // Listen for backfill completed event to auto-trigger init
-  workerEvents.on("settings_updated", () => {
-    checkAndRunGymModule().catch((err) =>
-      logger.error("Error running Gym Module after settings update:", err),
-    );
-  });
-
-  startEventDrivenRunner({
-    worker: WORKER_NAME,
-    defaultCadenceSeconds: 3600, // Sweep check once per hour
-    initialDelayMs: options?.initialDelayMs,
-    handler: checkAndRunGymModule,
   });
 }

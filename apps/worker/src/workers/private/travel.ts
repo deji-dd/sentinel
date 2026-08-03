@@ -355,8 +355,13 @@ export async function getTravelProfitByLocation(): Promise<
  * 2. Replays travel logs (6000, 4201) from PostgreSQL `PersonalLog`.
  * 3. Updates `travel_ledger_init` status to completed.
  */
-async function runTravelLedgerInit(): Promise<void> {
+export async function runTravelLedgerInit(): Promise<void> {
   try {
+    const existingState = await db.systemState.findUnique({
+      where: { id: "travel_ledger_init" },
+    });
+    if (existingState && existingState.init) return;
+
     logger.info("Initializing Travel Ledger...");
     await seedTravelAreaMappings();
 
@@ -437,27 +442,12 @@ async function runTravelLedgerInit(): Promise<void> {
 /**
  * Checks and starts travel ledger initialization if required.
  */
-async function checkAndInitTravel(): Promise<void> {
-  await seedTravelAreaMappings();
-  const initState = await db.systemState.findUnique({
-    where: { id: "travel_ledger_init" },
-  });
-
-  if (!initState || !initState.init) {
-    await runTravelLedgerInit();
-  }
-}
-
 /**
  * Registers travel real-time event listeners.
  */
 export function startTravelModule(_options?: WorkerStartOptions): void {
   seedTravelAreaMappings().catch((err) =>
     logger.error("Error seeding travel area mappings:", err),
-  );
-
-  checkAndInitTravel().catch((err) =>
-    logger.error("Error during travel checkAndInit:", err),
   );
 
   workerEvents.on("new_log", async (log: UserLog) => {
@@ -474,12 +464,6 @@ export function startTravelModule(_options?: WorkerStartOptions): void {
     } else if (logCode === 4201) {
       await parseItemAbroadBuy(log, true);
     }
-  });
-
-  workerEvents.on("log_backfill_completed", () => {
-    checkAndInitTravel().catch((err) =>
-      logger.error("Error running Travel init after backfill:", err),
-    );
   });
 
   logger.info("Travel module registered and listening for travel logs.");
