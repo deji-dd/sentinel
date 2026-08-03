@@ -43,12 +43,12 @@ const PRIVATE_WORKERS: WorkerStarter[] = [
   startWealthModule,
 ];
 const PUBLIC_WORKERS: WorkerStarter[] = [
-  // startTerritoryBlueprintSync,
-  // startTerritoryActivitySync,
-  // startTornReferenceSync,
-  // startTravelSync,
-  // startFactionSync,
-  // startVerificationWorker,
+  startTerritoryBlueprintSync,
+  startTerritoryActivitySync,
+  startTornReferenceSync,
+  startTravelSync,
+  startFactionSync,
+  startVerificationWorker,
 ];
 
 /**
