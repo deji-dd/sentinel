@@ -27,10 +27,16 @@ export async function executePondSimulation(): Promise<void> {
   const finishSync = logger.time();
 
   try {
-    const lastReading = await db.sensorReading.findFirst({
-      where: { deviceId: DEVICE_ID },
-      orderBy: { createdAt: "desc" },
-    });
+    // Fetch both the last reading AND the current control state
+    const [lastReading, controlState] = await Promise.all([
+      db.sensorReading.findFirst({
+        where: { deviceId: DEVICE_ID },
+        orderBy: { createdAt: "desc" },
+      }),
+      db.deviceControl.findUnique({
+        where: { deviceId: DEVICE_ID },
+      }),
+    ]);
 
     const now = new Date();
 
@@ -47,15 +53,31 @@ export async function executePondSimulation(): Promise<void> {
       `No live telemetry for ${DEVICE_ID} in last 2m. Injecting simulated data point...`,
     );
 
-    // Use previous values as baselines if available, otherwise default to ideal values
-    const baseTemp = lastReading ? lastReading.temperatureC : 24.5;
-    const basePh = lastReading ? lastReading.ph : 7.2;
-    const baseTurb = lastReading ? lastReading.turbidityNtu : 12.0;
+    let simulatedTemp, simulatedPh, simulatedTurb;
+    const isBreachActive = controlState?.simulateBreach ?? false;
 
-    // Smooth random walk bounded within safe operational ranges
-    const simulatedTemp = randomWalk(baseTemp, 21.0, 28.5, 0.2, 1);
-    const simulatedPh = randomWalk(basePh, 6.8, 7.8, 0.05, 2);
-    const simulatedTurb = randomWalk(baseTurb, 5.0, 25.0, 0.5, 1);
+    if (isBreachActive) {
+      // 🚨 BREACH MODE: Inject highly dangerous values with slight jitter to look real
+      simulatedTemp = Number((45.0 + Math.random() * 2).toFixed(1));
+      simulatedPh = Number((3.0 + Math.random() * 0.5).toFixed(2));
+      simulatedTurb = Number((95.0 + Math.random() * 4).toFixed(1));
+      logger.warn(
+        `BREACH SIMULATION ACTIVE: Injecting critical danger metrics.`,
+      );
+    } else {
+      // 🌊 NORMAL MODE: Standard random walk around baseline
+      const baseTemp = lastReading ? lastReading.temperatureC : 24.5;
+      const basePh = lastReading ? lastReading.ph : 7.2;
+      const baseTurb = lastReading ? lastReading.turbidityNtu : 12.0;
+
+      simulatedTemp = randomWalk(baseTemp, 21.0, 28.5, 0.2, 1);
+      simulatedPh = randomWalk(basePh, 6.8, 7.8, 0.05, 2);
+      simulatedTurb = randomWalk(baseTurb, 5.0, 25.0, 0.5, 1);
+    }
+
+    const isManual = controlState?.manualMode ?? false;
+    const simPumpIn = isManual ? (controlState?.pumpIn ?? false) : false;
+    const simPumpDrain = isManual ? (controlState?.pumpDrain ?? false) : false;
 
     await db.sensorReading.create({
       data: {
@@ -63,15 +85,15 @@ export async function executePondSimulation(): Promise<void> {
         temperatureC: simulatedTemp,
         ph: simulatedPh,
         turbidityNtu: simulatedTurb,
-        pondLevelPct: 100,
-        pumpInActive: false,
-        pumpDrainActive: false,
+        pondLevelPct: isBreachActive ? 10 : 100,
+        pumpInActive: simPumpIn, // Now respects UI manual overrides
+        pumpDrainActive: simPumpDrain, // Now respects UI manual overrides
         createdAt: now,
       },
     });
 
     logger.info(
-      `Simulated data injected: Temp=${simulatedTemp}°C | pH=${simulatedPh} | Turbidity=${simulatedTurb} NTU`,
+      `Simulated data injected: Temp=${simulatedTemp}°C | pH=${simulatedPh} | Turbidity=${simulatedTurb} NTU | Pumps: [In: ${simPumpIn}, Drain: ${simPumpDrain}]`,
     );
     finishSync();
   } catch (error) {
